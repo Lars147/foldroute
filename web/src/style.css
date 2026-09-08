@@ -972,6 +972,13 @@ dialog {
 dialog form {
   max-height: calc(var(--visual-height, 100dvh) - 24px);
 }
+dialog.compact .dialog-heading {
+  padding-block: 8px;
+}
+dialog.compact .dialog-actions {
+  padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px));
+  gap: 6px;
+}
 .search-screen .suggestions {
   max-height: max(140px, calc(var(--visual-height, 100dvh) - 320px));
   overflow: auto;

@@ -125,6 +125,14 @@ export function locate(signal?: AbortSignal): Promise<Place> {
       reject(signal.reason);
       return;
     }
+    if (!window.isSecureContext) {
+      reject(
+        new Error(
+          "Standort benötigt eine sichere Verbindung. Bitte die App über HTTPS öffnen.",
+        ),
+      );
+      return;
+    }
     if (!navigator.geolocation) {
       reject(new Error("Standort nicht verfügbar. Bitte Start wählen."));
       return;
@@ -142,13 +150,15 @@ export function locate(signal?: AbortSignal): Promise<Place> {
           longitude: position.coords.longitude,
         });
       },
-      () => {
+      (error) => {
         signal?.removeEventListener("abort", abort);
-        reject(
-          new Error(
-            "Standort nicht verfügbar oder nicht freigegeben. Bitte Start wählen.",
-          ),
-        );
+        const message =
+          error.code === 1
+            ? "Standortzugriff nicht erlaubt. Bitte Standortberechtigung und Ortungsdienste in den Geräte- bzw. Browsereinstellungen prüfen. Danach erneut versuchen oder Start manuell wählen."
+            : error.code === 3
+              ? "Standortabfrage dauert zu lange. Bitte erneut versuchen oder Start manuell wählen."
+              : "Standort konnte nicht ermittelt werden. Bitte Ortungsdienste und Empfang prüfen, erneut versuchen oder Start manuell wählen.";
+        reject(new Error(message));
       },
       { timeout: 12000, maximumAge: 60000 },
     );

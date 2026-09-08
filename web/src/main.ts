@@ -160,15 +160,23 @@ destination.input.addEventListener(
   () => (el("search-empty").hidden = destination.input.value.length > 0),
 );
 const draftOrigin = new PlaceSearch("origin", api, el("adjust-status"), () => {
+  cancelDraftLocation();
   useLocation = false;
+  keepDialogFieldVisible();
 });
 const draftDestination = new PlaceSearch(
   "adjust-destination",
   api,
   el("adjust-status"),
-  () => {},
+  () => keepDialogFieldVisible(),
 );
 let useLocation = true;
+let draftLocationRequest: AbortController | undefined;
+function cancelDraftLocation() {
+  draftLocationRequest?.abort();
+  draftLocationRequest = undefined;
+  el<HTMLButtonElement>("origin-location").disabled = false;
+}
 function contextUI() {
   el("search-context").textContent =
     `${originOverride?.name ?? "Aktueller Standort"} · ${timing === "now" ? "Jetzt" : `${timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(time)}, ${clock(time)}`}`;
@@ -199,8 +207,7 @@ async function start(place: Place) {
   );
   if (result === "location-error") {
     openAdjust(place);
-    el("adjust-status").textContent =
-      "Standort nicht verfügbar. Wähle deinen Start.";
+    el("adjust-status").textContent = session.state.message;
     draftOrigin.input.focus();
   }
 }
@@ -222,12 +229,14 @@ function openAdjust(target?: Place) {
   el<HTMLButtonElement>("update-now").disabled = true;
 }
 function closeAdjust() {
+  cancelDraftLocation();
   draftOrigin.cancel();
   draftDestination.cancel();
   dialog.close();
   el<HTMLButtonElement>("update-now").disabled = session.state.busy;
 }
 dialog.addEventListener("close", () => {
+  cancelDraftLocation();
   draftOrigin.cancel();
   draftDestination.cancel();
   el<HTMLButtonElement>("update-now").disabled = session.state.busy;
@@ -235,13 +244,32 @@ dialog.addEventListener("close", () => {
 el("search-adjust").onclick = () => openAdjust();
 el("adjust-route").onclick = () => openAdjust();
 el("cancel-adjust").onclick = closeAdjust;
-el("origin-location").onclick = () => {
+el("origin-location").onclick = async () => {
+  cancelDraftLocation();
+  const controller = new AbortController();
+  draftLocationRequest = controller;
   useLocation = true;
   draftOrigin.set();
   draftOrigin.input.value = "Aktueller Standort";
-  el("adjust-status").textContent = "Standort wird beim Berechnen ermittelt.";
+  el<HTMLButtonElement>("origin-location").disabled = true;
+  el("adjust-status").textContent =
+    "Standort wird ermittelt … Bitte Zugriff erlauben, falls danach gefragt wird.";
+  try {
+    await locate(controller.signal);
+    if (!controller.signal.aborted)
+      el("adjust-status").textContent =
+        "Standort verfügbar. Du kannst jetzt die Route berechnen.";
+  } catch (error) {
+    if (!controller.signal.aborted)
+      el("adjust-status").textContent = errorText(error);
+  } finally {
+    if (draftLocationRequest === controller) cancelDraftLocation();
+  }
 };
-draftOrigin.input.addEventListener("input", () => (useLocation = false));
+draftOrigin.input.addEventListener("input", () => {
+  cancelDraftLocation();
+  useLocation = false;
+});
 el("swap").onclick = () => {
   if (!draftOrigin.value || !draftDestination.value) {
     el("adjust-status").textContent = "Zum Tauschen beide Orte auswählen.";
@@ -261,6 +289,7 @@ el("timing").onchange = updateTiming;
 el("timezone").textContent =
   "Alle Zeiten: " + Intl.DateTimeFormat().resolvedOptions().timeZone;
 function readContext(): boolean {
+  cancelDraftLocation();
   if (!useLocation && !draftOrigin.value) {
     el("adjust-status").textContent =
       "Bitte Start aus den Vorschlägen auswählen.";
@@ -323,8 +352,7 @@ el("route-form").onsubmit = async (event) => {
   );
   if (result === "location-error") {
     openAdjust(target);
-    el("adjust-status").textContent =
-      "Standort nicht verfügbar. Wähle deinen Start.";
+    el("adjust-status").textContent = session.state.message;
   }
 };
 el("refresh-route").onclick = async () => {
@@ -335,7 +363,10 @@ el("refresh-route").onclick = async () => {
     settings,
     request.origin.name === "Aktueller Standort",
   );
-  if (result === "location-error") openAdjust(request.destination);
+  if (result === "location-error") {
+    openAdjust(request.destination);
+    el("adjust-status").textContent = session.state.message;
+  }
 };
 el("close-route").onclick = () => {
   session.clear();
@@ -563,7 +594,50 @@ contextUI();
 connectionChanged();
 setupPWA();
 
+let dialogScrollFrame: number | undefined;
+function keepDialogFieldVisible() {
+  if (dialogScrollFrame !== undefined) cancelAnimationFrame(dialogScrollFrame);
+  dialogScrollFrame = requestAnimationFrame(() => {
+    dialogScrollFrame = undefined;
+    const field = document.activeElement;
+    const body = dialog.querySelector<HTMLElement>(".dialog-body")!;
+    if (
+      !dialog.open ||
+      !(
+        field instanceof HTMLInputElement || field instanceof HTMLSelectElement
+      ) ||
+      !body.contains(field)
+    )
+      return;
+
+    const bounds = body.getBoundingClientRect();
+    const fieldBounds = field.getBoundingClientRect();
+    const label = field.labels?.[0];
+    const top =
+      label && body.contains(label)
+        ? Math.min(label.getBoundingClientRect().top, fieldBounds.top)
+        : fieldBounds.top;
+    const visibleTop = bounds.top + 8;
+    const visibleBottom = bounds.bottom - 8;
+    // Prefer the whole field when large text leaves too little space for its label.
+    const desiredTop =
+      fieldBounds.bottom - top <= visibleBottom - visibleTop
+        ? top
+        : fieldBounds.top;
+    if (fieldBounds.bottom > visibleBottom) {
+      body.scrollTop += fieldBounds.bottom - visibleBottom;
+    } else if (desiredTop < visibleTop) {
+      body.scrollTop += desiredTop - visibleTop;
+    }
+  });
+}
+dialog.addEventListener("focusin", keepDialogFieldVisible);
+
 function visualViewportChanged() {
+  dialog.classList.toggle(
+    "compact",
+    (window.visualViewport?.height ?? innerHeight) < 500,
+  );
   document.documentElement.style.setProperty(
     "--visual-height",
     `${window.visualViewport?.height ?? innerHeight}px`,
@@ -572,7 +646,9 @@ function visualViewportChanged() {
     "--visual-top",
     `${window.visualViewport?.offsetTop ?? 0}px`,
   );
+  keepDialogFieldVisible();
 }
 window.visualViewport?.addEventListener("resize", visualViewportChanged);
 window.visualViewport?.addEventListener("scroll", visualViewportChanged);
+window.addEventListener("resize", visualViewportChanged);
 visualViewportChanged();

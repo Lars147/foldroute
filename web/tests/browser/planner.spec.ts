@@ -263,3 +263,146 @@ test("adjustment actions remain reachable in a short keyboard viewport", async (
   await expect(page.locator("#when")).toBeInViewport();
   await expect(page.locator("#use-context")).toBeInViewport({ ratio: 1 });
 });
+
+test("focused dialog fields stay inside the scroll area when the keyboard opens", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.locator("#search-adjust").focus();
+  await page.locator("#search-adjust").press("Enter");
+  await page.locator("#adjust-destination").fill("Zi");
+  await page
+    .locator("#adjust-destination")
+    .evaluate((input: HTMLInputElement) => input.setSelectionRange(1, 1));
+
+  // Unlike resizing the page, an iOS keyboard shrinks the visual viewport
+  // while leaving the layout viewport intact.
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport!, "height", {
+      configurable: true,
+      value: 365,
+    });
+    Object.defineProperty(window.visualViewport!, "offsetTop", {
+      configurable: true,
+      value: 40,
+    });
+    window.visualViewport!.dispatchEvent(new Event("resize"));
+    window.visualViewport!.dispatchEvent(new Event("scroll"));
+  });
+  const expectFieldInside = async (id: string, withLabel = true) => {
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ({ id, withLabel }) => {
+            const field = document.getElementById(id) as HTMLInputElement;
+            const bounds = document
+              .querySelector(".dialog-body")!
+              .getBoundingClientRect();
+            const input = field.getBoundingClientRect();
+            const label = field.labels![0].getBoundingClientRect();
+            return (
+              Math.min(input.top, withLabel ? label.top : input.top) >=
+                bounds.top - 1 && input.bottom <= bounds.bottom + 1
+            );
+          },
+          { id, withLabel },
+        ),
+      )
+      .toBe(true);
+    await expect(page.locator(`#${id}`)).toBeFocused();
+  };
+  await expectFieldInside("adjust-destination");
+  await expect(page.locator("#adjust-destination")).toHaveValue("Zi");
+  expect(
+    await page
+      .locator("#adjust-destination")
+      .evaluate((input: HTMLInputElement) => input.selectionStart),
+  ).toBe(1);
+
+  await page.locator("#origin").focus();
+  await expectFieldInside("origin");
+  await page.locator("#timing").selectOption("depart");
+  await page.locator("#when").focus();
+  await expectFieldInside("when");
+  await choose(page, "adjust-destination", "Ziel");
+  await expectFieldInside("adjust-destination");
+  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+
+  await page.addStyleTag({ content: ":root { font-size: 24px; }" });
+  await page.evaluate(() =>
+    window.visualViewport!.dispatchEvent(new Event("resize")),
+  );
+  await expectFieldInside("adjust-destination", false);
+  const actionsVisible = await page.evaluate(() => {
+    const actions = document
+      .querySelector(".dialog-actions")!
+      .getBoundingClientRect();
+    const viewport = window.visualViewport!;
+    return (
+      actions.top >= viewport.offsetTop &&
+      actions.bottom <= viewport.offsetTop + viewport.height
+    );
+  });
+  expect(actionsVisible).toBe(true);
+  await page.locator("#cancel-adjust").click();
+  await expect(page.locator("#search-adjust")).toBeFocused();
+});
+
+for (const code of [0, 1, 2, 3]) {
+  test(`location button requests access immediately: ${code}`, async ({
+    page,
+  }) => {
+    await page.addInitScript((code) => {
+      Object.defineProperty(navigator, "geolocation", {
+        value: {
+          getCurrentPosition: (
+            success: (p: unknown) => void,
+            fail: (e: unknown) => void,
+          ) => {
+            if (code) fail({ code });
+            else success({ coords: { latitude: 48.132, longitude: 11.5756 } });
+          },
+        },
+      });
+    }, code);
+    await setup(page, false);
+    await page.locator("#search-adjust").click();
+    await page.locator("#origin-location").click();
+    await expect(page.locator("#adjust-status")).toContainText(
+      [
+        "Standort verfügbar",
+        "Standortzugriff nicht erlaubt",
+        "Standort konnte nicht ermittelt werden",
+        "Standortabfrage dauert zu lange",
+      ][code],
+    );
+    await expect(page.locator("#origin-location")).toBeEnabled();
+    await expect(page.locator("#adjust-dialog")).toBeVisible();
+  });
+}
+
+test("cancelled location request does not overwrite manual start feedback", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        getCurrentPosition: (_success: unknown, fail: (e: unknown) => void) => {
+          window.addEventListener("fail-location", () => fail({ code: 1 }), {
+            once: true,
+          });
+        },
+      },
+    });
+  });
+  await setup(page, false);
+  await page.locator("#search-adjust").click();
+  await page.locator("#origin-location").click();
+  await expect(page.locator("#origin-location")).toBeDisabled();
+  await choose(page, "origin", "Start");
+  await page.evaluate(() => window.dispatchEvent(new Event("fail-location")));
+  await expect(page.locator("#origin")).toHaveValue("Start");
+  await expect(page.locator("#adjust-status")).toHaveText("");
+  await expect(page.locator("#origin-location")).toBeEnabled();
+});
