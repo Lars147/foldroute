@@ -9,6 +9,8 @@ export class RouteMap {
   private selected?: Journey;
   private signature = "";
   private online = true;
+  private locationFocus?: Place;
+  private adjustingCamera = false;
   constructor(
     private onSelect: (id: string) => void,
     private onBackground: () => void,
@@ -24,6 +26,9 @@ export class RouteMap {
         scrollWheelZoom: true,
       }).setView([50, 10], 4);
       this.map.on("click", this.onBackground);
+      this.map.on("movestart zoomstart", () => {
+        if (!this.adjustingCamera) this.locationFocus = undefined;
+      });
       L.control.zoom({ position: "topright" }).addTo(this.map);
       this.routes = L.featureGroup().addTo(this.map);
       this.tiles = L.tileLayer(
@@ -53,6 +58,7 @@ export class RouteMap {
     const signature = JSON.stringify([journeys.map((j) => j.id), selected?.id]);
     if (signature !== this.signature) {
       this.signature = signature;
+      if (selected?.id !== this.selected?.id) this.locationFocus = undefined;
       this.selected = selected;
       this.routes!.clearLayers();
       const draw = (j: Journey, active: boolean) =>
@@ -100,6 +106,10 @@ export class RouteMap {
   resize() {
     if (!this.map || el("map-view").hidden) return;
     this.map.invalidateSize({ pan: false });
+    if (this.locationFocus) {
+      this.centerLocation();
+      return;
+    }
     if (!this.selected) return;
     const coordinates = this.selected.legs.flatMap((l) =>
       l.coordinates.map((p) => [p.latitude, p.longitude] as [number, number]),
@@ -118,6 +128,41 @@ export class RouteMap {
     });
   }
   center(place: Place) {
-    this.map?.setView([place.latitude, place.longitude], 15);
+    this.locationFocus = place;
+    this.resize();
+  }
+  private centerLocation() {
+    if (!this.map || !this.locationFocus) return;
+    const bounds = el("map").getBoundingClientRect(),
+      panel = el("journey-panel").getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const overlaps =
+      panel.width > 0 &&
+      panel.height > 0 &&
+      panel.right > bounds.left &&
+      panel.left < bounds.right &&
+      panel.bottom > bounds.top &&
+      panel.top < bounds.bottom;
+    const left =
+        overlaps && window.innerWidth >= 900
+          ? Math.min(bounds.width, Math.max(0, panel.right - bounds.left))
+          : 0,
+      bottom =
+        overlaps && window.innerWidth < 900
+          ? Math.min(bounds.height, Math.max(0, panel.top - bounds.top))
+          : bounds.height;
+    if (left === bounds.width || bottom === 0) return;
+    const target = L.point((left + bounds.width) / 2, bottom / 2),
+      offset = this.map.getSize().divideBy(2).subtract(target),
+      place = this.locationFocus,
+      center = this.map.unproject(
+        this.map.project([place.latitude, place.longitude], 15).add(offset),
+        15,
+      );
+    // Non-animated camera changes emit move/zoom events synchronously.
+    // They must not cancel the focus as genuine user gestures do.
+    this.adjustingCamera = true;
+    this.map.setView(center, 15, { animate: false });
+    this.adjustingCamera = false;
   }
 }

@@ -44,6 +44,131 @@ async function plan(page: Page) {
   await expect(page.locator("#route-duration")).toContainText("32 min");
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
 }
+// The mocked GPS position equals the route origin, so its existing marker
+// provides a rendered screen coordinate without exposing the map to tests.
+async function locationCenterError(page: Page) {
+  return page.evaluate(() => {
+    const map = document.getElementById("map")!.getBoundingClientRect(),
+      panel = document.getElementById("journey-panel")!.getBoundingClientRect(),
+      marker = document
+        .querySelector('#map path[fill="#171a1c"]')!
+        .getBoundingClientRect();
+    const x =
+        innerWidth >= 900
+          ? (panel.right + map.right) / 2
+          : (map.left + map.right) / 2,
+      y =
+        innerWidth >= 900
+          ? (map.top + map.bottom) / 2
+          : (map.top + panel.top) / 2;
+    return Math.hypot(
+      marker.x + marker.width / 2 - x,
+      marker.y + marker.height / 2 - y,
+    );
+  });
+}
+for (const [width, height] of [
+  [320, 986],
+  [390, 986],
+  [844, 500],
+  [1479, 986],
+])
+  test(`location stays centered in visible map ${width}x${height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await setup(page);
+    await plan(page);
+    await page.evaluate(() => {
+      document.documentElement.dataset.locationCalls = "0";
+      Object.defineProperty(navigator, "geolocation", {
+        configurable: true,
+        value: {
+          getCurrentPosition: (success: (value: unknown) => void) => {
+            const root = document.documentElement;
+            root.dataset.locationCalls = String(
+              Number(root.dataset.locationCalls) + 1,
+            );
+            success({ coords: { latitude: 48.132, longitude: 11.5756 } });
+          },
+        },
+      });
+    });
+    await page.locator("#map-location").click({ position: { x: 24, y: 4 } });
+    await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+    for (const size of ["expanded", "collapsed", "normal"]) {
+      await page.locator("#panel-size").click();
+      await expect(page.locator("#journey-panel")).toHaveAttribute(
+        "data-size",
+        size,
+      );
+      await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+      // Check after the CSS transition too, not only at its first frame.
+      await page.waitForTimeout(300);
+      await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+    }
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+    // A very short landscape viewport can leave no usable map at all.
+    // Keep the focus for when the map becomes visible again.
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.waitForTimeout(300);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-location-calls",
+      "1",
+    );
+  });
+
+test("manual map gestures release location focus; button restores it and route change resets it", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 986 });
+  await setup(page);
+  const direct = structuredClone(fixture.direct);
+  direct.direct[0].legs[0].endTime = "2026-09-04T09:01:00Z";
+  direct.direct[0].endTime = "2026-09-04T09:01:00Z";
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json:
+        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+          ? direct
+          : fixture.multimodal,
+    }),
+  );
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator(".route-choice")).toHaveCount(2);
+  await page.locator("#map-location").click();
+  await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+  const map = await page.locator("#map").boundingBox();
+  await page.mouse.move(map!.x + 100, map!.y + 150);
+  await page.mouse.down();
+  await page.mouse.move(map!.x + 180, map!.y + 180, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(30);
+  await page.locator("#panel-size").click();
+  await page.waitForTimeout(300);
+  // Route fitting may move the marker again during the panel transition;
+  // only continued location centering (within 2px) would be a regression.
+  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(5);
+  await page.locator("#map-location").click();
+  await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+  await page.locator("#panel-size").click();
+  await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+  await page.locator(".leaflet-control-zoom-in").click();
+  await page.waitForTimeout(300);
+  await page.locator("#panel-size").click();
+  await page.waitForTimeout(300);
+  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(30);
+  await page.locator("#map-location").click();
+  await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
+  await page.locator(".route-choice").last().click();
+  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(30);
+});
+
 for (const width of [320, 390, 768, 1479])
   test(`responsive app flow ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 986 });
