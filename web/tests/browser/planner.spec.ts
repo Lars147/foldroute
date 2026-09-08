@@ -153,19 +153,31 @@ test("settings persist immediately and replan once on leaving", async ({
   await page.locator("#tab-settings").click();
   await page.locator("#foldingDuration").fill("4");
   await page.locator("#maxWalkingMinutes").fill("3");
+  const cycling = page.getByLabel("Maximale Radzeit je Etappe", {
+    exact: false,
+  });
+  await expect(cycling).toHaveCount(1);
+  await expect(cycling).toHaveAttribute("min", "1");
+  await expect(cycling).toHaveAttribute("max", "60");
+  await cycling.fill("17");
   await expect(page.locator(".route-choice")).toHaveCount(0);
   expect(requests).toBe(0);
   expect(
     await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("foldroute.routing.v2")!),
+      JSON.parse(localStorage.getItem("foldroute.routing.v3")!),
     ),
-  ).toMatchObject({ foldingDuration: 240, maxWalkingMinutes: 3 });
+  ).toMatchObject({
+    foldingDuration: 240,
+    maxWalkingMinutes: 3,
+    maxCyclingMinutes: 17,
+  });
   await page.locator("#save-settings").click();
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   expect(directRequests).toBe(1);
   await page.reload();
   await page.locator("#tab-settings").click();
   await expect(page.locator("#foldingDuration")).toHaveValue("4");
+  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("17");
 });
 test("throttling stops further requests; manual retry observes the pause", async ({
   page,
@@ -659,7 +671,7 @@ test("clearing local data requires confirmation and removes all app records", as
   expect(
     await page.evaluate(() => [
       localStorage.getItem("foldroute.routing.v1"),
-      localStorage.getItem("foldroute.routing.v2"),
+      localStorage.getItem("foldroute.routing.v3"),
     ]),
   ).toEqual([null, null]);
 });

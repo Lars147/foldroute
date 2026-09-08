@@ -127,27 +127,24 @@ struct NavigationSettings: Codable, Hashable, Sendable {
     var audioEnabled = true
     var hapticsEnabled = true
     var excludedTransitModes: Set<TransitModePreference> = []
-    var maxCyclingAccessMinutes = 30
+    var maxCyclingMinutes = 30
     var maxWalkingMinutes = 2
     var maxBikeTransfers = 2
-    var maxBikeTransferMinutes = 15
 
     struct RoutingConfiguration: Equatable {
         let cyclingSpeed: Double
-        let cyclingAccessMinutes: Int
+        let cyclingMinutes: Int
         let walkingMinutes: Int
         let foldingDuration: TimeInterval
         let excludedModes: Set<TransitModePreference>
         let bikeTransfers: Int
-        let bikeTransferMinutes: Int
     }
 
     var routingConfiguration: RoutingConfiguration {
         RoutingConfiguration(cyclingSpeed: cyclingSpeedKilometersPerHour,
-            cyclingAccessMinutes: maxCyclingAccessMinutes,
+            cyclingMinutes: maxCyclingMinutes,
             walkingMinutes: maxWalkingMinutes, foldingDuration: foldingDuration,
-            excludedModes: excludedTransitModes, bikeTransfers: maxBikeTransfers,
-            bikeTransferMinutes: maxBikeTransferMinutes)
+            excludedModes: excludedTransitModes, bikeTransfers: maxBikeTransfers)
     }
 
     static let defaults = NavigationSettings()

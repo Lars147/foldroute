@@ -148,6 +148,40 @@ describe("Requests and service resilience", () => {
     expect(u.searchParams.get("transitModes")).not.toMatch(/BUS|COACH/);
     expect(u.searchParams.get("maxPreTransitTime")).toBe("1800");
   });
+  it("uses the shared cycling limit for both outer legs in either time direction", () => {
+    for (const timing of ["depart", "arrive"] as const) {
+      for (const maxCyclingMinutes of [1, 17, 60]) {
+        for (const variant of baseVariants.filter((v) => !v.direct)) {
+          const params = makeURL(
+            { ...request, timing },
+            { ...defaults, maxCyclingMinutes },
+            variant,
+          ).searchParams;
+          expect(params.get("maxPreTransitTime")).toBe(
+            String(
+              (variant.pre === "WALK"
+                ? defaults.maxWalkingMinutes
+                : maxCyclingMinutes) * 60,
+            ),
+          );
+          expect(params.get("maxPostTransitTime")).toBe(
+            String(
+              (variant.post === "WALK"
+                ? defaults.maxWalkingMinutes
+                : maxCyclingMinutes) * 60,
+            ),
+          );
+        }
+        expect(
+          makeURL(
+            { ...request, timing },
+            { ...defaults, maxCyclingMinutes },
+            baseVariants[0],
+          ).searchParams.get("maxDirectTime"),
+        ).toBe("7200");
+      }
+    }
+  });
   it("honors Retry-After and sends no automatic HTTP retry", async () => {
     const fetcher = vi
       .fn()
@@ -286,6 +320,12 @@ describe("Internal bike connections", () => {
       leg("fold", b, b, 760, 940),
       leg("transit", b, destination, 940, 1060),
     ]);
+    expect(
+      compose(seed, part, req, { ...defaults, maxCyclingMinutes: 4 }),
+    ).toBeUndefined();
+    expect(
+      compose(seed, part, req, { ...defaults, maxCyclingMinutes: 5 }),
+    ).toBeDefined();
     const result = compose(seed, part, req, defaults);
     expect(result?.legs.map((l) => l.kind)).toEqual([
       "transit",

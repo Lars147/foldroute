@@ -40,7 +40,7 @@ const api = new ApiClient(),
   store = new OfflineStore(),
   book = new PlaceBook(),
   dialog = el<HTMLDialogElement>("adjust-dialog");
-const storageKey = "foldroute.routing.v2";
+const storageKey = "foldroute.routing.v3";
 const legacyStorageKey = "foldroute.routing.v1";
 try {
   const current = localStorage.getItem(storageKey),
@@ -168,7 +168,7 @@ function renderPlanning(state: PlanningState) {
     if (key !== persistKey) {
       persistKey = key;
       activeSnapshot = {
-        version: 2,
+        version: 3,
         savedAt: state.queriedAt,
         request: structuredClone(state.request),
         settings: structuredClone(state.resultSettings),
@@ -468,11 +468,10 @@ el("map-location").onclick = async () => {
 
 const labels: Record<keyof typeof ranges, string> = {
   cyclingSpeedKilometersPerHour: "Radgeschwindigkeit",
-  maxCyclingAccessMinutes: "Rad zum / vom ÖPNV",
+  maxCyclingMinutes: "Maximale Radzeit je Etappe",
   maxWalkingMinutes: "Fußweg zum / vom ÖPNV",
   foldingDuration: "Falten / Entfalten",
   maxBikeTransfers: "Radverbindungen zwischen Linien",
-  maxBikeTransferMinutes: "Je Radverbindung",
 };
 function settingsUI() {
   el("settings-fields").replaceChildren();
@@ -503,6 +502,15 @@ function settingsUI() {
       if (input.checkValidity())
         applySettings({ ...settings, [k]: Number(input.value) * divisor });
     };
+    if (k === "maxCyclingMinutes") {
+      const hint = node(
+        "small",
+        "Gilt für jede Radetappe deiner ÖPNV-Reise. Falten, Entfalten und Anschlusspuffer kommen hinzu.",
+      );
+      hint.id = "cycling-limit-hint";
+      copy.append(hint);
+      input.setAttribute("aria-describedby", hint.id);
+    }
     label.append(copy, input);
     el("settings-fields").append(label);
   }

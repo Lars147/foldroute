@@ -2376,7 +2376,7 @@ extension FoldRouteTests {
         var settings = NavigationSettings.defaults
         settings.maxBikeTransfers = 0
         settings.maxWalkingMinutes = 7
-        settings.maxCyclingAccessMinutes = 60
+        settings.maxCyclingMinutes = 60
         let options = try await client.planAlternatives(makeRequest(), settings: settings)
         let requests = recorder.requests.filter { queryValue("preTransitModes", in: $0) != nil }
         XCTAssertEqual(Set(requests.map { "\(queryValue("preTransitModes", in: $0)!)|\(queryValue("postTransitModes", in: $0)!)" }),
@@ -2801,10 +2801,9 @@ extension FoldRouteTests {
     func testEachRoutingFieldInvalidatesButAudioAndUnchangedSettingsDoNot() throws {
         let changes: [(inout NavigationSettings) -> Void] = [
             { $0.cyclingSpeedKilometersPerHour += 1 }, { $0.maxWalkingMinutes += 1 },
-            { $0.maxCyclingAccessMinutes += 5 },
             { $0.foldingDuration += 30 },
             { $0.excludedTransitModes.insert(.bus) }, { $0.maxBikeTransfers += 1 },
-            { $0.maxBikeTransferMinutes += 1 }
+            { $0.maxCyclingMinutes += 1 }
         ]
         for change in changes {
             let (model, _) = try settingsModel(planner: UnusedJourneyPlanner())
@@ -3000,22 +2999,22 @@ extension FoldRouteTests {
     }
 
     @MainActor
-    func testCyclingAccessPersistenceAndLegacyDefaults() throws {
+    func testCyclingLimitPersistenceAndDefaults() throws {
         let store = try makeHomeStore()
         var settings = NavigationSettings.defaults
-        XCTAssertEqual(settings.maxCyclingAccessMinutes, 30)
-        settings.maxCyclingAccessMinutes = 60
+        XCTAssertEqual(settings.maxCyclingMinutes, 30)
+        settings.maxCyclingMinutes = 60
         try store.saveSettings(settings)
-        XCTAssertEqual(try store.loadSettings().maxCyclingAccessMinutes, 60)
+        XCTAssertEqual(try store.loadSettings().maxCyclingMinutes, 60)
         XCTAssertEqual(try JSONDecoder().decode(NavigationSettings.self, from: JSONEncoder().encode(settings)), settings)
-        XCTAssertEqual(try JSONDecoder().decode(NavigationSettings.self, from: Data("{}".utf8)).maxCyclingAccessMinutes, 30)
+        XCTAssertEqual(try JSONDecoder().decode(NavigationSettings.self, from: Data("{}".utf8)).maxCyclingMinutes, 30)
         let stored = StoredSettings()
-        stored.maxCyclingAccessMinutes = nil
-        XCTAssertEqual(stored.value.maxCyclingAccessMinutes, 30)
-        stored.maxCyclingAccessMinutes = 90
-        XCTAssertEqual(stored.value.maxCyclingAccessMinutes, 60)
-        stored.maxCyclingAccessMinutes = 0
-        XCTAssertEqual(stored.value.maxCyclingAccessMinutes, 5)
+        stored.maxCyclingMinutes = nil
+        XCTAssertEqual(stored.value.maxCyclingMinutes, 30)
+        stored.maxCyclingMinutes = 90
+        XCTAssertEqual(stored.value.maxCyclingMinutes, 60)
+        stored.maxCyclingMinutes = 0
+        XCTAssertEqual(stored.value.maxCyclingMinutes, 1)
     }
 
     @MainActor
@@ -3056,20 +3055,20 @@ extension FoldRouteTests {
         let first = try XCTUnwrap(recorded.first)
         XCTAssertEqual(model.previewTiming, first.timing)
         assertFrozenNow(first.timing)
-        model.settings.maxCyclingAccessMinutes = 60
+        model.settings.maxCyclingMinutes = 60
         XCTAssertNil(model.journey)
         await model.finishSettingsEditing()?.value
         let requests = await planner.recordedRequests()
         XCTAssertEqual(requests.count, 2)
         XCTAssertEqual(model.previewTiming, requests.last?.timing)
         let usedSettings = await planner.recordedSettings()
-        XCTAssertEqual(usedSettings.last?.maxCyclingAccessMinutes, 60)
+        XCTAssertEqual(usedSettings.last?.maxCyclingMinutes, 60)
     }
 }
 
 
 extension FoldRouteTests {
-    func testBikeTransferQueriesKeepIndependentOuterLimit() async throws {
+    func testBikeTransferQueriesUseSharedCyclingLimit() async throws {
         for backwards in [false, true] {
             let recorder = RequestRecorder()
             let client = makeClient(recorder: recorder) { [self] request in
@@ -3078,8 +3077,7 @@ extension FoldRouteTests {
                 return try accessFixture(pre: "BIKE", post: "BIKE")
             }
             var settings = NavigationSettings.defaults
-            settings.maxCyclingAccessMinutes = 45
-            settings.maxBikeTransferMinutes = 10
+            settings.maxCyclingMinutes = 10
             settings.maxBikeTransfers = 1
             let original = makeRequest()
             let request = RouteRequest(origin: original.origin, destination: original.destination,
@@ -3089,7 +3087,12 @@ extension FoldRouteTests {
             let outerKey = backwards ? "maxPreTransitTime" : "maxPostTransitTime"
             let parts = recorder.requests.filter { queryValue(internalKey, in: $0) == "600" }
             XCTAssertFalse(parts.isEmpty)
-            for part in parts { XCTAssertEqual(queryValue(outerKey, in: part), "2700") }
+            let outerModeKey = backwards ? "preTransitModes" : "postTransitModes"
+            XCTAssertTrue(parts.contains { queryValue(outerModeKey, in: $0) == "BIKE" })
+            for part in parts {
+                let limit = queryValue(outerModeKey, in: part) == "WALK" ? "120" : "600"
+                XCTAssertEqual(queryValue(outerKey, in: part), limit)
+            }
         }
     }
 }

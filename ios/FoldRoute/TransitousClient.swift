@@ -74,10 +74,10 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
                             var client = self
                             if backwards {
                                 client.preTransitMode = outerMode
-                                client.postTransitLimit = settings.maxBikeTransferMinutes * 60
+                                client.postTransitLimit = settings.maxCyclingMinutes * 60
                             } else {
                                 client.postTransitMode = outerMode
-                                client.preTransitLimit = settings.maxBikeTransferMinutes * 60
+                                client.preTransitLimit = settings.maxCyclingMinutes * 60
                             }
                             return try await client.fetchTransitResult(request: part, settings: settings, requestedDate: part.timing.date).get()
                         }
@@ -85,10 +85,10 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
                             var client = self
                             if backwards {
                                 client.preTransitMode = outerMode
-                                client.postTransitLimit = settings.maxBikeTransferMinutes * 60
+                                client.postTransitLimit = settings.maxCyclingMinutes * 60
                             } else {
                                 client.postTransitMode = outerMode
-                                client.preTransitLimit = settings.maxBikeTransferMinutes * 60
+                                client.preTransitLimit = settings.maxCyclingMinutes * 60
                             }
                             let batch = try await client.fetchResult(kind: .multimodal, request: part,
                                 settings: settings, requestedDate: part.timing.date).get()
@@ -456,8 +456,8 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
                 URLQueryItem(name: "postTransitModes", value: postTransitMode.rawValue),
                 // MOTIS expects transfer time in minutes; street-leg limits below use seconds.
                 URLQueryItem(name: "additionalTransferTime", value: "3"),
-                URLQueryItem(name: "maxPreTransitTime", value: String(preTransitLimit ?? (preTransitMode == .walk ? min(15, max(1, settings.maxWalkingMinutes)) * 60 : min(60, max(5, settings.maxCyclingAccessMinutes)) * 60))),
-                URLQueryItem(name: "maxPostTransitTime", value: String(postTransitLimit ?? (postTransitMode == .walk ? min(15, max(1, settings.maxWalkingMinutes)) * 60 : min(60, max(5, settings.maxCyclingAccessMinutes)) * 60))),
+                URLQueryItem(name: "maxPreTransitTime", value: String(preTransitLimit ?? (preTransitMode == .walk ? min(15, max(1, settings.maxWalkingMinutes)) * 60 : min(60, max(1, settings.maxCyclingMinutes)) * 60))),
+                URLQueryItem(name: "maxPostTransitTime", value: String(postTransitLimit ?? (postTransitMode == .walk ? min(15, max(1, settings.maxWalkingMinutes)) * 60 : min(60, max(1, settings.maxCyclingMinutes)) * 60))),
                 URLQueryItem(name: "requireBikeTransport", value: "false")
             ]
         case .directBike:

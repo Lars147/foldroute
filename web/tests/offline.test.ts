@@ -10,7 +10,7 @@ const request: RouteRequest = {
   time: 1788508800,
 };
 const snapshot: SavedJourney = {
-  version: 2,
+  version: 3,
   savedAt: 1788508800,
   request,
   settings: defaults,
@@ -21,7 +21,7 @@ describe("offline snapshot validation", () => {
   it("accepts a complete journey with request context", () =>
     expect(validSnapshot(snapshot)).toBe(true));
   it("rejects unsupported versions and missing legs", () => {
-    expect(validSnapshot({ ...snapshot, version: 3 })).toBe(false);
+    expect(validSnapshot({ ...snapshot, version: 2 })).toBe(false);
     expect(
       validSnapshot({
         ...snapshot,

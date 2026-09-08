@@ -31,11 +31,11 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Rad-Zubringer") {
-                Stepper(value: $model.settings.maxCyclingAccessMinutes, in: 5...60, step: 5) {
-                    LabeledContent("Maximale Radzeit je Zubringer", value: "\(model.settings.maxCyclingAccessMinutes) Min.")
+            Section("Radetappen") {
+                Stepper(value: $model.settings.maxCyclingMinutes, in: 1...60) {
+                    LabeledContent("Maximale Radzeit je Etappe", value: "\(model.settings.maxCyclingMinutes) Min.")
                 }
-                Text("Gilt jeweils zum ersten Einstieg und vom letzten Ausstieg. Falten und Entfalten kommen hinzu. Geplante Routen werden beim Verlassen der Einstellungen neu berechnet.")
+                Text("Gilt für jede Radetappe deiner ÖPNV-Reise. Falten, Entfalten und Anschlusspuffer kommen hinzu. Geplante Routen werden beim Verlassen der Einstellungen neu berechnet.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -53,10 +53,6 @@ struct SettingsView: View {
                 Stepper(value: $model.settings.maxBikeTransfers, in: 0...3) {
                     LabeledContent("Maximale Anzahl", value: model.settings.maxBikeTransfers == 0 ? "Aus" : "\(model.settings.maxBikeTransfers)")
                 }
-                Stepper(value: $model.settings.maxBikeTransferMinutes, in: 1...60) {
-                    LabeledContent("Fahrzeit je Radstrecke", value: "\(model.settings.maxBikeTransferMinutes) Min.")
-                }
-                .disabled(model.settings.maxBikeTransfers == 0)
                 Text("Radstrecken zwischen ÖPNV-Fahrten. Falten, Entfalten und Anschlusspuffer kommen zur Fahrzeit hinzu. Erste und letzte Radetappe zählen nicht mit. Geplante Routen werden beim Verlassen der Einstellungen neu berechnet.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

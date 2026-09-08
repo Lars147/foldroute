@@ -427,7 +427,7 @@ test("upgrades legacy database and settings while retaining the original offline
   await expect(page.locator("#foldingDuration")).toHaveValue("3");
   expect(
     await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("foldroute.routing.v2")!),
+      JSON.parse(localStorage.getItem("foldroute.routing.v3")!),
     ),
   ).toMatchObject({ foldingDuration: 180 });
   await context.setOffline(true);

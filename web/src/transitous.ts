@@ -80,13 +80,13 @@ export function makeURL(
         variant.preLimit ??
           (variant.pre === "WALK"
             ? settings.maxWalkingMinutes
-            : settings.maxCyclingAccessMinutes) * 60,
+            : settings.maxCyclingMinutes) * 60,
       ),
       maxPostTransitTime: String(
         variant.postLimit ??
           (variant.post === "WALK"
             ? settings.maxWalkingMinutes
-            : settings.maxCyclingAccessMinutes) * 60,
+            : settings.maxCyclingMinutes) * 60,
       ),
       requireBikeTransport: "false",
     });

@@ -93,7 +93,7 @@ final class BikeTransferTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(result.bikeTransferCount, 1)
         XCTAssertEqual(Array(result.legs.suffix(4)).map(\.kind), [.bike, .fold, .wait, .transit])
         var settings = NavigationSettings.defaults
-        settings.maxBikeTransferMinutes = 9
+        settings.maxCyclingMinutes = 9
         XCTAssertNil(BikeTransferComposer.compose(seed, with: part(seed.request), request: request, settings: settings))
     }
 
@@ -102,9 +102,9 @@ final class BikeTransferTests: XCTestCase, @unchecked Sendable {
         let seed = try XCTUnwrap(BikeTransferComposer.seeds([base()], request: request, settings: .defaults, depth: 0).first)
         let onward = part(seed.request)
         var settings = NavigationSettings.defaults
-        settings.maxBikeTransferMinutes = 1
+        settings.maxCyclingMinutes = 1
         XCTAssertNil(BikeTransferComposer.compose(seed, with: onward, request: request, settings: settings))
-        settings.maxBikeTransferMinutes = 2
+        settings.maxCyclingMinutes = 2
         XCTAssertNotNil(BikeTransferComposer.compose(seed, with: onward, request: request, settings: settings))
         settings.maxBikeTransfers = 0
         XCTAssertNil(BikeTransferComposer.compose(seed, with: onward, request: request, settings: settings))
@@ -261,14 +261,14 @@ final class BikeTransferTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(decoded.foldDuration, 240)
         XCTAssertFalse(decoded.audioEnabled)
         XCTAssertEqual(decoded.maxBikeTransfers, 2)
-        XCTAssertEqual(decoded.maxBikeTransferMinutes, 15)
+        XCTAssertEqual(decoded.maxCyclingMinutes, 30)
         let stored = StoredSettings()
         stored.maxBikeTransfers = nil
-        stored.maxBikeTransferMinutes = nil
+        stored.maxCyclingMinutes = nil
         XCTAssertEqual(stored.value.maxBikeTransfers, 2)
         var settings = stored.value
         settings.maxBikeTransfers = 3
-        settings.maxBikeTransferMinutes = 60
+        settings.maxCyclingMinutes = 60
         stored.update(settings)
         XCTAssertEqual(stored.value, settings)
         XCTAssertEqual(try JSONDecoder().decode(NavigationSettings.self, from: JSONEncoder().encode(settings)), settings)

@@ -87,7 +87,7 @@ enum BikeTransferComposer {
         let street = seed.backwards ? Array(part.legs.dropFirst(last + 1)) : Array(part.legs.prefix(first))
         let riding = street.filter { $0.kind == .bike }
         let seconds = riding.reduce(0) { $0 + $1.endTime.timeIntervalSince($1.startTime) }
-        guard !riding.isEmpty, seconds > 0, seconds <= Double(settings.maxBikeTransferMinutes * 60),
+        guard !riding.isEmpty, seconds > 0, seconds <= Double(settings.maxCyclingMinutes * 60),
               riding.reduce(0, { $0 + $1.distance }) > 0 else { return nil }
         let legs: [JourneyLeg]
         if seed.backwards {
@@ -228,7 +228,7 @@ struct BikeTransferSearch: Sendable {
 extension NavigationSettings {
     private enum LegacyKeys: String, CodingKey {
         case foldingDuration, foldDuration, unfoldDuration, cyclingSpeedKilometersPerHour, audioEnabled, hapticsEnabled, excludedTransitModes
-        case maxCyclingAccessMinutes, maxWalkingMinutes, maxBikeTransfers, maxBikeTransferMinutes
+        case maxCyclingMinutes, maxWalkingMinutes, maxBikeTransfers
     }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: LegacyKeys.self)
@@ -245,9 +245,8 @@ extension NavigationSettings {
         audioEnabled = try values.decodeIfPresent(Bool.self, forKey: .audioEnabled) ?? audioEnabled
         hapticsEnabled = try values.decodeIfPresent(Bool.self, forKey: .hapticsEnabled) ?? hapticsEnabled
         excludedTransitModes = try values.decodeIfPresent(Set<TransitModePreference>.self, forKey: .excludedTransitModes) ?? []
-        maxCyclingAccessMinutes = min(60, max(5, try values.decodeIfPresent(Int.self, forKey: .maxCyclingAccessMinutes) ?? 30))
+        maxCyclingMinutes = min(60, max(1, try values.decodeIfPresent(Int.self, forKey: .maxCyclingMinutes) ?? 30))
         maxWalkingMinutes = min(15, max(1, try values.decodeIfPresent(Int.self, forKey: .maxWalkingMinutes) ?? 2))
         maxBikeTransfers = min(3, max(0, try values.decodeIfPresent(Int.self, forKey: .maxBikeTransfers) ?? 2))
-        maxBikeTransferMinutes = min(60, max(1, try values.decodeIfPresent(Int.self, forKey: .maxBikeTransferMinutes) ?? 15))
     }
 }

@@ -29,28 +29,25 @@ export type ModePreference = keyof typeof modes;
 export interface RoutingSettings {
   foldingDuration: number;
   cyclingSpeedKilometersPerHour: number;
-  maxCyclingAccessMinutes: number;
+  maxCyclingMinutes: number;
   maxWalkingMinutes: number;
   maxBikeTransfers: number;
-  maxBikeTransferMinutes: number;
   excludedTransitModes: ModePreference[];
 }
 export const defaults: RoutingSettings = {
   foldingDuration: 180,
   cyclingSpeedKilometersPerHour: 15,
-  maxCyclingAccessMinutes: 30,
+  maxCyclingMinutes: 30,
   maxWalkingMinutes: 2,
   maxBikeTransfers: 2,
-  maxBikeTransferMinutes: 15,
   excludedTransitModes: [],
 };
 export const ranges = {
   cyclingSpeedKilometersPerHour: [10, 30, 1],
-  maxCyclingAccessMinutes: [5, 60, 5],
+  maxCyclingMinutes: [1, 60, 1],
   maxWalkingMinutes: [1, 15, 1],
   foldingDuration: [60, 600, 30],
   maxBikeTransfers: [0, 3, 1],
-  maxBikeTransferMinutes: [1, 60, 1],
 } as const;
 export function validSettings(value: unknown): value is RoutingSettings {
   if (!value || typeof value !== "object") return false;

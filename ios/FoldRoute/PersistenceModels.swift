@@ -126,10 +126,9 @@ final class StoredSettings {
     var audioEnabled: Bool
     var hapticsEnabled: Bool
     var excludedTransitModeIDs: String?
-    var maxCyclingAccessMinutes: Int?
+    var maxCyclingMinutes: Int?
     var maxWalkingMinutes: Int?
     var maxBikeTransfers: Int?
-    var maxBikeTransferMinutes: Int?
 
     init(key: String = "default", settings: NavigationSettings = .defaults) {
         self.key = key
@@ -139,10 +138,9 @@ final class StoredSettings {
         audioEnabled = settings.audioEnabled
         hapticsEnabled = settings.hapticsEnabled
         excludedTransitModeIDs = Self.encode(settings.excludedTransitModes)
-        maxCyclingAccessMinutes = settings.maxCyclingAccessMinutes
+        maxCyclingMinutes = settings.maxCyclingMinutes
         maxWalkingMinutes = settings.maxWalkingMinutes
         maxBikeTransfers = settings.maxBikeTransfers
-        maxBikeTransferMinutes = settings.maxBikeTransferMinutes
     }
 
     var value: NavigationSettings {
@@ -153,18 +151,16 @@ final class StoredSettings {
             audioEnabled: audioEnabled,
             hapticsEnabled: hapticsEnabled,
             excludedTransitModes: Self.decode(excludedTransitModeIDs),
-            maxCyclingAccessMinutes: min(60, max(5, maxCyclingAccessMinutes ?? 30)),
+            maxCyclingMinutes: min(60, max(1, maxCyclingMinutes ?? 30)),
             maxWalkingMinutes: min(15, max(1, maxWalkingMinutes ?? 2)),
-            maxBikeTransfers: min(3, max(0, maxBikeTransfers ?? 2)),
-            maxBikeTransferMinutes: min(60, max(1, maxBikeTransferMinutes ?? 15))
+            maxBikeTransfers: min(3, max(0, maxBikeTransfers ?? 2))
         )
     }
 
     func update(_ settings: NavigationSettings) {
-        maxCyclingAccessMinutes = settings.maxCyclingAccessMinutes
+        maxCyclingMinutes = settings.maxCyclingMinutes
         maxWalkingMinutes = settings.maxWalkingMinutes
         maxBikeTransfers = settings.maxBikeTransfers
-        maxBikeTransferMinutes = settings.maxBikeTransferMinutes
         foldDuration = settings.foldDuration
         unfoldDuration = settings.unfoldDuration
         cyclingSpeedKilometersPerHour = settings.cyclingSpeedKilometersPerHour

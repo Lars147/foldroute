@@ -106,7 +106,7 @@ export function compose(
   if (
     !riding.length ||
     seconds <= 0 ||
-    seconds > settings.maxBikeTransferMinutes * 60 ||
+    seconds > settings.maxCyclingMinutes * 60 ||
     riding.reduce((s, l) => s + l.distance, 0) <= 0
   )
     return;
@@ -359,12 +359,12 @@ export async function* planRoutes(
                   ? {
                       pre: seed.outer,
                       post: "BIKE",
-                      postLimit: settings.maxBikeTransferMinutes * 60,
+                      postLimit: settings.maxCyclingMinutes * 60,
                     }
                   : {
                       pre: "BIKE",
                       post: seed.outer,
-                      preLimit: settings.maxBikeTransferMinutes * 60,
+                      preLimit: settings.maxCyclingMinutes * 60,
                     },
                 s,
               ),
