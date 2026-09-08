@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">FoldRoute folding bicycle mark</title>
+  <desc id="description">Compact folding bicycle with small wheels and a yellow diamond hinge.</desc>
+  <g fill="none" stroke="#F5F6F3" stroke-width="42" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="280" cy="690" r="125"/>
+    <circle cx="740" cy="690" r="125"/>
+    <path d="M280 690 L430 615 L520 545 L685 550"/>
+    <path d="M430 615 L395 505 L520 545"/>
+    <path d="M395 505 L380 300"/>
+    <path d="M685 550 L650 300 L735 300"/>
+    <path d="M685 550 L740 690"/>
+  </g>
+  <rect x="322" y="266" width="126" height="38" rx="19" fill="#F5F6F3" transform="rotate(-4 385 285)"/>
+  <circle cx="280" cy="690" r="24" fill="#F5F6F3"/>
+  <circle cx="740" cy="690" r="24" fill="#F5F6F3"/>
+  <path d="M520 488 L577 545 L520 602 L463 545 Z" fill="#FFD43B"/>
+  <circle cx="520" cy="545" r="17" fill="#171A1C"/>
+</svg>

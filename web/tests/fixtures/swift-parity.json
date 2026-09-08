@@ -1,0 +1,205 @@
+{
+  "direct" : {
+    "direct" : [
+      {
+        "duration" : 1920,
+        "endTime" : "2026-09-04T08:32:00Z",
+        "id" : "bike-1",
+        "legs" : [
+          {
+            "distance" : 6800,
+            "endTime" : "2026-09-04T08:32:00Z",
+            "from" : {
+              "lat" : 48.131999999999998,
+              "lon" : 11.5756,
+              "name" : "START"
+            },
+            "legGeometry" : {
+              "points" : "_xwdHozseAwkGowC",
+              "precision" : 5
+            },
+            "mode" : "BIKE",
+            "startTime" : "2026-09-04T08:00:00Z",
+            "steps" : [
+              {
+                "distance" : 100,
+                "polyline" : {
+                  "points" : "_xwdHozseAkeCgkA",
+                  "precision" : 5
+                },
+                "relativeDirection" : "CONTINUE",
+                "streetName" : "Isarradweg"
+              },
+              {
+                "distance" : 200,
+                "polyline" : {
+                  "points" : "k~{dHwfveAkeCgkA",
+                  "precision" : 5
+                },
+                "relativeDirection" : "CONTINUE",
+                "streetName" : "Isarradweg"
+              }
+            ],
+            "to" : {
+              "lat" : 48.174999999999997,
+              "lon" : 11.6,
+              "name" : "END"
+            }
+          }
+        ],
+        "startTime" : "2026-09-04T08:00:00Z",
+        "transfers" : 0
+      }
+    ],
+    "itineraries" : [
+
+    ]
+  },
+  "expected" : [
+    {
+      "arrival" : 1788510720,
+      "departure" : 1788508800,
+      "id" : "bike-1",
+      "isDirect" : true,
+      "legs" : [
+        {
+          "distance" : 6800,
+          "end" : 1788510720,
+          "kind" : "bike",
+          "start" : 1788508800
+        }
+      ],
+      "transfers" : 0
+    }
+  ],
+  "expectedTransit" : [
+    {
+      "arrival" : 1788511980,
+      "departure" : 1788508800,
+      "id" : "multimodal-1|BIKE|BIKE",
+      "isDirect" : false,
+      "legs" : [
+        {
+          "distance" : 1250,
+          "end" : 1788509220,
+          "kind" : "bike",
+          "start" : 1788508800
+        },
+        {
+          "distance" : 0,
+          "end" : 1788509700,
+          "kind" : "fold",
+          "start" : 1788509520
+        },
+        {
+          "distance" : 0,
+          "end" : 1788510900,
+          "kind" : "transit",
+          "start" : 1788509700
+        },
+        {
+          "distance" : 0,
+          "end" : 1788511080,
+          "kind" : "unfold",
+          "start" : 1788510900
+        },
+        {
+          "distance" : 2100,
+          "end" : 1788511980,
+          "kind" : "bike",
+          "start" : 1788511380
+        }
+      ],
+      "transfers" : 0
+    }
+  ],
+  "multimodal" : {
+    "direct" : [
+
+    ],
+    "itineraries" : [
+      {
+        "duration" : 2820,
+        "endTime" : "2026-09-04T08:50:00Z",
+        "id" : "multimodal-1",
+        "legs" : [
+          {
+            "distance" : 1250,
+            "endTime" : "2026-09-04T08:10:00Z",
+            "from" : {
+              "lat" : 48.131999999999998,
+              "lon" : 11.5756,
+              "name" : "START"
+            },
+            "legGeometry" : {
+              "points" : "_xwdHozseAg^f@",
+              "precision" : 5
+            },
+            "mode" : "BIKE",
+            "startTime" : "2026-09-04T08:03:00Z",
+            "steps" : [
+              {
+                "distance" : 1250,
+                "polyline" : {
+                  "points" : "_xwdHozseAg^f@",
+                  "precision" : 5
+                },
+                "relativeDirection" : "DEPART",
+                "streetName" : "Tal"
+              }
+            ],
+            "to" : {
+              "lat" : 48.137,
+              "lon" : 11.5754,
+              "name" : "Marienplatz"
+            }
+          },
+          {
+            "agencyName" : "MVG",
+            "cancelled" : false,
+            "endTime" : "2026-09-04T08:35:00Z",
+            "from" : {
+              "lat" : 48.137,
+              "lon" : 11.5754,
+              "name" : "Marienplatz",
+              "track" : "2"
+            },
+            "headsign" : "Garching-Forschungszentrum",
+            "mode" : "SUBWAY",
+            "realTime" : true,
+            "routeShortName" : "U6",
+            "startTime" : "2026-09-04T08:15:00Z",
+            "to" : {
+              "lat" : 48.1614,
+              "lon" : 11.5862,
+              "name" : "Münchner Freiheit",
+              "scheduledTrack" : "1"
+            }
+          },
+          {
+            "distance" : 2100,
+            "endTime" : "2026-09-04T08:50:00Z",
+            "from" : {
+              "lat" : 48.1614,
+              "lon" : 11.5862,
+              "name" : "Münchner Freiheit"
+            },
+            "legGeometry" : {
+              "points" : "wo}dHw|ueA_tAguA",
+              "precision" : 5
+            },
+            "mode" : "BIKE",
+            "startTime" : "2026-09-04T08:40:00Z",
+            "to" : {
+              "lat" : 48.174999999999997,
+              "lon" : 11.6,
+              "name" : "END"
+            }
+          }
+        ],
+        "startTime" : "2026-09-04T08:03:00Z",
+        "transfers" : 0
+      }
+    ]
+  }
+}

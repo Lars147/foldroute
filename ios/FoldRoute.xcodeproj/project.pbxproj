@@ -1,0 +1,471 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		BF0000000000000000000001 /* FoldRouteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000001 /* FoldRouteApp.swift */; };
+		BF0000000000000000000002 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000002 /* DesignSystem.swift */; };
+		BF0000000000000000000003 /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000003 /* DomainModels.swift */; };
+		BF0000000000000000000004 /* PolylineDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000004 /* PolylineDecoder.swift */; };
+		BF0000000000000000000005 /* TransitousClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* TransitousClient.swift */; };
+		BF0000000000000000000006 /* PersistenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000006 /* PersistenceModels.swift */; };
+		BF0000000000000000000007 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000007 /* LocationService.swift */; };
+		BF0000000000000000000008 /* GuidanceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000008 /* GuidanceService.swift */; };
+		BF0000000000000000000009 /* NavigationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000009 /* NavigationEngine.swift */; };
+		BF0000000000000000000010 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000010 /* AppModel.swift */; };
+		BF0000000000000000000011 /* MapRouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000011 /* MapRouteView.swift */; };
+		BF0000000000000000000012 /* PlannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000012 /* PlannerView.swift */; };
+		BF0000000000000000000013 /* PlaceSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000013 /* PlaceSearchView.swift */; };
+		BF0000000000000000000014 /* JourneyPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000014 /* JourneyPreviewView.swift */; };
+		BF0000000000000000000015 /* ActiveNavigationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000015 /* ActiveNavigationView.swift */; };
+		BF0000000000000000000016 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000016 /* HistoryView.swift */; };
+		BF0000000000000000000017 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000017 /* SettingsView.swift */; };
+		BF0000000000000000000018 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000018 /* RootView.swift */; };
+		BF0000000000000000000019 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000019 /* Assets.xcassets */; };
+		BF0000000000000000000020 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000020 /* PrivacyInfo.xcprivacy */; };
+		BF0000000000000000000021 /* FoldRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000021 /* FoldRouteTests.swift */; };
+		BF0000000000000000000022 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000022 /* MockURLProtocol.swift */; };
+		BF0000000000000000000023 /* TransitousFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000023 /* TransitousFixtures.swift */; };
+		BF0000000000000000000027 /* TransitRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000027 /* TransitRefresh.swift */; };
+		BF0000000000000000000029 /* NavigationCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000029 /* NavigationCamera.swift */; };
+		BF0000000000000000000030 /* BikeTransferSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000030 /* BikeTransferSearch.swift */; };
+		BF0000000000000000000028 /* TransitRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000028 /* TransitRefreshTests.swift */; };
+		BF0000000000000000000031 /* BikeTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000031 /* BikeTransferTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C00000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A00000000000000000000001;
+			remoteInfo = FoldRoute;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		F00000000000000000000001 /* FoldRouteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldRouteApp.swift; sourceTree = "<group>"; };
+		F00000000000000000000002 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
+		F00000000000000000000003 /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
+		F00000000000000000000004 /* PolylineDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolylineDecoder.swift; sourceTree = "<group>"; };
+		F00000000000000000000005 /* TransitousClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitousClient.swift; sourceTree = "<group>"; };
+		F00000000000000000000006 /* PersistenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceModels.swift; sourceTree = "<group>"; };
+		F00000000000000000000007 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		F00000000000000000000008 /* GuidanceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidanceService.swift; sourceTree = "<group>"; };
+		F00000000000000000000009 /* NavigationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationEngine.swift; sourceTree = "<group>"; };
+		F00000000000000000000010 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		F00000000000000000000011 /* MapRouteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapRouteView.swift; sourceTree = "<group>"; };
+		F00000000000000000000012 /* PlannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerView.swift; sourceTree = "<group>"; };
+		F00000000000000000000013 /* PlaceSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceSearchView.swift; sourceTree = "<group>"; };
+		F00000000000000000000014 /* JourneyPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyPreviewView.swift; sourceTree = "<group>"; };
+		F00000000000000000000015 /* ActiveNavigationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavigationView.swift; sourceTree = "<group>"; };
+		F00000000000000000000016 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		F00000000000000000000017 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		F00000000000000000000018 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		F00000000000000000000019 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F00000000000000000000020 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		F00000000000000000000021 /* FoldRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldRouteTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000022 /* MockURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
+		F00000000000000000000023 /* TransitousFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitousFixtures.swift; sourceTree = "<group>"; };
+		F00000000000000000000024 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F00000000000000000000025 /* FoldRoute.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoldRoute.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F00000000000000000000026 /* FoldRouteTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FoldRouteTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F00000000000000000000027 /* TransitRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitRefresh.swift; sourceTree = "<group>"; };
+		F00000000000000000000029 /* NavigationCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationCamera.swift; sourceTree = "<group>"; };
+		F00000000000000000000030 /* BikeTransferSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeTransferSearch.swift; sourceTree = "<group>"; };
+		F00000000000000000000028 /* TransitRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitRefreshTests.swift; sourceTree = "<group>"; };
+		F00000000000000000000031 /* BikeTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeTransferTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BP0000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BP0000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		G00000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				G00000000000000000000002 /* FoldRoute */,
+				G00000000000000000000003 /* FoldRouteTests */,
+				G00000000000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		G00000000000000000000002 /* FoldRoute */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000001 /* FoldRouteApp.swift */,
+				F00000000000000000000002 /* DesignSystem.swift */,
+				F00000000000000000000003 /* DomainModels.swift */,
+				F00000000000000000000004 /* PolylineDecoder.swift */,
+				F00000000000000000000005 /* TransitousClient.swift */,
+				F00000000000000000000027 /* TransitRefresh.swift */,
+				F00000000000000000000006 /* PersistenceModels.swift */,
+				F00000000000000000000007 /* LocationService.swift */,
+				F00000000000000000000008 /* GuidanceService.swift */,
+				F00000000000000000000009 /* NavigationEngine.swift */,
+				F00000000000000000000010 /* AppModel.swift */,
+				F00000000000000000000011 /* MapRouteView.swift */,
+				F00000000000000000000029 /* NavigationCamera.swift */,
+				F00000000000000000000030 /* BikeTransferSearch.swift */,
+				F00000000000000000000012 /* PlannerView.swift */,
+				F00000000000000000000013 /* PlaceSearchView.swift */,
+				F00000000000000000000014 /* JourneyPreviewView.swift */,
+				F00000000000000000000015 /* ActiveNavigationView.swift */,
+				F00000000000000000000016 /* HistoryView.swift */,
+				F00000000000000000000017 /* SettingsView.swift */,
+				F00000000000000000000018 /* RootView.swift */,
+				F00000000000000000000019 /* Assets.xcassets */,
+				F00000000000000000000020 /* PrivacyInfo.xcprivacy */,
+				F00000000000000000000024 /* Info.plist */,
+			);
+			path = FoldRoute;
+			sourceTree = "<group>";
+		};
+		G00000000000000000000003 /* FoldRouteTests */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000021 /* FoldRouteTests.swift */,
+				F00000000000000000000028 /* TransitRefreshTests.swift */,
+				F00000000000000000000031 /* BikeTransferTests.swift */,
+				F00000000000000000000022 /* MockURLProtocol.swift */,
+				F00000000000000000000023 /* TransitousFixtures.swift */,
+			);
+			path = FoldRouteTests;
+			sourceTree = "<group>";
+		};
+		G00000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000025 /* FoldRoute.app */,
+				F00000000000000000000026 /* FoldRouteTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00000000000000000000001 /* FoldRoute */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL00000000000000000000002 /* Build configuration list for PBXNativeTarget "FoldRoute" */;
+			buildPhases = (
+				BP0000000000000000000003 /* Sources */,
+				BP0000000000000000000001 /* Frameworks */,
+				BP0000000000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FoldRoute;
+			productName = FoldRoute;
+			productReference = F00000000000000000000025 /* FoldRoute.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B00000000000000000000001 /* FoldRouteTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL00000000000000000000003 /* Build configuration list for PBXNativeTarget "FoldRouteTests" */;
+			buildPhases = (
+				BP0000000000000000000004 /* Sources */,
+				BP0000000000000000000002 /* Frameworks */,
+				BP0000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D00000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = FoldRouteTests;
+			productName = FoldRouteTests;
+			productReference = F00000000000000000000026 /* FoldRouteTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		P00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A00000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+						ProvisioningStyle = Automatic;
+					};
+					B00000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = A00000000000000000000001;
+					};
+				};
+			};
+			buildConfigurationList = CL00000000000000000000001 /* Build configuration list for PBXProject "FoldRoute" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = de;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				de,
+				Base,
+			);
+			mainGroup = G00000000000000000000001;
+			productRefGroup = G00000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00000000000000000000001 /* FoldRoute */,
+				B00000000000000000000001 /* FoldRouteTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BP0000000000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF0000000000000000000019 /* Assets.xcassets in Resources */,
+				BF0000000000000000000020 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BP0000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BP0000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF0000000000000000000001 /* FoldRouteApp.swift in Sources */,
+				BF0000000000000000000002 /* DesignSystem.swift in Sources */,
+				BF0000000000000000000003 /* DomainModels.swift in Sources */,
+				BF0000000000000000000004 /* PolylineDecoder.swift in Sources */,
+				BF0000000000000000000005 /* TransitousClient.swift in Sources */,
+				BF0000000000000000000027 /* TransitRefresh.swift in Sources */,
+				BF0000000000000000000006 /* PersistenceModels.swift in Sources */,
+				BF0000000000000000000007 /* LocationService.swift in Sources */,
+				BF0000000000000000000008 /* GuidanceService.swift in Sources */,
+				BF0000000000000000000009 /* NavigationEngine.swift in Sources */,
+				BF0000000000000000000010 /* AppModel.swift in Sources */,
+				BF0000000000000000000011 /* MapRouteView.swift in Sources */,
+				BF0000000000000000000029 /* NavigationCamera.swift in Sources */,
+				BF0000000000000000000030 /* BikeTransferSearch.swift in Sources */,
+				BF0000000000000000000012 /* PlannerView.swift in Sources */,
+				BF0000000000000000000013 /* PlaceSearchView.swift in Sources */,
+				BF0000000000000000000014 /* JourneyPreviewView.swift in Sources */,
+				BF0000000000000000000015 /* ActiveNavigationView.swift in Sources */,
+				BF0000000000000000000016 /* HistoryView.swift in Sources */,
+				BF0000000000000000000017 /* SettingsView.swift in Sources */,
+				BF0000000000000000000018 /* RootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BP0000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF0000000000000000000021 /* FoldRouteTests.swift in Sources */,
+				BF0000000000000000000028 /* TransitRefreshTests.swift in Sources */,
+				BF0000000000000000000031 /* BikeTransferTests.swift in Sources */,
+				BF0000000000000000000022 /* MockURLProtocol.swift in Sources */,
+				BF0000000000000000000023 /* TransitousFixtures.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D00000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A00000000000000000000001 /* FoldRoute */;
+			targetProxy = C00000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		C10000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		C10000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		C20000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FoldRoute/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.FoldRoute;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C20000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FoldRoute/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.FoldRoute;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		C30000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.FoldRouteTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FoldRoute.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FoldRoute";
+			};
+			name = Debug;
+		};
+		C30000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.FoldRouteTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FoldRoute.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FoldRoute";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CL00000000000000000000001 /* Build configuration list for PBXProject "FoldRoute" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10000000000000000000001 /* Debug */,
+				C10000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CL00000000000000000000002 /* Build configuration list for PBXNativeTarget "FoldRoute" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C20000000000000000000001 /* Debug */,
+				C20000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CL00000000000000000000003 /* Build configuration list for PBXNativeTarget "FoldRouteTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C30000000000000000000001 /* Debug */,
+				C30000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = P00000000000000000000001 /* Project object */;
+}

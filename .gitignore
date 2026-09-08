@@ -1,0 +1,21 @@
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+.env
+.env.*
+!.env.example
+.agents/
+.codex/
+
+web/node_modules/
+web/test-results/
+web/playwright-report/
+
+# Local planning notes
+/notes.md
+/task_plan.md
+/web/planning/notes.md
+/web/planning/task_plan.md
+/web/planning/pwa-plan.md

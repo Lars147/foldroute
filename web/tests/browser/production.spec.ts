@@ -1,0 +1,277 @@
+import { test, expect, type Page } from "@playwright/test";
+import fixture from "../fixtures/swift-parity.json" with { type: "json" };
+const root = "http://127.0.0.1:4174/docs/plan/";
+const cors = { "Access-Control-Allow-Origin": "*" };
+async function production(page: Page) {
+  await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
+  await page.context().grantPermissions(["geolocation"]);
+  await page.context().setGeolocation({ latitude: 48.132, longitude: 11.5756 });
+  await page.route("https://tile.openstreetmap.org/**", (r) => r.abort());
+  await page.route("**/api/v1/geocode?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json: [{ name: "Ziel", lat: 48.175, lon: 11.6 }],
+    }),
+  );
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json:
+        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+          ? fixture.direct
+          : fixture.multimodal,
+    }),
+  );
+  await page.goto(root);
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+}
+async function plan(page: Page) {
+  await page.locator("#destination").fill("Ziel");
+  await page.locator("#destination-options").getByRole("option").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator("#storage-message")).toHaveText(
+    "Letzte Reise auf diesem Gerät gespeichert.",
+  );
+}
+test("scoped PWA manifest, icons and cache work under a static subpath", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await production(page);
+  const info = await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    const manifest = await fetch(
+      document.querySelector<HTMLLinkElement>("link[rel=manifest]")!.href,
+    ).then((r) => r.json());
+    return { scope: registration.scope, manifest };
+  });
+  expect(info.scope).toBe(root);
+  expect(info.manifest.display).toBe("standalone");
+  expect(info.manifest.start_url).toBe("./");
+  for (const entry of info.manifest.icons) {
+    const response = await page.request.get(new URL(entry.src, root).href);
+    expect(response.ok()).toBe(true);
+  }
+  await expect(page.locator("#offline-ready")).toContainText(
+    "offline verfügbar",
+  );
+  await page.screenshot({
+    path: "test-results/pwa-search.png",
+    fullPage: true,
+  });
+  await page.locator(".brand").click();
+  await expect(page).toHaveURL("http://127.0.0.1:4174/docs/");
+  expect(
+    await page.evaluate(() => navigator.serviceWorker.controller),
+  ).toBeNull();
+  expect(errors).toEqual([]);
+});
+test("offline restart restores exactly the saved journey without API or tile cache", async ({
+  page,
+  context,
+}) => {
+  await production(page);
+  await plan(page);
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(page.locator("#map")).toHaveClass(/offline-map/);
+  await expect(page.locator("#refresh-route")).toBeDisabled();
+  const urls = await page.evaluate(async () => {
+    const keys = await caches.keys();
+    return (
+      await Promise.all(
+        keys.map(async (k) =>
+          (await (await caches.open(k)).keys()).map((r) => r.url),
+        ),
+      )
+    ).flat();
+  });
+  expect(urls.every((url) => url.startsWith(root))).toBe(true);
+  expect(
+    urls.some(
+      (url) => url.includes("transitous") || url.includes("tile.openstreetmap"),
+    ),
+  ).toBe(false);
+  await page.locator("#panel-size").click();
+  await expect(page.locator("#journey-detail")).toContainText("Rad");
+  await page.screenshot({
+    path: "test-results/pwa-offline.png",
+    fullPage: true,
+  });
+  await context.setOffline(false);
+  await expect(page.locator("#saved-notice")).toBeVisible();
+});
+test("disabling offline storage deletes the saved route and survives restart", async ({
+  page,
+  context,
+}) => {
+  await production(page);
+  await plan(page);
+  await page.locator("#tab-settings").click();
+  await page.locator("#offline-enabled").uncheck();
+  await expect(page.locator("#storage-message")).toContainText("ausgeschaltet");
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator("#offline-empty")).toBeVisible();
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#offline-enabled")).not.toBeChecked();
+});
+test("offline app without a saved route explains how to continue", async ({
+  page,
+  context,
+}) => {
+  await production(page);
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator("#offline-empty")).toBeVisible();
+  await expect(page.locator("#search-heading")).toBeVisible();
+});
+test("local storage failure does not prevent online planning", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "indexedDB", {
+      get() {
+        throw new DOMException("Blocked", "SecurityError");
+      },
+    });
+  });
+  await production(page);
+  await page.locator("#destination").fill("Ziel");
+  await page.locator("#destination-options").getByRole("option").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(page.locator("#storage-message")).toContainText(
+    "nicht offline gespeichert",
+  );
+});
+
+test("an app update waits for explicit confirmation and does not reload a draft", async ({
+  page,
+}) => {
+  const { createServer } = await import("node:http");
+  const { readFile } = await import("node:fs/promises");
+  const { resolve } = await import("node:path");
+  let revision = 1;
+  const server = createServer(async (request, response) => {
+    const path = new URL(request.url!, "http://localhost").pathname;
+    if (!path.startsWith("/pwa/")) {
+      response.writeHead(404).end();
+      return;
+    }
+    const name = path.slice(5) || "index.html";
+    try {
+      let data = await readFile(resolve(process.cwd(), "../docs/plan", name));
+      if (name === "sw.js")
+        data = Buffer.concat([
+          data,
+          Buffer.from(`\n// Test release ${revision}\n`),
+        ]);
+      const type = name.endsWith(".js")
+        ? "text/javascript"
+        : name.endsWith(".css")
+          ? "text/css"
+          : name.endsWith(".html")
+            ? "text/html"
+            : name.endsWith(".webmanifest")
+              ? "application/manifest+json"
+              : name.endsWith(".svg")
+                ? "image/svg+xml"
+                : "image/png";
+      response
+        .writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" })
+        .end(data);
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as { port: number };
+  try {
+    await page.goto(`http://127.0.0.1:${address.port}/pwa/`);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.reload();
+    await page.route("**/api/**", (r) =>
+      r.fulfill({ json: [], headers: cors }),
+    );
+    await page.locator("#destination").fill("Ungespeicherter Entwurf");
+    revision = 2;
+    await page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.update();
+    });
+    await expect(page.locator("#update-banner")).toBeVisible();
+    await expect(page.locator("#destination")).toHaveValue(
+      "Ungespeicherter Entwurf",
+    );
+    await page.locator("#update-later").click();
+    await expect(page.locator("#destination")).toHaveValue(
+      "Ungespeicherter Entwurf",
+    );
+    await page.reload();
+    await expect(page.locator("#update-banner")).toBeVisible();
+    await Promise.all([
+      page.waitForEvent("load"),
+      page.locator("#update-now").click(),
+    ]);
+    await expect(page.locator("#update-banner")).toBeHidden();
+  } finally {
+    await page.goto("about:blank");
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
+
+test("switching alternatives replaces the single saved record", async ({
+  page,
+  context,
+}) => {
+  await production(page);
+  const direct = structuredClone(fixture.direct);
+  direct.direct[0].legs[0].endTime = "2026-09-04T09:01:00Z";
+  direct.direct[0].endTime = "2026-09-04T09:01:00Z";
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json:
+        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+          ? direct
+          : fixture.multimodal,
+    }),
+  );
+  await page.locator("#destination").fill("Ziel");
+  await page.locator("#destination-options").getByRole("option").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.locator(".route-choice").last().click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<string>((resolve, reject) => {
+            const open = indexedDB.open("foldroute-offline", 1);
+            open.onerror = () => reject(open.error);
+            open.onsuccess = () => {
+              const request = open.result
+                .transaction("state")
+                .objectStore("state")
+                .get("last");
+              request.onsuccess = () => {
+                open.result.close();
+                resolve(request.result.journey.id);
+              };
+            };
+          }),
+      ),
+    )
+    .toBe("bike-1");
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
+  await expect(page.locator(".route-choice")).toHaveCount(1);
+});
