@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
-const root = "http://127.0.0.1:4174/docs/plan/";
+const root = process.env.FOLDROUTE_PRODUCTION_URL ?? "http://127.0.0.1:4174/docs/plan/";
 const cors = { "Access-Control-Allow-Origin": "*" };
 async function production(page: Page) {
   await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
@@ -62,11 +62,41 @@ test("scoped PWA manifest, icons and cache work under a static subpath", async (
     fullPage: true,
   });
   await page.locator(".brand").click();
-  await expect(page).toHaveURL("http://127.0.0.1:4174/docs/");
+  await expect(page).toHaveURL(new URL("../", root).href);
   expect(
     await page.evaluate(() => navigator.serviceWorker.controller),
   ).toBeNull();
   expect(errors).toEqual([]);
+});
+test("license page and original notices remain accessible offline", async ({ page, context }) => {
+  await page.goto(new URL("../", root).href);
+  await page.getByRole("link", { name: "Lizenzen & Datenquellen", exact: true }).click();
+  await expect(page).toHaveURL(new URL("licenses.html", root).href);
+  await expect(page.getByRole("heading", { name: "Lizenzen & Datenquellen" })).toBeVisible();
+  await production(page);
+  await page.locator("#tab-settings").click();
+  await context.setOffline(true);
+  await page.getByRole("link", { name: "Lizenzen & Datenquellen", exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Lizenzen & Datenquellen" })).toBeVisible();
+  for (const id of ["foldroute", "leaflet", "lucide", "workbox"]) {
+    await page.locator(`#${id} summary`).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator(`#${id} pre`)).toBeVisible();
+    const notice = await page.locator(`#${id} a`).getAttribute("href");
+    const downloaded = await page.evaluate(async (name) => {
+      const response = await fetch(name!);
+      return { ok: response.ok, text: await response.text() };
+    }, notice);
+    expect(downloaded.ok).toBe(true);
+    expect(downloaded.text.replace(/\r\n/g, "\n")).toBe(await page.locator(`#${id} pre`).textContent());
+  }
+  for (const width of [320, 390, 1660]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.getByRole("link", { name: "Zum Webplaner", exact: true }).click();
+  await expect(page.locator("#offline-empty")).toBeVisible();
 });
 test("offline restart restores exactly the saved journey without API or tile cache", async ({
   page,

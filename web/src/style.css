@@ -682,6 +682,9 @@ fieldset legend {
   width: 100%;
   margin-bottom: 8px;
 }
+#modes > .toggle-row {
+  clear: both;
+}
 fieldset:after {
   content: "";
   display: block;

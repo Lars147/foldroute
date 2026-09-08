@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmDelete = false
+    @State private var showLicense = false
 
     var body: some View {
         @Bindable var model = model
@@ -95,7 +96,8 @@ struct SettingsView: View {
                 Button("Standort erneut anfragen") { model.requestLocation() }
             }
 
-            Section("Datenquellen") {
+            Section("Lizenzen & Datenquellen") {
+                Button("FoldRoute · MIT-Lizenz") { showLicense = true }
                 Link("Transitous und Fahrplandaten", destination: URL(string: "https://transitous.org/sources/")!)
                 Link("© OpenStreetMap-Mitwirkende", destination: URL(string: "https://www.openstreetmap.org/copyright")!)
                 Text("Beim Planen werden Start, Ziel und Zeitpunkt an Transitous übertragen. GPS-Verläufe speichert FoldRoute nicht.")
@@ -121,6 +123,9 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Einstellungen")
+        .sheet(isPresented: $showLicense) {
+            FoldRouteLicenseView()
+        }
         .onDisappear { model.finishSettingsEditing() }
         .confirmationDialog("Lokale Daten löschen?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Alles löschen", role: .destructive) { model.clearLocalData() }
@@ -158,5 +163,35 @@ struct SettingsView: View {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         return "\(short) (\(build))"
+    }
+}
+
+private struct FoldRouteLicenseView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private static let license: String = {
+        guard let url = Bundle.main.url(forResource: "FoldRoute-LICENSE", withExtension: "txt") else {
+            preconditionFailure("FoldRoute-LICENSE.txt must be included in the app bundle")
+        }
+        return try! String(contentsOf: url, encoding: .utf8)
+    }()
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(verbatim: Self.license)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle("MIT-Lizenz")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fertig") { dismiss() }
+                }
+            }
+        }
     }
 }

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f6f3">
+  <title>Lizenzen &amp; Datenquellen · FoldRoute</title>
+  <style>
+    :root { color-scheme: light; font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; color: #171a1c; background: #f5f6f3; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 860px; margin: auto; padding: 36px 24px 72px; }
+    nav { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-bottom: 56px; }
+    a { color: inherit; text-underline-offset: 4px; }
+    a:hover { text-decoration-thickness: 2px; }
+    :focus-visible { outline: 3px solid #171a1c; outline-offset: 5px; }
+    .kicker { font-size: .8rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { font-size: clamp(2rem, 7vw, 3.8rem); line-height: 1.05; letter-spacing: -.04em; margin: 16px 0 24px; overflow-wrap: anywhere; }
+    h2 { margin: 40px 0 18px; font-size: 1.5rem; }
+    p { line-height: 1.65; }
+    .intro { font-size: 1.15rem; }
+    .sources { background: #e9ede6; border-radius: 20px; padding: 4px 24px 20px; }
+    details { border-bottom: 1px solid #b7bfb7; padding: 20px 0; }
+    summary { cursor: pointer; font-size: 1.1rem; font-weight: 650; line-height: 1.5; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font: .9rem/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    footer { margin-top: 36px; font-size: .9rem; }
+  </style>
+</head>
+<body>
+<main>
+  <nav aria-label="Zurück zu FoldRoute"><a href="./">Zum Webplaner</a><a href="../">Zur Projektseite</a></nav>
+  <p class="kicker">FoldRoute</p>
+  <h1>Lizenzen &amp; Datenquellen</h1>
+  <p class="intro">FoldRoute baut auf offenem Code und offenen Daten auf. Hier findest du die Quellen und die zugehörigen Lizenzhinweise.</p>
+  <section class="sources" aria-labelledby="sources-heading">
+    <h2 id="sources-heading">Karten und Routen</h2>
+    <p><a href="https://transitous.org/sources/">Transitous und Fahrplandaten</a>: Routen und Fahrpläne für iPhone-App und Webplaner. Für die einzelnen Datenquellen gelten die dort aufgeführten Bedingungen.</p>
+    <p><a href="https://www.openstreetmap.org/copyright">© OpenStreetMap-Mitwirkende</a>: Kartendaten im Webplaner und Grundlage der Routenberechnung über Transitous in beiden Anwendungen. Die Daten stehen unter der Open Database License (ODbL).</p>
+    <p>Die iPhone-App zeigt Karten mit Apple MapKit. Die zugehörigen Kartenhinweise findest du direkt in der Kartenansicht.</p>
+  </section>
+  <section aria-labelledby="licenses-heading">
+    <h2 id="licenses-heading">Software und Icons</h2>
+    <p>Die MIT-Lizenz von FoldRoute gilt für den eigenen Programmcode. Eingebundene Komponenten und Daten behalten ihre jeweiligen Lizenzbedingungen.</p>
+<details id="foldroute"><summary>FoldRoute · MIT</summary><p>Eigener Programmcode der iPhone-App, des Webplaners und der Landingpage.</p><p><a href="foldroute-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>MIT License
+
+Copyright (c) 2026 FoldRoute Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</pre></details>
+<details id="leaflet"><summary>Leaflet · BSD-2-Clause</summary><p>Kartenbibliothek im Webplaner.</p><p><a href="leaflet-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>BSD 2-Clause License
+
+Copyright (c) 2010-2023, Volodymyr Agafonkin
+Copyright (c) 2010-2011, CloudMade
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS &quot;AS IS&quot;
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+</pre></details>
+<details id="lucide"><summary>Lucide / Feather · ISC und MIT</summary><p>Icons auf der Landingpage. Der Originalhinweis enthält auch die aus Feather übernommenen Icons.</p><p><a href="lucide-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>ISC License
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+---
+
+The following Lucide icons are derived from the Feather project:
+
+airplay, alert-circle, alert-octagon, alert-triangle, aperture, arrow-down-circle, arrow-down-left, arrow-down-right, arrow-down, arrow-left-circle, arrow-left, arrow-right-circle, arrow-right, arrow-up-circle, arrow-up-left, arrow-up-right, arrow-up, at-sign, calendar, cast, check, chevron-down, chevron-left, chevron-right, chevron-up, chevrons-down, chevrons-left, chevrons-right, chevrons-up, circle, clipboard, clock, code, columns, command, compass, corner-down-left, corner-down-right, corner-left-down, corner-left-up, corner-right-down, corner-right-up, corner-up-left, corner-up-right, crosshair, database, divide-circle, divide-square, dollar-sign, download, external-link, feather, frown, hash, headphones, help-circle, info, italic, key, layout, life-buoy, link-2, link, loader, lock, log-in, log-out, maximize, meh, minimize, minimize-2, minus-circle, minus-square, minus, monitor, moon, more-horizontal, more-vertical, move, music, navigation-2, navigation, octagon, pause-circle, percent, plus-circle, plus-square, plus, power, radio, rss, search, server, share, shopping-bag, sidebar, smartphone, smile, square, table-2, tablet, target, terminal, trash-2, trash, triangle, tv, type, upload, x-circle, x-octagon, x-square, x, zoom-in, zoom-out
+
+The MIT License (MIT) (for the icons listed above)
+
+Copyright (c) 2013-present Cole Bemis
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</pre></details>
+<details id="workbox"><summary>Workbox · MIT</summary><p>Offline-Funktionen und Service Worker des Webplaners.</p><p><a href="workbox-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>Copyright 2018 Google LLC
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+</pre></details>
+  </section>
+  <footer><p>Die Software-Lizenztexte sind im installierten Webplaner auch offline lesbar. Externe Quellenlinks benötigen Internet.</p></footer>
+</main>
+</body>
+</html>
