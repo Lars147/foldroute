@@ -35,7 +35,7 @@ async function choose(page: Page, id: string, name: string) {
   await page.locator("#" + id).fill(name);
   await page
     .locator("#" + id + "-options")
-    .getByRole("option")
+    .locator(".place-select")
     .filter({ hasText: name })
     .click();
 }
@@ -136,22 +136,36 @@ test("adjustments are drafts and cancellation preserves results", async ({
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
 });
-test("settings persist only after applying; route remains available", async ({
+test("settings persist immediately and replan once on leaving", async ({
   page,
 }) => {
   await setup(page);
   await plan(page);
+  let requests = 0,
+    directRequests = 0;
+  page.on("request", (r) => {
+    if (r.url().includes("/v6/plan")) {
+      requests++;
+      if (new URL(r.url()).searchParams.get("directModes") === "BIKE")
+        directRequests++;
+    }
+  });
   await page.locator("#tab-settings").click();
-  await page.locator("#foldDuration").fill("4");
-  await page.locator("#discard-settings").click();
-  await page.locator("#tab-settings").click();
-  await expect(page.locator("#foldDuration")).toHaveValue("3");
-  await page.locator("#foldDuration").fill("4");
+  await page.locator("#foldingDuration").fill("4");
+  await page.locator("#maxWalkingMinutes").fill("3");
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+  expect(requests).toBe(0);
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("foldroute.routing.v2")!),
+    ),
+  ).toMatchObject({ foldingDuration: 240, maxWalkingMinutes: 3 });
   await page.locator("#save-settings").click();
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  expect(directRequests).toBe(1);
   await page.reload();
   await page.locator("#tab-settings").click();
-  await expect(page.locator("#foldDuration")).toHaveValue("4");
+  await expect(page.locator("#foldingDuration")).toHaveValue("4");
 });
 test("throttling stops further requests; manual retry observes the pause", async ({
   page,
@@ -193,9 +207,7 @@ test("cancel retains progressive results and ignores delayed responses", async (
   await expect(page.locator("#route-duration")).toContainText("32 min");
   await expect(page.locator("#status")).toContainText("abgebrochen");
 });
-test("duration order and stable selection while faster alternatives arrive", async ({
-  page,
-}) => {
+test("better alternatives replace automatic selection", async ({ page }) => {
   await setup(page);
   const direct = structuredClone(fixture.direct);
   direct.direct[0].legs[0].endTime = "2026-09-04T09:01:00Z";
@@ -212,14 +224,15 @@ test("duration order and stable selection while faster alternatives arrive", asy
   await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator(".route-choice")).toHaveText([
-    "1 · 52 min",
+    "1 · 53 min",
     "2 · 1 h 1 min",
   ]);
   await expect(page.locator(".route-choice[aria-pressed=true]")).toHaveText(
-    "2 · 1 h 1 min",
+    "1 · 53 min",
   );
-  await page.locator("#panel-summary").press("ArrowLeft");
-  await expect(page.locator("#route-duration")).toContainText("52 min");
+  await expect(page.locator("#route-duration")).toContainText("53 min");
+  await page.locator("#panel-summary").press("ArrowRight");
+  await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
 });
 test("failed refresh preserves selected journey", async ({ page }) => {
   await setup(page);
@@ -387,6 +400,8 @@ for (const code of [0, 1, 2, 3]) {
         `Diagnose: Standortfehler ${code} – Origin does not have permission to use Geolocation service`,
       );
     }
+    if (code) await expect(page.locator("#adjust-location-help")).toBeVisible();
+    else await expect(page.locator("#adjust-location-help")).toBeHidden();
     await expect(page.locator("#origin-location")).toBeEnabled();
     await expect(page.locator("#adjust-dialog")).toBeVisible();
   });
@@ -415,4 +430,284 @@ test("cancelled location request does not overwrite manual start feedback", asyn
   await expect(page.locator("#origin")).toHaveValue("Start");
   await expect(page.locator("#adjust-status")).toHaveText("");
   await expect(page.locator("#origin-location")).toBeEnabled();
+});
+
+test("map location help persists and clears on retry; manual origin clears dialog help", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await page.evaluate(() => {
+    let calls = 0;
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition: (
+          success: (value: unknown) => void,
+          fail: (error: unknown) => void,
+        ) => {
+          calls++;
+          if (calls === 2)
+            success({ coords: { latitude: 48.132, longitude: 11.5756 } });
+          else fail({ code: 1, message: "User denied Geolocation" });
+        },
+      },
+    });
+  });
+  await page.locator("#map-location").click();
+  await expect(page.locator("#map-location-error")).toBeVisible();
+  await expect(page.locator("#map-location-error a")).toHaveAttribute(
+    "href",
+    "hilfe.html#standort",
+  );
+  await page.waitForTimeout(6200);
+  await expect(page.locator("#map-location-error")).toBeVisible();
+  await page.locator("#map-location").click();
+  await expect(page.locator("#map-location-error")).toBeHidden();
+  await page.locator("#adjust-route").click();
+  await page.locator("#origin-location").click();
+  await expect(page.locator("#adjust-location-help")).toBeVisible();
+  await choose(page, "origin", "Start");
+  await expect(page.locator("#adjust-location-help")).toBeHidden();
+  await page.locator("#calculate").click();
+  await expect(page.locator("#adjust-dialog")).toBeHidden();
+  await expect(page.locator("#status")).toContainText("Verbindungen gefunden");
+});
+
+test("help opens direct topics and fits narrow screens with enlarged text", async ({
+  page,
+}) => {
+  await page.goto("/hilfe.html#standort-freigabe");
+  await expect(page.locator("#standort-freigabe")).toHaveAttribute("open", "");
+  await expect(page.locator("#standort-freigabe summary")).toBeInViewport();
+  await page.locator("#standort-freigabe summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#standort-freigabe")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+  await page.addStyleTag({ content: "html { font-size: 24px; }" });
+  for (const colorScheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [320, 390, 1660]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    }
+  }
+});
+
+test("favorites and recent places share all searches and remain available offline", async ({
+  page,
+  context,
+}) => {
+  await setup(page);
+  let requests = 0;
+  page.on("request", (r) => {
+    if (r.url().includes("/v6/plan")) requests++;
+  });
+  await page.locator("#destination").fill("Ziel");
+  await page
+    .getByRole("button", { name: "Ziel: Favorit", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Ziel: Favorit", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(requests).toBe(0);
+  await page.locator("#destination").fill("");
+  await expect(page.locator("#destination-options")).toContainText("Favoriten");
+  await page.locator("#search-adjust").click();
+  await page.locator("#origin").fill("");
+  await expect(page.locator("#origin-options")).toContainText("Favoriten");
+  await choose(page, "origin", "Start");
+  await page.locator("#adjust-destination").fill("");
+  await expect(page.locator("#adjust-destination-options")).toContainText(
+    "Zuletzt verwendet",
+  );
+  await expect(
+    page.locator("#adjust-destination-options .place-select"),
+  ).toHaveCount(3);
+  await page.locator("#cancel-adjust").click();
+  await page.reload();
+  await expect(page.locator("#destination-options")).toContainText("Favoriten");
+  await expect(page.locator("#destination-options")).toContainText(
+    "Zuletzt verwendet",
+  );
+  await context.setOffline(true);
+  await page.locator("#destination").fill("Zi");
+  await expect(page.locator("#destination-options .place-select")).toHaveCount(
+    1,
+  );
+  await expect(page.locator("#destination-options")).toContainText("Ziel");
+  await page.screenshot({
+    path: "test-results/favorites-offline.png",
+    fullPage: true,
+  });
+});
+
+test("two-character search requests twelve results; prefill keeps cursor and makes no request", async ({
+  page,
+}) => {
+  await setup(page);
+  const searches: URL[] = [];
+  await page.route("**/api/v1/geocode?*", (r) => {
+    searches.push(new URL(r.request().url()));
+    return r.fulfill({
+      headers: cors,
+      json: Array.from({ length: 15 }, (_, i) => ({
+        name: `Ziel ${i}`,
+        lat: 48.175 + i / 10000,
+        lon: 11.6,
+      })),
+    });
+  });
+  await page.locator("#destination").fill("Zi");
+  await expect(page.locator("#destination-options .place-select")).toHaveCount(
+    12,
+  );
+  expect(searches[0].searchParams.get("numResults")).toBe("12");
+  expect(searches[0].searchParams.get("place")).toBe("48.1372,11.5756");
+  await page
+    .getByRole("button", {
+      name: "Ziel 0 ins Suchfeld übernehmen",
+      exact: true,
+    })
+    .click();
+  await expect(page.locator("#destination")).toHaveValue("Ziel 0 ");
+  await expect(page.locator("#destination")).toBeFocused();
+  expect(
+    await page
+      .locator("#destination")
+      .evaluate((e: HTMLInputElement) => e.selectionStart),
+  ).toBe(7);
+  expect(searches).toHaveLength(1);
+  await page.locator("#destination").press("Enter");
+  await expect.poll(() => searches.length).toBe(2);
+});
+
+test("settings errors keep old offline snapshot but never restore invalidated options", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await expect(page.locator("#storage-message")).toContainText("gespeichert");
+  const original = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const r = indexedDB.open("foldroute-offline", 2);
+      r.onsuccess = () => resolve(r.result);
+    });
+    const value = await new Promise<any>((resolve) => {
+      const r = db.transaction("state").objectStore("state").get("last");
+      r.onsuccess = () => resolve(r.result);
+    });
+    db.close();
+    return value;
+  });
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({ status: 500, headers: cors }),
+  );
+  await page.locator("#tab-settings").click();
+  await page.locator("#foldingDuration").fill("4.5");
+  await page.goBack();
+  await expect(page.locator("#status")).toContainText(
+    "Anfrage nicht beantworten",
+  );
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await page.locator("#refresh-route").click();
+  await expect(page.locator("#status")).toContainText(
+    "Anfrage nicht beantworten",
+  );
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await page.locator("#close-route").click();
+  await page.locator("#open-saved").click();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#foldingDuration")).toHaveValue("4.5");
+  expect(original.settings.foldingDuration).toBe(180);
+});
+
+test("clearing local data requires confirmation and removes all app records", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.locator("#destination").fill("Ziel");
+  await page
+    .getByRole("button", { name: "Ziel: Favorit", exact: true })
+    .click();
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.locator("#tab-settings").click();
+  await page.locator("#foldingDuration").fill("4");
+  await page.locator("#clear-data").click();
+  await page.locator("#cancel-delete-data").click();
+  await expect(page.locator("#foldingDuration")).toHaveValue("4");
+  await page.locator("#clear-data").click();
+  await page.locator("#confirm-delete-data").click();
+  await expect(page.locator("#search-view")).toBeVisible();
+  await expect(page.locator("#open-saved")).toBeHidden();
+  await page.reload();
+  await expect(page.locator("#destination-options .place-select")).toHaveCount(
+    1,
+  );
+  await expect(page.locator("#open-saved")).toBeHidden();
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#foldingDuration")).toHaveValue("3");
+  expect(
+    await page.evaluate(() => [
+      localStorage.getItem("foldroute.routing.v1"),
+      localStorage.getItem("foldroute.routing.v2"),
+    ]),
+  ).toEqual([null, null]);
+});
+
+test("late-departure notice appears only after search completes and opens settings", async ({
+  page,
+}) => {
+  await setup(page);
+  const direct = structuredClone(fixture.direct);
+  direct.direct[0].startTime = direct.direct[0].legs[0].startTime =
+    "2026-09-04T09:00:00Z";
+  direct.direct[0].endTime = direct.direct[0].legs[0].endTime =
+    "2026-09-04T09:32:00Z";
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json:
+        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+          ? direct
+          : { itineraries: [], direct: [] },
+    }),
+  );
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator("#late-departure")).toContainText("1 h nach");
+  await page.locator("#late-settings").click();
+  await expect(page.locator("#settings-view")).toBeVisible();
+});
+
+test("an expired fixed departure requires adjustment and sends no new plan requests", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await page.locator("#adjust-route").click();
+  await page.locator("#timing").selectOption("depart");
+  await page.locator("#when").fill("2026-09-04T10:00");
+  await page.locator("#calculate").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.clock.setFixedTime(new Date("2026-09-04T08:01:00Z"));
+  let requests = 0;
+  page.on("request", (r) => {
+    if (r.url().includes("/v6/plan")) requests++;
+  });
+  await page.locator("#tab-settings").click();
+  await page.locator("#foldingDuration").fill("4");
+  await page.locator("#tab-route").click();
+  await expect(page.locator("#status")).toContainText("zukünftigen Zeitpunkt");
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+  expect(requests).toBe(0);
 });

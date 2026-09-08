@@ -27,8 +27,7 @@ export const modes = {
 };
 export type ModePreference = keyof typeof modes;
 export interface RoutingSettings {
-  foldDuration: number;
-  unfoldDuration: number;
+  foldingDuration: number;
   cyclingSpeedKilometersPerHour: number;
   maxCyclingAccessMinutes: number;
   maxWalkingMinutes: number;
@@ -37,8 +36,7 @@ export interface RoutingSettings {
   excludedTransitModes: ModePreference[];
 }
 export const defaults: RoutingSettings = {
-  foldDuration: 180,
-  unfoldDuration: 120,
+  foldingDuration: 180,
   cyclingSpeedKilometersPerHour: 15,
   maxCyclingAccessMinutes: 30,
   maxWalkingMinutes: 2,
@@ -50,8 +48,7 @@ export const ranges = {
   cyclingSpeedKilometersPerHour: [10, 30, 1],
   maxCyclingAccessMinutes: [5, 60, 5],
   maxWalkingMinutes: [1, 15, 1],
-  foldDuration: [60, 600, 30],
-  unfoldDuration: [30, 600, 30],
+  foldingDuration: [60, 600, 30],
   maxBikeTransfers: [0, 3, 1],
   maxBikeTransferMinutes: [1, 60, 1],
 } as const;
@@ -72,6 +69,42 @@ export function validSettings(value: unknown): value is RoutingSettings {
     new Set(v.excludedTransitModes).size === v.excludedTransitModes.length &&
     v.excludedTransitModes.every((m) => Object.hasOwn(modes, m))
   );
+}
+export type LegacyRoutingSettings = Omit<RoutingSettings, "foldingDuration"> & {
+  foldDuration: number;
+  unfoldDuration: number;
+};
+export function validLegacySettings(
+  value: unknown,
+): value is LegacyRoutingSettings {
+  if (!value || typeof value !== "object") return false;
+  const v = value as LegacyRoutingSettings;
+  return (
+    [v.foldDuration, v.unfoldDuration].every(
+      (n, i) =>
+        Number.isFinite(n) &&
+        n >= (i === 0 ? 60 : 30) &&
+        n <= 600 &&
+        n % 30 === 0,
+    ) && validSettings({ ...v, foldingDuration: 180 })
+  );
+}
+export function migrateSettings(value: unknown): RoutingSettings | undefined {
+  if (validSettings(value)) return value;
+  if (!validLegacySettings(value)) return undefined;
+  const { foldDuration, unfoldDuration, ...rest } = value;
+  return {
+    ...rest,
+    foldingDuration: Math.max(60, foldDuration, unfoldDuration),
+  };
+}
+export function lateDepartureDelay(
+  journey: Journey,
+  request?: RouteRequest,
+): number | undefined {
+  if (!request || request.timing === "arrive") return undefined;
+  const delay = journey.departure - request.time;
+  return delay >= 3600 ? delay : undefined;
 }
 export type LegKind = "bike" | "walk" | "transit" | "fold" | "unfold" | "wait";
 export interface Leg {

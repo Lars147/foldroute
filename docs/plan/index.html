@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-Cjr4qh7-.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-gNVvOSmE.css">
+    <script type="module" crossorigin src="./assets/index-Dum3dCZZ.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CujQY68O.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search">
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -155,6 +155,12 @@
           ></p>
           <p id="issues" class="notice" hidden></p>
           <p id="saved-notice" class="notice" hidden></p>
+          <div id="late-departure" class="notice" hidden>
+            <span id="late-departure-text"></span>
+            <button id="late-settings" type="button" class="text-button">
+              Einstellungen öffnen
+            </button>
+          </div>
           <p id="map-error" class="map-error" role="status" hidden></p>
           <div id="panel-details" class="panel-details">
             <div
@@ -195,9 +201,7 @@
           </fieldset>
           <div class="form-actions">
             <button id="save-settings" class="primary" type="submit">
-              Einstellungen übernehmen</button
-            ><button id="discard-settings" type="button" class="secondary">
-              Abbrechen
+              Fertig
             </button>
           </div>
         </form>
@@ -217,6 +221,9 @@
             Gespeicherte Reise löschen
           </button>
           <p id="storage-message" class="message" role="status"></p>
+          <button id="clear-data" class="text-button" type="button">
+            Alle lokalen Daten löschen
+          </button>
           <button id="install" class="secondary">FoldRoute installieren</button>
           <p id="install-message" class="message" role="status"></p>
           <p id="offline-ready" class="message" role="status"></p>
@@ -236,14 +243,16 @@
             <p>
               Ortssuchen, Start, Ziel, Zeitpunkt und Routing-Einstellungen gehen
               an Transitous; Kartenabrufe an OpenStreetMap. Einstellungen und
-              optional die zuletzt gewählte Reise bleiben auf diesem Gerät.
-              Keine Analyse-Tools, keine GPS-Spuren. Gespeicherte Zeiten sind
-              der Stand der Abfrage. Neue Planung und Karten benötigen Internet;
-              die Offline-Übersicht zeigt den gespeicherten Streckenverlauf ohne
-              Straßenkarte. Der Browser kann lokale Daten löschen.
+              Favoriten, letzte Orte und optional die zuletzt gewählte Reise
+              bleiben auf diesem Gerät. Keine Analyse-Tools, keine GPS-Spuren.
+              Gespeicherte Zeiten sind der Stand der Abfrage. Neue Planung und
+              Karten benötigen Internet; die Offline-Übersicht zeigt den
+              gespeicherten Streckenverlauf ohne Straßenkarte. Der Browser kann
+              lokale Daten löschen.
             </p>
           </details>
           <p>
+            <a href="hilfe.html">Hilfe &amp; FAQ</a> ·
             <a href="licenses.html">Lizenzen &amp; Datenquellen</a>
           </p>
           <p>
@@ -322,6 +331,9 @@
             hidden
           ></ul>
           <p id="adjust-status" class="message" role="status"></p>
+          <p id="adjust-location-help" class="message" hidden>
+            <a href="hilfe.html#standort">Hilfe zum Standort</a>
+          </p>
           <label for="timing">Zeitpunkt</label
           ><select id="timing">
             <option value="now">Jetzt</option>
@@ -341,6 +353,29 @@
         </div>
       </form>
     </dialog>
+    <dialog id="delete-data-dialog" aria-labelledby="delete-data-heading">
+      <h2 id="delete-data-heading">Alle lokalen Daten löschen?</h2>
+      <p>
+        Favoriten, letzte Orte, Einstellungen und gespeicherte Reise werden
+        unwiderruflich entfernt.
+      </p>
+      <p id="delete-data-status" class="message" role="status"></p>
+      <div class="form-actions">
+        <button id="cancel-delete-data" class="secondary" type="button">
+          Abbrechen
+        </button>
+        <button id="confirm-delete-data" class="primary" type="button">
+          Alles löschen
+        </button>
+      </div>
+    </dialog>
+    <div id="map-location-error" class="toast location-error" hidden>
+      <p id="map-location-error-text" role="status"></p>
+      <a href="hilfe.html#standort">Hilfe zum Standort</a
+      ><button id="dismiss-location-error" type="button" class="text-button">
+        Schließen
+      </button>
+    </div>
     <div id="toast" class="toast" role="status" hidden></div>
     <div id="update-banner" class="update-banner" role="status" hidden>
       <span>Neue Version verfügbar.</span

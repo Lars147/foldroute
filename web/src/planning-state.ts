@@ -17,11 +17,8 @@ export interface PlanningState {
   message: string;
   issues: string[];
   restored: boolean;
+  resultSettings?: RoutingSettings;
 }
-export const byDuration = (a: Journey, b: Journey) =>
-  a.arrival - a.departure - (b.arrival - b.departure) ||
-  a.arrival - b.arrival ||
-  a.transfers - b.transfers;
 export class PlanningSession {
   state: PlanningState = {
     journeys: [],
@@ -34,6 +31,7 @@ export class PlanningSession {
   };
   private controller?: AbortController;
   private generation = 0;
+  private explicitlySelectedID?: string;
   constructor(
     private client: ApiClient,
     private change: (s: PlanningState) => void,
@@ -49,6 +47,7 @@ export class PlanningSession {
     this.emit();
   }
   clear() {
+    this.explicitlySelectedID = undefined;
     this.stop("");
     this.state = {
       journeys: [],
@@ -61,15 +60,32 @@ export class PlanningSession {
     };
     this.emit();
   }
+  invalidateForSettings() {
+    this.stop("");
+    this.explicitlySelectedID = undefined;
+    this.state = {
+      ...this.state,
+      journeys: [],
+      selected: undefined,
+      resultSettings: undefined,
+      restored: false,
+      queriedAt: 0,
+      issues: [],
+      message: "Einstellungen geändert. Beim Verlassen wird neu berechnet.",
+    };
+    this.emit();
+  }
   select(id: string) {
     const selected = this.state.journeys.find((j) => j.id === id);
     if (selected) {
+      this.explicitlySelectedID = id;
       this.state = { ...this.state, selected };
       this.emit();
     }
   }
   restore(journey: Journey, request: RouteRequest, queriedAt: number) {
     this.stop("");
+    this.explicitlySelectedID = undefined;
     this.state = {
       journeys: [journey],
       selected: journey,
@@ -89,33 +105,48 @@ export class PlanningSession {
     refreshLocation: boolean,
   ): Promise<"location-error" | undefined> {
     this.stop("");
+    this.explicitlySelectedID = undefined;
+    const calculationSettings = structuredClone(settings);
+    const needsLocation =
+      refreshLocation || request.destination.name === "Aktueller Standort";
     const generation = this.generation,
       previous = this.state;
     this.controller = new AbortController();
     const signal = this.controller.signal;
     this.state = {
       ...previous,
+      request: previous.selected ? previous.request : request,
       busy: true,
-      locating: refreshLocation,
-      message: refreshLocation
+      locating: needsLocation,
+      message: needsLocation
         ? "Standort wird ermittelt …"
         : "Verbindungen werden gesucht …",
       issues: [],
     };
     this.emit();
-    let locating = refreshLocation,
+    let locating = needsLocation,
       received = false;
     try {
       if (!navigator.onLine)
         throw new Error(
           "Keine Internetverbindung. Du kannst deine gespeicherte Reise öffnen.",
         );
-      if (refreshLocation)
-        request = { ...request, origin: await locate(signal) };
+      if (needsLocation) {
+        const current = await locate(signal);
+        request = {
+          ...request,
+          origin: refreshLocation ? current : request.origin,
+          destination:
+            request.destination.name === "Aktueller Standort"
+              ? current
+              : request.destination,
+        };
+      }
       if (generation !== this.generation) return;
       locating = false;
       const queriedAt = Date.now() / 1000;
-      if (request.timing === "now") request = { ...request, time: queriedAt };
+      if (request.timing === "now")
+        request = { ...request, time: Math.floor(queriedAt) };
       this.state = {
         ...this.state,
         locating: false,
@@ -124,20 +155,23 @@ export class PlanningSession {
       this.emit();
       for await (const update of planRoutes(
         request,
-        settings,
+        calculationSettings,
         signal,
         this.client,
       )) {
         if (generation !== this.generation) return;
-        const selected = received ? this.state.selected : undefined;
+        const selected =
+          received && this.state.selected?.id === this.explicitlySelectedID
+            ? this.state.selected
+            : undefined;
         let journeys = [...update.journeys];
         if (selected && !journeys.some((j) => j.id === selected.id))
           journeys = [selected, ...journeys].slice(0, 3);
-        journeys.sort(byDuration);
         received = true;
         this.state = {
           journeys,
-          selected: selected ?? journeys[0],
+          selected: journeys.find((j) => j.id === selected?.id) ?? journeys[0],
+          resultSettings: calculationSettings,
           request,
           queriedAt,
           busy: update.status === "searching",
@@ -157,6 +191,11 @@ export class PlanningSession {
       if (signal.aborted || generation !== this.generation) return;
       this.state = {
         ...(received ? this.state : previous),
+        request: received
+          ? this.state.request
+          : previous.selected
+            ? previous.request
+            : request,
         busy: false,
         locating: false,
         message: errorText(error),

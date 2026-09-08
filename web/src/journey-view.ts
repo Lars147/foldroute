@@ -1,4 +1,10 @@
-import { type Journey, kindNames, bikeDistance } from "./model";
+import {
+  type Journey,
+  kindNames,
+  bikeDistance,
+  lateDepartureDelay,
+  compare,
+} from "./model";
 import { type PlanningState } from "./planning-state";
 import { el, node, clock, duration, dateLabel, icon, legColors } from "./ui";
 export type PanelSize = "collapsed" | "normal" | "expanded";
@@ -92,6 +98,22 @@ export class JourneyView {
     el("issues").hidden = !state.issues.length;
     el("journey-panel").classList.toggle("is-loading", state.busy);
     const j = state.selected;
+    const delay =
+      j && !state.busy && !state.restored
+        ? lateDepartureDelay(j, state.request)
+        : undefined;
+    el("late-departure").hidden = delay === undefined;
+    el("late-departure-text").textContent =
+      delay === undefined
+        ? ""
+        : `Start erst ${clock(j!.departure)} – ${duration(delay)} nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.`;
+    const recommendation =
+      state.request?.timing === "arrive"
+        ? "Späteste Abfahrt"
+        : "Früheste Ankunft";
+    const recommendedID = [...state.journeys].sort((a, b) =>
+      compare(a, b, state.request?.timing ?? "now"),
+    )[0]?.id;
     el("saved-notice").hidden = !state.restored;
     if (state.restored)
       el("saved-notice").textContent =
@@ -100,6 +122,8 @@ export class JourneyView {
       state.journeys.map((j) => j.id),
       j?.id,
       state.restored,
+      state.queriedAt,
+      state.request?.timing,
     ]);
     if (key === this.key) return;
     this.key = key;
@@ -119,7 +143,7 @@ export class JourneyView {
       button.setAttribute("aria-pressed", String(journey.id === j?.id));
       button.setAttribute(
         "aria-label",
-        `${index === 0 ? "Schnellste Verbindung" : `Alternative ${index + 1}`}: ${duration(journey.arrival - journey.departure)}, ${clock(journey.departure)} bis ${clock(journey.arrival)}`,
+        `${journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: ${duration(journey.arrival - journey.departure)}, ${clock(journey.departure)} bis ${clock(journey.arrival)}`,
       );
       button.onclick = () => this.select(journey.id);
       el("choices").append(button);
@@ -136,10 +160,21 @@ export class JourneyView {
     const index = state.journeys.findIndex((x) => x.id === j.id);
     el("option-title").textContent = state.restored
       ? "Gespeicherte Reise"
-      : `${index === 0 ? "Schnellste Verbindung" : `Alternative ${index + 1}`}${j.isDirect ? " · Nur Fahrrad" : ""}`;
-    el("route-arrival").textContent = clock(j.arrival);
+      : `${j.id === recommendedID ? recommendation : `Alternative ${index + 1}`}${j.isDirect ? " · Nur Fahrrad" : ""}`;
+    const times = el("route-arrival");
+    times.replaceChildren();
+    for (const [label, time] of [
+      ["Abfahrt", j.departure],
+      ["Ankunft", j.arrival],
+    ] as const) {
+      const group = node("span", "", "route-time");
+      group.append(node("small", label), node("span", clock(time)));
+      if (new Date(time * 1000).toDateString() !== new Date().toDateString())
+        group.append(node("small", dateLabel(time)));
+      times.append(group);
+    }
     el("route-duration").textContent =
-      `Ankunft · ${duration(j.arrival - j.departure)}`;
+      `Gesamtdauer · ${duration(j.arrival - j.departure)}`;
     el("route-range").textContent =
       `${dateLabel(j.departure)} ${clock(j.departure)} – ${dateLabel(j.arrival)} ${clock(j.arrival)} · ${j.transfers} Umstiege · ${(bikeDistance(j) / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km Rad`;
     this.details(j, state.restored);

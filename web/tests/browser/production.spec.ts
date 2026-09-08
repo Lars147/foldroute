@@ -1,6 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
+import { defaults } from "../../src/model";
+import { mapResponse, baseVariants } from "../../src/transitous";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
-const root = process.env.FOLDROUTE_PRODUCTION_URL ?? "http://127.0.0.1:4174/docs/plan/";
+const root =
+  process.env.FOLDROUTE_PRODUCTION_URL ??
+  `http://127.0.0.1:${Number(process.env.FOLDROUTE_TEST_PORT ?? 4173) + 1}/docs/plan/`;
 const cors = { "Access-Control-Allow-Origin": "*" };
 async function production(page: Page) {
   await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
@@ -28,7 +32,7 @@ async function production(page: Page) {
 }
 async function plan(page: Page) {
   await page.locator("#destination").fill("Ziel");
-  await page.locator("#destination-options").getByRole("option").click();
+  await page.locator("#destination-options").locator(".place-select").click();
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator("#storage-message")).toHaveText(
     "Letzte Reise auf diesem Gerät gespeichert.",
@@ -68,17 +72,28 @@ test("scoped PWA manifest, icons and cache work under a static subpath", async (
   ).toBeNull();
   expect(errors).toEqual([]);
 });
-test("license page and original notices remain accessible offline", async ({ page, context }) => {
+test("license page and original notices remain accessible offline", async ({
+  page,
+  context,
+}) => {
   await page.goto(new URL("../", root).href);
-  await page.getByRole("link", { name: "Lizenzen & Datenquellen", exact: true }).click();
+  await page
+    .getByRole("link", { name: "Lizenzen & Datenquellen", exact: true })
+    .click();
   await expect(page).toHaveURL(new URL("licenses.html", root).href);
-  await expect(page.getByRole("heading", { name: "Lizenzen & Datenquellen" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Lizenzen & Datenquellen" }),
+  ).toBeVisible();
   await production(page);
   await page.locator("#tab-settings").click();
   await context.setOffline(true);
-  await page.getByRole("link", { name: "Lizenzen & Datenquellen", exact: true }).click();
+  await page
+    .getByRole("link", { name: "Lizenzen & Datenquellen", exact: true })
+    .click();
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Lizenzen & Datenquellen" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Lizenzen & Datenquellen" }),
+  ).toBeVisible();
   for (const id of ["foldroute", "leaflet", "lucide", "workbox"]) {
     await page.locator(`#${id} summary`).focus();
     await page.keyboard.press("Enter");
@@ -89,11 +104,17 @@ test("license page and original notices remain accessible offline", async ({ pag
       return { ok: response.ok, text: await response.text() };
     }, notice);
     expect(downloaded.ok).toBe(true);
-    expect(downloaded.text.replace(/\r\n/g, "\n")).toBe(await page.locator(`#${id} pre`).textContent());
+    expect(downloaded.text.replace(/\r\n/g, "\n")).toBe(
+      await page.locator(`#${id} pre`).textContent(),
+    );
   }
   for (const width of [320, 390, 1660]) {
     await page.setViewportSize({ width, height: 900 });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
   }
   await page.getByRole("link", { name: "Zum Webplaner", exact: true }).click();
   await expect(page.locator("#offline-empty")).toBeVisible();
@@ -172,7 +193,7 @@ test("local storage failure does not prevent online planning", async ({
   });
   await production(page);
   await page.locator("#destination").fill("Ziel");
-  await page.locator("#destination-options").getByRole("option").click();
+  await page.locator("#destination-options").locator(".place-select").click();
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator("#route-duration")).toContainText("32 min");
   await expect(page.locator("#storage-message")).toContainText(
@@ -276,7 +297,7 @@ test("switching alternatives replaces the single saved record", async ({
     }),
   );
   await page.locator("#destination").fill("Ziel");
-  await page.locator("#destination-options").getByRole("option").click();
+  await page.locator("#destination-options").locator(".place-select").click();
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await page.locator(".route-choice").last().click();
   await expect
@@ -284,7 +305,7 @@ test("switching alternatives replaces the single saved record", async ({
       page.evaluate(
         () =>
           new Promise<string>((resolve, reject) => {
-            const open = indexedDB.open("foldroute-offline", 1);
+            const open = indexedDB.open("foldroute-offline", 2);
             open.onerror = () => reject(open.error);
             open.onsuccess = () => {
               const request = open.result
@@ -304,4 +325,128 @@ test("switching alternatives replaces the single saved record", async ({
   await page.reload();
   await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
   await expect(page.locator(".route-choice")).toHaveCount(1);
+});
+
+test("help topics and links work offline under the deployment subpath", async ({
+  page,
+  context,
+}) => {
+  await page.goto(new URL("../", root).href);
+  await page.getByRole("link", { name: "Hilfe & FAQ", exact: true }).click();
+  await expect(page).toHaveURL(new URL("hilfe.html", root).href);
+  await production(page);
+  await page.locator("#tab-settings").click();
+  await context.setOffline(true);
+  await page.getByRole("link", { name: "Hilfe & FAQ", exact: true }).click();
+  for (const topic of [
+    "standort-pwa",
+    "standort-freigabe",
+    "standort-verfuegbar",
+    "installation",
+    "updates",
+    "offline",
+  ]) {
+    await page.goto(new URL(`hilfe.html#${topic}`, root).href);
+    await page.reload();
+    await expect(page.locator(`#${topic}`)).toHaveAttribute("open", "");
+    await expect(page.locator(`#${topic} summary`)).toBeInViewport();
+  }
+  for (const colorScheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [320, 390, 1660]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    }
+  }
+  await page.goto(new URL("hilfe.html#installation", root).href);
+  await page.locator("#installation summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#installation")).not.toHaveAttribute("open", "");
+  await page
+    .getByRole("link", { name: "Lizenzen & Datenquellen", exact: true })
+    .click();
+  await expect(
+    page.getByRole("link", { name: "Hilfe & FAQ", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Zum Webplaner", exact: true }).click();
+  await expect(page.locator("#offline-empty")).toBeVisible();
+});
+
+test("upgrades legacy database and settings while retaining the original offline journey", async ({
+  page,
+  context,
+}) => {
+  await page.goto(new URL("../", root).href);
+  const { foldingDuration, ...rest } = defaults;
+  const settings = { ...rest, foldDuration: 180, unfoldDuration: 120 };
+  const request = {
+    origin: { name: "Start", detail: "", latitude: 48.132, longitude: 11.5756 },
+    destination: {
+      name: "Ziel",
+      detail: "",
+      latitude: 48.175,
+      longitude: 11.6,
+    },
+    timing: "depart" as const,
+    time: Date.parse("2026-09-04T08:00:00Z") / 1000,
+  };
+  const snapshot = {
+    version: 1,
+    savedAt: request.time,
+    request,
+    settings,
+    journey: mapResponse(fixture.direct, request, defaults, baseVariants[0])
+      .journeys[0],
+  };
+  await page.evaluate(
+    async ({ snapshot, settings }) => {
+      localStorage.setItem("foldroute.routing.v1", JSON.stringify(settings));
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const open = indexedDB.open("foldroute-offline", 1);
+        open.onupgradeneeded = () => open.result.createObjectStore("state");
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("state", "readwrite");
+        tx.objectStore("state").put(snapshot, "last");
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(tx.error);
+      });
+      db.close();
+    },
+    { snapshot, settings },
+  );
+  await production(page);
+  await expect(page.locator("#open-saved")).toBeVisible();
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#foldingDuration")).toHaveValue("3");
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("foldroute.routing.v2")!),
+    ),
+  ).toMatchObject({ foldingDuration: 180 });
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(page.locator("#late-departure")).toBeHidden();
+  const persisted = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const r = indexedDB.open("foldroute-offline");
+      r.onsuccess = () => resolve(r.result);
+    });
+    const snapshot = await new Promise<any>((resolve) => {
+      const r = db.transaction("state").objectStore("state").get("last");
+      r.onsuccess = () => resolve(r.result);
+    });
+    const version = db.version;
+    db.close();
+    return { version, snapshot };
+  });
+  expect(persisted).toEqual({ version: 2, snapshot });
 });

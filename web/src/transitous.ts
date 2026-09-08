@@ -45,8 +45,8 @@ export function makeURL(
     (variant.direct
       ? 0
       : request.timing === "arrive"
-        ? -settings.unfoldDuration
-        : settings.foldDuration);
+        ? -settings.foldingDuration
+        : settings.foldingDuration);
   const values: Record<string, string> = {
     fromPlace: coord(request.origin),
     toPlace: coord(request.destination),
@@ -305,15 +305,15 @@ export function mapResponse(
               transition(
                 "fold",
                 leg.from,
-                leg.start - settings.foldDuration,
+                leg.start - settings.foldingDuration,
                 leg.start,
               ),
             );
           normalized.push(
             i < first
-              ? shifted(leg, -settings.foldDuration)
+              ? shifted(leg, -settings.foldingDuration)
               : i > last
-                ? shifted(leg, settings.unfoldDuration)
+                ? shifted(leg, settings.foldingDuration)
                 : leg,
           );
           if (i === last)
@@ -322,7 +322,7 @@ export function mapResponse(
                 "unfold",
                 leg.to,
                 leg.end,
-                leg.end + settings.unfoldDuration,
+                leg.end + settings.foldingDuration,
               ),
             );
         });
@@ -485,12 +485,17 @@ export class ApiClient {
       return first;
     }
   }
-  async searchPlaces(query: string, signal: AbortSignal): Promise<Place[]> {
+  async searchPlaces(
+    query: string,
+    signal: AbortSignal,
+    center?: Place | { latitude: number; longitude: number },
+  ): Promise<Place[]> {
     const url = new URL(`${service.api}/v1/geocode`);
     url.search = new URLSearchParams({
       text: query,
       language: "de",
-      numResults: "8",
+      numResults: "12",
+      ...(center ? { place: `${center.latitude},${center.longitude}` } : {}),
     }).toString();
     const raw = await this.json(url, signal);
     if (!Array.isArray(raw)) throw responseError();
@@ -501,7 +506,7 @@ export class ApiClient {
           typeof p.name === "string" &&
           validCoordinate({ latitude: p.lat, longitude: p.lon }),
       )
-      .slice(0, 8)
+      .slice(0, 12)
       .map((p) => ({
         name: p.name,
         detail: [

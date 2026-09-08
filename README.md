@@ -6,10 +6,10 @@ Dein Routenplaner für Faltrad und ÖPNV. FoldRoute kombiniert Rad, Bus und Bahn
 
 | Oberfläche | Aktueller Umfang |
 |---|---|
-| Webplaner / PWA | Routenplanung direkt im Browser, anpassbare Einstellungen und auf Wunsch die letzte Reise offline ansehen |
+| Webplaner / PWA | Routenplanung, Favoriten, letzte Orte, gemeinsame Routing-Einstellungen und letzte Reise offline ansehen |
 | iPhone-App | Nativer iOS-Prototyp mit Navigation, Abbiegehinweisen, Sprachansagen, Haptik und ÖPNV-Aktualisierungen während der Fahrt |
 
-Die iPhone-App ist noch in Entwicklung und nicht im App Store. Navigation in der PWA ist **noch nicht umgesetzt**. Web und iPhone-App unterscheiden sich auch bei einzelnen Einstellungen und deren Standardwerten. Eine direkte Übergabe einer Webroute an die iPhone-App gibt es derzeit nicht.
+Die iPhone-App ist noch in Entwicklung und nicht im App Store. Navigation in der PWA ist **noch nicht umgesetzt**. Gemeinsame Routing-Einstellungen und Auswahlregeln sind angeglichen. Ortssuchanbieter unterscheiden sich; Fahrtenverlauf und automatische ÖPNV-Aktualisierung bleiben der iPhone-App vorbehalten. Eine direkte Übergabe einer Webroute an die iPhone-App gibt es derzeit nicht.
 
 ## Lokal ausprobieren
 

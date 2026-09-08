@@ -1,16 +1,22 @@
 import {
   validSettings,
+  validLegacySettings,
+  type LegacyRoutingSettings,
   type Journey,
   type RouteRequest,
   type RoutingSettings,
 } from "./model";
-export interface SavedJourney {
-  version: 1;
+import { localDatabase } from "./storage";
+interface Snapshot {
   savedAt: number;
   request: RouteRequest;
-  settings: RoutingSettings;
   journey: Journey;
 }
+export type SavedJourney = Snapshot &
+  (
+    | { version: 1; settings: LegacyRoutingSettings }
+    | { version: 2; settings: RoutingSettings }
+  );
 const object = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === "object";
 const point = (p: unknown) =>
@@ -27,9 +33,10 @@ const place = (p: unknown) =>
 export function validSnapshot(value: unknown): value is SavedJourney {
   if (
     !object(value) ||
-    value.version !== 1 ||
     !Number.isFinite(value.savedAt) ||
-    !validSettings(value.settings)
+    !(value.version === 1
+      ? validLegacySettings(value.settings)
+      : value.version === 2 && validSettings(value.settings))
   )
     return false;
   const r = value.request,
@@ -74,29 +81,12 @@ export function validSnapshot(value: unknown): value is SavedJourney {
   );
 }
 export class OfflineStore {
-  private database?: Promise<IDBDatabase>;
-  private open() {
-    return (this.database ??= new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("foldroute-offline", 1);
-      request.onupgradeneeded = () => request.result.createObjectStore("state");
-      request.onerror = () => reject(request.error);
-      request.onblocked = () =>
-        reject(new Error("Speicher wird von einem anderen Fenster verwendet."));
-      request.onsuccess = () => {
-        request.result.onversionchange = () => {
-          request.result.close();
-          this.database = undefined;
-        };
-        resolve(request.result);
-      };
-    }));
-  }
   async read(): Promise<{
     enabled: boolean;
     snapshot?: SavedJourney;
     invalid: boolean;
   }> {
-    const db = await this.open();
+    const db = await localDatabase.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction("state", "readwrite"),
         store = tx.objectStore("state");
@@ -123,9 +113,11 @@ export class OfflineStore {
     });
   }
   async save(snapshot: SavedJourney): Promise<boolean> {
+    const generation = localDatabase.generation;
     if (!validSnapshot(snapshot))
       throw new Error("Reise kann nicht offline gespeichert werden.");
-    const db = await this.open();
+    const db = await localDatabase.open();
+    if (generation !== localDatabase.generation) return false;
     return new Promise((resolve, reject) => {
       const tx = db.transaction("state", "readwrite"),
         store = tx.objectStore("state"),
@@ -142,7 +134,9 @@ export class OfflineStore {
     });
   }
   async setEnabled(enabled: boolean): Promise<void> {
-    const db = await this.open();
+    const generation = localDatabase.generation;
+    const db = await localDatabase.open();
+    if (generation !== localDatabase.generation) return;
     return new Promise((resolve, reject) => {
       const tx = db.transaction("state", "readwrite"),
         store = tx.objectStore("state");
@@ -153,7 +147,7 @@ export class OfflineStore {
     });
   }
   async clear(): Promise<void> {
-    const db = await this.open();
+    const db = await localDatabase.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction("state", "readwrite");
       tx.objectStore("state").delete("last");

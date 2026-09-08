@@ -243,7 +243,7 @@ input[type="search"] {
 .suggestions li:last-child {
   border: 0;
 }
-.suggestions li > span:nth-child(2) {
+.suggestions .place-select > span:last-child {
   flex: 1;
   min-width: 0;
 }
@@ -983,4 +983,104 @@ dialog.compact .dialog-actions {
   max-height: max(140px, calc(var(--visual-height, 100dvh) - 320px));
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+.location-error p {
+  margin: 0 0 8px;
+}
+.location-error a,
+.location-error button {
+  color: #ffd43b;
+}
+.location-error button {
+  margin-left: 20px;
+}
+.location-error {
+  max-height: calc(var(--visual-height, 100dvh) - var(--tabs) - 40px);
+  overflow: auto;
+}
+.suggestions li[role="row"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+}
+.suggestions li[role="row"] > [role="gridcell"]:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.suggestions .place-select {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.place-select > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.suggestions .place-favorite,
+.suggestions .place-prefill {
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 25px;
+}
+.suggestions .place-favorite[aria-pressed="true"] {
+  color: #ad7600;
+}
+.suggestions li.suggestion-heading {
+  font-size: 12px;
+  font-weight: 700;
+  padding-top: 16px;
+}
+.suggestions li.active {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+#route-arrival {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+.route-time {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 110px;
+}
+.route-time small {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+#late-departure {
+  font-size: 13px;
+}
+#delete-data-dialog {
+  max-width: 440px;
+  border-radius: 20px;
+  padding: 24px;
+}
+@media (prefers-color-scheme: dark) {
+  .suggestions .place-favorite[aria-pressed="true"] {
+    color: #ffd43b;
+  }
+}
+
+.suggestions li.suggestion-heading {
+  min-height: 0;
+  cursor: default;
+}
+.suggestions li[role="row"] > [role="gridcell"]:not(:first-child) {
+  flex: 0 0 44px;
 }

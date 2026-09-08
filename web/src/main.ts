@@ -4,6 +4,7 @@ import {
   ranges,
   modes,
   validSettings,
+  migrateSettings,
   errorText,
   type RoutingSettings,
   type RouteRequest,
@@ -11,18 +12,20 @@ import {
   type Timing,
 } from "./model";
 import { ApiClient } from "./transitous";
-import { PlaceSearch, locate } from "./search";
+import { PlaceSearch, locate, clearSearchLocation } from "./search";
 import { PlanningSession, type PlanningState } from "./planning-state";
 import { RouteMap } from "./map-view";
 import { JourneyView } from "./journey-view";
 import { OfflineStore, type SavedJourney } from "./offline";
 import { el, node, icon, localDate, clock, dateLabel } from "./ui";
 import { setupPWA } from "./pwa";
+import { PlaceBook } from "./places";
+import { localDatabase } from "./storage";
 
 type View = "search" | "map" | "settings";
 let view: View = "search",
-  settings: RoutingSettings = structuredClone(defaults),
-  settingsDraft = structuredClone(settings);
+  settings: RoutingSettings = structuredClone(defaults);
+let settingsReplanPending = false;
 let originOverride: Place | undefined,
   timing: Timing = "now",
   time = Date.now() / 1000;
@@ -35,16 +38,25 @@ let beforeSettings: View = "search",
   mapLocationRequest: AbortController | undefined;
 const api = new ApiClient(),
   store = new OfflineStore(),
+  book = new PlaceBook(),
   dialog = el<HTMLDialogElement>("adjust-dialog");
-const storageKey = "foldroute.routing.v1";
+const storageKey = "foldroute.routing.v2";
+const legacyStorageKey = "foldroute.routing.v1";
 try {
-  const value = JSON.parse(localStorage.getItem(storageKey) ?? "null");
-  if (validSettings(value)) settings = value;
+  const current = localStorage.getItem(storageKey),
+    legacy = localStorage.getItem(legacyStorageKey);
+  const value = migrateSettings(JSON.parse(current ?? legacy ?? "null"));
+  if (value) {
+    settings = value;
+    if (!current && legacy) {
+      localStorage.setItem(storageKey, JSON.stringify(settings));
+      localStorage.removeItem(legacyStorageKey);
+    }
+  }
 } catch {
   el("storage-message").textContent =
     "Einstellungen gelten nur für diese Sitzung.";
 }
-settingsDraft = structuredClone(settings);
 document
   .querySelectorAll<HTMLElement>("[data-icon]")
   .forEach((element) => element.append(icon(element.dataset.icon!)));
@@ -62,6 +74,15 @@ const routeMap = new RouteMap(
 const journeyView = new JourneyView((id) => session.select(id));
 const session = new PlanningSession(api, renderPlanning);
 function show(next: View, push = true) {
+  const replan =
+    view === "settings" &&
+    next !== "settings" &&
+    settingsReplanPending &&
+    !!session.state.request;
+  if (replan) {
+    settingsReplanPending = false;
+    next = "map";
+  }
   if (view === next) {
     if (next === "map") requestAnimationFrame(() => routeMap.resize());
     return;
@@ -69,6 +90,7 @@ function show(next: View, push = true) {
   if (next !== "search") destination.cancel();
   if (next !== "map") {
     mapLocationRequest?.abort();
+    el("map-location-error").hidden = true;
     el<HTMLButtonElement>("map-location").disabled = false;
   }
   view = next;
@@ -82,10 +104,15 @@ function show(next: View, push = true) {
   if (next === "settings")
     el("tab-settings").setAttribute("aria-current", "page");
   if (push) history.pushState({ view: next }, "", location.href);
+  if (next === "search") {
+    destination.activate();
+    updateSearchEmpty();
+  }
   if (next === "map") {
     routeMap.show(session.state.journeys, session.state.selected);
     requestAnimationFrame(() => routeMap.resize());
   }
+  if (replan) void refreshRoute();
 }
 history.replaceState({ view: "search" }, "", location.href);
 window.addEventListener("popstate", (event) => {
@@ -110,9 +137,10 @@ function savedUI() {
   el<HTMLInputElement>("offline-enabled").checked = offlineEnabled;
 }
 async function persist(snapshot: SavedJourney) {
+  const generation = storageGeneration;
   try {
     if (await store.save(snapshot)) {
-      if (offlineEnabled) {
+      if (offlineEnabled && generation === storageGeneration) {
         saved = snapshot;
         savedUI();
         el("storage-message").textContent =
@@ -130,15 +158,20 @@ async function persist(snapshot: SavedJourney) {
 function renderPlanning(state: PlanningState) {
   journeyView.render(state);
   if (view === "map") routeMap.show(state.journeys, state.selected);
-  if (state.selected && state.request && !state.restored) {
+  if (
+    state.selected &&
+    state.request &&
+    state.resultSettings &&
+    !state.restored
+  ) {
     const key = JSON.stringify([state.selected.id, state.queriedAt]);
     if (key !== persistKey) {
       persistKey = key;
       activeSnapshot = {
-        version: 1,
+        version: 2,
         savedAt: state.queriedAt,
         request: structuredClone(state.request),
-        settings: structuredClone(settings),
+        settings: structuredClone(state.resultSettings),
         journey: state.selected,
       };
       if (offlineEnabled) void persist(activeSnapshot);
@@ -154,21 +187,34 @@ const destination = new PlaceSearch(
     destination.input.blur();
     void start(place);
   },
+  book,
+  toast,
 );
-destination.input.addEventListener(
-  "input",
-  () => (el("search-empty").hidden = destination.input.value.length > 0),
+function updateSearchEmpty() {
+  el("search-empty").hidden =
+    destination.input.value.trim().length > 0 || book.entries.length > 0;
+}
+destination.input.addEventListener("input", updateSearchEmpty);
+book.subscribe(updateSearchEmpty);
+const draftOrigin = new PlaceSearch(
+  "origin",
+  api,
+  el("adjust-status"),
+  (place) => {
+    cancelDraftLocation();
+    useLocation = place.name === "Aktueller Standort";
+    keepDialogFieldVisible();
+  },
+  book,
+  toast,
 );
-const draftOrigin = new PlaceSearch("origin", api, el("adjust-status"), () => {
-  cancelDraftLocation();
-  useLocation = false;
-  keepDialogFieldVisible();
-});
 const draftDestination = new PlaceSearch(
   "adjust-destination",
   api,
   el("adjust-status"),
   () => keepDialogFieldVisible(),
+  book,
+  toast,
 );
 let useLocation = true;
 let draftLocationRequest: AbortController | undefined;
@@ -182,6 +228,7 @@ function contextUI() {
     `${originOverride?.name ?? "Aktueller Standort"} · ${timing === "now" ? "Jetzt" : `${timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(time)}, ${clock(time)}`}`;
 }
 async function start(place: Place) {
+  settingsReplanPending = false;
   if (!navigator.onLine) {
     el("place-status").textContent =
       "Für neue Routen brauchst du eine Internetverbindung.";
@@ -208,6 +255,7 @@ async function start(place: Place) {
   if (result === "location-error") {
     openAdjust(place);
     el("adjust-status").textContent = session.state.message;
+    el("adjust-location-help").hidden = false;
     draftOrigin.input.focus();
   }
 }
@@ -225,7 +273,10 @@ function openAdjust(target?: Place) {
   );
   updateTiming();
   el("adjust-status").textContent = "";
+  el("adjust-location-help").hidden = true;
   dialog.showModal();
+  if (!draftOrigin.value) draftOrigin.activate();
+  if (!draftDestination.value) draftDestination.activate();
   el<HTMLButtonElement>("update-now").disabled = true;
 }
 function closeAdjust() {
@@ -244,7 +295,11 @@ dialog.addEventListener("close", () => {
 el("search-adjust").onclick = () => openAdjust();
 el("adjust-route").onclick = () => openAdjust();
 el("cancel-adjust").onclick = closeAdjust;
+dialog.addEventListener("input", () => {
+  el("adjust-location-help").hidden = true;
+});
 el("origin-location").onclick = async () => {
+  el("adjust-location-help").hidden = true;
   cancelDraftLocation();
   const controller = new AbortController();
   draftLocationRequest = controller;
@@ -255,13 +310,17 @@ el("origin-location").onclick = async () => {
   el("adjust-status").textContent =
     "Standort wird ermittelt … Bitte Zugriff erlauben, falls danach gefragt wird.";
   try {
-    await locate(controller.signal);
-    if (!controller.signal.aborted)
+    const place = await locate(controller.signal);
+    if (!controller.signal.aborted) {
+      draftOrigin.set(place);
       el("adjust-status").textContent =
         "Standort verfügbar. Du kannst jetzt die Route berechnen.";
+    }
   } catch (error) {
-    if (!controller.signal.aborted)
+    if (!controller.signal.aborted) {
       el("adjust-status").textContent = errorText(error);
+      el("adjust-location-help").hidden = false;
+    }
   } finally {
     if (draftLocationRequest === controller) cancelDraftLocation();
   }
@@ -278,7 +337,7 @@ el("swap").onclick = () => {
   const origin = draftOrigin.value;
   draftOrigin.set(draftDestination.value);
   draftDestination.set(origin);
-  useLocation = false;
+  useLocation = draftOrigin.value?.name === "Aktueller Standort";
 };
 function updateTiming() {
   const hidden = el<HTMLSelectElement>("timing").value === "now";
@@ -304,7 +363,7 @@ function readContext(): boolean {
     selectedTiming !== "now" &&
     (!Number.isFinite(seconds) ||
       localDate(date) !== el<HTMLInputElement>("when").value ||
-      seconds < Date.now() / 1000 - 60)
+      seconds < Date.now() / 1000)
   ) {
     el("adjust-status").textContent =
       "Bitte einen aktuellen oder zukünftigen Zeitpunkt wählen.";
@@ -353,9 +412,10 @@ el("route-form").onsubmit = async (event) => {
   if (result === "location-error") {
     openAdjust(target);
     el("adjust-status").textContent = session.state.message;
+    el("adjust-location-help").hidden = false;
   }
 };
-el("refresh-route").onclick = async () => {
+async function refreshRoute() {
   const request = session.state.request;
   if (!request) return;
   const result = await session.calculate(
@@ -366,9 +426,12 @@ el("refresh-route").onclick = async () => {
   if (result === "location-error") {
     openAdjust(request.destination);
     el("adjust-status").textContent = session.state.message;
+    el("adjust-location-help").hidden = false;
   }
-};
+}
+el("refresh-route").onclick = () => void refreshRoute();
 el("close-route").onclick = () => {
+  settingsReplanPending = false;
   session.clear();
   mapLocationRequest?.abort();
   destination.set();
@@ -381,7 +444,11 @@ el("close-route").onclick = () => {
   show("search");
 };
 el("cancel").onclick = () => session.stop();
+el("dismiss-location-error").onclick = () => {
+  el("map-location-error").hidden = true;
+};
 el("map-location").onclick = async () => {
+  el("map-location-error").hidden = true;
   mapLocationRequest?.abort();
   mapLocationRequest = new AbortController();
   const signal = mapLocationRequest.signal;
@@ -390,7 +457,10 @@ el("map-location").onclick = async () => {
   try {
     routeMap.center(await locate(signal));
   } catch (error) {
-    if (!signal.aborted) toast(errorText(error));
+    if (!signal.aborted) {
+      el("map-location-error-text").textContent = errorText(error);
+      el("map-location-error").hidden = false;
+    }
   } finally {
     if (!signal.aborted) button.disabled = false;
   }
@@ -400,8 +470,7 @@ const labels: Record<keyof typeof ranges, string> = {
   cyclingSpeedKilometersPerHour: "Radgeschwindigkeit",
   maxCyclingAccessMinutes: "Rad zum / vom ÖPNV",
   maxWalkingMinutes: "Fußweg zum / vom ÖPNV",
-  foldDuration: "Zeit zum Falten",
-  unfoldDuration: "Zeit zum Entfalten",
+  foldingDuration: "Falten / Entfalten",
   maxBikeTransfers: "Radverbindungen zwischen Linien",
   maxBikeTransferMinutes: "Je Radverbindung",
 };
@@ -409,7 +478,7 @@ function settingsUI() {
   el("settings-fields").replaceChildren();
   for (const [key, [min, max, step]] of Object.entries(ranges)) {
     const k = key as keyof typeof ranges,
-      divisor = k === "foldDuration" || k === "unfoldDuration" ? 60 : 1;
+      divisor = k === "foldingDuration" ? 60 : 1;
     const label = node("label", "", "setting-row"),
       copy = node("span", labels[k]);
     copy.append(
@@ -428,11 +497,11 @@ function settingsUI() {
     input.min = String(min / divisor);
     input.max = String(max / divisor);
     input.step = String(step / divisor);
-    input.value = String(settingsDraft[k] / divisor);
+    input.value = String(settings[k] / divisor);
     input.required = true;
     input.oninput = () => {
       if (input.checkValidity())
-        settingsDraft[k] = Number(input.value) * divisor;
+        applySettings({ ...settings, [k]: Number(input.value) * divisor });
     };
     label.append(copy, input);
     el("settings-fields").append(label);
@@ -442,78 +511,123 @@ function settingsUI() {
     const label = node("label", "", "toggle-row"),
       input = node("input");
     input.type = "checkbox";
-    input.checked = !settingsDraft.excludedTransitModes.includes(
+    input.checked = !settings.excludedTransitModes.includes(
       key as keyof typeof modes,
     );
     input.dataset.mode = key;
     input.onchange = () => {
-      settingsDraft.excludedTransitModes = Array.from(
+      const excludedTransitModes = Array.from(
         el("modes").querySelectorAll<HTMLInputElement>("input"),
       )
         .filter((i) => !i.checked)
         .map((i) => i.dataset.mode as keyof typeof modes);
+      applySettings({ ...settings, excludedTransitModes });
     };
     label.append(node("span", mode.name), input);
     el("modes").append(label);
   }
+  settingsSummary();
+}
+function settingsSummary() {
   el("settings-summary").textContent =
-    `${settings.cyclingSpeedKilometersPerHour} km/h · ${settings.foldDuration / 60} / ${settings.unfoldDuration / 60} min Falten / Entfalten`;
-  el("save-settings").textContent = session.state.selected
-    ? "Übernehmen & neu berechnen"
-    : "Einstellungen übernehmen";
+    `${settings.cyclingSpeedKilometersPerHour} km/h · ${settings.foldingDuration / 60} min je Falten und Entfalten. Änderungen werden gespeichert; beim Verlassen wird neu berechnet.`;
+}
+function applySettings(next: RoutingSettings) {
+  if (!validSettings(next) || JSON.stringify(settings) === JSON.stringify(next))
+    return;
+  settings = structuredClone(next);
+  if (session.state.request) {
+    session.invalidateForSettings();
+    settingsReplanPending = true;
+    activeSnapshot = undefined;
+    persistKey = "";
+  }
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(settings));
+    localStorage.removeItem(legacyStorageKey);
+  } catch {
+    toast(
+      "Einstellungen konnten nicht dauerhaft gespeichert werden. Sie gelten für diese Sitzung.",
+    );
+  }
+  settingsSummary();
 }
 function openSettings() {
   beforeSettings = view === "settings" ? beforeSettings : view;
-  settingsDraft = structuredClone(settings);
   settingsUI();
   show("settings");
 }
 el("tab-settings").onclick = openSettings;
 el("header-settings").onclick = openSettings;
+el("late-settings").onclick = openSettings;
 el("tab-route").onclick = () => {
-  show(session.state.selected || session.state.busy ? "map" : "search");
+  show(session.state.request ? "map" : "search");
 };
-el("discard-settings").onclick = () => show(beforeSettings);
 el("reset-settings").onclick = () => {
-  settingsDraft = structuredClone(defaults);
+  applySettings(structuredClone(defaults));
   settingsUI();
 };
-el("settings-form").onsubmit = async (event) => {
+el("settings-form").onsubmit = (event) => {
   event.preventDefault();
-  if (!validSettings(settingsDraft)) return;
-  const changed = JSON.stringify(settings) !== JSON.stringify(settingsDraft);
-  settings = structuredClone(settingsDraft);
+  show(session.state.request ? "map" : beforeSettings);
+};
+el("clear-data").onclick = () => {
+  el("delete-data-status").textContent = "";
+  el<HTMLDialogElement>("delete-data-dialog").showModal();
+};
+el("cancel-delete-data").onclick = () =>
+  el<HTMLDialogElement>("delete-data-dialog").close();
+el("confirm-delete-data").onclick = async () => {
+  const button = el<HTMLButtonElement>("confirm-delete-data");
+  button.disabled = true;
+  storageGeneration++;
+  settingsReplanPending = false;
+  session.clear();
+  destination.cancel();
+  draftOrigin.cancel();
+  draftDestination.cancel();
+  cancelDraftLocation();
+  mapLocationRequest?.abort();
+  activeSnapshot = undefined;
+  persistKey = "";
+  book.reset();
+  clearSearchLocation();
   try {
-    localStorage.setItem(storageKey, JSON.stringify(settings));
+    await localDatabase.clearAll();
+    localStorage.removeItem(storageKey);
+    localStorage.removeItem(legacyStorageKey);
+    saved = undefined;
+    offlineEnabled = true;
+    settings = structuredClone(defaults);
+    originOverride = undefined;
+    timing = "now";
+    time = Date.now() / 1000;
+    destination.set();
+    draftOrigin.set();
+    draftDestination.set();
+    savedUI();
+    settingsUI();
+    contextUI();
+    el<HTMLDialogElement>("delete-data-dialog").close();
+    show("search");
+    toast("Alle lokalen Daten gelöscht.");
   } catch {
-    el("storage-message").textContent =
-      "Einstellungen gelten nur für diese Sitzung.";
-    toast("Einstellungen konnten nicht dauerhaft gespeichert werden.");
-  }
-  show(session.state.selected ? "map" : beforeSettings);
-  settingsUI();
-  if (changed && session.state.request) {
-    if (navigator.onLine)
-      await session.calculate(
-        session.state.request,
-        settings,
-        session.state.request.origin.name === "Aktueller Standort",
-      );
-    else
-      toast(
-        "Einstellungen übernommen. Neue Berechnung ist wieder online möglich.",
-      );
+    el("delete-data-status").textContent =
+      "Daten konnten nicht vollständig gelöscht werden. Bitte erneut versuchen.";
+  } finally {
+    button.disabled = false;
   }
 };
 el("offline-enabled").onchange = async () => {
   const checkbox = el<HTMLInputElement>("offline-enabled");
   const enabled = checkbox.checked,
     previous = offlineEnabled;
-  storageGeneration++;
+  const generation = ++storageGeneration;
   checkbox.disabled = true;
   offlineEnabled = enabled;
   try {
     await store.setEnabled(enabled);
+    if (generation !== storageGeneration) return;
     if (!enabled) {
       saved = undefined;
       el("storage-message").textContent =
@@ -525,6 +639,7 @@ el("offline-enabled").onchange = async () => {
     }
     savedUI();
   } catch {
+    if (generation !== storageGeneration) return;
     offlineEnabled = previous;
     savedUI();
     el("storage-message").textContent =
@@ -537,6 +652,7 @@ el("offline-enabled").onchange = async () => {
   }
 };
 el("delete-saved").onclick = async () => {
+  storageGeneration++;
   try {
     await store.clear();
     saved = undefined;
@@ -589,6 +705,14 @@ void store
     el("storage-message").textContent =
       "Offline-Speicher nicht verfügbar. Online-Planung bleibt möglich.";
   });
+void book
+  .load()
+  .catch(() =>
+    toast(
+      "Favoriten und letzte Orte konnten nicht geladen werden. Online-Planung bleibt möglich.",
+    ),
+  );
+destination.activate();
 settingsUI();
 contextUI();
 connectionChanged();

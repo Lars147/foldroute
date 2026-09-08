@@ -201,5 +201,283 @@
         "transfers" : 0
       }
     ]
-  }
+  },
+  "scenarios" : [
+    {
+      "duration" : 60,
+      "expected" : [
+        {
+          "arrival" : 1788511860,
+          "departure" : 1788508920,
+          "id" : "multimodal-1|BIKE|BIKE",
+          "isDirect" : false,
+          "legs" : [
+            {
+              "distance" : 1250,
+              "end" : 1788509340,
+              "kind" : "bike",
+              "start" : 1788508920
+            },
+            {
+              "distance" : 0,
+              "end" : 1788509700,
+              "kind" : "fold",
+              "start" : 1788509640
+            },
+            {
+              "distance" : 0,
+              "end" : 1788510900,
+              "kind" : "transit",
+              "start" : 1788509700
+            },
+            {
+              "distance" : 0,
+              "end" : 1788510960,
+              "kind" : "unfold",
+              "start" : 1788510900
+            },
+            {
+              "distance" : 2100,
+              "end" : 1788511860,
+              "kind" : "bike",
+              "start" : 1788511260
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "depart"
+    },
+    {
+      "duration" : 60,
+      "expected" : [
+        {
+          "arrival" : 1788511860,
+          "departure" : 1788508920,
+          "id" : "multimodal-1|BIKE|BIKE",
+          "isDirect" : false,
+          "legs" : [
+            {
+              "distance" : 1250,
+              "end" : 1788509340,
+              "kind" : "bike",
+              "start" : 1788508920
+            },
+            {
+              "distance" : 0,
+              "end" : 1788509700,
+              "kind" : "fold",
+              "start" : 1788509640
+            },
+            {
+              "distance" : 0,
+              "end" : 1788510900,
+              "kind" : "transit",
+              "start" : 1788509700
+            },
+            {
+              "distance" : 0,
+              "end" : 1788510960,
+              "kind" : "unfold",
+              "start" : 1788510900
+            },
+            {
+              "distance" : 2100,
+              "end" : 1788511860,
+              "kind" : "bike",
+              "start" : 1788511260
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788516000,
+      "timing" : "arrive"
+    },
+    {
+      "duration" : 150,
+      "expected" : [
+        {
+          "arrival" : 1788511950,
+          "departure" : 1788508830,
+          "id" : "multimodal-1|BIKE|BIKE",
+          "isDirect" : false,
+          "legs" : [
+            {
+              "distance" : 1250,
+              "end" : 1788509250,
+              "kind" : "bike",
+              "start" : 1788508830
+            },
+            {
+              "distance" : 0,
+              "end" : 1788509700,
+              "kind" : "fold",
+              "start" : 1788509550
+            },
+            {
+              "distance" : 0,
+              "end" : 1788510900,
+              "kind" : "transit",
+              "start" : 1788509700
+            },
+            {
+              "distance" : 0,
+              "end" : 1788511050,
+              "kind" : "unfold",
+              "start" : 1788510900
+            },
+            {
+              "distance" : 2100,
+              "end" : 1788511950,
+              "kind" : "bike",
+              "start" : 1788511350
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "depart"
+    },
+    {
+      "duration" : 150,
+      "expected" : [
+        {
+          "arrival" : 1788511950,
+          "departure" : 1788508830,
+          "id" : "multimodal-1|BIKE|BIKE",
+          "isDirect" : false,
+          "legs" : [
+            {
+              "distance" : 1250,
+              "end" : 1788509250,
+              "kind" : "bike",
+              "start" : 1788508830
+            },
+            {
+              "distance" : 0,
+              "end" : 1788509700,
+              "kind" : "fold",
+              "start" : 1788509550
+            },
+            {
+              "distance" : 0,
+              "end" : 1788510900,
+              "kind" : "transit",
+              "start" : 1788509700
+            },
+            {
+              "distance" : 0,
+              "end" : 1788511050,
+              "kind" : "unfold",
+              "start" : 1788510900
+            },
+            {
+              "distance" : 2100,
+              "end" : 1788511950,
+              "kind" : "bike",
+              "start" : 1788511350
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788516000,
+      "timing" : "arrive"
+    },
+    {
+      "duration" : 360,
+      "expected" : [
+        {
+          "arrival" : 1788512160,
+          "departure" : 1788508620,
+          "id" : "multimodal-1|BIKE|BIKE",
+          "isDirect" : false,
+          "legs" : [
+            {
+              "distance" : 1250,
+              "end" : 1788509040,
+              "kind" : "bike",
+              "start" : 1788508620
+            },
+            {
+              "distance" : 0,
+              "end" : 1788509700,
+              "kind" : "fold",
+              "start" : 1788509340
+            },
+            {
+              "distance" : 0,
+              "end" : 1788510900,
+              "kind" : "transit",
+              "start" : 1788509700
+            },
+            {
+              "distance" : 0,
+              "end" : 1788511260,
+              "kind" : "unfold",
+              "start" : 1788510900
+            },
+            {
+              "distance" : 2100,
+              "end" : 1788512160,
+              "kind" : "bike",
+              "start" : 1788511560
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "depart"
+    },
+    {
+      "duration" : 360,
+      "expected" : [
+        {
+          "arrival" : 1788512160,
+          "departure" : 1788508620,
+          "id" : "multimodal-1|BIKE|BIKE",
+          "isDirect" : false,
+          "legs" : [
+            {
+              "distance" : 1250,
+              "end" : 1788509040,
+              "kind" : "bike",
+              "start" : 1788508620
+            },
+            {
+              "distance" : 0,
+              "end" : 1788509700,
+              "kind" : "fold",
+              "start" : 1788509340
+            },
+            {
+              "distance" : 0,
+              "end" : 1788510900,
+              "kind" : "transit",
+              "start" : 1788509700
+            },
+            {
+              "distance" : 0,
+              "end" : 1788511260,
+              "kind" : "unfold",
+              "start" : 1788510900
+            },
+            {
+              "distance" : 2100,
+              "end" : 1788512160,
+              "kind" : "bike",
+              "start" : 1788511560
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788516000,
+      "timing" : "arrive"
+    }
+  ]
 }

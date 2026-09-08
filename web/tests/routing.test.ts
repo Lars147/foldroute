@@ -38,7 +38,7 @@ const request: RouteRequest = {
 };
 const settings = { ...defaults, maxBikeTransfers: 0 };
 // Match the settings used by scripts/Parity.swift, independently of web defaults.
-const nativeSettings = { ...settings, foldDuration: 180, unfoldDuration: 180 };
+const nativeSettings = { ...settings, foldingDuration: 180 };
 const snapshot = (j: Journey) => ({
   id: j.id,
   departure: j.departure,
@@ -53,11 +53,14 @@ const snapshot = (j: Journey) => ({
   })),
 });
 const mapped = (routingSettings = settings) =>
-  mapResponse(fixture.multimodal, request, routingSettings, baseVariants[2]).journeys;
+  mapResponse(fixture.multimodal, request, routingSettings, baseVariants[2])
+    .journeys;
 afterEach(() => vi.useRealTimers());
 describe("Shared Swift fixtures", () => {
   it("matches native multimodal mapping and folding timestamps", () =>
-    expect(mapped(nativeSettings).map(snapshot)).toEqual(fixture.expectedTransit));
+    expect(mapped(nativeSettings).map(snapshot)).toEqual(
+      fixture.expectedTransit,
+    ));
   it("matches native final selection with direct cycling", () => {
     const all = [
       ...mapped(nativeSettings),
@@ -68,6 +71,23 @@ describe("Shared Swift fixtures", () => {
       fixture.expected,
     );
   });
+  for (const scenario of fixture.scenarios)
+    it(`matches native ${scenario.timing} with ${scenario.duration}s shared folding`, () => {
+      const query = {
+        ...request,
+        timing: scenario.timing as "depart" | "arrive",
+        time: scenario.time,
+      };
+      const mapped = mapResponse(
+        fixture.multimodal,
+        query,
+        { ...settings, foldingDuration: scenario.duration },
+        baseVariants[2],
+      ).journeys;
+      expect(selectJourneys(mapped, query.timing).map(snapshot)).toEqual(
+        scenario.expected,
+      );
+    });
   it("rejects bike access for a walking-only variant", () =>
     expect(
       mapResponse(fixture.multimodal, request, settings, baseVariants[1])
@@ -77,14 +97,14 @@ describe("Shared Swift fixtures", () => {
     const j = mapResponse(
       fixture.multimodal,
       request,
-      { ...settings, foldDuration: 60, unfoldDuration: 30 },
+      { ...settings, foldingDuration: 60 },
       baseVariants[2],
     ).journeys[0];
     expect(
       j.legs.find((l) => l.kind === "fold")!.end -
         j.legs.find((l) => l.kind === "fold")!.start,
     ).toBe(60);
-    expect(j.arrival - mapped()[0].arrival).toBe(-90);
+    expect(j.arrival - mapped()[0].arrival).toBe(-120);
   });
   it("excludes cancelled services", () => {
     const f = structuredClone(fixture.multimodal);
@@ -112,7 +132,7 @@ describe("Requests and service resilience", () => {
         settings,
         baseVariants[2],
       ).searchParams.get("time"),
-    ).toBe("2026-09-04T07:58:00Z");
+    ).toBe("2026-09-04T07:57:00Z");
   });
   it("passes limits, speed and exclusions", () => {
     const u = makeURL(
@@ -209,7 +229,7 @@ describe("Geometry and options", () => {
     ).toHaveLength(2));
   it("rejects out-of-range settings", () => {
     expect(validSettings(defaults)).toBe(true);
-    expect(validSettings({ ...defaults, foldDuration: 0 })).toBe(false);
+    expect(validSettings({ ...defaults, foldingDuration: 0 })).toBe(false);
     expect(
       validSettings({ ...defaults, excludedTransitModes: ["invalid"] }),
     ).toBe(false);
@@ -262,9 +282,9 @@ describe("Internal bike connections", () => {
     ]);
     const seed = seeds([base], req, defaults, 0)[0];
     const part = journey("part", [
-      leg("bike", a, b, 400, 700),
-      leg("fold", b, b, 700, 880),
-      leg("transit", b, destination, 880, 1000),
+      leg("bike", a, b, 460, 760),
+      leg("fold", b, b, 760, 940),
+      leg("transit", b, destination, 940, 1060),
     ]);
     const result = compose(seed, part, req, defaults);
     expect(result?.legs.map((l) => l.kind)).toEqual([
@@ -297,8 +317,8 @@ describe("Internal bike connections", () => {
     const seed = seeds([base], req, defaults, 0)[0];
     const part = journey("part", [
       leg("transit", origin, a, 0, 100),
-      leg("unfold", a, a, 100, 220),
-      leg("bike", a, b, 220, 600),
+      leg("unfold", a, a, 100, 280),
+      leg("bike", a, b, 280, 600),
     ]);
     expect(compose(seed, part, req, defaults)?.legs.map((l) => l.kind)).toEqual(
       ["transit", "unfold", "bike", "fold", "wait", "transit"],

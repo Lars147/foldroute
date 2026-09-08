@@ -38,8 +38,25 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
              "transfers": j.transfers, "isDirect": j.isDirect,
              "legs": j.legs.map { l -> [String: Any] in ["kind": l.kind.rawValue, "start": l.startTime.timeIntervalSince1970, "end": l.endTime.timeIntervalSince1970, "distance": l.distance] }]
         }
+        var scenarios: [[String: Any]] = []
+        for duration in [60.0, 150.0, 360.0] {
+            for arrival in [false, true] {
+                var custom = settings
+                custom.foldingDuration = duration
+                let time = arrival ? date.addingTimeInterval(7200) : date
+                let query = RouteRequest(origin: origin, destination: destination,
+                    timing: arrival ? .arriveBy(time) : .departAt(time))
+                let results = try await transitClient.planAlternatives(query, settings: custom)
+                scenarios.append(["duration": duration, "timing": arrival ? "arrive" : "depart",
+                    "time": time.timeIntervalSince1970, "expected": results.map { j -> [String: Any] in
+                        ["id": j.id, "departure": j.departure.timeIntervalSince1970, "arrival": j.arrival.timeIntervalSince1970,
+                         "transfers": j.transfers, "isDirect": j.isDirect,
+                         "legs": j.legs.map { l -> [String: Any] in ["kind": l.kind.rawValue, "start": l.startTime.timeIntervalSince1970, "end": l.endTime.timeIntervalSince1970, "distance": l.distance] }]
+                    }])
+            }
+        }
         let payload: [String: Any] = ["multimodal": try JSONSerialization.jsonObject(with: TransitousFixtures.multimodal),
-            "direct": try JSONSerialization.jsonObject(with: TransitousFixtures.directBike), "expected": snapshots, "expectedTransit": transitSnapshots]
+            "direct": try JSONSerialization.jsonObject(with: TransitousFixtures.directBike), "expected": snapshots, "expectedTransit": transitSnapshots, "scenarios": scenarios]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         FileHandle.standardOutput.write(data)
     }

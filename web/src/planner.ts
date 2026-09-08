@@ -55,13 +55,13 @@ export function seeds(
             origin: request.origin,
             destination: leg.from,
             timing: "arrive",
-            time: leg.start - settings.foldDuration - buffer,
+            time: leg.start - settings.foldingDuration - buffer,
           }
         : {
             origin: leg.to,
             destination: request.destination,
             timing: "depart",
-            time: leg.end + settings.unfoldDuration + buffer,
+            time: leg.end + settings.foldingDuration + buffer,
           };
       const ordered = backwards ? journey.legs : [...journey.legs].reverse();
       const outer: StreetMode = ordered
@@ -114,7 +114,7 @@ export function compose(
   if (seed.backwards) {
     const boarding = seed.journey.legs[seed.index],
       end = boarding.start - buffer,
-      start = end - settings.foldDuration;
+      start = end - settings.foldingDuration;
     if (part.legs.at(-1)!.end > start) return;
     legs = [
       ...part.legs,
@@ -124,7 +124,7 @@ export function compose(
     ];
   } else {
     const alighting = seed.journey.legs[seed.index],
-      unfoldEnd = alighting.end + settings.unfoldDuration;
+      unfoldEnd = alighting.end + settings.foldingDuration;
     const approach = part.legs
       .slice(0, first)
       .map((l) =>
@@ -236,17 +236,20 @@ export async function* planRoutes(
       "input",
       "Bitte Start, Ziel und Einstellungen prüfen.",
     );
-  if (distance(input.origin, input.destination) < 25)
+  if (distance(input.origin, input.destination) < 30)
     throw new PlannerError(
       "input",
       "Start und Ziel liegen zu nah beieinander.",
     );
   const request = {
     ...input,
-    time: input.timing === "now" ? Math.floor(Date.now() / 1000) : input.time,
+    time: input.time,
     timing: input.timing === "now" ? ("depart" as const) : input.timing,
   };
-  if (!Number.isFinite(request.time) || request.time < Date.now() / 1000 - 60)
+  if (
+    !Number.isFinite(request.time) ||
+    (input.timing !== "now" && request.time < Date.now() / 1000)
+  )
     throw new PlannerError(
       "input",
       "Bitte einen aktuellen oder zukünftigen Zeitpunkt auswählen.",

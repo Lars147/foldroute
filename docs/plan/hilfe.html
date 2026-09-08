@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hilfe &amp; FAQ · FoldRoute</title>
+    <meta
+      name="description"
+      content="Hilfe zu Standortfreigaben, Installation, Updates und Offline-Nutzung des FoldRoute-Webplaners."
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+        color: #171a1c;
+        background: #f5f6f3;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 860px;
+        margin: auto;
+        padding: 36px 24px 72px;
+      }
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px 28px;
+        margin-bottom: 56px;
+      }
+      a {
+        color: inherit;
+        text-underline-offset: 4px;
+      }
+      a:hover {
+        text-decoration-thickness: 2px;
+      }
+      :focus-visible {
+        outline: 3px solid #171a1c;
+        outline-offset: 5px;
+      }
+      .kicker {
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      h1 {
+        font-size: clamp(2rem, 7vw, 3.8rem);
+        line-height: 1.05;
+        letter-spacing: -0.04em;
+        margin: 16px 0 24px;
+        overflow-wrap: anywhere;
+      }
+      h2 {
+        margin: 40px 0 18px;
+        font-size: 1.5rem;
+      }
+      p {
+        line-height: 1.65;
+      }
+      .intro {
+        font-size: 1.15rem;
+      }
+      .sources {
+        background: #e9ede6;
+        border-radius: 20px;
+        padding: 4px 24px 20px;
+      }
+      details {
+        border-bottom: 1px solid #b7bfb7;
+        padding: 20px 0;
+      }
+      summary {
+        cursor: pointer;
+        font-size: 1.1rem;
+        font-weight: 650;
+        line-height: 1.5;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font:
+          0.9rem/1.6 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+      }
+      footer {
+        margin-top: 36px;
+        font-size: 0.9rem;
+      }
+
+      :root {
+        color-scheme: light dark;
+      }
+      details {
+        scroll-margin-top: 20px;
+      }
+      li {
+        line-height: 1.65;
+        margin-block: 8px;
+      }
+      .topics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 24px;
+        padding: 0;
+        list-style: none;
+      }
+      .note {
+        padding: 16px 20px;
+        border-left: 4px solid #168d97;
+        background: #e9ede6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: #101314;
+          color: #f5f6f3;
+        }
+        details {
+          border-color: #343c3f;
+        }
+        .note {
+          background: #1e2325;
+          border-color: #ffd43b;
+        }
+      }
+    </style>
+    <script src="hilfe.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <nav aria-label="Zurück zu FoldRoute">
+        <a href="./">Zum Webplaner</a><a href="../">Zur Projektseite</a
+        ><a href="licenses.html">Lizenzen &amp; Datenquellen</a>
+      </nav>
+      <p class="kicker">FoldRoute</p>
+      <h1>Hilfe &amp; FAQ</h1>
+      <p class="intro">
+        Antworten zur Standortfreigabe und zum Webplaner – im Browser und als
+        App auf deinem Home-Bildschirm.
+      </p>
+      <ul class="topics" aria-label="Hilfethemen">
+        <li><a href="#standort">Standort</a></li>
+        <li><a href="#installation">Installation</a></li>
+        <li><a href="#updates">Updates &amp; Tastatur</a></li>
+        <li><a href="#offline">Offline</a></li>
+      </ul>
+      <section id="standort" aria-labelledby="standort-heading">
+        <h2 id="standort-heading">Standort</h2>
+        <details id="standort-pwa" open>
+          <summary>
+            Der Standort funktioniert in Safari, aber nicht in der installierten
+            PWA.
+          </summary>
+          <p>
+            Für Home-Screen-Web-Apps kann zusätzlich eine iOS-Systemeinstellung
+            den Zugriff blockieren. Prüfe diesen Weg:
+          </p>
+          <ol>
+            <li>
+              Öffne
+              <strong
+                >Einstellungen → Datenschutz &amp; Sicherheit → Ortungsdienste →
+                Systemdienste</strong
+              >.
+            </li>
+            <li>
+              Suche den Eintrag <strong>„In-App Web Browsing“</strong> für
+              Web-Browsing innerhalb von Apps. Die Bezeichnung kann je nach
+              Systemsprache variieren.
+            </li>
+            <li>
+              Falls der Schalter vorhanden und ausgeschaltet ist, aktiviere ihn.
+              Diese Einstellung gilt auch für andere Webinhalte in Apps.
+            </li>
+            <li>
+              Schließe FoldRoute vollständig, öffne es erneut und tippe auf
+              <strong>„Aktuellen Standort verwenden“</strong>. Erlaube den
+              Zugriff, falls iOS danach fragt.
+            </li>
+          </ol>
+          <p class="note">
+            Dieser Fall wurde mit FoldRoute unter iOS 26.6.1 bestätigt. Der
+            Schalter ist eine mögliche Ursache, keine allgemeine Erklärung für
+            jeden Standortfehler.
+          </p>
+          <p>
+            Ein eigener FoldRoute-Eintrag in den Ortungsdiensten muss dabei
+            nicht vorhanden sein. Falls es weiterhin nicht klappt, prüfe die
+            <a href="#standort-freigabe">Standortfreigaben</a> oder nutze den
+            Planer direkt in Safari.
+          </p>
+        </details>
+        <details id="standort-freigabe">
+          <summary>
+            Was bedeutet „Standortfehler 1“ oder „User denied Geolocation“?
+          </summary>
+          <p>
+            Der Browser meldet fehlende Berechtigung. Daraus allein lässt sich
+            nicht erkennen, welche Einstellung den Zugriff blockiert. FoldRoute
+            kann eine Ablehnung nicht selbst aufheben.
+          </p>
+          <ol>
+            <li>
+              Prüfe unter
+              <strong
+                >Einstellungen → Datenschutz &amp; Sicherheit →
+                Ortungsdienste</strong
+              >, ob die Ortungsdienste eingeschaltet sind und Safari-Websites
+              Zugriff haben.
+            </li>
+            <li>
+              Öffne den Webplaner in Safari. Wähle im
+              <strong
+                >Seitenmenü → Mehr → Website-Einstellungen → Standort</strong
+              >
+              „Fragen“ oder „Erlauben“. Die Menübezeichnung kann je nach
+              iOS-Version abweichen.
+            </li>
+            <li>
+              Tippe erneut auf „Aktuellen Standort verwenden“ und erlaube eine
+              angezeigte Anfrage.
+            </li>
+          </ol>
+          <p>
+            Funktioniert es nur in Safari, prüfe zusätzlich
+            <a href="#standort-pwa">„In-App Web Browsing“</a>. In anderen
+            Browsern findest du die Standortfreigabe in den
+            Website-Berechtigungen.
+          </p>
+          <p>
+            <strong>Ohne Standortfreigabe planen:</strong> Öffne „Route
+            anpassen“ beziehungsweise „Aktueller Standort · Jetzt“, gib einen
+            Start ein und wähle ihn aus den Vorschlägen. Wähle dein Ziel und
+            tippe auf „Route berechnen“.
+          </p>
+          <p>
+            Eine Neuinstallation oder das Zurücksetzen aller
+            Datenschutz-Einstellungen ist kein erforderlicher Standardschritt.
+          </p>
+        </details>
+        <details id="standort-verfuegbar">
+          <summary>
+            Der Standort ist nicht verfügbar oder die Abfrage dauert zu lange.
+          </summary>
+          <p>
+            Fehler 2 bedeutet, dass keine Position ermittelt werden konnte.
+            Fehler 3 bedeutet, dass die Abfrage zu lange dauerte. Prüfe
+            Ortungsdienste und Empfang und versuche es erneut. Bei einer
+            ungenauen Position kann die Freigabe für den genauen Standort
+            helfen.
+          </p>
+          <p>
+            Du kannst jederzeit einen
+            <a href="#standort-freigabe">Start manuell auswählen</a>.
+            Standortzugriff benötigt außerdem HTTPS; öffne die veröffentlichte
+            FoldRoute-Website über eine sichere Verbindung.
+          </p>
+        </details>
+      </section>
+      <section aria-labelledby="pwa-heading">
+        <h2 id="pwa-heading">Webplaner als App</h2>
+        <details id="installation">
+          <summary>
+            Wie installiere ich FoldRoute auf dem Home-Bildschirm?
+          </summary>
+          <p>
+            Öffne <a href="./">den Webplaner</a> in Safari, wähle
+            <strong>Teilen → Zum Home-Bildschirm</strong> und aktiviere „Als
+            Web-App öffnen“, falls diese Option angeboten wird. Starte FoldRoute
+            anschließend über das neue Symbol.
+          </p>
+          <p>
+            Auf anderen Geräten nutze „App installieren“ oder „Zum
+            Startbildschirm hinzufügen“ im Browsermenü, sofern verfügbar. Du
+            kannst auch ohne Installation direkt im Browser planen.
+          </p>
+          <p>
+            Die PWA ist der Webplaner. Die native iPhone-App ist ein eigenes
+            Projekt in Entwicklung.
+          </p>
+        </details>
+        <details id="updates">
+          <summary>
+            Wie aktualisiere ich die PWA? Was hilft bei verdeckten
+            Eingabefeldern?
+          </summary>
+          <p>
+            Öffne FoldRoute mit Internetverbindung. Sobald „Neue Version
+            verfügbar“ erscheint, wähle <strong>„Aktualisieren“</strong>.
+            Dadurch wird die App neu geladen. „Später“ lässt dich zunächst
+            weiterarbeiten.
+          </p>
+          <p>
+            Während einer Berechnung oder eines geöffneten Anpassungsdialogs ist
+            das Update gesperrt. Schließe den Dialog vorher; notiere bei Bedarf
+            noch nicht übernommene Eingaben.
+          </p>
+          <p>
+            Falls die Tastatur ein Eingabefeld verdeckt, schließe sie zunächst
+            und prüfe auf ein Update. Aktuelle Versionen halten das aktive
+            Dialogfeld beim Öffnen der Tastatur sichtbar. Bleibt das Problem
+            bestehen, helfen bei einer Fehlermeldung die iOS-Version, „Safari
+            oder Home-Screen-App“ und die genaue Abfolge der Schritte.
+          </p>
+        </details>
+        <details id="offline">
+          <summary>Was funktioniert ohne Internet?</summary>
+          <p>
+            Nach erfolgreicher Offline-Bereitstellung bleiben die Oberfläche,
+            diese Hilfe und die Lizenztexte verfügbar. Externe Quellenlinks
+            benötigen Internet.
+          </p>
+          <p>
+            Wenn „Letzte Reise offline behalten“ eingeschaltet ist, kannst du
+            die zuletzt gespeicherte Reise samt Streckenverlauf ansehen. Zeiten
+            sind der Stand der damaligen Abfrage. Neue Routen, Ortssuche,
+            Echtzeitdaten und Straßenkarten benötigen Internet.
+          </p>
+          <p>
+            Favoriten und letzte Orte sind ebenfalls lokal verfügbar. Änderungen
+            an Routing-Einstellungen erhalten die alte Reise als gespeicherten
+            Stand. Eine Reise wird durch die nächste gespeicherte Reise ersetzt.
+            Ausschalten der Offline-Speicherung oder „Gespeicherte Reise
+            löschen“ entfernt sie. Auch der Browser kann lokale Daten löschen.
+          </p>
+        </details>
+      </section>
+      <footer>
+        <p>
+          Weitere Informationen:
+          <a href="https://support.apple.com/de-de/102647"
+            >Apple: Ortungsdienste</a
+          >
+          ·
+          <a
+            href="https://support.apple.com/de-de/guide/iphone/iphea86e5236/ios"
+            >Apple: Website als App</a
+          >
+          ·
+          <a
+            href="https://developer.mozilla.org/en-US/docs/Web/API/GeolocationPositionError"
+            >Standortfehler erklärt</a
+          >
+        </p>
+        <p>
+          <a href="https://github.com/Lars147/foldroute/issues"
+            >Problem melden</a
+          >
+          – bitte keine privaten Adressen oder Standortdaten veröffentlichen.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
