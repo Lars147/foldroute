@@ -360,7 +360,12 @@ for (const code of [0, 1, 2, 3]) {
             success: (p: unknown) => void,
             fail: (e: unknown) => void,
           ) => {
-            if (code) fail({ code });
+            if (code)
+              fail({
+                code,
+                message:
+                  "Origin does not have permission to use Geolocation service",
+              });
             else success({ coords: { latitude: 48.132, longitude: 11.5756 } });
           },
         },
@@ -377,6 +382,11 @@ for (const code of [0, 1, 2, 3]) {
         "Standortabfrage dauert zu lange",
       ][code],
     );
+    if (code) {
+      await expect(page.locator("#adjust-status")).toContainText(
+        `Diagnose: Standortfehler ${code} – Origin does not have permission to use Geolocation service`,
+      );
+    }
     await expect(page.locator("#origin-location")).toBeEnabled();
     await expect(page.locator("#adjust-dialog")).toBeVisible();
   });

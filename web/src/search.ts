@@ -158,7 +158,12 @@ export function locate(signal?: AbortSignal): Promise<Place> {
             : error.code === 3
               ? "Standortabfrage dauert zu lange. Bitte erneut versuchen oder Start manuell wählen."
               : "Standort konnte nicht ermittelt werden. Bitte Ortungsdienste und Empfang prüfen, erneut versuchen oder Start manuell wählen.";
-        reject(new Error(message));
+        const detail = error.message?.trim();
+        reject(
+          new Error(
+            `${message} Diagnose: Standortfehler ${error.code}${detail ? ` – ${detail}` : ""}.`,
+          ),
+        );
       },
       { timeout: 12000, maximumAge: 60000 },
     );
