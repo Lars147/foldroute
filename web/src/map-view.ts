@@ -21,7 +21,7 @@ export class RouteMap {
       this.map = L.map("map", {
         zoomControl: false,
         attributionControl: false,
-        scrollWheelZoom: false,
+        scrollWheelZoom: true,
       }).setView([50, 10], 4);
       this.map.on("click", this.onBackground);
       L.control.zoom({ position: "topright" }).addTo(this.map);
