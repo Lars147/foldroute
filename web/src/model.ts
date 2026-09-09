@@ -27,6 +27,7 @@ export const modes = {
 };
 export type ModePreference = keyof typeof modes;
 export interface RoutingSettings {
+  showCyclingComparison: boolean;
   foldingDuration: number;
   cyclingSpeedKilometersPerHour: number;
   maxCyclingMinutes: number;
@@ -35,6 +36,7 @@ export interface RoutingSettings {
   excludedTransitModes: ModePreference[];
 }
 export const defaults: RoutingSettings = {
+  showCyclingComparison: true,
   foldingDuration: 180,
   cyclingSpeedKilometersPerHour: 15,
   maxCyclingMinutes: 30,
@@ -53,6 +55,7 @@ export function validSettings(value: unknown): value is RoutingSettings {
   if (!value || typeof value !== "object") return false;
   const v = value as RoutingSettings;
   return (
+    typeof v.showCyclingComparison === "boolean" &&
     Object.entries(ranges).every(([key, [min, max, step]]) => {
       const n = v[key as keyof typeof ranges];
       return (
@@ -67,7 +70,28 @@ export function validSettings(value: unknown): value is RoutingSettings {
     v.excludedTransitModes.every((m) => Object.hasOwn(modes, m))
   );
 }
-export type LegacyRoutingSettings = Omit<RoutingSettings, "foldingDuration"> & {
+export type StoredRoutingSettings = Omit<
+  RoutingSettings,
+  "showCyclingComparison"
+> & { showCyclingComparison?: boolean };
+export function validStoredSettings(
+  value: unknown,
+): value is StoredRoutingSettings {
+  if (!value || typeof value !== "object") return false;
+  const v = value as StoredRoutingSettings;
+  return (
+    (v.showCyclingComparison === undefined ||
+      typeof v.showCyclingComparison === "boolean") &&
+    validSettings({
+      ...v,
+      showCyclingComparison: v.showCyclingComparison ?? true,
+    })
+  );
+}
+export type LegacyRoutingSettings = Omit<
+  StoredRoutingSettings,
+  "foldingDuration"
+> & {
   foldDuration: number;
   unfoldDuration: number;
 };
@@ -83,15 +107,20 @@ export function validLegacySettings(
         n >= (i === 0 ? 60 : 30) &&
         n <= 600 &&
         n % 30 === 0,
-    ) && validSettings({ ...v, foldingDuration: 180 })
+    ) && validStoredSettings({ ...v, foldingDuration: 180 })
   );
 }
 export function migrateSettings(value: unknown): RoutingSettings | undefined {
-  if (validSettings(value)) return value;
+  if (validStoredSettings(value))
+    return {
+      ...value,
+      showCyclingComparison: value.showCyclingComparison ?? true,
+    };
   if (!validLegacySettings(value)) return undefined;
   const { foldDuration, unfoldDuration, ...rest } = value;
   return {
     ...rest,
+    showCyclingComparison: rest.showCyclingComparison ?? true,
     foldingDuration: Math.max(60, foldDuration, unfoldDuration),
   };
 }
@@ -269,8 +298,9 @@ export function cyclingComparisonLabel(
 export function selectJourneys(
   journeys: Journey[],
   timing: Timing,
-  maximum = 3,
+  maximum = 4,
   cyclingLimit = Infinity,
+  showCyclingComparison = true,
 ): Journey[] {
   if (maximum <= 0) return [];
   const sorted = [...journeys].sort((a, b) => compare(a, b, timing));
@@ -279,12 +309,16 @@ export function selectJourneys(
     const suitable = selectJourneys(
       sorted.filter((j) => cyclingExcess(j, cyclingLimit) === 0),
       timing,
-      maximum === 1 ? 1 : maximum - 1,
+      Math.min(
+        3,
+        maximum === 1 || !showCyclingComparison ? maximum : maximum - 1,
+      ),
     );
-    return maximum === 1 && suitable.length
+    return !showCyclingComparison || (maximum === 1 && suitable.length)
       ? suitable
       : [...suitable, comparison];
   }
+  maximum = Math.min(3, maximum);
   const direct = sorted.find((j) => j.isDirect);
   const worth = sorted.filter((j) => worthwhile(j, direct, timing));
   const transit = worth.find((j) => !j.isDirect);
@@ -318,6 +352,25 @@ export function selectJourneys(
   for (let i = 0; i < ranked.length && indices.length < maximum; i++)
     if (!indices.includes(i)) indices.push(i);
   return indices.map((i) => ranked[i]);
+}
+export function retainSelectedJourney(
+  journeys: Journey[],
+  selected: Journey,
+  cyclingLimit: number,
+  showComparison: boolean,
+): Journey[] {
+  if (journeys.some((j) => j.id === selected.id)) return journeys;
+  const regular = journeys.filter((j) => cyclingExcess(j, cyclingLimit) === 0);
+  const comparison = showComparison
+    ? journeys.find((j) => cyclingExcess(j, cyclingLimit) > 0)
+    : undefined;
+  if (cyclingExcess(selected, cyclingLimit) > 0)
+    return showComparison
+      ? [...regular.slice(0, 3), selected]
+      : regular.slice(0, 3);
+  return [selected, ...regular]
+    .slice(0, 3)
+    .concat(comparison ? [comparison] : []);
 }
 export class PlannerError extends Error {
   constructor(

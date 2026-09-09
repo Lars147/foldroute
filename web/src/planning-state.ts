@@ -3,7 +3,7 @@ import {
   type RouteRequest,
   type RoutingSettings,
   errorText,
-  cyclingExcess,
+  retainSelectedJourney,
 } from "./model";
 import { planRoutes } from "./planner";
 import { ApiClient } from "./transitous";
@@ -176,22 +176,13 @@ export class PlanningSession {
             ? this.state.selected
             : undefined;
         let journeys = [...update.journeys];
-        if (selected && !journeys.some((j) => j.id === selected.id))
-          journeys =
-            cyclingExcess(selected, calculationSettings.maxCyclingMinutes) > 0
-              ? [
-                  ...journeys
-                    .filter(
-                      (j) =>
-                        cyclingExcess(
-                          j,
-                          calculationSettings.maxCyclingMinutes,
-                        ) === 0,
-                    )
-                    .slice(0, 2),
-                  selected,
-                ]
-              : [selected, ...journeys].slice(0, 3);
+        if (selected)
+          journeys = retainSelectedJourney(
+            journeys,
+            selected,
+            calculationSettings.maxCyclingMinutes,
+            calculationSettings.showCyclingComparison,
+          );
         received = true;
         this.state = {
           journeys,

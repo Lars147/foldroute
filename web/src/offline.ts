@@ -1,10 +1,10 @@
 import {
-  validSettings,
+  validStoredSettings,
   validLegacySettings,
   type LegacyRoutingSettings,
   type Journey,
   type RouteRequest,
-  type RoutingSettings,
+  type StoredRoutingSettings,
 } from "./model";
 import { localDatabase } from "./storage";
 interface Snapshot {
@@ -15,7 +15,7 @@ interface Snapshot {
 export type SavedJourney = Snapshot &
   (
     | { version: 1; settings: LegacyRoutingSettings }
-    | { version: 3; settings: RoutingSettings }
+    | { version: 3; settings: StoredRoutingSettings }
   );
 const object = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === "object";
@@ -36,7 +36,7 @@ export function validSnapshot(value: unknown): value is SavedJourney {
     !Number.isFinite(value.savedAt) ||
     !(value.version === 1
       ? validLegacySettings(value.settings)
-      : value.version === 3 && validSettings(value.settings))
+      : value.version === 3 && validStoredSettings(value.settings))
   )
     return false;
   const r = value.request,

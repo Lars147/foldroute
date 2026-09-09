@@ -631,6 +631,24 @@ function settingsUI() {
     }
     label.append(copy, input);
     el("settings-fields").append(label);
+    if (k === "maxCyclingMinutes") {
+      const toggle = node("label", "", "toggle-row");
+      const text = node("span", "Fahrradvergleich anzeigen");
+      text.append(
+        node(
+          "small",
+          "Längere reine Fahrradrouten zusätzlich anzeigen. Fahrradrouten innerhalb deines Radlimits bleiben sichtbar.",
+        ),
+      );
+      const checkbox = node("input");
+      checkbox.type = "checkbox";
+      checkbox.id = "showCyclingComparison";
+      checkbox.checked = settings.showCyclingComparison;
+      checkbox.onchange = () =>
+        applySettings({ ...settings, showCyclingComparison: checkbox.checked });
+      toggle.append(text, checkbox);
+      el("settings-fields").append(toggle);
+    }
   }
   el("modes").replaceChildren(node("legend", "Verkehrsmittel"));
   for (const [key, mode] of Object.entries(modes)) {

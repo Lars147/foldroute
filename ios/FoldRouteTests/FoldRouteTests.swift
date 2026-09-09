@@ -2655,6 +2655,52 @@ extension FoldRouteTests {
             departure: start, arrival: end, legs: [.bike(movement)], transfers: 0, isDirect: direct, score: 0)
     }
 
+    func testDisabledCyclingComparisonKeepsTransitAndRejectsOnlyLongDirectResults() async throws {
+        var settings = NavigationSettings.defaults
+        settings.showCyclingComparison = false
+        settings.maxBikeTransfers = 0
+        let client = makeClient { request in
+            queryValue("directModes", in: request) == "BIKE" ? TransitousFixtures.directBike : TransitousFixtures.multimodal
+        }
+        let routes = try await client.planAlternatives(makeRequest(), settings: settings)
+        XCTAssertFalse(routes.isEmpty)
+        XCTAssertTrue(routes.allSatisfy { !$0.isDirect })
+        let directOnly = makeClient { _ in TransitousFixtures.directBike }
+        settings.excludedTransitModes = Set(TransitModePreference.allCases)
+        do {
+            _ = try await directOnly.planAlternatives(makeRequest(), settings: settings)
+            XCTFail("Hidden comparisons must not become results")
+        } catch { XCTAssertEqual(error as? RoutePlannerError, .noRoute) }
+        settings.maxCyclingMinutes = 60
+        let short = try await directOnly.planAlternatives(makeRequest(), settings: settings)
+        XCTAssertTrue(short.first?.isDirect == true)
+    }
+
+    func testOptionalFourthCyclingComparison() throws {
+        let long = benefitJourney(id: "long", direct: true, bikeMeters: 10000, arrival: 2760)
+        let regular = (0..<4).map { benefitJourney(id: "fit-\($0)", direct: false, bikeMeters: 1000, arrival: 5400 + Double($0) * 300) }
+        for timing in [RouteTiming.leaveNow, .arriveBy(Date(timeIntervalSince1970: 10000))] {
+            XCTAssertEqual(JourneyOptionSelector.select(from: regular + [long], timing: timing, cyclingLimit: 30).map(\.id), ["fit-0", "fit-1", "fit-2", "long"])
+            XCTAssertEqual(JourneyOptionSelector.select(from: regular + [long], timing: timing, cyclingLimit: 30, showCyclingComparison: false).map(\.id), ["fit-0", "fit-1", "fit-2"])
+        }
+        XCTAssertTrue(JourneyOptionSelector.select(from: [long], timing: .leaveNow, cyclingLimit: 30, showCyclingComparison: false).isEmpty)
+        for seconds in [1799.0, 1800] {
+            let short = benefitJourney(id: "short", direct: true, bikeMeters: 1000, arrival: seconds)
+            XCTAssertEqual(JourneyOptionSelector.select(from: [short, long], timing: .leaveNow, cyclingLimit: 30, showCyclingComparison: false).map(\.id), ["short"])
+        }
+        XCTAssertEqual(JourneyOptionSelector.retaining(long, in: regular, cyclingLimit: 30, showComparison: true).map(\.id), ["fit-0", "fit-1", "fit-2", "long"])
+        let selected = benefitJourney(id: "selected", direct: false, bikeMeters: 1000, arrival: 7000)
+        XCTAssertEqual(JourneyOptionSelector.retaining(selected, in: Array(regular.prefix(3)) + [long], cyclingLimit: 30, showComparison: true).map(\.id), ["selected", "fit-0", "fit-1", "long"])
+        var settings = NavigationSettings.defaults
+        settings.showCyclingComparison = false
+        let stored = StoredSettings(settings: settings)
+        XCTAssertFalse(stored.value.showCyclingComparison)
+        XCTAssertFalse(try JSONDecoder().decode(NavigationSettings.self, from: JSONEncoder().encode(settings)).showCyclingComparison)
+        stored.showCyclingComparison = nil
+        XCTAssertTrue(stored.value.showCyclingComparison)
+        XCTAssertTrue(try JSONDecoder().decode(NavigationSettings.self, from: Data("{}".utf8)).showCyclingComparison)
+    }
+
     func testCyclingComparisonsPreferSuitableRoutesAndRespectBoundary() {
         let long = benefitJourney(id: "long", direct: true, bikeMeters: 10000, arrival: 2760)
         let fit = benefitJourney(id: "fit", direct: false, bikeMeters: 1000, arrival: 5400)
@@ -2821,7 +2867,7 @@ extension FoldRouteTests {
             { $0.cyclingSpeedKilometersPerHour += 1 }, { $0.maxWalkingMinutes += 1 },
             { $0.foldingDuration += 30 },
             { $0.excludedTransitModes.insert(.bus) }, { $0.maxBikeTransfers += 1 },
-            { $0.maxCyclingMinutes += 1 }
+            { $0.maxCyclingMinutes += 1 }, { $0.showCyclingComparison.toggle() }
         ]
         for change in changes {
             let (model, _) = try settingsModel(planner: UnusedJourneyPlanner())
@@ -2938,6 +2984,19 @@ private final class SettingsStreamPlanner: JourneyPlanning, @unchecked Sendable 
 }
 
 extension FoldRouteTests {
+    @MainActor
+    func testHiddenInitialComparisonWaitsForEligibleStreamResult() async throws {
+        let planner = SettingsStreamPlanner()
+        let (model, _) = try settingsModel(planner: planner)
+        model.settings.showCyclingComparison = false
+        let task = Task { await model.planRoute() }
+        try await awaitGate { planner.count == 1 }
+        planner.emit(0, journey: benefitJourney(id: "hidden", direct: true, bikeMeters: 10000, arrival: 2760), complete: false)
+        planner.emit(0, journey: makeJourney(id: "eligible"))
+        await task.value
+        XCTAssertEqual(model.journey?.id, "eligible")
+    }
+
     @MainActor
     func testSettingsCancelFirstRequestAndRejectLateResult() async throws {
         let planner = SettingsStreamPlanner()

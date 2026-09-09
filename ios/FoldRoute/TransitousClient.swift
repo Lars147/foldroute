@@ -51,7 +51,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
     ) async throws -> [Journey] {
         var result: [Journey] = []
         for try await update in alternativeUpdates(request, settings: settings) {
-            result = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes)
+            result = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
         }
         return result
     }
@@ -152,7 +152,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
                 try Task.checkCancellation()
                 switch response {
                 case .success(let batch):
-                    result.journeys += batch.journeys
+                    result.journeys += batch.journeys.filter { settings.showCyclingComparison || CyclingComparison.excess($0, limit: settings.maxCyclingMinutes) == 0 }
                     result.issues = RoutePlannerError.unique(result.issues + batch.allIssues)
                     result.partial = !result.issues.isEmpty
                     if batch.rateLimited || batch.allIssues.contains(where: \.stopsRequests) {
@@ -773,7 +773,8 @@ enum TransitBenefitPolicy {
 }
 
 enum JourneyOptionSelector {
-    static let maximumDisplayedOptions = 3
+    static let maximumRegularOptions = 3
+    static let maximumDisplayedOptions = 4
     static let minimumDirectBikeTolerance: TimeInterval = 10 * 60
     static let relativeDirectBikeTolerance = 0.2
 
@@ -781,15 +782,17 @@ enum JourneyOptionSelector {
         from journeys: [Journey],
         timing: RouteTiming,
         maximumOptions: Int = maximumDisplayedOptions,
-        cyclingLimit: Int? = nil
+        cyclingLimit: Int? = nil,
+        showCyclingComparison: Bool = true
     ) -> [Journey] {
         guard maximumOptions > 0 else { return [] }
         if let limit = cyclingLimit,
            let comparison = journeys.filter({ CyclingComparison.excess($0, limit: limit) > 0 }).sorted(by: { comesBefore($0, $1, timing: timing) }).first {
-            let suitable = select(from: journeys.filter { CyclingComparison.excess($0, limit: limit) == 0 }, timing: timing, maximumOptions: maximumOptions == 1 ? 1 : maximumOptions - 1)
-            return maximumOptions == 1 && !suitable.isEmpty ? suitable : suitable + [comparison]
+            let suitable = select(from: journeys.filter { CyclingComparison.excess($0, limit: limit) == 0 }, timing: timing, maximumOptions: min(maximumRegularOptions, maximumOptions == 1 || !showCyclingComparison ? maximumOptions : maximumOptions - 1))
+            return !showCyclingComparison || (maximumOptions == 1 && !suitable.isEmpty) ? suitable : suitable + [comparison]
         }
 
+        let maximumOptions = min(maximumRegularOptions, maximumOptions)
         let direct = journeys.filter { $0.isDirect }.sorted { comesBefore($0, $1, timing: timing) }.first
         let worthwhile = journeys.filter { TransitBenefitPolicy.isWorthwhile($0, comparedTo: direct, timing: timing) }
         let eligible = worthwhile.filter { journey in
@@ -830,6 +833,16 @@ enum JourneyOptionSelector {
         }
 
         return selectedIndices.map { ranked[$0] }
+    }
+
+    static func retaining(_ selected: Journey, in options: [Journey], cyclingLimit: Int, showComparison: Bool) -> [Journey] {
+        if options.contains(where: { $0.id == selected.id }) { return options }
+        let regular = options.filter { CyclingComparison.excess($0, limit: cyclingLimit) == 0 }
+        if CyclingComparison.excess(selected, limit: cyclingLimit) > 0 {
+            return Array(regular.prefix(maximumRegularOptions)) + (showComparison ? [selected] : [])
+        }
+        let comparison = showComparison ? options.first { CyclingComparison.excess($0, limit: cyclingLimit) > 0 } : nil
+        return Array(([selected] + regular).prefix(maximumRegularOptions)) + (comparison.map { [$0] } ?? [])
     }
 
     private static func bestTransitJourney(

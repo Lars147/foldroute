@@ -1151,3 +1151,124 @@ for (const mode of ["depart", "arrive"] as const)
     await expect(page.locator("#timing")).toHaveValue(mode);
     await expect(page.locator("#when")).toHaveValue("2026-09-04T11:00");
   });
+
+test("three regular routes keep their places and comparison is an optional fourth", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#showCyclingComparison")).toBeChecked();
+  await page.locator("#maxCyclingMinutes").fill("30");
+  await page.locator("#save-settings").click();
+  const transit = structuredClone(fixture.multimodal);
+  transit.itineraries = [0, 1, 2].map((i) => {
+    const route = structuredClone(fixture.multimodal.itineraries[0]);
+    route.id = `transit-${i}`;
+    for (const leg of route.legs)
+      if (leg.mode === "SUBWAY") leg.routeShortName = `U${i + 1}`;
+    return route;
+  });
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json:
+        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+          ? fixture.direct
+          : transit,
+    }),
+  );
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator(".route-choice")).toHaveCount(4);
+  await expect(page.locator(".route-choice").last()).toContainText("Vergleich");
+  await page.locator(".route-choice").last().click();
+  await page.locator("#panel-size").click();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await expect
+    .poll(
+      async () =>
+        (await page.locator("#journey-panel").boundingBox())?.height ?? 0,
+    )
+    .toBeGreaterThan(550);
+  await page.screenshot({ path: "test-results/fourth-comparison-mobile.png" });
+  await page.locator("#tab-settings").click();
+  await page.locator("#showCyclingComparison").uncheck();
+  await page.locator("#save-settings").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator(".route-choice")).toHaveCount(3);
+  await expect(page.locator("#cycling-comparison")).toBeHidden();
+  expect(new URL(page.url()).searchParams.get("showCyclingComparison")).toBe(
+    "false",
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("foldroute.routing.v3")!)
+          .showCyclingComparison,
+    ),
+  ).toBe(false);
+  await page.reload();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator(".route-choice")).toHaveCount(3);
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#showCyclingComparison")).not.toBeChecked();
+});
+
+test("hidden comparison arriving first does not finish the search before transit", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.locator("#tab-settings").click();
+  await page.locator("#maxCyclingMinutes").fill("30");
+  await page.locator("#showCyclingComparison").uncheck();
+  await page.locator("#save-settings").click();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v6/plan?*", async (r) => {
+    const direct =
+      new URL(r.request().url()).searchParams.get("directModes") === "BIKE";
+    if (!direct) await gate;
+    await r.fulfill({
+      headers: cors,
+      json: direct ? fixture.direct : fixture.multimodal,
+    });
+  });
+  const response = page.waitForResponse((r) =>
+    r.url().includes("directModes=BIKE"),
+  );
+  await choose(page, "destination", "Ziel");
+  await response;
+  await expect(page.locator("#cancel")).toBeVisible();
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+  release();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator(".route-choice")).toHaveCount(1);
+  await expect(page.locator("#cycling-comparison")).toBeHidden();
+});
+
+test("only hidden comparisons produce an empty-result message", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.locator("#tab-settings").click();
+  await page.locator("#maxCyclingMinutes").fill("30");
+  await page.locator("#showCyclingComparison").uncheck();
+  await page.locator("#save-settings").click();
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json:
+        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+          ? fixture.direct
+          : { itineraries: [], direct: [] },
+    }),
+  );
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toContainText("Keine passende Route");
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+});

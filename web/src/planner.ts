@@ -6,6 +6,7 @@ import {
   type Leg,
   bikeBoardings,
   selectJourneys,
+  cyclingExcess,
   shifted,
   transition,
   PlannerError,
@@ -262,7 +263,13 @@ export async function* planRoutes(
       ? baseVariants.slice(0, 1)
       : baseVariants;
   const add = (batch: Batch) => {
-    all.push(...batch.journeys);
+    all.push(
+      ...batch.journeys.filter(
+        (j) =>
+          settings.showCyclingComparison ||
+          cyclingExcess(j, settings.maxCyclingMinutes) === 0,
+      ),
+    );
     issues.push(...batch.issues);
     if (batch.rejected)
       issues.push(
@@ -274,8 +281,9 @@ export async function* planRoutes(
     journeys: selectJourneys(
       all,
       request.timing,
-      3,
+      4,
       settings.maxCyclingMinutes,
+      settings.showCyclingComparison,
     ),
     status,
     issues: [...new Set(issues)],

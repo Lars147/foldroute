@@ -438,8 +438,13 @@ final class AppModel {
             continuation.onTermination = { _ in producer.cancel() }
         }
         var iterator = stream.makeAsyncIterator()
-        guard let initial = try await iterator.next(isolation: MainActor.shared) else { throw RoutePlannerError.noRoute }
-        let options = JourneyOptionSelector.select(from: initial.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes)
+        var initialUpdate: JourneyOptionsUpdate?
+        var options: [Journey] = []
+        while let update = try await iterator.next(isolation: MainActor.shared) {
+            options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
+            if !options.isEmpty { initialUpdate = update; break }
+        }
+        guard let initial = initialUpdate else { throw RoutePlannerError.noRoute }
         try Task.checkCancellation()
         guard generation == planningGeneration, token == bikeTransferToken else { throw CancellationError() }
         guard let first = options.first else { throw RoutePlannerError.noRoute }
@@ -456,12 +461,10 @@ final class AppModel {
                     while let update = try await iterator.next(isolation: MainActor.shared) {
                         guard !Task.isCancelled, generation == planningGeneration,
                               bikeTransferToken == token, navigation == nil else { return }
-                        var options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes)
+                        var options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
                         if let selectedID = explicitlySelectedJourneyID, let selected = journey, selected.id == selectedID,
                            !options.contains(where: { $0.id == selectedID }) {
-                            options = CyclingComparison.excess(selected, limit: settings.maxCyclingMinutes) > 0
-                                ? Array(options.filter { CyclingComparison.excess($0, limit: settings.maxCyclingMinutes) == 0 }.prefix(2)) + [selected]
-                                : [selected] + Array(options.prefix(2))
+                            options = JourneyOptionSelector.retaining(selected, in: options, cyclingLimit: settings.maxCyclingMinutes, showComparison: settings.showCyclingComparison)
                         }
                         guard let first = options.first else { continue }
                         let selected = options.first { $0.id == explicitlySelectedJourneyID } ?? first

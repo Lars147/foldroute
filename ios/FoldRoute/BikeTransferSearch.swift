@@ -228,11 +228,12 @@ struct BikeTransferSearch: Sendable {
 extension NavigationSettings {
     private enum LegacyKeys: String, CodingKey {
         case foldingDuration, foldDuration, unfoldDuration, cyclingSpeedKilometersPerHour, audioEnabled, hapticsEnabled, excludedTransitModes
-        case maxCyclingMinutes, maxWalkingMinutes, maxBikeTransfers
+        case maxCyclingMinutes, maxWalkingMinutes, maxBikeTransfers, showCyclingComparison
     }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: LegacyKeys.self)
         self.init()
+        showCyclingComparison = try values.decodeIfPresent(Bool.self, forKey: .showCyclingComparison) ?? true
         if let shared = try values.decodeIfPresent(Double.self, forKey: .foldingDuration) {
             foldingDuration = Self.migratedFoldingDuration([shared])
         } else {

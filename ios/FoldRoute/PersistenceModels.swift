@@ -129,6 +129,7 @@ final class StoredSettings {
     var maxCyclingMinutes: Int?
     var maxWalkingMinutes: Int?
     var maxBikeTransfers: Int?
+    var showCyclingComparison: Bool?
 
     init(key: String = "default", settings: NavigationSettings = .defaults) {
         self.key = key
@@ -141,6 +142,7 @@ final class StoredSettings {
         maxCyclingMinutes = settings.maxCyclingMinutes
         maxWalkingMinutes = settings.maxWalkingMinutes
         maxBikeTransfers = settings.maxBikeTransfers
+        showCyclingComparison = settings.showCyclingComparison
     }
 
     var value: NavigationSettings {
@@ -153,7 +155,8 @@ final class StoredSettings {
             excludedTransitModes: Self.decode(excludedTransitModeIDs),
             maxCyclingMinutes: min(60, max(1, maxCyclingMinutes ?? 30)),
             maxWalkingMinutes: min(15, max(1, maxWalkingMinutes ?? 2)),
-            maxBikeTransfers: min(3, max(0, maxBikeTransfers ?? 2))
+            maxBikeTransfers: min(3, max(0, maxBikeTransfers ?? 2)),
+            showCyclingComparison: showCyclingComparison ?? true
         )
     }
 
@@ -161,6 +164,7 @@ final class StoredSettings {
         maxCyclingMinutes = settings.maxCyclingMinutes
         maxWalkingMinutes = settings.maxWalkingMinutes
         maxBikeTransfers = settings.maxBikeTransfers
+        showCyclingComparison = settings.showCyclingComparison
         foldDuration = settings.foldDuration
         unfoldDuration = settings.unfoldDuration
         cyclingSpeedKilometersPerHour = settings.cyclingSpeedKilometersPerHour

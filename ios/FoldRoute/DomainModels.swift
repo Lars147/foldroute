@@ -130,6 +130,7 @@ struct NavigationSettings: Codable, Hashable, Sendable {
     var maxCyclingMinutes = 30
     var maxWalkingMinutes = 2
     var maxBikeTransfers = 2
+    var showCyclingComparison = true
 
     struct RoutingConfiguration: Equatable {
         let cyclingSpeed: Double
@@ -138,13 +139,14 @@ struct NavigationSettings: Codable, Hashable, Sendable {
         let foldingDuration: TimeInterval
         let excludedModes: Set<TransitModePreference>
         let bikeTransfers: Int
+        let showCyclingComparison: Bool
     }
 
     var routingConfiguration: RoutingConfiguration {
         RoutingConfiguration(cyclingSpeed: cyclingSpeedKilometersPerHour,
             cyclingMinutes: maxCyclingMinutes,
             walkingMinutes: maxWalkingMinutes, foldingDuration: foldingDuration,
-            excludedModes: excludedTransitModes, bikeTransfers: maxBikeTransfers)
+            excludedModes: excludedTransitModes, bikeTransfers: maxBikeTransfers, showCyclingComparison: showCyclingComparison)
     }
 
     static let defaults = NavigationSettings()

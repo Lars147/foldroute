@@ -13,7 +13,11 @@ export interface RouteLink {
 }
 export type ParsedRouteLink =
   { kind: "none" } | { kind: "invalid" } | { kind: "plan"; plan: RouteLink };
-const optionKeys = [...Object.keys(ranges), "excludedTransitModes"];
+const optionKeys = [
+  ...Object.keys(ranges),
+  "excludedTransitModes",
+  "showCyclingComparison",
+];
 const keys = [
   "v",
   "from",
@@ -48,6 +52,7 @@ export function routeURL(base: string | URL, plan?: RouteLink): URL {
     );
     params.set(`${key}Name`, place.name);
   }
+  params.set("showCyclingComparison", String(settings.showCyclingComparison));
   params.set("timing", request.timing);
   if (request.timing !== "now")
     params.set("time", new Date(request.time * 1000).toISOString());
@@ -92,7 +97,16 @@ export function readRouteURL(url: URL): ParsedRouteLink {
           rawTime.replace(".000Z", "Z")))
   )
     return { kind: "invalid" };
-  const values: Record<string, unknown> = {};
+  const showComparison = params.get("showCyclingComparison");
+  if (
+    showComparison !== null &&
+    showComparison !== "true" &&
+    showComparison !== "false"
+  )
+    return { kind: "invalid" };
+  const values: Record<string, unknown> = {
+    showCyclingComparison: showComparison !== "false",
+  };
   for (const key of Object.keys(ranges)) {
     const raw = params.get(key);
     if (!raw?.trim()) return { kind: "invalid" };
