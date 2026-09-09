@@ -439,7 +439,7 @@ final class AppModel {
         }
         var iterator = stream.makeAsyncIterator()
         guard let initial = try await iterator.next(isolation: MainActor.shared) else { throw RoutePlannerError.noRoute }
-        let options = JourneyOptionSelector.select(from: initial.journeys, timing: request.timing)
+        let options = JourneyOptionSelector.select(from: initial.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes)
         try Task.checkCancellation()
         guard generation == planningGeneration, token == bikeTransferToken else { throw CancellationError() }
         guard let first = options.first else { throw RoutePlannerError.noRoute }
@@ -456,10 +456,12 @@ final class AppModel {
                     while let update = try await iterator.next(isolation: MainActor.shared) {
                         guard !Task.isCancelled, generation == planningGeneration,
                               bikeTransferToken == token, navigation == nil else { return }
-                        var options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing)
+                        var options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes)
                         if let selectedID = explicitlySelectedJourneyID, let selected = journey, selected.id == selectedID,
                            !options.contains(where: { $0.id == selectedID }) {
-                            options = [selected] + Array(options.prefix(2))
+                            options = CyclingComparison.excess(selected, limit: settings.maxCyclingMinutes) > 0
+                                ? Array(options.filter { CyclingComparison.excess($0, limit: settings.maxCyclingMinutes) == 0 }.prefix(2)) + [selected]
+                                : [selected] + Array(options.prefix(2))
                         }
                         guard let first = options.first else { continue }
                         let selected = options.first { $0.id == explicitlySelectedJourneyID } ?? first

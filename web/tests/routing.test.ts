@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import fixture from "./fixtures/swift-parity.json";
 import {
   defaults,
+  cyclingExcess,
+  cyclingComparisonLabel,
   selectJourneys,
   worthwhile,
   validSettings,
@@ -67,9 +69,11 @@ describe("Shared Swift fixtures", () => {
       ...mapResponse(fixture.direct, request, nativeSettings, baseVariants[0])
         .journeys,
     ];
-    expect(selectJourneys(all, "depart").map(snapshot)).toEqual(
-      fixture.expected,
-    );
+    expect(
+      selectJourneys(all, "depart", 3, nativeSettings.maxCyclingMinutes).map(
+        snapshot,
+      ),
+    ).toEqual(fixture.expected);
   });
   for (const scenario of fixture.scenarios)
     it(`matches native ${scenario.timing} with ${scenario.duration}s shared folding`, () => {
@@ -178,7 +182,7 @@ describe("Requests and service resilience", () => {
             { ...defaults, maxCyclingMinutes },
             baseVariants[0],
           ).searchParams.get("maxDirectTime"),
-        ).toBe("7200");
+        ).toBe("21600");
       }
     }
   });
@@ -401,4 +405,66 @@ it("accepts real Berlin transit and station access geometry", async () => {
   expect(batch.journeys).toHaveLength(1);
   expect(batch.journeys[0].legs.some((l) => l.kind === "transit")).toBe(true);
   expect(batch.journeys[0].legs.some((l) => l.kind === "fold")).toBe(true);
+});
+
+describe("cycling comparisons", () => {
+  const route = (id: string, minutes: number, direct = true): Journey => ({
+    id,
+    origin,
+    destination,
+    departure: 0,
+    arrival: minutes * 60,
+    transfers: 0,
+    isDirect: direct,
+    legs: [
+      {
+        kind: direct ? "bike" : "transit",
+        from: origin,
+        to: destination,
+        start: 0,
+        end: minutes * 60,
+        distance: 10000,
+        coordinates: [origin, destination],
+      },
+    ],
+  });
+  it("marks only direct cycling strictly over the limit", () => {
+    for (const minutes of [29, 30])
+      expect(cyclingExcess(route("fit", minutes), 30)).toBe(0);
+    expect(cyclingComparisonLabel(route("long", 46), 30)).toBe(
+      "46 Min. Radfahrt · 16 Min. über deinem Radlimit",
+    );
+    expect(cyclingExcess(route("transit", 90, false), 30)).toBe(0);
+    expect(cyclingExcess(route("long", 46), 60)).toBe(0);
+  });
+  it("keeps suitable options ahead of a faster comparison without pruning them", () => {
+    const direct = route("direct", 46),
+      transit = route("transit", 90, false);
+    for (const timing of ["depart", "arrive"] as const) {
+      expect(
+        selectJourneys([direct, transit], timing, 3, 30).map((j) => j.id),
+      ).toEqual(["transit", "direct"]);
+    }
+    expect(selectJourneys([direct], "depart", 3, 30)).toEqual([direct]);
+    expect(selectJourneys([direct, transit], "depart", 1, 30)).toEqual([
+      transit,
+    ]);
+    expect(
+      selectJourneys([route("very-long", 150)], "depart", 3, 30),
+    ).toHaveLength(1);
+  });
+  it("reserves one slot for the comparison", () => {
+    const selected = selectJourneys(
+      [
+        route("direct", 46),
+        route("a", 90, false),
+        route("b", 95, false),
+        route("c", 100, false),
+      ],
+      "depart",
+      3,
+      30,
+    );
+    expect(selected.map((j) => j.id)).toEqual(["a", "b", "direct"]);
+  });
 });

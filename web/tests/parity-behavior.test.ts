@@ -170,7 +170,7 @@ describe("selection and delayed departures", () => {
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
-      const old = journey("old"),
+      const old = journey("old", 1000, 3760),
         better = journey("better", 1000, 1900);
       vi.mocked(planRoutes).mockImplementation(async function* () {
         yield { journeys: [old], status: "searching", issues: [] };
@@ -184,6 +184,9 @@ describe("selection and delayed departures", () => {
       release();
       await task;
       expect(session.state.selected?.id).toBe(manual ? "old" : "better");
+      expect(session.state.journeys.map((j) => j.id)).toEqual(
+        manual ? ["better", "old"] : ["better"],
+      );
     });
   it("settings invalidation rejects late responses and retains retry context", async () => {
     vi.stubGlobal("navigator", { onLine: true });

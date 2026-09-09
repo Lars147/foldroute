@@ -28,6 +28,18 @@ async function production(page: Page) {
   );
   await page.goto(root);
   await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.evaluate(
+    (value) => {
+      // Some tests deliberately reject storage writes; they exercise session-only settings.
+      try {
+        if (!localStorage.getItem("foldroute.routing.v3"))
+          localStorage.setItem("foldroute.routing.v3", JSON.stringify(value));
+      } catch {
+        /* Leave unavailable storage to the application's existing handling. */
+      }
+    },
+    { ...defaults, maxCyclingMinutes: 60 },
+  );
   await page.reload();
 }
 async function plan(page: Page) {
@@ -449,4 +461,43 @@ test("upgrades legacy database and settings while retaining the original offline
     return { version, snapshot };
   });
   expect(persisted).toEqual({ version: 2, snapshot });
+});
+
+test("saved comparison remains labeled offline using the current cycling limit", async ({
+  page,
+  context,
+}) => {
+  await production(page);
+  await page.locator("#tab-settings").click();
+  await page.locator("#maxCyclingMinutes").fill("30");
+  await page.locator("#save-settings").click();
+  await plan(page);
+  await page.getByRole("button", { name: /Fahrradvergleich:/ }).click();
+  await expect(page.locator("#cycling-comparison")).toContainText(
+    "2 Min. über deinem Radlimit",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const db = await new Promise<IDBDatabase>((resolve) => {
+          const r = indexedDB.open("foldroute-offline");
+          r.onsuccess = () => resolve(r.result);
+        });
+        const saved = await new Promise<any>((resolve) => {
+          const r = db.transaction("state").objectStore("state").get("last");
+          r.onsuccess = () => resolve(r.result);
+        });
+        db.close();
+        return saved?.journey.isDirect;
+      }),
+    )
+    .toBe(true);
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator("#cycling-comparison")).toContainText(
+    "2 Min. über deinem Radlimit",
+  );
+  await expect(page.locator("#status")).toContainText(
+    "Keine Verbindung innerhalb deines Radlimits",
+  );
 });

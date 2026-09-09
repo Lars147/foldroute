@@ -57,6 +57,45 @@
   },
   "expected" : [
     {
+      "arrival" : 1788511980,
+      "departure" : 1788508800,
+      "id" : "multimodal-1|BIKE|BIKE",
+      "isDirect" : false,
+      "legs" : [
+        {
+          "distance" : 1250,
+          "end" : 1788509220,
+          "kind" : "bike",
+          "start" : 1788508800
+        },
+        {
+          "distance" : 0,
+          "end" : 1788509700,
+          "kind" : "fold",
+          "start" : 1788509520
+        },
+        {
+          "distance" : 0,
+          "end" : 1788510900,
+          "kind" : "transit",
+          "start" : 1788509700
+        },
+        {
+          "distance" : 0,
+          "end" : 1788511080,
+          "kind" : "unfold",
+          "start" : 1788510900
+        },
+        {
+          "distance" : 2100,
+          "end" : 1788511980,
+          "kind" : "bike",
+          "start" : 1788511380
+        }
+      ],
+      "transfers" : 0
+    },
+    {
       "arrival" : 1788510720,
       "departure" : 1788508800,
       "id" : "bike-1",

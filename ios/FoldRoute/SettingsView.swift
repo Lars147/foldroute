@@ -35,7 +35,7 @@ struct SettingsView: View {
                 Stepper(value: $model.settings.maxCyclingMinutes, in: 1...60) {
                     LabeledContent("Maximale Radzeit je Etappe", value: "\(model.settings.maxCyclingMinutes) Min.")
                 }
-                Text("Gilt für jede Radetappe deiner ÖPNV-Reise. Falten, Entfalten und Anschlusspuffer kommen hinzu. Geplante Routen werden beim Verlassen der Einstellungen neu berechnet.")
+                Text("Gilt für jede Radetappe deiner ÖPNV-Reise. Falten, Entfalten und Anschlusspuffer kommen hinzu. Längere reine Fahrradrouten können zusätzlich zum Vergleich erscheinen. Geplante Routen werden beim Verlassen der Einstellungen neu berechnet.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

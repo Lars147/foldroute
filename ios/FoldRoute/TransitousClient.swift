@@ -51,7 +51,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
     ) async throws -> [Journey] {
         var result: [Journey] = []
         for try await update in alternativeUpdates(request, settings: settings) {
-            result = JourneyOptionSelector.select(from: update.journeys, timing: request.timing)
+            result = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes)
         }
         return result
     }
@@ -136,7 +136,6 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
         return try await withThrowingTaskGroup(of: (Int, Result<FetchBatch, RoutePlannerError>).self) { group in
             var result = BaseResult()
             var next = 0
-            var directFinished = false
             func submit(_ index: Int) {
                 let variant = variants[index]
                 group.addTask {
@@ -149,9 +148,8 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
                 }
             }
             while next < min(2, variants.count) { submit(next); next += 1 }
-            while let (index, response) = try await group.next() {
+            while let (_, response) = try await group.next() {
                 try Task.checkCancellation()
-                if index == 0 { directFinished = true }
                 switch response {
                 case .success(let batch):
                     result.journeys += batch.journeys
@@ -169,7 +167,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
                         group.cancelAll()
                     }
                 }
-                if directFinished && !result.journeys.isEmpty { emit(result.journeys) }
+                if !result.journeys.isEmpty { emit(result.journeys) }
                 if result.rateLimited { break }
                 if next < variants.count { submit(next); next += 1 }
             }
@@ -464,7 +462,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
             items += [
                 URLQueryItem(name: "transitModes", value: ""),
                 URLQueryItem(name: "directModes", value: "BIKE"),
-                URLQueryItem(name: "maxDirectTime", value: "7200")
+                URLQueryItem(name: "maxDirectTime", value: "21600")
             ]
         }
 
@@ -782,9 +780,15 @@ enum JourneyOptionSelector {
     static func select(
         from journeys: [Journey],
         timing: RouteTiming,
-        maximumOptions: Int = maximumDisplayedOptions
+        maximumOptions: Int = maximumDisplayedOptions,
+        cyclingLimit: Int? = nil
     ) -> [Journey] {
         guard maximumOptions > 0 else { return [] }
+        if let limit = cyclingLimit,
+           let comparison = journeys.filter({ CyclingComparison.excess($0, limit: limit) > 0 }).sorted(by: { comesBefore($0, $1, timing: timing) }).first {
+            let suitable = select(from: journeys.filter { CyclingComparison.excess($0, limit: limit) == 0 }, timing: timing, maximumOptions: maximumOptions == 1 ? 1 : maximumOptions - 1)
+            return maximumOptions == 1 && !suitable.isEmpty ? suitable : suitable + [comparison]
+        }
 
         let direct = journeys.filter { $0.isDirect }.sorted { comesBefore($0, $1, timing: timing) }.first
         let worthwhile = journeys.filter { TransitBenefitPolicy.isWorthwhile($0, comparedTo: direct, timing: timing) }

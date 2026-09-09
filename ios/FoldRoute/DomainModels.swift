@@ -748,3 +748,18 @@ final class PlanningServerPause: @unchecked Sendable {
         if let deadline = retryAt, deadline > now { throw RoutePlannerError.serverPause(deadline) }
     }
 }
+
+/// Longer direct rides remain available as a clearly marked comparison.
+enum CyclingComparison {
+    static func excess(_ journey: Journey, limit: Int) -> TimeInterval {
+        guard journey.isDirect else { return 0 }
+        let seconds = journey.legs.filter { $0.kind == .bike }.reduce(0.0) { $0 + $1.endTime.timeIntervalSince($1.startTime) }
+        return max(0, seconds - Double(limit * 60))
+    }
+    static func label(_ journey: Journey, limit: Int) -> String? {
+        let over = excess(journey, limit: limit)
+        guard over > 0 else { return nil }
+        let minutes = Int(ceil((over + Double(limit * 60)) / 60))
+        return "\(minutes) Min. Radfahrt · \(Int(ceil(over / 60))) Min. über deinem Radlimit"
+    }
+}

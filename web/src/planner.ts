@@ -256,8 +256,7 @@ export async function* planRoutes(
     );
   let all: Journey[] = [],
     issues: string[] = [],
-    stopped = false,
-    directFinished = false;
+    stopped = false;
   const variants =
     settings.excludedTransitModes.length === 6
       ? baseVariants.slice(0, 1)
@@ -272,7 +271,12 @@ export async function* planRoutes(
     stopped ||= batch.stop;
   };
   const update = (status: PlanningUpdate["status"]): PlanningUpdate => ({
-    journeys: selectJourneys(all, request.timing),
+    journeys: selectJourneys(
+      all,
+      request.timing,
+      3,
+      settings.maxCyclingMinutes,
+    ),
     status,
     issues: [...new Set(issues)],
   });
@@ -281,13 +285,12 @@ export async function* planRoutes(
     signal,
   )) {
     signal.throwIfAborted();
-    if (result.index === 0) directFinished = true;
     if (result.value) add(result.value);
     else {
       issues.push(errorText(result.error));
       stopped ||= result.error instanceof PlannerError && result.error.stops;
     }
-    if (directFinished && all.length) yield update("searching");
+    if (all.length) yield update("searching");
     if (stopped) break;
   }
   signal.throwIfAborted();

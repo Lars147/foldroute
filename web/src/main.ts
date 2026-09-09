@@ -156,7 +156,7 @@ async function persist(snapshot: SavedJourney) {
   }
 }
 function renderPlanning(state: PlanningState) {
-  journeyView.render(state);
+  journeyView.render(state, settings.maxCyclingMinutes);
   if (view === "map") routeMap.show(state.journeys, state.selected);
   if (
     state.selected &&
@@ -505,7 +505,7 @@ function settingsUI() {
     if (k === "maxCyclingMinutes") {
       const hint = node(
         "small",
-        "Gilt für jede Radetappe deiner ÖPNV-Reise. Falten, Entfalten und Anschlusspuffer kommen hinzu.",
+        "Gilt für jede Radetappe deiner ÖPNV-Reise. Falten, Entfalten und Anschlusspuffer kommen hinzu. Längere reine Fahrradrouten können zusätzlich zum Vergleich erscheinen.",
       );
       hint.id = "cycling-limit-hint";
       copy.append(hint);
@@ -690,7 +690,7 @@ function connectionChanged() {
   el("connection").hidden = navigator.onLine;
   savedUI();
   if (view === "map") {
-    journeyView.render(session.state);
+    journeyView.render(session.state, settings.maxCyclingMinutes);
     routeMap.show(session.state.journeys, session.state.selected);
   }
   if (!navigator.onLine && session.state.busy)

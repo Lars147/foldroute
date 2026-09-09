@@ -61,7 +61,7 @@ export function makeURL(
     Object.assign(values, {
       transitModes: "",
       directModes: "BIKE",
-      maxDirectTime: "7200",
+      maxDirectTime: "21600",
     });
   else
     Object.assign(values, {

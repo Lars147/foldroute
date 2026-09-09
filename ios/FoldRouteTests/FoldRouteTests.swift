@@ -398,7 +398,7 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
                 : TransitousFixtures.multimodal
         }
 
-        let journeys = try await client.planAlternatives(makeRequest(), settings: .defaults)
+        let journeys = try await client.planAlternatives(makeRequest(), settings: NavigationSettings(maxCyclingMinutes: 60))
 
         XCTAssertEqual(journeys.map(\.id), ["bike-1"])
         XCTAssertTrue(try XCTUnwrap(journeys.first).isDirect)
@@ -2655,6 +2655,21 @@ extension FoldRouteTests {
             departure: start, arrival: end, legs: [.bike(movement)], transfers: 0, isDirect: direct, score: 0)
     }
 
+    func testCyclingComparisonsPreferSuitableRoutesAndRespectBoundary() {
+        let long = benefitJourney(id: "long", direct: true, bikeMeters: 10000, arrival: 2760)
+        let fit = benefitJourney(id: "fit", direct: false, bikeMeters: 1000, arrival: 5400)
+        for seconds in [1740.0, 1800] {
+            XCTAssertEqual(CyclingComparison.excess(benefitJourney(id: "boundary", direct: true, bikeMeters: 10000, arrival: seconds), limit: 30), 0)
+        }
+        XCTAssertEqual(CyclingComparison.label(long, limit: 30), "46 Min. Radfahrt · 16 Min. über deinem Radlimit")
+        XCTAssertNil(CyclingComparison.label(long, limit: 60))
+        for timing in [RouteTiming.leaveNow, .arriveBy(Date(timeIntervalSince1970: 10000))] {
+            XCTAssertEqual(JourneyOptionSelector.select(from: [long, fit], timing: timing, cyclingLimit: 30).map(\.id), ["fit", "long"])
+        }
+        XCTAssertEqual(JourneyOptionSelector.select(from: [long, fit], timing: .leaveNow, maximumOptions: 1, cyclingLimit: 30).map(\.id), ["fit"])
+        XCTAssertEqual(JourneyOptionSelector.select(from: [long], timing: .leaveNow, cyclingLimit: 30).map(\.id), ["long"])
+    }
+
     func testTransitBenefitTimeThresholdUsesTotalArrivalNotDuration() {
         let direct = benefitJourney(id: "direct", direct: true, bikeMeters: 8000)
         for saving in [179.0, 180, 181] {
@@ -2719,7 +2734,7 @@ extension FoldRouteTests {
 }
 
 extension FoldRouteTests {
-    func testTransitWaitsForDirectReferenceIncludingEmptyAndFailedReference() async throws {
+    func testTransitPublishesBeforeDirectReferenceIncludingEmptyAndFailedReference() async throws {
         for outcome in ["success", "empty", "failure"] {
             let (client, gate) = gatedClient()
             let request = makeRequest()
@@ -2731,10 +2746,13 @@ extension FoldRouteTests {
             try await awaitGate { gate.counts.active == 2 }
             XCTAssertTrue(gate.finishNext(direct: false))
             try await awaitGate { gate.counts.started == 3 }
-            XCTAssertTrue(gate.values.isEmpty, "Do not publish transit before direct comparison is resolved")
+            // WALK/WALK may return no usable fixture. Finish BIKE/BIKE while the direct query stays pending.
+            XCTAssertTrue(gate.finishNext(direct: false))
+            try await awaitGate { !gate.values.isEmpty }
+            XCTAssertTrue(gate.values.contains { $0.journeys.contains { !$0.isDirect } })
             XCTAssertTrue(gate.finishNext(direct: true, status: outcome == "failure" ? 500 : 200,
                                           data: outcome == "empty" ? TransitousFixtures.empty : nil))
-            try await awaitGate { gate.counts.started == 4 && !gate.values.isEmpty }
+            try await awaitGate { gate.counts.started >= 4 && !gate.values.isEmpty }
             XCTAssertTrue(gate.finishNext())
             try await awaitGate { gate.counts.started == 5 }
             while gate.finishNext() {}

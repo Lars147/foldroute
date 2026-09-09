@@ -124,6 +124,8 @@ struct JourneyPreviewView: View {
                     ZStack(alignment: compact ? .trailing : .topTrailing) {
                         JourneyOptionsPager(
                             journeys: journeys,
+                            cyclingLimit: model.settings.maxCyclingMinutes,
+                            searchComplete: model.bikeTransferSearchStatus != .searching,
                             selection: selection,
                             compact: compact,
                             compactStartBelow: compactStartBelow,
@@ -389,6 +391,8 @@ struct JourneyPreviewView: View {
 
 private struct JourneyOptionsPager: View {
     let journeys: [Journey]
+    let cyclingLimit: Int
+    let searchComplete: Bool
     @Binding var selection: Int
     let compact: Bool
     let compactStartBelow: Bool
@@ -400,6 +404,8 @@ private struct JourneyOptionsPager: View {
                 JourneyOptionDetails(
                     journey: journeys[index],
                     title: optionTitle(for: index),
+                    comparison: CyclingComparison.label(journeys[index], limit: cyclingLimit),
+                    onlyComparison: searchComplete && journeys.allSatisfy { CyclingComparison.excess($0, limit: cyclingLimit) > 0 },
                     compact: compact,
                     compactStartBelow: compactStartBelow,
                     scrollsSummary: scrollsSummary
@@ -413,13 +419,16 @@ private struct JourneyOptionsPager: View {
     }
 
     private func optionTitle(for index: Int) -> String {
-        index == 0 ? "Schnellste Verbindung" : "Alternative \(index)"
+        if CyclingComparison.excess(journeys[index], limit: cyclingLimit) > 0 { return "Fahrradvergleich" }
+        return index == 0 ? "Empfohlene Verbindung" : "Alternative \(index)"
     }
 }
 
 private struct JourneyOptionDetails: View {
     let journey: Journey
     let title: String
+    let comparison: String?
+    let onlyComparison: Bool
     let compact: Bool
     let compactStartBelow: Bool
     let scrollsSummary: Bool
@@ -468,6 +477,12 @@ private struct JourneyOptionDetails: View {
             .foregroundStyle(FoldRouteColor.signalYellow)
             .lineLimit(2)
 
+            if let comparison {
+                Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.signalYellow)
+                if onlyComparison {
+                    Text("Keine Verbindung innerhalb deines Radlimits gefunden.").font(.caption)
+                }
+            }
             JourneyTimeSummary(journey: journey)
 
         }

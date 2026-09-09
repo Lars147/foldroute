@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { defaults } from "../../src/model";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -30,6 +31,12 @@ async function setup(page: Page, geolocation = true) {
     }),
   );
   await page.goto("/");
+  await page.evaluate(
+    (value) =>
+      localStorage.setItem("foldroute.routing.v3", JSON.stringify(value)),
+    { ...defaults, maxCyclingMinutes: 60 },
+  );
+  await page.reload();
 }
 async function choose(page: Page, id: string, name: string) {
   await page.locator("#" + id).fill(name);
@@ -362,7 +369,7 @@ test("better alternatives replace automatic selection", async ({ page }) => {
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator(".route-choice")).toHaveText([
     "1 · 53 min",
-    "2 · 1 h 1 min",
+    "Vergleich · 1 h 1 min",
   ]);
   await expect(page.locator(".route-choice[aria-pressed=true]")).toHaveText(
     "1 · 53 min",
@@ -847,4 +854,69 @@ test("an expired fixed departure requires adjustment and sends no new plan reque
   await expect(page.locator("#status")).toContainText("zukünftigen Zeitpunkt");
   await expect(page.locator(".route-choice")).toHaveCount(0);
   expect(requests).toBe(0);
+});
+
+test("long direct rides are labeled comparisons and suitable transit is preferred", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.locator("#tab-settings").click();
+  await page.locator("#maxCyclingMinutes").fill("30");
+  await page.locator("#save-settings").click();
+  const direct = structuredClone(fixture.direct);
+  direct.direct[0].endTime = direct.direct[0].legs[0].endTime =
+    "2026-09-04T08:46:00Z";
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json:
+        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+          ? direct
+          : fixture.multimodal,
+    }),
+  );
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator(".route-choice[aria-pressed=true]")).toHaveText(
+    "1 · 53 min",
+  );
+  await page.getByRole("button", { name: /Fahrradvergleich: 46 Min/ }).click();
+  await expect(page.locator("#cycling-comparison")).toHaveText(
+    "46 Min. Radfahrt · 16 Min. über deinem Radlimit",
+  );
+  await page.locator("#panel-size").click();
+  await page.locator("#panel-size").click();
+  await expect(page.locator("#option-title")).toContainText(
+    "16 Min. über deinem Radlimit",
+  );
+  await expect(page.locator("#option-title")).toBeInViewport();
+});
+
+test("transit renders before a pending comparison and an explicit comparison stays selected", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.locator("#tab-settings").click();
+  await page.locator("#maxCyclingMinutes").fill("30");
+  await page.locator("#save-settings").click();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v6/plan?*", async (r) => {
+    const direct =
+      new URL(r.request().url()).searchParams.get("directModes") === "BIKE";
+    if (direct) await pending;
+    await r.fulfill({
+      headers: cors,
+      json: direct ? fixture.direct : fixture.multimodal,
+    });
+  });
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#route-duration")).toContainText("53 min");
+  await expect(page.locator("#status")).toContainText("Weitere Verbindungen");
+  release();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.getByRole("button", { name: /Fahrradvergleich:/ }).click();
+  await expect(page.locator("#option-title")).toContainText("Fahrradvergleich");
 });

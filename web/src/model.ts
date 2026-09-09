@@ -250,13 +250,41 @@ function signature(j: Journey): string {
     links,
   ]);
 }
+export function cyclingExcess(journey: Journey, limitMinutes: number): number {
+  if (!journey.isDirect) return 0;
+  const seconds = journey.legs
+    .filter((l) => l.kind === "bike")
+    .reduce((sum, l) => sum + l.end - l.start, 0);
+  return Math.max(0, seconds - limitMinutes * 60);
+}
+export function cyclingComparisonLabel(
+  journey: Journey,
+  limitMinutes: number,
+): string {
+  const excess = cyclingExcess(journey, limitMinutes);
+  return excess > 0
+    ? `${Math.ceil((excess + limitMinutes * 60) / 60)} Min. Radfahrt · ${Math.ceil(excess / 60)} Min. über deinem Radlimit`
+    : "";
+}
 export function selectJourneys(
   journeys: Journey[],
   timing: Timing,
   maximum = 3,
+  cyclingLimit = Infinity,
 ): Journey[] {
   if (maximum <= 0) return [];
   const sorted = [...journeys].sort((a, b) => compare(a, b, timing));
+  const comparison = sorted.find((j) => cyclingExcess(j, cyclingLimit) > 0);
+  if (comparison) {
+    const suitable = selectJourneys(
+      sorted.filter((j) => cyclingExcess(j, cyclingLimit) === 0),
+      timing,
+      maximum === 1 ? 1 : maximum - 1,
+    );
+    return maximum === 1 && suitable.length
+      ? suitable
+      : [...suitable, comparison];
+  }
   const direct = sorted.find((j) => j.isDirect);
   const worth = sorted.filter((j) => worthwhile(j, direct, timing));
   const transit = worth.find((j) => !j.isDirect);

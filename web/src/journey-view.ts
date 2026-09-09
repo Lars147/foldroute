@@ -4,6 +4,8 @@ import {
   bikeDistance,
   lateDepartureDelay,
   compare,
+  cyclingExcess,
+  cyclingComparisonLabel,
 } from "./model";
 import { type PlanningState } from "./planning-state";
 import { el, node, clock, duration, dateLabel, icon, legColors } from "./ui";
@@ -87,7 +89,7 @@ export class JourneyView {
     );
     el("panel-details").inert = size === "collapsed";
   }
-  render(state: PlanningState) {
+  render(state: PlanningState, cyclingLimit = 30) {
     el("status").textContent = state.message;
     el("cancel").hidden = !state.busy;
     el("refresh-route").hidden = state.busy;
@@ -98,6 +100,19 @@ export class JourneyView {
     el("issues").hidden = !state.issues.length;
     el("journey-panel").classList.toggle("is-loading", state.busy);
     const j = state.selected;
+    const onlyComparison =
+      state.journeys.length > 0 &&
+      state.journeys.every(
+        (journey) => cyclingExcess(journey, cyclingLimit) > 0,
+      );
+    if (onlyComparison && !state.busy)
+      el("status").textContent =
+        `${state.message === "Verbindungen gefunden." ? "" : state.message + " "}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`;
+    el("cycling-comparison").textContent = j
+      ? cyclingComparisonLabel(j, cyclingLimit)
+      : "";
+    el("cycling-comparison").hidden =
+      !j || cyclingExcess(j, cyclingLimit) === 0;
     const delay =
       j && !state.busy && !state.restored
         ? lateDepartureDelay(j, state.request)
@@ -111,9 +126,9 @@ export class JourneyView {
       state.request?.timing === "arrive"
         ? "Späteste Abfahrt"
         : "Früheste Ankunft";
-    const recommendedID = [...state.journeys].sort((a, b) =>
-      compare(a, b, state.request?.timing ?? "now"),
-    )[0]?.id;
+    const recommendedID = state.journeys
+      .filter((j) => cyclingExcess(j, cyclingLimit) === 0)
+      .sort((a, b) => compare(a, b, state.request?.timing ?? "now"))[0]?.id;
     el("saved-notice").hidden = !state.restored;
     if (state.restored)
       el("saved-notice").textContent =
@@ -124,6 +139,7 @@ export class JourneyView {
       state.restored,
       state.queriedAt,
       state.request?.timing,
+      cyclingLimit,
     ]);
     if (key === this.key) return;
     this.key = key;
@@ -135,7 +151,7 @@ export class JourneyView {
     state.journeys.forEach((journey, index) => {
       const button = node(
         "button",
-        `${index + 1} · ${duration(journey.arrival - journey.departure)}`,
+        `${cyclingExcess(journey, cyclingLimit) > 0 ? "Vergleich" : index + 1} · ${duration(journey.arrival - journey.departure)}`,
         "route-choice",
       );
       button.type = "button";
@@ -143,7 +159,7 @@ export class JourneyView {
       button.setAttribute("aria-pressed", String(journey.id === j?.id));
       button.setAttribute(
         "aria-label",
-        `${journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: ${duration(journey.arrival - journey.departure)}, ${clock(journey.departure)} bis ${clock(journey.arrival)}`,
+        `${cyclingExcess(journey, cyclingLimit) > 0 ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: ${duration(journey.arrival - journey.departure)}, ${clock(journey.departure)} bis ${clock(journey.arrival)}`,
       );
       button.onclick = () => this.select(journey.id);
       el("choices").append(button);
@@ -160,7 +176,9 @@ export class JourneyView {
     const index = state.journeys.findIndex((x) => x.id === j.id);
     el("option-title").textContent = state.restored
       ? "Gespeicherte Reise"
-      : `${j.id === recommendedID ? recommendation : `Alternative ${index + 1}`}${j.isDirect ? " · Nur Fahrrad" : ""}`;
+      : cyclingExcess(j, cyclingLimit) > 0
+        ? `Fahrradvergleich · ${Math.ceil(cyclingExcess(j, cyclingLimit) / 60)} Min. über deinem Radlimit`
+        : `${j.id === recommendedID ? recommendation : `Alternative ${index + 1}`}${j.isDirect ? " · Nur Fahrrad" : ""}`;
     const times = el("route-arrival");
     times.replaceChildren();
     for (const [label, time] of [
