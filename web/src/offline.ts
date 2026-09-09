@@ -1,5 +1,6 @@
 import {
   validStoredSettings,
+  validStops,
   validLegacySettings,
   type LegacyRoutingSettings,
   type Journey,
@@ -15,7 +16,7 @@ interface Snapshot {
 export type SavedJourney = Snapshot &
   (
     | { version: 1; settings: LegacyRoutingSettings }
-    | { version: 3; settings: StoredRoutingSettings }
+    | { version: 3 | 4; settings: StoredRoutingSettings }
   );
 const object = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === "object";
@@ -36,7 +37,8 @@ export function validSnapshot(value: unknown): value is SavedJourney {
     !Number.isFinite(value.savedAt) ||
     !(value.version === 1
       ? validLegacySettings(value.settings)
-      : value.version === 3 && validStoredSettings(value.settings))
+      : (value.version === 3 || value.version === 4) &&
+        validStoredSettings(value.settings))
   )
     return false;
   const r = value.request,
@@ -45,6 +47,10 @@ export function validSnapshot(value: unknown): value is SavedJourney {
     object(r) &&
     place(r.origin) &&
     place(r.destination) &&
+    validStops(r.stops) &&
+    (value.version === 4
+      ? Array.isArray(r.stops) && r.stops.length > 0
+      : !r.stops?.length) &&
     ["now", "depart", "arrive"].includes(r.timing) &&
     Number.isFinite(r.time) &&
     object(j) &&
@@ -59,12 +65,28 @@ export function validSnapshot(value: unknown): value is SavedJourney {
     typeof j.isDirect === "boolean" &&
     Array.isArray(j.legs) &&
     j.legs.length > 0 &&
+    (value.version !== 4 ||
+      JSON.stringify(
+        j.legs.filter((l: any) => l?.kind === "stop").map((l: any) => l.stop),
+      ) === JSON.stringify(r.stops)) &&
     j.legs.every(
       (l: unknown) =>
         object(l) &&
-        ["bike", "walk", "transit", "fold", "unfold", "wait"].includes(
-          l.kind,
-        ) &&
+        [
+          "bike",
+          "walk",
+          "transit",
+          "fold",
+          "unfold",
+          "wait",
+          ...(value.version === 4 ? ["stop"] : []),
+        ].includes(l.kind) &&
+        (l.kind !== "stop" ||
+          (validStops([l.stop]) &&
+            r.stops?.some((s: any) => s.id === l.stop.id) &&
+            l.start + l.stop.stayMinutes * 60 <= l.end &&
+            l.from?.latitude === l.stop.place.latitude &&
+            l.from?.longitude === l.stop.place.longitude)) &&
         place(l.from) &&
         place(l.to) &&
         Number.isFinite(l.start) &&

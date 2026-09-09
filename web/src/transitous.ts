@@ -375,12 +375,21 @@ export function retryAfter(
   const date = Date.parse(raw) / 1000;
   return Number.isFinite(date) ? Math.max(now, date) : undefined;
 }
+export interface RequestBudget {
+  take(): void;
+  stopped?: boolean;
+}
 export class ApiClient {
   retryAt = 0;
   constructor(
     private fetcher: typeof fetch = (input, init) => fetch(input, init),
   ) {}
-  async json(url: URL, signal: AbortSignal, reload = false): Promise<unknown> {
+  async json(
+    url: URL,
+    signal: AbortSignal,
+    reload = false,
+    budget?: RequestBudget,
+  ): Promise<unknown> {
     signal.throwIfAborted();
     const now = Date.now() / 1000;
     if (this.retryAt > now)
@@ -403,6 +412,7 @@ export class ApiClient {
     );
     const combined = AbortSignal.any([signal, timeout.signal]);
     try {
+      budget?.take();
       const response = await this.fetcher(url, {
         signal: combined,
         referrerPolicy: "strict-origin-when-cross-origin",
@@ -446,10 +456,16 @@ export class ApiClient {
     settings: RoutingSettings,
     variant: Variant,
     signal: AbortSignal,
+    budget?: RequestBudget,
   ): Promise<Batch> {
     const once = async (req: RouteRequest, reload = false) =>
       mapResponse(
-        await this.json(makeURL(req, settings, variant), signal, reload),
+        await this.json(
+          makeURL(req, settings, variant),
+          signal,
+          reload,
+          budget,
+        ),
         req,
         settings,
         variant,

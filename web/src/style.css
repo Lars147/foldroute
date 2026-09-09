@@ -1094,3 +1094,26 @@ dialog.compact .dialog-actions {
   width: 100%;
   min-width: 0;
 }
+
+.stop-editor-row {
+  border-block: 1px solid #343d3f;
+  padding: 16px 0;
+  margin: 12px 0;
+}
+.stop-editor-row > label {
+  display: block;
+  margin: 10px 0 6px;
+}
+.stop-editor-row > label > input {
+  width: 100px;
+  margin-left: 12px;
+}
+.stop-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.stop-actions button {
+  min-width: 44px;
+  min-height: 44px;
+}

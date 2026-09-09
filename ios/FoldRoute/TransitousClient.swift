@@ -14,6 +14,8 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
     let planningPause: PlanningServerPause
     private let session: URLSession
     private let baseURL: URL
+    private var waypointBudget: WaypointRequestBudget?
+    private var waypointBaseOnly = false
     private let userAgent: String
     private var preTransitMode: StreetMode = .bike
     private var postTransitMode: StreetMode = .bike
@@ -60,6 +62,20 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    if !request.stops.isEmpty {
+                        try await ViaRoutePlanner.run(request, settings: settings, fetch: { part, baseOnly, budget in
+                            var client = self
+                            client.waypointBudget = budget
+                            client.waypointBaseOnly = baseOnly
+                            var options = settings
+                            options.showCyclingComparison = true
+                            var latest = JourneyOptionsUpdate(journeys: [], status: .complete)
+                            for try await update in client.alternativeUpdates(part, settings: options) { latest = update }
+                            return latest
+                        }, emit: { continuation.yield($0) })
+                        continuation.finish()
+                        return
+                    }
                     let fixedRequest = RouteRequest(origin: request.origin, destination: request.destination,
                         timing: request.timing == .leaveNow ? .departAt(Date()) : request.timing)
                     let result = try await baseAlternatives(fixedRequest, settings: settings) {
@@ -67,7 +83,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
                     }
                     let base = result.journeys
                     try Task.checkCancellation()
-                    let enabled = !result.rateLimited && settings.maxBikeTransfers > 0 && base.contains { !$0.isDirect }
+                    let enabled = !waypointBaseOnly && !result.rateLimited && settings.maxBikeTransfers > 0 && base.contains { !$0.isDirect }
                     continuation.yield(JourneyOptionsUpdate(journeys: base, status: enabled ? .searching : (result.partial ? .partial : .complete), issues: result.issues))
                     if enabled {
                         var search = BikeTransferSearch { part, backwards, outerMode in
@@ -344,7 +360,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
         )
         var urlRequest = URLRequest(url: url)
         urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        urlRequest.timeoutInterval = 20
+        urlRequest.timeoutInterval = try await waypointBudget?.take() ?? 20
         if bypassCache { urlRequest.cachePolicy = .reloadIgnoringLocalCacheData }
 
         try Task.checkCancellation()
@@ -866,7 +882,7 @@ enum JourneyOptionSelector {
         return journey.arrival.timeIntervalSince(reference.arrival)
     }
 
-    private static func comesBefore(
+    static func comesBefore(
         _ lhs: Journey,
         _ rhs: Journey,
         timing: RouteTiming
@@ -886,7 +902,7 @@ enum JourneyOptionSelector {
         return lhs.id < rhs.id
     }
 
-    private static func connectionKey(_ journey: Journey) -> String {
+    static func connectionKey(_ journey: Journey) -> String {
         if journey.isDirect { return "direct|\(journey.id)" }
         let transit = journey.legs.compactMap { leg -> TransitLeg? in
             if case .transit(let transit) = leg { return transit }

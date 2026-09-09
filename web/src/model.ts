@@ -8,7 +8,39 @@ export interface Place extends Coordinate {
   stopId?: string;
 }
 export type Timing = "now" | "depart" | "arrive";
+export interface RouteStop {
+  id: string;
+  place: Place;
+  stayMinutes: number;
+}
+export function validStops(value: unknown): value is RouteStop[] {
+  if (value === undefined) return true;
+  return (
+    Array.isArray(value) &&
+    value.length <= 3 &&
+    new Set(value.map((s) => s?.id)).size === value.length &&
+    value.every(
+      (s) =>
+        s &&
+        typeof s.id === "string" &&
+        s.id.length > 0 &&
+        s.id.length <= 100 &&
+        s.place &&
+        typeof s.place.name === "string" &&
+        s.place.name.length <= 500 &&
+        typeof s.place.detail === "string" &&
+        Number.isFinite(s.place.latitude) &&
+        Math.abs(s.place.latitude) <= 90 &&
+        Number.isFinite(s.place.longitude) &&
+        Math.abs(s.place.longitude) <= 180 &&
+        Number.isInteger(s.stayMinutes) &&
+        s.stayMinutes >= 0 &&
+        s.stayMinutes <= 1440,
+    )
+  );
+}
 export interface RouteRequest {
+  stops?: RouteStop[];
   origin: Place;
   destination: Place;
   timing: Timing;
@@ -132,8 +164,10 @@ export function lateDepartureDelay(
   const delay = journey.departure - request.time;
   return delay >= 3600 ? delay : undefined;
 }
-export type LegKind = "bike" | "walk" | "transit" | "fold" | "unfold" | "wait";
+export type LegKind =
+  "bike" | "walk" | "transit" | "fold" | "unfold" | "wait" | "stop";
 export interface Leg {
+  stop?: RouteStop;
   kind: LegKind;
   from: Place;
   to: Place;
@@ -173,6 +207,7 @@ export const kindNames: Record<LegKind, string> = {
   fold: "Falten",
   unfold: "Entfalten",
   wait: "Warten",
+  stop: "Zwischenziel",
 };
 export const kindColors: Record<LegKind, string> = {
   bike: "#168d97",
@@ -181,6 +216,7 @@ export const kindColors: Record<LegKind, string> = {
   fold: "#ffd43b",
   unfold: "#ffd43b",
   wait: "#697077",
+  stop: "#ffd43b",
 };
 export const bikeDistance = (j: Journey) =>
   j.legs.filter((l) => l.kind === "bike").reduce((s, l) => s + l.distance, 0);
@@ -191,7 +227,10 @@ export function bikeBoardings(j: Journey): number[] {
     rode = false;
   const result: number[] = [];
   j.legs.forEach((l, i) => {
-    if (l.kind === "transit") {
+    if (l.kind === "stop") {
+      seen = false;
+      rode = false;
+    } else if (l.kind === "transit") {
       if (seen && rode) result.push(i);
       seen = true;
       rode = false;
@@ -281,10 +320,28 @@ function signature(j: Journey): string {
 }
 export function cyclingExcess(journey: Journey, limitMinutes: number): number {
   if (!journey.isDirect) return 0;
-  const seconds = journey.legs
-    .filter((l) => l.kind === "bike")
-    .reduce((sum, l) => sum + l.end - l.start, 0);
+  let seconds = 0,
+    current = 0;
+  for (const leg of journey.legs) {
+    if (leg.kind === "stop") {
+      seconds = Math.max(seconds, current);
+      current = 0;
+    } else if (leg.kind === "bike") current += leg.end - leg.start;
+  }
+  seconds = Math.max(seconds, current);
   return Math.max(0, seconds - limitMinutes * 60);
+}
+export function sectionCyclingExcess(
+  journey: Journey,
+  limitMinutes: number,
+): number {
+  if (journey.isDirect) return cyclingExcess(journey, limitMinutes);
+  return Math.max(
+    0,
+    ...journey.legs
+      .filter((l) => l.kind === "bike")
+      .map((l) => l.end - l.start - limitMinutes * 60),
+  );
 }
 export function cyclingComparisonLabel(
   journey: Journey,
@@ -292,7 +349,7 @@ export function cyclingComparisonLabel(
 ): string {
   const excess = cyclingExcess(journey, limitMinutes);
   return excess > 0
-    ? `${Math.ceil((excess + limitMinutes * 60) / 60)} Min. Radfahrt · ${Math.ceil(excess / 60)} Min. über deinem Radlimit`
+    ? `${Math.ceil((excess + limitMinutes * 60) / 60)} Min. ${journey.legs.some((l) => l.kind === "stop") ? "längste Radetappe" : "Radfahrt"} · ${Math.ceil(excess / 60)} Min. über deinem Radlimit`
     : "";
 }
 export function selectJourneys(

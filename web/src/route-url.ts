@@ -1,6 +1,8 @@
 import {
   ranges,
   validSettings,
+  validStops,
+  type RouteStop,
   type Place,
   type RouteRequest,
   type RoutingSettings,
@@ -18,7 +20,13 @@ const optionKeys = [
   "excludedTransitModes",
   "showCyclingComparison",
 ];
+const stopKeys = Array.from({ length: 3 }, (_, i) => [
+  `via${i + 1}`,
+  `via${i + 1}Name`,
+  `via${i + 1}Stay`,
+]).flat();
 const keys = [
+  ...stopKeys,
   "v",
   "from",
   "fromName",
@@ -41,7 +49,15 @@ export function routeURL(base: string | URL, plan?: RouteLink): URL {
   if (!plan) return url;
   const { request, settings } = plan;
   const params = url.searchParams;
-  params.set("v", "1");
+  params.set("v", request.stops?.length ? "2" : "1");
+  request.stops?.forEach((stop, i) => {
+    params.set(
+      `via${i + 1}`,
+      `${stop.place.latitude.toFixed(6)},${stop.place.longitude.toFixed(6)}`,
+    );
+    params.set(`via${i + 1}Name`, stop.place.name);
+    params.set(`via${i + 1}Stay`, String(stop.stayMinutes));
+  });
   for (const [key, place] of [
     ["from", fixedPlace(request.origin, "Startpunkt")],
     ["to", fixedPlace(request.destination, "Zielpunkt")],
@@ -69,7 +85,7 @@ export function readRouteURL(url: URL): ParsedRouteLink {
   const params = url.searchParams;
   if (!keys.some((key) => params.has(key))) return { kind: "none" };
   if (
-    params.get("v") !== "1" ||
+    !["1", "2"].includes(params.get("v") ?? "") ||
     keys.some((key) => params.getAll(key).length > 1)
   )
     return { kind: "invalid" };
@@ -81,6 +97,26 @@ export function readRouteURL(url: URL): ParsedRouteLink {
     if (!validCoordinate(point) || name.length > 500) return;
     return fixedPlace({ ...point, name, detail: "" }, fallback);
   }
+  const stops: RouteStop[] = [];
+  if (params.get("v") === "1" && stopKeys.some((key) => params.has(key)))
+    return { kind: "invalid" };
+  if (
+    [...params.keys()].some(
+      (key) => /^via/.test(key) && !stopKeys.includes(key),
+    )
+  )
+    return { kind: "invalid" };
+  for (let i = 1; i <= 3; i++) {
+    const group = [`via${i}`, `via${i}Name`, `via${i}Stay`];
+    if (!group.some((key) => params.has(key))) continue;
+    const p = place(`via${i}`, `Zwischenziel ${i}`),
+      raw = params.get(`via${i}Stay`);
+    if (stops.length !== i - 1 || !p || !raw?.trim())
+      return { kind: "invalid" };
+    stops.push({ id: `via-${i}`, place: p, stayMinutes: Number(raw) });
+  }
+  if (!validStops(stops) || (params.get("v") === "2" && !stops.length))
+    return { kind: "invalid" };
   const origin = place("from", "Startpunkt"),
     destination = place("to", "Zielpunkt");
   const timing = params.get("timing");
@@ -124,6 +160,7 @@ export function readRouteURL(url: URL): ParsedRouteLink {
       request: {
         origin,
         destination,
+        ...(stops.length ? { stops } : {}),
         timing: timing as RouteRequest["timing"],
         time,
       },

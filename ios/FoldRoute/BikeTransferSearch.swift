@@ -17,7 +17,8 @@ extension Journey {
         var rodeBike = false
         var result: Set<Int> = []
         for (index, leg) in legs.enumerated() {
-            if leg.kind == .transit {
+            if leg.kind == .stop { seenTransit = false; rodeBike = false }
+            else if leg.kind == .transit {
                 if seenTransit && rodeBike { result.insert(index) }
                 seenTransit = true
                 rodeBike = false
@@ -249,5 +250,119 @@ extension NavigationSettings {
         maxCyclingMinutes = min(60, max(1, try values.decodeIfPresent(Int.self, forKey: .maxCyclingMinutes) ?? 30))
         maxWalkingMinutes = min(15, max(1, try values.decodeIfPresent(Int.self, forKey: .maxWalkingMinutes) ?? 2))
         maxBikeTransfers = min(3, max(0, try values.decodeIfPresent(Int.self, forKey: .maxBikeTransfers) ?? 2))
+    }
+}
+
+// A user stop is a boundary between complete trips, not a transfer or an approach waypoint.
+extension Journey {
+    var stops: [RouteStop] { remainingStops(from: 0) }
+    func remainingStops(from index: Int) -> [RouteStop] {
+        legs.dropFirst(index).compactMap { if case .stop(let leg) = $0 { return leg.stop }; return nil }
+    }
+}
+
+actor WaypointRequestBudget {
+    private var requests = 0
+    private let deadline = Date().addingTimeInterval(60)
+    func take() throws -> TimeInterval {
+        let remaining = deadline.timeIntervalSinceNow
+        guard requests < 64, remaining > 0 else { throw RoutePlannerError.stopBudget }
+        requests += 1
+        return min(20, remaining)
+    }
+    func check() throws {
+        guard requests < 64, deadline > Date() else { throw RoutePlannerError.stopBudget }
+    }
+}
+
+enum ViaJourneyComposer {
+    static func join(_ first: Journey, _ last: Journey, at stop: RouteStop) -> Journey? {
+        guard first.arrival.addingTimeInterval(Double(stop.stayMinutes * 60)) <= last.departure,
+              first.destination.coordinate.distance(to: stop.place.coordinate) < 100,
+              last.origin.coordinate.distance(to: stop.place.coordinate) < 100 else { return nil }
+        return Journey(id: "via|\(first.id)|\(stop.id)|\(stop.stayMinutes)|\(last.id)",
+            origin: first.origin, destination: last.destination,
+            departure: first.departure, arrival: last.arrival,
+            legs: first.legs + [.stop(TransitionLeg(place: stop.place, startTime: first.arrival, endTime: last.departure, stop: stop))] + last.legs,
+            transfers: first.transfers + last.transfers, isDirect: first.isDirect && last.isDirect,
+            score: last.arrival.timeIntervalSince1970)
+    }
+}
+
+enum ViaRoutePlanner {
+    typealias Fetch = @Sendable (RouteRequest, Bool, WaypointRequestBudget) async throws -> JourneyOptionsUpdate
+    private struct Candidate { let journey: Journey; let overLimit: Bool }
+
+    private static func frontier(_ candidates: [Candidate], timing: RouteTiming) -> [Candidate] {
+        var seen: Set<String> = []
+        let sorted = candidates.sorted { JourneyOptionSelector.comesBefore($0.journey, $1.journey, timing: timing) }
+            .filter { seen.insert(JourneyOptionSelector.connectionKey($0.journey)).inserted }
+        var result = Array(sorted.filter { !$0.overLimit }.prefix(3))
+        if let cycling = sorted.first(where: { $0.journey.isDirect }), !result.contains(where: { $0.journey.id == cycling.journey.id }) { result.append(cycling) }
+        return result
+    }
+
+    static func run(_ request: RouteRequest, settings: NavigationSettings, fetch: Fetch,
+                    emit: @Sendable (JourneyOptionsUpdate) -> Void) async throws {
+        try RouteStop.validate(request.stops)
+        let places = [request.origin] + request.stops.map(\.place) + [request.destination]
+        for i in 1..<places.count where places[i-1].coordinate.distance(to: places[i].coordinate) < 30 {
+            throw RoutePlannerError.stopSection(i, .placesTooClose)
+        }
+        let time = request.timing.date
+        let backward = request.timing.isArrival
+        let budget = WaypointRequestBudget()
+        var completed: [Journey] = [], issues: [RoutePlannerError] = []
+        var stopped = false
+        for baseOnly in settings.maxBikeTransfers > 0 ? [true, false] : [true] {
+            var paths: [Candidate] = []
+            for stage in 0..<(places.count-1) {
+                if stopped { break }
+                let index = backward ? places.count-2-stage : stage
+                var additions: [Candidate] = []
+                let parents: [Candidate?] = paths.isEmpty ? [nil] : paths.map { Optional($0) }
+                for parent in parents {
+                    let boundary = parent.map { _ in request.stops[backward ? index : index-1] }
+                    let partTime = parent.map {
+                        backward ? $0.journey.departure.addingTimeInterval(-Double(boundary!.stayMinutes*60))
+                            : $0.journey.arrival.addingTimeInterval(Double(boundary!.stayMinutes*60))
+                    } ?? time
+                    let part = RouteRequest(origin: places[index], destination: places[index+1], timing: backward ? .arriveBy(partTime) : .departAt(partTime))
+                    do {
+                        try Task.checkCancellation()
+                        try await budget.check()
+                        let update = try await fetch(part, baseOnly, budget)
+                        issues += update.issues
+                        stopped = update.issues.contains(where: \.stopsRequests)
+                        for child in update.journeys {
+                            let journey = parent.flatMap {
+                                backward ? ViaJourneyComposer.join(child, $0.journey, at: boundary!) : ViaJourneyComposer.join($0.journey, child, at: boundary!)
+                            } ?? (parent == nil ? child : nil)
+                            let over = (parent?.overLimit ?? false) || CyclingComparison.sectionExcess(child, limit: settings.maxCyclingMinutes) > 0
+                            guard let journey, !over || journey.isDirect, journey.bikeTransferCount <= settings.maxBikeTransfers else { continue }
+                            additions.append(Candidate(journey: journey, overLimit: over))
+                        }
+                    } catch {
+                        try Task.checkCancellation()
+                        let cause = RoutePlannerError.classify(error)
+                        issues.append(.stopSection(index+1, cause))
+                        stopped = cause.stopsRequests
+                    }
+                    if stage == places.count-2, !additions.isEmpty {
+                        completed += additions.map(\.journey)
+                        let selected = JourneyOptionSelector.select(from: completed, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
+                        if !selected.isEmpty { emit(JourneyOptionsUpdate(journeys: selected, status: .searching, issues: RoutePlannerError.unique(issues))) }
+                    }
+                    if stopped { break }
+                }
+                paths = frontier(additions, timing: request.timing)
+                if paths.isEmpty { break }
+            }
+            if stopped || !completed.contains(where: { !$0.isDirect }) { break }
+        }
+        try Task.checkCancellation()
+        let selected = JourneyOptionSelector.select(from: completed, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
+        guard !selected.isEmpty else { throw issues.isEmpty ? RoutePlannerError.noRoute : .multiple(issues) }
+        emit(JourneyOptionsUpdate(journeys: selected, status: issues.isEmpty ? .complete : .partial, issues: RoutePlannerError.unique(issues)))
     }
 }

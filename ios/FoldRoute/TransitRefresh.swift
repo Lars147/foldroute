@@ -181,6 +181,9 @@ enum TransitJourneyUpdater {
             let duration = legs[i].endTime.timeIntervalSince(legs[i].startTime)
             switch legs[i] {
             case .transit: break
+            case .stop(let transition):
+                let minimum = Double(transition.stop?.stayMinutes ?? 0) * 60
+                legs[i] = .stop(TransitionLeg(id: transition.id, place: transition.place, startTime: previousEnd, endTime: max(transition.endTime, previousEnd.addingTimeInterval(minimum)), stop: transition.stop))
             case .fold(let transition):
                 let nextTransit = legs.indices.dropFirst(i + 1).first { legs[$0].kind == .transit }
                 let buffer = nextTransit.map { journey.bikeTransferBoardings.contains($0) ? BikeTransferComposer.buffer : 0 } ?? 0
@@ -226,6 +229,11 @@ enum TransitJourneyUpdater {
                 previousTransit = true
                 hasTransferWalk = false
             case .wait: break
+            case .stop(let stop):
+                if i == index { earliest = max(now, stop.endTime) }
+                else { earliest = max(stop.endTime, earliest.addingTimeInterval(Double(stop.stop?.stayMinutes ?? 0) * 60)) }
+                previousTransit = false
+                hasTransferWalk = false
             default:
                 if i == index {
                     earliest = now.addingTimeInterval(remainingMovementTime ?? max(0, leg.endTime.timeIntervalSince(now)))

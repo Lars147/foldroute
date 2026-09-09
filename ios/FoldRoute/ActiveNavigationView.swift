@@ -125,11 +125,16 @@ struct ActiveNavigationView: View {
                     .tint(FoldRouteColor.signalYellow)
             }
 
+            if case .stop(let stop) = engine.currentLeg {
+                Text("Geplanter Aufenthalt: \(stop.stop?.stayMinutes ?? 0) Minuten. Weiterfahrt ab \(stop.endTime.formatted(date: .omitted, time: .shortened)).")
+                    .font(.subheadline)
+            }
             HStack(spacing: 10) {
                 Button {
-                    engine.advance()
+                    if engine.currentLeg?.kind == .stop { Task { await model.continueFromStop() } }
+                    else { engine.advance() }
                 } label: {
-                    Label("Schritt fertig", systemImage: "checkmark")
+                    Label(engine.currentLeg?.kind == .stop ? "Weiterfahren" : "Schritt fertig", systemImage: "checkmark")
                         .lineLimit(1)
                         .minimumScaleFactor(0.25)
                         .frame(maxWidth: .infinity, minHeight: 48)
@@ -137,6 +142,7 @@ struct ActiveNavigationView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(FoldRouteColor.signalYellow)
                 .foregroundStyle(FoldRouteColor.asphalt)
+                .disabled(engine.isReplanning)
 
                 Button {
                     confirmStop = true

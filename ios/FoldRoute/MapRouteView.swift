@@ -152,6 +152,10 @@ struct RouteMapView: View {
                             }
                         }
 
+                        ForEach(Array(journey.stops.enumerated()), id: \.element.id) { index, stop in
+                            Marker("\(index+1): \(stop.place.name)", coordinate: stop.place.coordinate.clCoordinate)
+                                .tint(FoldRouteColor.signalYellow)
+                        }
                         Marker("Start", coordinate: journey.origin.coordinate.clCoordinate)
                             .tint(FoldRouteColor.routeCyan)
                         if let waypoint = journey.waypoint {

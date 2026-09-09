@@ -123,8 +123,11 @@ struct HistoryView: View {
 
         let origin = reversed ? storedDestination : storedOrigin
         let destination = reversed ? storedOrigin : storedDestination
-        openRouteTab()
-        Task { await model.replan(from: origin, to: destination) }
+        do {
+            let stops = try journey.decodedStops()
+            openRouteTab()
+            Task { await model.replan(from: origin, to: destination, stops: reversed ? Array(stops.reversed()) : stops) }
+        } catch { errorMessage = "Zwischenziele konnten nicht geladen werden." }
     }
 
     private func modeSummary(_ rawModes: String) -> String {

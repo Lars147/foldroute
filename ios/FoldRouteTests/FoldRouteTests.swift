@@ -779,8 +779,8 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(try container.mainContext.fetch(FetchDescriptor<StoredJourney>()).isEmpty)
     }
 
-    func testStoredJourneyWithoutCoordinatesCannotBeReplanned() {
-        let storedJourney = StoredJourney(journey: makeJourney())
+    func testStoredJourneyWithoutCoordinatesCannotBeReplanned() throws {
+        let storedJourney = try StoredJourney(journey: makeJourney())
 
         storedJourney.originLatitude = nil
         storedJourney.originLongitude = nil
@@ -798,7 +798,7 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
         )
         let journey = makeJourney(id: "current-location-journey", origin: currentLocation)
 
-        XCTAssertEqual(StoredJourney(journey: journey).originName, "Startpunkt")
+        XCTAssertEqual(try StoredJourney(journey: journey).originName, "Startpunkt")
     }
 
     @MainActor
@@ -817,7 +817,7 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
             detail: "Genauer Standort",
             coordinate: Coordinate(latitude: 48.1372, longitude: 11.5756)
         )
-        let storedJourney = StoredJourney(
+        let storedJourney = try StoredJourney(
             journey: makeJourney(id: "legacy-current-location", origin: currentLocation)
         )
         storedJourney.originName = "Aktueller Standort"
@@ -869,7 +869,7 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
             location: LocationService(),
             guidance: GuidanceService()
         )
-        let storedJourney = StoredJourney(journey: makeJourney())
+        let storedJourney = try StoredJourney(journey: makeJourney())
         let origin = try XCTUnwrap(storedJourney.originPlace)
         let destination = try XCTUnwrap(storedJourney.destinationPlace)
         model.timingSelection = .arrive
@@ -4038,5 +4038,233 @@ extension FoldRouteTests {
         XCTAssertTrue(transitions.contains { $0.kind == .fold })
         XCTAssertTrue(transitions.contains { $0.kind == .unfold })
         for leg in transitions { XCTAssertEqual(leg.endTime.timeIntervalSince(leg.startTime), 90, accuracy: 0.01) }
+    }
+}
+
+private func viaPlace(_ index: Int) -> Place {
+    Place(name: "Ort \(index)", coordinate: Coordinate(latitude: 48 + Double(index)*0.01, longitude: 11.5))
+}
+private func viaRide(_ request: RouteRequest, minutes: Int = 20) -> Journey {
+    let departure = request.timing.isArrival ? request.timing.date.addingTimeInterval(-Double(minutes*60)) : request.timing.date
+    let arrival = departure.addingTimeInterval(Double(minutes*60))
+    return Journey(id: "\(request.origin.name)|\(request.destination.name)|\(departure)",
+        origin: request.origin, destination: request.destination, departure: departure, arrival: arrival,
+        legs: [.bike(MovementLeg(from: request.origin, to: request.destination, startTime: departure, endTime: arrival,
+            distance: 5_000, coordinates: [request.origin.coordinate, request.destination.coordinate], maneuvers: []))],
+        transfers: 0, isDirect: true, score: arrival.timeIntervalSince1970)
+}
+
+extension FoldRouteTests {
+    func testViaPlanningForwardAndBackwardWithUpToThreeStops() async throws {
+        let time = Date().addingTimeInterval(86_400)
+        for backward in [false, true] {
+            for count in 1...3 {
+                let stops = (1...count).map { RouteStop(id: "stop-\($0)", place: viaPlace($0), stayMinutes: 10) }
+                let request = RouteRequest(origin: viaPlace(0), destination: viaPlace(count+1), timing: backward ? .arriveBy(time) : .departAt(time), stops: stops)
+                var settings = NavigationSettings.defaults
+                settings.maxBikeTransfers = 0
+                let recorder = RoutingGate()
+                try await ViaRoutePlanner.run(request, settings: settings, fetch: { part, _, budget in
+                    _ = try await budget.take()
+                    return JourneyOptionsUpdate(journeys: [viaRide(part)], status: .complete)
+                }, emit: { recorder.record($0) })
+                XCTAssertFalse(recorder.values.isEmpty)
+                for update in recorder.values {
+                    for journey in update.journeys {
+                        XCTAssertEqual(journey.stops, stops)
+                        XCTAssertEqual(journey.duration, Double((20*(count+1)+10*count)*60), accuracy: 0.01)
+                        XCTAssertEqual(backward ? journey.arrival : journey.departure, time)
+                        XCTAssertEqual(CyclingComparison.excess(journey, limit: 30), 0)
+                    }
+                }
+            }
+        }
+    }
+
+    func testViaRoundTripAndAdjacentStopValidation() async throws {
+        let time = Date().addingTimeInterval(86_400)
+        let stop = RouteStop(place: viaPlace(1))
+        var settings = NavigationSettings.defaults
+        settings.maxBikeTransfers = 0
+        let record = RoutingGate()
+        try await ViaRoutePlanner.run(RouteRequest(origin: viaPlace(0), destination: viaPlace(0), timing: .departAt(time), stops: [stop]), settings: settings,
+            fetch: { request, _, _ in JourneyOptionsUpdate(journeys: [viaRide(request)], status: .complete) }, emit: { record.record($0) })
+        XCTAssertEqual(record.values.last?.journeys.count, 1)
+        do {
+            try await ViaRoutePlanner.run(RouteRequest(origin: viaPlace(0), destination: viaPlace(2), timing: .departAt(time), stops: [RouteStop(place: viaPlace(0))]), settings: settings,
+                fetch: { _, _, _ in XCTFail("Invalid input must not fetch"); throw RoutePlannerError.noRoute }, emit: { _ in })
+            XCTFail("Expected invalid adjacent stop")
+        } catch { XCTAssertEqual(error as? RoutePlannerError, .stopSection(1, .placesTooClose)) }
+    }
+
+    func testViaRejectsIncompleteJourneyAndInvalidStay() async throws {
+        let request = RouteRequest(origin: viaPlace(0), destination: viaPlace(2), timing: .departAt(Date().addingTimeInterval(86_400)), stops: [RouteStop(place: viaPlace(1))])
+        do {
+            try await ViaRoutePlanner.run(request, settings: .defaults, fetch: { part, _, _ in
+                if part.origin.coordinate == viaPlace(1).coordinate { throw RoutePlannerError.noRoute }
+                return JourneyOptionsUpdate(journeys: [viaRide(part)], status: .complete)
+            }, emit: { _ in XCTFail("Incomplete journeys must not be emitted") })
+            XCTFail("Expected no complete journey")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("Teilstrecke 2")) }
+        XCTAssertThrowsError(try RouteStop.validate([RouteStop(place: viaPlace(1), stayMinutes: -1)]))
+        XCTAssertThrowsError(try RouteStop.validate([RouteStop(place: viaPlace(1), stayMinutes: 1441)]))
+    }
+
+    func testViaComposerPreservesStopsAndPerSectionCyclingLimit() throws {
+        let time = Date()
+        let first = viaRide(RouteRequest(origin: viaPlace(0), destination: viaPlace(1), timing: .departAt(time)))
+        let stop = RouteStop(place: viaPlace(1), stayMinutes: 10)
+        let next = viaRide(RouteRequest(origin: viaPlace(1), destination: viaPlace(2), timing: .departAt(first.arrival.addingTimeInterval(600))))
+        let combined = try XCTUnwrap(ViaJourneyComposer.join(first, next, at: stop))
+        XCTAssertEqual(CyclingComparison.excess(combined, limit: 30), 0)
+        XCTAssertEqual(combined.stops, [stop])
+        let tooEarly = viaRide(RouteRequest(origin: viaPlace(1), destination: viaPlace(2), timing: .departAt(first.arrival.addingTimeInterval(599))))
+        XCTAssertNil(ViaJourneyComposer.join(first, tooEarly, at: stop))
+        let long = viaRide(RouteRequest(origin: viaPlace(1), destination: viaPlace(2), timing: .departAt(first.arrival.addingTimeInterval(600))), minutes: 35)
+        XCTAssertEqual(CyclingComparison.excess(try XCTUnwrap(ViaJourneyComposer.join(first, long, at: stop)), limit: 30), 300)
+    }
+
+    @MainActor func testViaNavigationWaitsForManualContinueAndRestoresStop() throws {
+        let first = viaRide(RouteRequest(origin: viaPlace(0), destination: viaPlace(1), timing: .departAt(Date())))
+        let stop = RouteStop(place: viaPlace(1), stayMinutes: 10)
+        let onward = viaRide(RouteRequest(origin: viaPlace(1), destination: viaPlace(2), timing: .departAt(first.arrival.addingTimeInterval(600))))
+        let journey = try XCTUnwrap(ViaJourneyComposer.join(first, onward, at: stop))
+        let snapshot = ActiveJourneySnapshot(journey: journey, progress: NavigationProgress(legIndex: 1, maneuverIndex: 0))
+        let restored = try JSONDecoder().decode(ActiveJourneySnapshot.self, from: JSONEncoder().encode(snapshot))
+        let engine = NavigationEngine(journey: restored.journey, settings: .defaults, guidance: GuidanceService())
+        engine.start(progress: try XCTUnwrap(restored.progress))
+        engine.tick(now: onward.arrival.addingTimeInterval(3600))
+        XCTAssertEqual(engine.currentLeg?.kind, .stop)
+        XCTAssertEqual(engine.journey.remainingStops(from: engine.currentLegIndex), [stop])
+        let now = onward.departure.addingTimeInterval(300)
+        let updated = try XCTUnwrap(engine.journeyAfterStop(now: now))
+        engine.continueFromStop(with: updated, now: now)
+        XCTAssertEqual(engine.currentLeg?.kind, .bike)
+        XCTAssertEqual(engine.currentLeg?.startTime, now)
+        XCTAssertTrue(engine.journey.remainingStops(from: engine.currentLegIndex).isEmpty)
+    }
+
+    @MainActor func testViaEarlyContinuationWaitsUntilPlannedDeparture() throws {
+        let first = viaRide(RouteRequest(origin: viaPlace(0), destination: viaPlace(1), timing: .departAt(Date())))
+        let stop = RouteStop(place: viaPlace(1), stayMinutes: 10)
+        let onward = viaRide(RouteRequest(origin: viaPlace(1), destination: viaPlace(2), timing: .departAt(first.arrival.addingTimeInterval(600))))
+        let journey = try XCTUnwrap(ViaJourneyComposer.join(first, onward, at: stop))
+        let engine = NavigationEngine(journey: journey, settings: .defaults, guidance: GuidanceService())
+        engine.start(progress: NavigationProgress(legIndex: 1, maneuverIndex: 0))
+        let updated = try XCTUnwrap(engine.journeyAfterStop(now: first.arrival))
+        engine.continueFromStop(with: updated, now: first.arrival)
+        XCTAssertEqual(engine.currentLeg?.kind, .wait)
+        XCTAssertEqual(engine.currentLeg?.endTime, onward.departure)
+        XCTAssertTrue(engine.journey.remainingStops(from: engine.currentLegIndex).isEmpty)
+    }
+
+    @MainActor func testViaStoredHistoryAndLegacyRequest() throws {
+        let request = RouteRequest(origin: viaPlace(0), destination: viaPlace(1), timing: .departAt(Date()))
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        json.removeValue(forKey: "stops")
+        XCTAssertEqual(try JSONDecoder().decode(RouteRequest.self, from: JSONSerialization.data(withJSONObject: json)).stops, [])
+        let first = viaRide(request)
+        let stop = RouteStop(place: viaPlace(1), stayMinutes: 10)
+        let onward = viaRide(RouteRequest(origin: viaPlace(1), destination: viaPlace(2), timing: .departAt(first.arrival.addingTimeInterval(600))))
+        let stored = try StoredJourney(journey: XCTUnwrap(ViaJourneyComposer.join(first, onward, at: stop)))
+        XCTAssertEqual(try stored.decodedStops(), [stop])
+        stored.stopsData = nil
+        XCTAssertEqual(try stored.decodedStops(), [])
+    }
+
+    func testViaBudgetStopsAfter64Requests() async throws {
+        let budget = WaypointRequestBudget()
+        for _ in 0..<64 { _ = try await budget.take() }
+        do { _ = try await budget.take(); XCTFail("Expected budget exhaustion") }
+        catch { XCTAssertEqual(error as? RoutePlannerError, .stopBudget) }
+    }
+}
+
+private actor ViaRecordingPlanner: JourneyPlanning {
+    private var recorded: [RouteRequest] = []
+    func requests() -> [RouteRequest] { recorded }
+    func plan(_ request: RouteRequest, settings: NavigationSettings) async throws -> Journey {
+        recorded.append(request)
+        let places = [request.origin] + request.stops.map(\.place) + [request.destination]
+        var combined: Journey?
+        for i in 0..<(places.count-1) {
+            let departure = combined.map { $0.arrival.addingTimeInterval(Double(request.stops[i-1].stayMinutes*60)) } ?? Date()
+            let part = viaRide(RouteRequest(origin: places[i], destination: places[i+1], timing: .departAt(departure)))
+            combined = combined.flatMap { ViaJourneyComposer.join($0, part, at: request.stops[i-1]) } ?? part
+        }
+        return combined!
+    }
+    func planDirectBike(_ request: RouteRequest, settings: NavigationSettings) async throws -> Journey { try await plan(request, settings: settings) }
+}
+
+extension FoldRouteTests {
+    func testViaTransitousClientRequestsAllSectionsAndDwell() async throws {
+        let recorder = RequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            guard queryValue("directModes", in: request) == "BIKE" else { return TransitousFixtures.empty }
+            let a = queryValue("fromPlace", in: request)!.split(separator: ",").map { Double($0)! }
+            let b = queryValue("toPlace", in: request)!.split(separator: ",").map { Double($0)! }
+            let time = ISO8601DateFormatter().date(from: queryValue("time", in: request)!)!
+            let start = queryValue("arriveBy", in: request) == "true" ? time.addingTimeInterval(-1200) : time
+            let end = start.addingTimeInterval(1200)
+            let polyline: [String: Any] = ["points": TransitousFixtures.encode([(a[0],a[1]),(b[0],b[1])]), "precision": 5]
+            let format = ISO8601DateFormatter()
+            let leg: [String: Any] = ["mode": "BIKE", "from": ["name":"START", "lat":a[0], "lon":a[1]], "to": ["name":"END", "lat":b[0], "lon":b[1]],
+                "startTime":format.string(from:start), "endTime":format.string(from:end), "distance":5000, "legGeometry":polyline,
+                "steps":[["relativeDirection":"DEPART", "streetName":"Weg", "distance":5000, "polyline":polyline]]]
+            return try JSONSerialization.data(withJSONObject: ["direct":[["id":"\(a)|\(b)|\(start)", "startTime":format.string(from:start), "endTime":format.string(from:end), "duration":1200, "transfers":0, "legs":[leg]]]])
+        }
+        var settings = NavigationSettings.defaults
+        settings.maxBikeTransfers = 0
+        let stop = RouteStop(place: viaPlace(1), stayMinutes: 10)
+        for backward in [false,true] {
+            let time = date("2026-09-12T10:00:00Z")
+            let result = try await client.plan(RouteRequest(origin: viaPlace(0), destination: viaPlace(2), timing: backward ? .arriveBy(time) : .departAt(time), stops: [stop]), settings: settings)
+            XCTAssertEqual(result.stops, [stop])
+            XCTAssertEqual(result.duration, 3000)
+            XCTAssertEqual(backward ? result.arrival : result.departure, time)
+        }
+        XCTAssertEqual(recorder.requests.count, 20)
+    }
+
+    @MainActor private func viaMissedConnectionJourney(now: Date) throws -> Journey {
+        let first = viaRide(RouteRequest(origin: viaPlace(0), destination: viaPlace(1), timing: .departAt(now.addingTimeInterval(-2100))))
+        let stop = RouteStop(place: viaPlace(1), stayMinutes: 10)
+        let boarding = first.arrival.addingTimeInterval(600), arrival = boarding.addingTimeInterval(1200)
+        let transit = TransitLeg(id: UUID(), from: stop.place, to: viaPlace(2), startTime: boarding, endTime: arrival, mode: "SUBURBAN", line: "S1", headsign: "Ziel", agency: "Test", departurePlatform: nil, arrivalPlatform: nil, isRealtime: true, isCancelled: false, coordinates: [stop.place.coordinate,viaPlace(2).coordinate], lastUpdatedAt: now)
+        let second = Journey(id:"train",origin:stop.place,destination:transit.to,departure:boarding,arrival:arrival,legs:[.transit(transit)],transfers:0,isDirect:false,score:0)
+        let combined = try XCTUnwrap(ViaJourneyComposer.join(first, second, at: stop))
+        let final = viaRide(RouteRequest(origin: transit.to, destination: viaPlace(3), timing: .departAt(arrival)))
+        return try XCTUnwrap(ViaJourneyComposer.join(combined, final, at: RouteStop(place: transit.to)))
+    }
+
+    @MainActor func testViaLateContinuationReplansOnlyUnvisitedStops() async throws {
+        let now = Date(), store = try makeHomeStore(), planner = ViaRecordingPlanner()
+        let original = try viaMissedConnectionJourney(now: now)
+        try store.saveActiveSnapshot(ActiveJourneySnapshot(journey: original, progress: NavigationProgress(legIndex: 1, maneuverIndex: 0)))
+        let location = LocationService()
+        let model = try AppModel(planner: planner, store: store, location: location, guidance: GuidanceService())
+        XCTAssertEqual(model.routeStops, original.stops)
+        location.locationManager(CLLocationManager(), didUpdateLocations: [CLLocation(coordinate: viaPlace(1).coordinate.clCoordinate, altitude:0,horizontalAccuracy:5,verticalAccuracy:5,timestamp:Date())])
+        await model.continueFromStop()
+        let requests = await planner.requests()
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.stops, Array(original.stops.dropFirst()))
+        XCTAssertEqual(model.navigation?.journey.stops, Array(original.stops.dropFirst()))
+        XCTAssertEqual(try store.loadActiveSnapshot()?.journey.stops, Array(original.stops.dropFirst()))
+        model.stopNavigation()
+    }
+
+    @MainActor func testViaFailedContinuationKeepsStopAndSnapshot() async throws {
+        let store = try makeHomeStore(), original = try viaMissedConnectionJourney(now: Date())
+        try store.saveActiveSnapshot(ActiveJourneySnapshot(journey: original, progress: NavigationProgress(legIndex: 1, maneuverIndex: 0)))
+        let location = LocationService()
+        let model = try AppModel(planner: UnusedJourneyPlanner(), store: store, location: location, guidance: GuidanceService())
+        location.locationManager(CLLocationManager(), didUpdateLocations: [CLLocation(coordinate: viaPlace(1).coordinate.clCoordinate, altitude:0,horizontalAccuracy:5,verticalAccuracy:5,timestamp:Date())])
+        await model.continueFromStop()
+        XCTAssertEqual(model.navigation?.currentLeg?.kind, .stop)
+        XCTAssertEqual(model.navigation?.journey.stops, original.stops)
+        XCTAssertEqual(try store.loadActiveSnapshot()?.progress?.legIndex, 1)
+        model.stopNavigation()
     }
 }

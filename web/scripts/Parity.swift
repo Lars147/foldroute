@@ -14,6 +14,12 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() {}
 }
+final class ViaParityCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Journey] = []
+    func record(_ update: JourneyOptionsUpdate) { lock.withLock { values = update.journeys } }
+    var journeys: [Journey] { lock.withLock { values } }
+}
 @main struct Export {
     static func main() async throws {
         let config = URLSessionConfiguration.ephemeral
@@ -55,8 +61,30 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
                     }])
             }
         }
+        var viaScenarios: [[String: Any]] = []
+        for count in 1...3 {
+            for backward in [false, true] {
+                let place: (Int) -> Place = { n in Place(name: "Ort \(n)", coordinate: Coordinate(latitude: 48 + Double(n)*0.01, longitude: 11.5)) }
+                let stops = (1...count).map { RouteStop(id: "stop-\($0)", place: place($0), stayMinutes: 10) }
+                let request = RouteRequest(origin: place(0), destination: place(count+1), timing: backward ? .arriveBy(date) : .departAt(date), stops: stops)
+                let collector = ViaParityCollector()
+                try await ViaRoutePlanner.run(request, settings: settings, fetch: { request, _, _ in
+                    let start = request.timing.isArrival ? request.timing.date.addingTimeInterval(-1200) : request.timing.date
+                    let end = start.addingTimeInterval(1200)
+                    let journey = Journey(id: "\(request.origin.name)|\(request.destination.name)", origin: request.origin, destination: request.destination, departure: start, arrival: end,
+                        legs: [.bike(MovementLeg(from: request.origin, to: request.destination, startTime: start, endTime: end, distance: 5000, coordinates: [request.origin.coordinate, request.destination.coordinate], maneuvers: []))], transfers: 0, isDirect: true, score: end.timeIntervalSince1970)
+                    return JourneyOptionsUpdate(journeys: [journey], status: .complete)
+                }, emit: { collector.record($0) })
+                viaScenarios.append(["count": count, "timing": backward ? "arrive" : "depart", "time": date.timeIntervalSince1970,
+                    "expected": collector.journeys.map { j -> [String: Any] in
+                        ["departure": j.departure.timeIntervalSince1970, "arrival": j.arrival.timeIntervalSince1970,
+                         "transfers": j.transfers, "isDirect": j.isDirect, "excess": CyclingComparison.excess(j, limit: 30),
+                         "legs": j.legs.map { ["kind": $0.kind.rawValue, "start": $0.startTime.timeIntervalSince1970, "end": $0.endTime.timeIntervalSince1970] as [String: Any] }]
+                    }])
+            }
+        }
         let payload: [String: Any] = ["multimodal": try JSONSerialization.jsonObject(with: TransitousFixtures.multimodal),
-            "direct": try JSONSerialization.jsonObject(with: TransitousFixtures.directBike), "expected": snapshots, "expectedTransit": transitSnapshots, "scenarios": scenarios]
+            "direct": try JSONSerialization.jsonObject(with: TransitousFixtures.directBike), "expected": snapshots, "expectedTransit": transitSnapshots, "scenarios": scenarios, "viaScenarios": viaScenarios]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         FileHandle.standardOutput.write(data)
     }

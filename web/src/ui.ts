@@ -37,6 +37,7 @@ const paths: Record<string, string> = {
     '<rect x="5" y="3" width="14" height="15" rx="4"/><path d="M5 11h14M12 3v8m-4 7-3 3m11-3 3 3M9 21h6M8 14h1m6 0h1"/>',
   walk: '<circle cx="13" cy="4" r="2"/><path d="m7 21 4-7 2-6 3 4 4 1M5 12l4-4h4m-2 6 5 7"/>',
   wait: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  stop: '<path d="M12 22s8-8 8-14a8 8 0 0 0-16 0c0 6 8 14 8 14Z"/><circle cx="12" cy="8" r="3"/>',
   location: '<path d="m3 10 18-7-7 18-3-8-8-3Z"/>',
   map: '<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5ZM9 3v16m6-14v16"/>',
   settings:
@@ -67,4 +68,5 @@ export const legColors: Record<LegKind, string> = {
   unfold: "#ffd43b",
   walk: "#91d5b3",
   wait: "#ffd43b",
+  stop: "#ffd43b",
 };

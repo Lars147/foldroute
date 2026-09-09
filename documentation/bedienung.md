@@ -12,6 +12,14 @@ Die Startseite zeigt die Zielsuche und bis zu fünf zuletzt verwendete Orte. Sta
 
 Im Anpassungsdialog steht **Start** oben und **Ziel** darunter. Beide Felder öffnen per Antippen die Ortssuche. Mit dem **Tauschsymbol (↕)** dazwischen lässt sich die Fahrtrichtung umkehren. Die gewählte Zeit bleibt erhalten; **Route berechnen** übernimmt die Änderungen nach erfolgreicher Planung.
 
+## Zwischenziele
+
+**Route anpassen → Zwischenziel hinzufügen** ergänzt bis zu drei Adressen, Orte oder Haltestellen. Die Reihenfolge ist verbindlich; Pfeile verschieben Stopps, **Entfernen** löscht einen Eintrag. Beim Tauschen von Start und Ziel kehrt sich auch die Reihenfolge der Zwischenziele um. Pro Stopp sind 0–1440 Minuten Aufenthalt einstellbar, standardmäßig 0. Die gesamte Reise einschließlich der Aufenthalte muss zur Abfahrts- oder Ankunftsvorgabe passen. Eine Rundreise zurück zum Start ist möglich; direkt benachbarte Orte müssen mindestens 30 Meter auseinanderliegen.
+
+Zwischenziele werden auf der Karte nummeriert und im Reiseablauf angezeigt. Das Radlimit gilt je Teilstrecke zwischen den ausgewählten Orten: zweimal 20 Minuten Radfahrt über ein Zwischenziel sind bei einem Limit von 30 Minuten zulässig, auch ohne Pause. Der optionale Fahrradvergleich besucht dieselben Stopps und überschreitet das Limit nur, wenn mindestens eine Radetappe zu lang ist. Die Anzahl zusätzlicher Rad-Umstiege gilt weiterhin für die gesamte Reise; ein gewähltes Zwischenziel ist selbst kein Rad-Umstieg.
+
+In der iPhone-Navigation bleibt **Zwischenziel erreicht** aktiv, bis du **Weiterfahren** wählst. Bei früher Bestätigung wartet die Navigation bis zur geplanten Weiterfahrt. Ist ein Anschluss nicht mehr erreichbar oder nicht zuverlässig prüfbar, wird die verbleibende Reise neu berechnet. Ohne erfolgreiche Neuberechnung bleibt der Stopp aktiv. Noch offene Zwischenziele bleiben erhalten; bestätigte Stopps werden nicht erneut angefahren. Das gilt auch nach Wiederaufnahme einer gespeicherten Navigation.
+
 ## Favoriten und Ortssuche
 
 Orte lassen sich über den **Stern** in Suchergebnissen und Ortslisten als Favoriten markieren oder wieder entfernen. Markieren startet keine Route. Startseite, Start- und Zielauswahl zeigen dieselben Favoriten alphabetisch oberhalb von **Zuletzt verwendet**. Favoriten behalten Originalnamen und Adresse und erscheinen nicht doppelt in der Liste der letzten Orte. Sie bleiben nach Neustarts und beim Aufräumen älterer Orte erhalten; **Alle lokalen Daten löschen** entfernt sie ebenfalls. Favorisieren allein zählt nicht als Nutzung. **Aktueller Standort** lässt sich nicht favorisieren.
@@ -48,11 +56,11 @@ Unter „Klapprad“ stellt „Falten / Entfalten“ dieselbe Dauer für jeden d
 
 FoldRoute vergleicht Fuß–ÖPNV–Fuß, Fuß–ÖPNV–Rad, Rad–ÖPNV–Fuß und Rad–ÖPNV–Rad sowie eine direkte Radfahrt. Unter **Einstellungen → Fußwege** lässt sich die maximale Gehzeit je Zubringer auf 1–15 Minuten einstellen, standardmäßig **2 Minuten**. Sie gilt separat vor dem ersten Einstieg und nach dem letzten Ausstieg; Faltzeiten, Wartezeiten und Fußwege beim Umsteigen zählen nicht dazu. Das Klapprad bleibt dabei und wird auf Fuß-Zubringern geschoben; Falten und Entfalten werden weiterhin eingeplant.
 
-„Maximale Radzeit je Zubringer“ begrenzt erste und letzte Radetappe jeweils auf 5–60 Minuten (5-Minuten-Schritte, Standard 30). Falten und Entfalten kommen hinzu. „Fahrzeit je Radstrecke“ unter Rad-Umstiege begrenzt weiterhin ausschließlich Radstrecken zwischen zwei ÖPNV-Fahrten. Änderungen lösen beim Verlassen der Einstellungen die vorhandene Neuberechnung aus. Bestehende Installationen behalten die bisherige 30-Minuten-Grenze für Zubringer.
+„Maximale Radzeit je Etappe“ begrenzt Radetappen vor, nach und zwischen ÖPNV-Fahrten gemeinsam, standardmäßig auf 30 Minuten. Falten, Entfalten und Anschlusspuffer kommen hinzu. Mit „Fahrradvergleich anzeigen“ kann zusätzlich eine längere reine Radroute erscheinen. Änderungen lösen beim Verlassen der Einstellungen die vorhandene Neuberechnung aus.
 
 ## Radetappen zwischen Linien
 
-Unter **Einstellungen → Rad-Umstiege** sind 0–3 interne Radetappen einstellbar, standardmäßig zwei. Die Fahrzeit je Radstrecke beträgt höchstens 1–60 Minuten, standardmäßig 15 Minuten. Null deaktiviert die zusätzliche Suche. Erste und letzte Radetappe zählen nicht mit. Falten, Entfalten und drei Minuten Anschlusspuffer kommen zur Fahrzeit hinzu; vorhandene Tempo- und Verkehrsmittel-Einstellungen gelten weiterhin.
+Unter **Einstellungen → Rad-Umstiege** sind 0–3 interne Radetappen einstellbar, standardmäßig zwei. Die gemeinsame maximale Radzeit je Etappe beträgt 1–60 Minuten, standardmäßig 30 Minuten. Null deaktiviert die zusätzliche Suche. Erste und letzte Radetappe zählen nicht mit. Falten, Entfalten und drei Minuten Anschlusspuffer kommen zur Fahrzeit hinzu; vorhandene Tempo- und Verkehrsmittel-Einstellungen gelten weiterhin.
 
 Zunächst erscheinen die normalen Alternativen. Anschließend prüft FoldRoute zusätzliche Kombinationen aus ÖPNV, Rad und erneutem ÖPNV und ergänzt die besten Ergebnisse. Eine ausdrücklich ausgewählte Route bleibt erhalten. Schließen, neue Planung oder Navigationsstart beendet die Nachsuche. Bei Fehlern bleiben bereits gefundene Optionen nutzbar.
 

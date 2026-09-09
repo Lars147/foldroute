@@ -130,12 +130,16 @@ struct RouteAdjustmentView: View {
     @State private var destination: Place?
     @State private var timing: TimingSelection
     @State private var date: Date
+    @State private var stops: [RouteStop]
+    @State private var showsStopSearch = false
+    @State private var editingStopID: String?
     @State private var showsStartSearch = false
     @State private var showsDestinationSearch = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
     init(model: AppModel) {
+        _stops = State(initialValue: model.routeStops)
         _origin = State(initialValue: model.isReplanningAfterNavigation ? model.origin : model.journey?.origin ?? model.origin)
         _destination = State(initialValue: model.journey?.destination ?? model.destination)
         _timing = State(initialValue: model.timingSelection)
@@ -169,6 +173,32 @@ struct RouteAdjustmentView: View {
                     }
                     .accessibilityLabel("Start wählen: \(origin?.name ?? "Nicht gewählt")")
                 }
+                Section("Zwischenziele") {
+                    ForEach(Array(stops.enumerated()), id: \.element.id) { index, stop in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button("\(index+1). \(stop.place.name)") { editingStopID = stop.id; showsStopSearch = true }
+                            Stepper("Aufenthalt: \(stop.stayMinutes) Minuten", value: Binding(
+                                get: { stops.first(where: { $0.id == stop.id })?.stayMinutes ?? 0 },
+                                set: { value in
+                                    if let current = stops.firstIndex(where: { $0.id == stop.id }) {
+                                        stops[current].stayMinutes = value
+                                    }
+                                }
+                            ), in: 0...1440)
+                            HStack {
+                                Button { moveStop(stop.id, by: -1) } label: { Image(systemName: "arrow.up") }
+                                    .disabled(index == 0).accessibilityLabel("Zwischenziel \(index+1) nach oben")
+                                Button { moveStop(stop.id, by: 1) } label: { Image(systemName: "arrow.down") }
+                                    .disabled(index == stops.count-1).accessibilityLabel("Zwischenziel \(index+1) nach unten")
+                                Spacer()
+                                Button("Entfernen") { stops.removeAll { $0.id == stop.id } }
+                                    .accessibilityLabel("Zwischenziel \(index+1) entfernen")
+                            }.buttonStyle(.borderless)
+                        }
+                    }
+                    Button("Zwischenziel hinzufügen") { editingStopID = nil; showsStopSearch = true }
+                        .disabled(stops.count >= 3)
+                }
                 Section {
                     Button {
                         showsDestinationSearch = true
@@ -198,6 +228,7 @@ struct RouteAdjustmentView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Button {
                             (origin, destination) = (destination, origin)
+                            stops.reverse()
                             errorMessage = nil
                         } label: {
                             Image(systemName: "arrow.up.arrow.down")
@@ -265,6 +296,13 @@ struct RouteAdjustmentView: View {
             .sheet(isPresented: $showsStartSearch) {
                 PlaceSearchView(target: .origin) { origin = $0 }
             }
+            .sheet(isPresented: $showsStopSearch) {
+                PlaceSearchView(target: .stop) { place in
+                    if let id = editingStopID, let i = stops.firstIndex(where: { $0.id == id }) { stops[i].place = place }
+                    else if stops.count < 3 { stops.append(RouteStop(place: place)) }
+                    errorMessage = nil
+                }
+            }
             .sheet(isPresented: $showsDestinationSearch) {
                 PlaceSearchView(target: .destination) {
                     destination = $0
@@ -273,6 +311,12 @@ struct RouteAdjustmentView: View {
             }
         }
         .interactiveDismissDisabled(isSubmitting)
+    }
+
+    private func moveStop(_ id: String, by offset: Int) {
+        guard let index = stops.firstIndex(where: { $0.id == id }),
+              stops.indices.contains(index + offset) else { return }
+        stops.swapAt(index, index + offset)
     }
 
     private func applyDraft() {
@@ -284,7 +328,8 @@ struct RouteAdjustmentView: View {
                 origin: origin,
                 destination: destination,
                 timingSelection: timing,
-                plannedDate: date
+                plannedDate: date,
+                stops: stops
             )
             isSubmitting = false
             if errorMessage == nil { dismiss() }

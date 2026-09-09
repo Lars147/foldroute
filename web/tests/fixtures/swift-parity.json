@@ -518,5 +518,253 @@
       "time" : 1788516000,
       "timing" : "arrive"
     }
+  ],
+  "viaScenarios" : [
+    {
+      "count" : 1,
+      "expected" : [
+        {
+          "arrival" : 1788511800,
+          "departure" : 1788508800,
+          "excess" : 0,
+          "isDirect" : true,
+          "legs" : [
+            {
+              "end" : 1788510000,
+              "kind" : "bike",
+              "start" : 1788508800
+            },
+            {
+              "end" : 1788510600,
+              "kind" : "stop",
+              "start" : 1788510000
+            },
+            {
+              "end" : 1788511800,
+              "kind" : "bike",
+              "start" : 1788510600
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "depart"
+    },
+    {
+      "count" : 1,
+      "expected" : [
+        {
+          "arrival" : 1788508800,
+          "departure" : 1788505800,
+          "excess" : 0,
+          "isDirect" : true,
+          "legs" : [
+            {
+              "end" : 1788507000,
+              "kind" : "bike",
+              "start" : 1788505800
+            },
+            {
+              "end" : 1788507600,
+              "kind" : "stop",
+              "start" : 1788507000
+            },
+            {
+              "end" : 1788508800,
+              "kind" : "bike",
+              "start" : 1788507600
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "arrive"
+    },
+    {
+      "count" : 2,
+      "expected" : [
+        {
+          "arrival" : 1788513600,
+          "departure" : 1788508800,
+          "excess" : 0,
+          "isDirect" : true,
+          "legs" : [
+            {
+              "end" : 1788510000,
+              "kind" : "bike",
+              "start" : 1788508800
+            },
+            {
+              "end" : 1788510600,
+              "kind" : "stop",
+              "start" : 1788510000
+            },
+            {
+              "end" : 1788511800,
+              "kind" : "bike",
+              "start" : 1788510600
+            },
+            {
+              "end" : 1788512400,
+              "kind" : "stop",
+              "start" : 1788511800
+            },
+            {
+              "end" : 1788513600,
+              "kind" : "bike",
+              "start" : 1788512400
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "depart"
+    },
+    {
+      "count" : 2,
+      "expected" : [
+        {
+          "arrival" : 1788508800,
+          "departure" : 1788504000,
+          "excess" : 0,
+          "isDirect" : true,
+          "legs" : [
+            {
+              "end" : 1788505200,
+              "kind" : "bike",
+              "start" : 1788504000
+            },
+            {
+              "end" : 1788505800,
+              "kind" : "stop",
+              "start" : 1788505200
+            },
+            {
+              "end" : 1788507000,
+              "kind" : "bike",
+              "start" : 1788505800
+            },
+            {
+              "end" : 1788507600,
+              "kind" : "stop",
+              "start" : 1788507000
+            },
+            {
+              "end" : 1788508800,
+              "kind" : "bike",
+              "start" : 1788507600
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "arrive"
+    },
+    {
+      "count" : 3,
+      "expected" : [
+        {
+          "arrival" : 1788515400,
+          "departure" : 1788508800,
+          "excess" : 0,
+          "isDirect" : true,
+          "legs" : [
+            {
+              "end" : 1788510000,
+              "kind" : "bike",
+              "start" : 1788508800
+            },
+            {
+              "end" : 1788510600,
+              "kind" : "stop",
+              "start" : 1788510000
+            },
+            {
+              "end" : 1788511800,
+              "kind" : "bike",
+              "start" : 1788510600
+            },
+            {
+              "end" : 1788512400,
+              "kind" : "stop",
+              "start" : 1788511800
+            },
+            {
+              "end" : 1788513600,
+              "kind" : "bike",
+              "start" : 1788512400
+            },
+            {
+              "end" : 1788514200,
+              "kind" : "stop",
+              "start" : 1788513600
+            },
+            {
+              "end" : 1788515400,
+              "kind" : "bike",
+              "start" : 1788514200
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "depart"
+    },
+    {
+      "count" : 3,
+      "expected" : [
+        {
+          "arrival" : 1788508800,
+          "departure" : 1788502200,
+          "excess" : 0,
+          "isDirect" : true,
+          "legs" : [
+            {
+              "end" : 1788503400,
+              "kind" : "bike",
+              "start" : 1788502200
+            },
+            {
+              "end" : 1788504000,
+              "kind" : "stop",
+              "start" : 1788503400
+            },
+            {
+              "end" : 1788505200,
+              "kind" : "bike",
+              "start" : 1788504000
+            },
+            {
+              "end" : 1788505800,
+              "kind" : "stop",
+              "start" : 1788505200
+            },
+            {
+              "end" : 1788507000,
+              "kind" : "bike",
+              "start" : 1788505800
+            },
+            {
+              "end" : 1788507600,
+              "kind" : "stop",
+              "start" : 1788507000
+            },
+            {
+              "end" : 1788508800,
+              "kind" : "bike",
+              "start" : 1788507600
+            }
+          ],
+          "transfers" : 0
+        }
+      ],
+      "time" : 1788508800,
+      "timing" : "arrive"
+    }
   ]
 }

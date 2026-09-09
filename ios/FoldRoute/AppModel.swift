@@ -22,9 +22,10 @@ enum TimingSelection: String, CaseIterable, Identifiable {
 enum SearchTarget: String, Identifiable {
     case origin
     case destination
+    case stop
 
     var id: Self { self }
-    var title: String { self == .origin ? "Start wählen" : "Ziel wählen" }
+    var title: String { self == .origin ? "Start wählen" : self == .stop ? "Zwischenziel wählen" : "Ziel wählen" }
 }
 
 enum PlanningState: Equatable {
@@ -119,7 +120,8 @@ final class AppModel {
     var plannedDate = Date().addingTimeInterval(30 * 60)
     var planningState: PlanningState = .idle
     var navigationStartState: NavigationStartState = .idle
-    var journey: Journey?
+    var routeStops: [RouteStop] = []
+    var journey: Journey? { didSet { if let journey { routeStops = journey.stops } } }
     var journeyOptions: [Journey] = []
     private(set) var previewTiming: RouteTiming?
 
@@ -225,6 +227,7 @@ final class AppModel {
            progress.isValid(for: snapshot.journey),
            (try? StreetGeometryValidator.validate(snapshot.journey, startingAt: progress.legIndex)) != nil {
             journey = snapshot.journey
+            routeStops = snapshot.journey.stops
             origin = snapshot.journey.origin
             destination = snapshot.journey.destination
             journeyOptions = [snapshot.journey]
@@ -281,6 +284,7 @@ final class AppModel {
         switch target {
         case .origin: origin = place
         case .destination: destination = place
+        case .stop: break
         }
 
         guard place.name != "Aktueller Standort" else { return }
@@ -340,7 +344,7 @@ final class AppModel {
         select(destination, for: .destination)
         planningState = .loading
         do {
-            let request = RouteRequest(origin: origin, destination: destination, timing: routeTiming)
+            let request = RouteRequest(origin: origin, destination: destination, timing: routeTiming, stops: routeStops)
             let plannedJourneys = try await calculateAndSaveRoute(request)
             guard generation == planningGeneration, !Task.isCancelled else { return }
             journeyOptions = plannedJourneys
@@ -365,7 +369,8 @@ final class AppModel {
         origin: Place,
         destination: Place,
         timingSelection: TimingSelection,
-        plannedDate: Date
+        plannedDate: Date,
+        stops: [RouteStop] = []
     ) async -> String? {
         if let message = planningPauseMessage { return message }
         guard !planningState.isLoading else { return "Eine Route wird bereits berechnet." }
@@ -388,7 +393,7 @@ final class AppModel {
         }
         do {
             let options = try await calculateAndSaveRoute(
-                RouteRequest(origin: origin, destination: destination, timing: timing)
+                RouteRequest(origin: origin, destination: destination, timing: timing, stops: stops)
             )
             guard generation == planningGeneration, !Task.isCancelled else { return "Berechnung wurde abgebrochen." }
             select(origin, for: .origin)
@@ -415,9 +420,10 @@ final class AppModel {
         cancelBikeTransferSearch()
         planningIssues = []
         let request = RouteRequest(origin: request.origin, destination: request.destination,
-                                   timing: request.timing == .leaveNow ? .departAt(Date()) : request.timing)
+                                   timing: request.timing == .leaveNow ? .departAt(Date()) : request.timing, stops: request.stops)
         let generation = planningGeneration
-        guard request.origin.coordinate.distance(to: request.destination.coordinate) >= 30 else {
+        try RouteStop.validate(request.stops)
+        guard !request.stops.isEmpty || request.origin.coordinate.distance(to: request.destination.coordinate) >= 30 else {
             throw RoutePlannerError.placesTooClose
         }
         let token = UUID()
@@ -513,7 +519,7 @@ final class AppModel {
         }
     }
 
-    func replan(from origin: Place, to destination: Place) async {
+    func replan(from origin: Place, to destination: Place, stops: [RouteStop] = []) async {
         guard !blockPausedPlanning() else { return }
         cancelPreviewReplanning()
         cancelReturnPlanning()
@@ -523,6 +529,7 @@ final class AppModel {
         journeyOptions = []
         navigationStartState = .idle
         planningState = .idle
+        routeStops = stops
         self.origin = origin
         self.destination = destination
         timingSelection = .now
@@ -566,6 +573,7 @@ final class AppModel {
     }
 
     func discardRoute() {
+        routeStops = []
         cancelPreviewReplanning()
         cancelBikeTransferSearch()
         cancelReturnPlanning()
@@ -670,7 +678,7 @@ final class AppModel {
                     RouteRequest(
                         origin: currentPlace,
                         destination: activeJourney.destination,
-                        timing: .leaveNow
+                        timing: .leaveNow, stops: activeJourney.stops
                     ),
                     settings: settings
                 )
@@ -727,6 +735,7 @@ final class AppModel {
         let previous = engine.journey
         stopNavigation()
         journey = previous
+        routeStops = previous.remainingStops(from: engine.currentLegIndex)
         journeyOptions = []
         destination = previous.destination
         origin = nil
@@ -764,7 +773,7 @@ final class AppModel {
             origin = start
             planningState = .loading
             do {
-                let options = try await calculateAndSaveRoute(RouteRequest(origin: start, destination: destination, timing: .leaveNow))
+                let options = try await calculateAndSaveRoute(RouteRequest(origin: start, destination: destination, timing: .leaveNow, stops: routeStops))
                 guard generation == planningGeneration, !Task.isCancelled else { return }
                 journeyOptions = options
                 journey = options.first
@@ -951,6 +960,37 @@ final class AppModel {
         }
     }
 
+    func continueFromStop(now: Date = Date()) async {
+        guard let engine = navigation, engine.currentLeg?.kind == .stop, !engine.isReplanning,
+              let updated = engine.journeyAfterStop(now: now) else { return }
+        let nextIndex = engine.currentLegIndex + 1
+        if updated.remainingTransit(from: nextIndex).allSatisfy({ TransitRefreshPolicy.canUseTimes($0, now: now) }),
+           TransitJourneyUpdater.disruption(in: updated, from: engine.currentLegIndex, now: now) == nil {
+            engine.continueFromStop(with: updated, now: now)
+            journey = engine.journey
+            journeyOptions = [engine.journey]
+            return
+        }
+        engine.setReplanning(true, message: "Weiterfahrt wird neu berechnet …")
+        let stopID = engine.currentLeg?.id
+        let current = await refreshedLocation()
+        guard navigation === engine, engine.currentLeg?.id == stopID, !Task.isCancelled else { return }
+        guard let current else { engine.setReplanning(false, message: "Standort fehlt. Weiterfahren erneut versuchen."); return }
+        do {
+            let request = RouteRequest(origin: makeCurrentPlace(from: current, detail: "Weiterfahrt"),
+                destination: engine.journey.destination, timing: .departAt(now),
+                stops: engine.journey.remainingStops(from: nextIndex))
+            let replacement = try await planner.plan(request, settings: settings)
+            guard navigation === engine, engine.currentLeg?.id == stopID, !Task.isCancelled else { return }
+            try activateNavigation(with: replacement, startLocationUpdates: false)
+            journey = replacement
+            journeyOptions = [replacement]
+        } catch {
+            guard navigation === engine else { return }
+            engine.setReplanning(false, message: "Weiterfahrt konnte nicht neu berechnet werden. Erneut versuchen.")
+        }
+    }
+
     private func rerouteActiveNavigationFromCurrentLocation() async {
         guard let activeEngine = navigation else { return }
         guard let current = location.currentLocation, let activeJourney = journey else {
@@ -972,7 +1012,7 @@ final class AppModel {
                 let request = RouteRequest(
                     origin: currentPlace,
                     destination: activeJourney.destination,
-                    timing: .leaveNow
+                    timing: .leaveNow, stops: activeJourney.remainingStops(from: activeEngine.currentLegIndex)
                 )
                 replacement = try await planner.plan(request, settings: settings)
             }
@@ -1016,7 +1056,7 @@ final class AppModel {
                 RouteRequest(
                     origin: waypoint,
                     destination: onward.destination,
-                    timing: .departAt(earliestOnwardDeparture)
+                    timing: .departAt(earliestOnwardDeparture), stops: onward.stops
                 ),
                 settings: settings
             )
@@ -1211,6 +1251,7 @@ final class AppModel {
     func proposeNavigationAlternative() {
         guard let engine = navigation, let currentLeg = engine.currentLeg,
               engine.phase != .arrived, !isFindingAlternative else { return }
+        if currentLeg.kind == .stop { return }
         if case .transit(let transit) = currentLeg, transit.isCancelled {
             alternativeMessage = "Ausstieg vor Ort prüfen. Nach dem Ausstieg mit Schritt fertig bestätigen und neu berechnen."
             lastAlternativeIssueID = transitDisruption?.id
@@ -1246,7 +1287,7 @@ final class AppModel {
                 progress = NavigationProgress(legIndex: 0, maneuverIndex: 0)
             }
             do {
-                let route = try await planner.plan(RouteRequest(origin: start, destination: engine.journey.destination, timing: .departAt(departure)), settings: settings)
+                let route = try await planner.plan(RouteRequest(origin: start, destination: engine.journey.destination, timing: .departAt(departure), stops: engine.journey.remainingStops(from: engine.currentLegIndex)), settings: settings)
                 guard !Task.isCancelled, navigation === engine, engine.currentLeg?.id == currentLeg.id,
                       transitDisruption?.id == issueID else { return }
                 let combined = prefix.isEmpty ? route : Journey(

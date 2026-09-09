@@ -619,6 +619,7 @@ private struct JourneyLegRow: View {
         case .fold: "Rad falten"
         case .unfold: "Rad entfalten"
         case .wait: "Auf Weiterfahrt warten"
+        case .stop(let value): "Zwischenziel: \(value.place.name)"
         case .transit(let value): "\(value.line) – \(value.from.name)"
         }
     }
@@ -626,6 +627,7 @@ private struct JourneyLegRow: View {
     private var detail: String {
         switch leg {
         case .approach(let value), .bike(let value), .walk(let value): value.distance.formattedDistance
+        case .stop(let value): "\(value.stop?.stayMinutes ?? 0) Min. Aufenthalt · Weiterfahrt \(value.endTime.formatted(date: .omitted, time: .shortened))"
         case .fold, .unfold, .wait: leg.endTime.timeIntervalSince(leg.startTime).formattedDuration
         case .transit(let value):
             value.to.name

@@ -1,3 +1,4 @@
+import { planViaRoutes } from "./via-planner";
 import {
   type Journey,
   type RouteRequest,
@@ -12,6 +13,7 @@ import {
   PlannerError,
   errorText,
   validSettings,
+  validStops,
 } from "./model";
 import { distance, validCoordinate } from "./geometry";
 import {
@@ -19,6 +21,7 @@ import {
   baseVariants,
   type Batch,
   type StreetMode,
+  type RequestBudget,
 } from "./transitous";
 export interface Seed {
   journey: Journey;
@@ -222,14 +225,21 @@ async function* pool<T>(
   }
 }
 const defaultClient = new ApiClient();
+export interface SearchOptions {
+  raw?: boolean;
+  baseOnly?: boolean;
+  budget?: RequestBudget;
+}
 export async function* planRoutes(
   input: RouteRequest,
   settings: RoutingSettings,
   signal: AbortSignal,
   client = defaultClient,
+  options: SearchOptions = {},
 ): AsyncGenerator<PlanningUpdate> {
   if (
     !validSettings(settings) ||
+    !validStops(input.stops) ||
     !validCoordinate(input.origin) ||
     !validCoordinate(input.destination)
   )
@@ -237,6 +247,10 @@ export async function* planRoutes(
       "input",
       "Bitte Start, Ziel und Einstellungen prüfen.",
     );
+  if (input.stops?.length) {
+    yield* planViaRoutes(input, settings, signal, client);
+    return;
+  }
   if (distance(input.origin, input.destination) < 30)
     throw new PlannerError(
       "input",
@@ -266,6 +280,7 @@ export async function* planRoutes(
     all.push(
       ...batch.journeys.filter(
         (j) =>
+          options.raw ||
           settings.showCyclingComparison ||
           cyclingExcess(j, settings.maxCyclingMinutes) === 0,
       ),
@@ -278,18 +293,22 @@ export async function* planRoutes(
     stopped ||= batch.stop;
   };
   const update = (status: PlanningUpdate["status"]): PlanningUpdate => ({
-    journeys: selectJourneys(
-      all,
-      request.timing,
-      4,
-      settings.maxCyclingMinutes,
-      settings.showCyclingComparison,
-    ),
+    journeys: options.raw
+      ? [...all]
+      : selectJourneys(
+          all,
+          request.timing,
+          4,
+          settings.maxCyclingMinutes,
+          settings.showCyclingComparison,
+        ),
     status,
     issues: [...new Set(issues)],
   });
   for await (const result of pool(
-    variants.map((v) => (s) => client.batch(request, settings, v, s)),
+    variants.map(
+      (v) => (s) => client.batch(request, settings, v, s, options.budget),
+    ),
     signal,
   )) {
     signal.throwIfAborted();
@@ -299,7 +318,10 @@ export async function* planRoutes(
       stopped ||= result.error instanceof PlannerError && result.error.stops;
     }
     if (all.length) yield update("searching");
-    if (stopped) break;
+    if (stopped) {
+      if (options.budget) options.budget.stopped = true;
+      break;
+    }
   }
   signal.throwIfAborted();
   if (!all.length)
@@ -309,7 +331,12 @@ export async function* planRoutes(
         ? [...new Set(issues)].join(" ")
         : "Keine passende Route gefunden. Ändere Start, Ziel, Zeit oder Einstellungen.",
     );
-  if (stopped || !settings.maxBikeTransfers || !all.some((j) => !j.isDirect)) {
+  if (
+    options.baseOnly ||
+    stopped ||
+    !settings.maxBikeTransfers ||
+    !all.some((j) => !j.isDirect)
+  ) {
     yield update(issues.length ? "partial" : "complete");
     return;
   }
@@ -378,6 +405,7 @@ export async function* planRoutes(
                       preLimit: settings.maxCyclingMinutes * 60,
                     },
                 s,
+                options.budget,
               ),
           ),
           searchSignal,
@@ -415,5 +443,6 @@ export async function* planRoutes(
     deadline.abort();
   }
   signal.throwIfAborted();
+  if (stopped && options.budget) options.budget.stopped = true;
   yield update(issues.length ? "partial" : "complete");
 }

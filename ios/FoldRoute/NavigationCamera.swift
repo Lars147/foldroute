@@ -48,7 +48,7 @@ struct NavigationCameraState {
         case .approach, .bike: distance = 600
         case .walk: distance = 350
         case .transit: distance = 1_500
-        case .fold, .unfold, .wait: distance = target?.distance ?? 600
+        case .fold, .unfold, .wait, .stop: distance = target?.distance ?? 600
         }
         let updated = NavigationCameraTarget(coordinate: coordinate, heading: heading, distance: distance)
         target = updated

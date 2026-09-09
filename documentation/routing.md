@@ -8,6 +8,14 @@ Die folgenden Detailregeln beschreiben die **iOS-Implementierung**. Der Webplane
 
 Die Basisberechnung verwendet höchstens fünf Anfragen und maximal zwei gleichzeitig. Ergebnisse erscheinen schrittweise. Bei Abfahrt entscheidet die früheste Gesamtankunft, bei Ankunftsvorgabe die späteste Abfahrt. Gleichstände werden nach weniger ÖPNV-Umstiegen, weniger Radetappen, kürzerer Radstrecke und kürzerem Fußweg aufgelöst. Varianten derselben konkreten ÖPNV-Fahrt werden zusammengefasst. Eine ausdrücklich ausgewählte Route bleibt bei späteren Ergebnissen erhalten. Bei Teilfehlern bleiben gefundene Verbindungen nutzbar; eine Ratenbegrenzung stoppt weitere Anfragen.
 
+## Planung mit Zwischenzielen
+
+PWA und iOS verbinden bis zu vier Teilstrecken über bis zu drei freie Zwischenziele. Bei Abfahrt wird vorwärts, bei Ankunftsvorgabe rückwärts gerechnet; der Aufenthalt wird jeweils vor der Anschlussabfrage eingerechnet. Zwischenstände erscheinen erst als Routenergebnis, wenn die gesamte Reise vollständig ist. Das Radlimit wird je Teilstrecke geprüft. Überlange reine Radteilstrecken dürfen ausschließlich einen vollständigen Fahrradvergleich bilden, nicht Teil einer regulären ÖPNV-Alternative werden.
+
+Die Basisplanung behält je Zwischenziel bis zu drei reguläre Kandidaten sowie bei Bedarf eine reine Radreferenz. Erst nach vollständigen Basisverbindungen werden zusätzliche Rad-Umstiege geprüft. Alle Teilstrecken teilen ein Budget von höchstens 64 Routinganfragen einschließlich Geometriereparaturen, 60 Sekunden und maximal zwei gleichzeitigen Anfragen. Die Suche ist begrenzt und garantiert kein globales Optimum. Teilfehler nennen die betroffene Teilstrecke; bei Zeit- oder Anfragelimit bleiben vollständige Ergebnisse erhalten. Serverpausen und Abbruch gelten für die gesamte Berechnung.
+
+Zwischenzielabschnitte speichern ihre Ortsdaten und Aufenthaltsdauer getrennt von gewöhnlichen Wartezeiten. Navigation und Echtzeitprüfung erhalten diese Grenzen. Bestätigte Zwischenziele ergeben sich aus dem gespeicherten Navigationsfortschritt; Neuberechnungen verwenden nur noch offene Stopps. Die bestehende Anfahrt zum geplanten Start bleibt ein eigener Mechanismus.
+
 ## Nutzen der ÖPNV-Alternativen
 
 ÖPNV-Verbindungen werden vor der Kartenauswahl mit der zeitlich besten direkten Radroute verglichen. Sie müssen mindestens **3 Minuten sparen** oder **mindestens 20 % und mindestens 1 km Radstrecke sparen**, bei höchstens **10 Minuten zusätzlicher Reisezeit**. Bei Ankunftsvorgabe zählt entsprechend die spätere mögliche Abfahrt bzw. höchstens zehn Minuten frühere Abfahrt. Falten, Entfalten und Wartezeiten sind in den Gesamtzeiten enthalten. Bewertet wird die gesamte Reise; kurze Einzelabschnitte sind nicht pauschal ausgeschlossen.

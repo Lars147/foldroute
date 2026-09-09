@@ -246,6 +246,13 @@ export class JourneyView {
             (leg.from.name !== leg.to.name ? " → " + leg.to.name : ""),
         ),
       );
+      if (leg.stop)
+        copy.append(
+          node(
+            "small",
+            `Geplanter Aufenthalt: ${leg.stop.stayMinutes} min · Weiterfahrt ${clock(leg.end)}`,
+          ),
+        );
       if (leg.headsign) copy.append(node("small", "Richtung " + leg.headsign));
       if (leg.platform || leg.arrivalPlatform)
         copy.append(

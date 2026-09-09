@@ -86,6 +86,21 @@ export class RouteMap {
         .forEach((j) => draw(j, false));
       if (selected) {
         draw(selected, true);
+        selected.legs
+          .filter((l) => l.kind === "stop")
+          .forEach((leg, index) => {
+            L.circleMarker([leg.from.latitude, leg.from.longitude], {
+              radius: 10,
+              color: "#171a1c",
+              weight: 2,
+              fillColor: "#ffd43b",
+              fillOpacity: 1,
+            })
+              .bindTooltip(node("span", `${index + 1}: ${leg.from.name}`), {
+                permanent: true,
+              })
+              .addTo(this.routes!);
+          });
         for (const [p, label] of [
           [selected.origin, "Start"],
           [selected.destination, "Ziel"],

@@ -1272,3 +1272,202 @@ test("only hidden comparisons produce an empty-result message", async ({
   await expect(page.locator("#status")).toContainText("Keine passende Route");
   await expect(page.locator(".route-choice")).toHaveCount(0);
 });
+
+function viaPolyline(points: number[][]): string {
+  let result = "",
+    previous = [0, 0];
+  for (const point of points)
+    point.forEach((n, i) => {
+      const rounded = Math.round(n * 1e6),
+        delta = rounded - previous[i];
+      previous[i] = rounded;
+      let value = delta < 0 ? ~(delta << 1) : delta << 1;
+      while (value >= 0x20) {
+        result += String.fromCharCode((0x20 | (value & 0x1f)) + 63);
+        value >>>= 5;
+      }
+      result += String.fromCharCode(value + 63);
+    });
+  return result;
+}
+async function setupVia(page: Page) {
+  await setup(page);
+  await page.route("**/api/v1/geocode?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json: [
+        ...places,
+        { name: "Café", lat: 48.15, lon: 11.58 },
+        { name: "See", lat: 48.16, lon: 11.59 },
+        { name: "Park", lat: 48.17, lon: 11.595 },
+      ],
+    }),
+  );
+  await page.route("**/api/v6/plan?*", (r) => {
+    const params = new URL(r.request().url()).searchParams;
+    if (params.get("directModes") !== "BIKE")
+      return r.fulfill({ headers: cors, json: { itineraries: [] } });
+    const a = params.get("fromPlace")!.split(",").map(Number),
+      b = params.get("toPlace")!.split(",").map(Number);
+    const instant = Date.parse(params.get("time")!);
+    const start =
+      params.get("arriveBy") === "true" ? instant - 20 * 60000 : instant;
+    const end = start + 20 * 60000,
+      polyline = { points: viaPolyline([a, b]), precision: 6 };
+    return r.fulfill({
+      headers: cors,
+      json: {
+        direct: [
+          {
+            id: `${a}|${b}|${start}`,
+            transfers: 0,
+            startTime: new Date(start).toISOString(),
+            endTime: new Date(end).toISOString(),
+            legs: [
+              {
+                mode: "BIKE",
+                from: { name: "START", lat: a[0], lon: a[1] },
+                to: { name: "END", lat: b[0], lon: b[1] },
+                startTime: new Date(start).toISOString(),
+                endTime: new Date(end).toISOString(),
+                distance: 5000,
+                legGeometry: polyline,
+                steps: [
+                  {
+                    relativeDirection: "DEPART",
+                    distance: 5000,
+                    streetName: "Weg",
+                    polyline,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
+}
+
+test("free stops edit, reorder, reverse and cancel without changing the active plan", async ({
+  page,
+}) => {
+  await setupVia(page);
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.locator("#adjust-route").click();
+  for (const [i, name] of ["Café", "See", "Park"].entries()) {
+    await page.locator("#add-stop").click();
+    await choose(page, `via-${i}`, name);
+  }
+  await expect(page.locator("#add-stop")).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Zwischenziel 3 nach oben", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page
+        .locator("#via-fields > div:not([hidden]) input[type=search]")
+        .evaluateAll((inputs) =>
+          inputs.map((i) => (i as HTMLInputElement).value),
+        ),
+    )
+    .toEqual(["Café", "Park", "See"]);
+  await page.locator("#swap").click();
+  await expect
+    .poll(() =>
+      page
+        .locator("#via-fields > div:not([hidden]) input[type=search]")
+        .evaluateAll((inputs) =>
+          inputs.map((i) => (i as HTMLInputElement).value),
+        ),
+    )
+    .toEqual(["See", "Park", "Café"]);
+  await page
+    .getByRole("button", { name: "Zwischenziel 2 entfernen", exact: true })
+    .click();
+  await expect(page.locator("#add-stop")).toBeEnabled();
+  await page.locator("#cancel-adjust").click();
+  expect(new URL(page.url()).searchParams.get("v")).toBe("1");
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#via-fields > div:not([hidden])")).toHaveCount(0);
+});
+
+test("mobile stop planning shares and reloads pauses and restores the complete offline trip", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setupVia(page);
+  await page.locator("#search-adjust").click();
+  await choose(page, "origin", "Start");
+  await choose(page, "adjust-destination", "Ziel");
+  await page.locator("#add-stop").click();
+  await choose(page, "via-0", "Café");
+  await page
+    .locator("#via-fields > div:not([hidden]) input[type=number]")
+    .fill("10");
+  await page.locator("#calculate").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator("#route-duration")).toContainText("50 min");
+  expect(new URL(page.url()).searchParams.get("v")).toBe("2");
+  expect(new URL(page.url()).searchParams.get("via1Stay")).toBe("10");
+  await page.locator("#panel-size").click();
+  await expect(page.locator("#journey-detail")).toContainText(
+    "Geplanter Aufenthalt: 10 min",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBe(true);
+  await page.reload();
+  await expect(page.locator("#route-duration")).toContainText("50 min");
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#via-0")).toHaveValue("Café");
+  await expect(
+    page.locator("#via-fields > div:not([hidden]) input[type=number]"),
+  ).toHaveValue("10");
+  await page.locator("#cancel-adjust").click();
+  await page.locator("#panel-size").click();
+  await expect
+    .poll(
+      async () => (await page.locator("#journey-panel").boundingBox())!.height,
+    )
+    .toBeGreaterThan(550);
+  await page.screenshot({
+    path: `test-results/via-mobile-${test.info().project.name}.png`,
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const request = indexedDB.open("foldroute-offline", 2);
+        return await new Promise((resolve) => {
+          request.onsuccess = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains("state")) {
+              db.close();
+              resolve(false);
+              return;
+            }
+            const tx = db.transaction("state");
+            const saved = tx.objectStore("state").get("last");
+            saved.onsuccess = () => resolve(saved.result?.version === 4);
+            tx.oncomplete = () => db.close();
+          };
+          request.onerror = () => resolve(false);
+        });
+      }),
+    )
+    .toBe(true);
+  // Simulate offline inside the page while leaving the local test server reachable.
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "onLine", { get: () => false }),
+  );
+  await page.goto("/");
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await expect(page.locator("#route-duration")).toContainText("50 min");
+  await page.locator("#panel-size").click();
+  await expect(page.locator("#journey-detail")).toContainText(
+    "Geplanter Aufenthalt: 10 min",
+  );
+});

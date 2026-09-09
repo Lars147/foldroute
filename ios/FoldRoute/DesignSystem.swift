@@ -47,7 +47,7 @@ extension JourneyLegKind {
         case .fold, .unfold: FoldRouteColor.signalYellow
         case .walk: .mint
         case .transit: FoldRouteColor.transitViolet
-        case .wait: FoldRouteColor.signalYellow
+        case .stop, .wait: FoldRouteColor.signalYellow
         }
     }
 
@@ -60,6 +60,7 @@ extension JourneyLegKind {
         case .transit: "tram.fill"
         case .unfold: "arrow.up.left.and.arrow.down.right"
         case .wait: "clock.fill"
+        case .stop: "mappin.circle.fill"
         }
     }
 }

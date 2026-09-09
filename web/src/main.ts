@@ -1,3 +1,4 @@
+import { StopEditor } from "./stop-editor";
 import "./style.css";
 import {
   defaults,
@@ -8,6 +9,7 @@ import {
   errorText,
   type RoutingSettings,
   type RouteRequest,
+  type RouteStop,
   type Place,
   type Timing,
 } from "./model";
@@ -40,6 +42,7 @@ const initialLink = readRouteURL(new URL(location.href));
 let originOverride: Place | undefined,
   timing: Timing = "now",
   time = Date.now() / 1000;
+let stops: RouteStop[] = [];
 let storageGeneration = 0;
 let saved: SavedJourney | undefined,
   offlineEnabled = true,
@@ -132,6 +135,7 @@ async function restoreLink(
   if (parsed.kind !== "plan") {
     originOverride = undefined;
     destination.set();
+    stops = [];
     timing = "now";
     time = Date.now() / 1000;
     contextUI();
@@ -150,6 +154,7 @@ async function restoreLink(
   const request = activePlan.request;
   originOverride = request.origin;
   destination.set(request.destination);
+  stops = structuredClone(request.stops ?? []);
   timing = request.timing;
   time = request.time;
   settingsUI();
@@ -278,7 +283,7 @@ function renderPlanning(state: PlanningState) {
     if (key !== persistKey) {
       persistKey = key;
       activeSnapshot = {
-        version: 3,
+        version: state.request.stops?.length ? 4 : 3,
         savedAt: state.queriedAt,
         request: structuredClone(state.request),
         settings: structuredClone(state.resultSettings),
@@ -326,6 +331,7 @@ const draftDestination = new PlaceSearch(
   book,
   toast,
 );
+const stopEditor = new StopEditor(api, book, toast);
 let useLocation = true;
 let draftLocationRequest: AbortController | undefined;
 function cancelDraftLocation() {
@@ -335,7 +341,7 @@ function cancelDraftLocation() {
 }
 function contextUI() {
   el("search-context").textContent =
-    `${originOverride?.name ?? "Aktueller Standort"} · ${timing === "now" ? "Jetzt" : `${timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(time)}, ${clock(time)}`}`;
+    `${originOverride?.name ?? "Aktueller Standort"}${stops.length ? ` · ${stops.length} Zwischenziel${stops.length > 1 ? "e" : ""}` : ""} · ${timing === "now" ? "Jetzt" : `${timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(time)}, ${clock(time)}`}`;
 }
 async function start(place: Place) {
   settingsReplanPending = false;
@@ -355,6 +361,7 @@ async function start(place: Place) {
         longitude: 0,
       },
       destination: place,
+      stops: structuredClone(stops),
       timing,
       time,
     },
@@ -371,6 +378,7 @@ async function start(place: Place) {
 function openAdjust(target?: Place) {
   destination.cancel();
   const request = session.state.request;
+  stopEditor.set(structuredClone(stops));
   draftOrigin.set(originOverride ?? request?.origin);
   useLocation = !originOverride || originOverride.name === "Aktueller Standort";
   if (useLocation && !draftOrigin.value)
@@ -392,6 +400,7 @@ function closeAdjust() {
   cancelDraftLocation();
   draftOrigin.cancel();
   draftDestination.cancel();
+  stopEditor.cancel();
   dialog.close();
   el<HTMLButtonElement>("update-now").disabled = session.state.busy;
 }
@@ -399,6 +408,7 @@ dialog.addEventListener("close", () => {
   cancelDraftLocation();
   draftOrigin.cancel();
   draftDestination.cancel();
+  stopEditor.cancel();
   el<HTMLButtonElement>("update-now").disabled = session.state.busy;
 });
 el("search-adjust").onclick = () => openAdjust();
@@ -443,6 +453,7 @@ el("swap").onclick = () => {
     el("adjust-status").textContent = "Zum Tauschen beide Orte auswählen.";
     return;
   }
+  stopEditor.reverse();
   const origin = draftOrigin.value;
   draftOrigin.set(draftDestination.value);
   draftDestination.set(origin);
@@ -478,6 +489,9 @@ function readContext(): boolean {
       "Bitte einen aktuellen oder zukünftigen Zeitpunkt wählen.";
     return false;
   }
+  const draftStops = stopEditor.read();
+  if (!draftStops) return false;
+  stops = draftStops;
   originOverride = useLocation ? undefined : draftOrigin.value;
   timing = selectedTiming;
   time = seconds;
@@ -487,7 +501,7 @@ function readContext(): boolean {
 el("use-context").onclick = () => {
   if (readContext()) {
     closeAdjust();
-    toast("Start und Zeitpunkt übernommen.");
+    toast("Start, Zwischenziele und Zeitpunkt übernommen.");
   }
 };
 el("route-form").onsubmit = async (event) => {
@@ -512,6 +526,7 @@ el("route-form").onsubmit = async (event) => {
         longitude: 0,
       },
       destination: target,
+      stops: structuredClone(stops),
       timing,
       time,
     },
@@ -553,6 +568,7 @@ el("close-route").onclick = () => {
   mapLocationRequest?.abort();
   destination.set();
   originOverride = undefined;
+  stops = [];
   timing = "now";
   time = Date.now() / 1000;
   contextUI();
@@ -739,6 +755,7 @@ el("confirm-delete-data").onclick = async () => {
   destination.cancel();
   draftOrigin.cancel();
   draftDestination.cancel();
+  stopEditor.cancel();
   cancelDraftLocation();
   mapLocationRequest?.abort();
   activeSnapshot = undefined;
@@ -754,6 +771,7 @@ el("confirm-delete-data").onclick = async () => {
     personalSettings = structuredClone(defaults);
     releasePlan();
     originOverride = undefined;
+    stops = [];
     timing = "now";
     time = Date.now() / 1000;
     destination.set();
@@ -831,6 +849,7 @@ function openSaved() {
     saved.request.origin.name === "Aktueller Standort"
       ? undefined
       : saved.request.origin;
+  stops = structuredClone(saved.request.stops ?? []);
   timing = saved.request.timing;
   time = saved.request.time;
   contextUI();

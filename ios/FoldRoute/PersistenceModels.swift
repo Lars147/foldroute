@@ -53,8 +53,10 @@ final class StoredJourney {
     var duration: Double
     var modes: String
     var completedAt: Date
+    var stopsData: Data?
 
-    init(journey: Journey, completedAt: Date = Date()) {
+    init(journey: Journey, completedAt: Date = Date()) throws {
+        stopsData = try JSONEncoder().encode(journey.stops)
         id = journey.id
         originName = Self.historyName(for: journey.origin)
         originDetail = journey.origin.detail
@@ -69,6 +71,13 @@ final class StoredJourney {
         duration = journey.duration
         modes = journey.legs.map(\.kind.rawValue).joined(separator: ",")
         self.completedAt = completedAt
+    }
+
+    func decodedStops() throws -> [RouteStop] {
+        guard let stopsData else { return [] }
+        let stops = try JSONDecoder().decode([RouteStop].self, from: stopsData)
+        try RouteStop.validate(stops)
+        return stops
     }
 
     private static func historyName(for place: Place) -> String {
@@ -221,6 +230,13 @@ struct ActiveJourneySnapshot: Codable {
             journey = try Journey(from: decoder)
             progress = nil
         }
+        try RouteStop.validate(journey.stops)
+        guard journey.legs.allSatisfy({ leg in
+            guard case .stop(let stop) = leg else { return true }
+            guard let definition = stop.stop else { return false }
+            return stop.place.coordinate == definition.place.coordinate
+                && stop.endTime.timeIntervalSince(stop.startTime) >= Double(definition.stayMinutes*60)
+        }) else { throw RoutePlannerError.stopInput }
     }
 }
 
@@ -365,7 +381,7 @@ final class SwiftDataJourneyStore: JourneyStore {
             predicate: #Predicate { $0.id == journeyID }
         )
         if try context.fetch(descriptor).isEmpty {
-            context.insert(StoredJourney(journey: journey))
+            context.insert(try StoredJourney(journey: journey))
         }
 
         var allDescriptor = FetchDescriptor<StoredJourney>(

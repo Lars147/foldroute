@@ -59,6 +59,7 @@ final class NavigationEngine {
         case .fold: return "Rad jetzt falten"
         case .unfold: return "Rad jetzt entfalten"
         case .wait: return "Auf Weiterfahrt warten"
+        case .stop: return "Zwischenziel erreicht"
         case .transit(let leg): return "\(leg.line) Richtung \(leg.headsign)"
         }
     }
@@ -69,7 +70,7 @@ final class NavigationEngine {
         case .transit(let leg):
             let platform = leg.departurePlatform.map { "Gleis \($0)" } ?? "Gleis noch offen"
             return "\(platform) · Ausstieg \(leg.to.name)"
-        case .fold(let leg), .unfold(let leg), .wait(let leg):
+        case .fold(let leg), .unfold(let leg), .wait(let leg), .stop(let leg):
             return leg.place.name
         case .approach(let leg), .bike(let leg), .walk(let leg):
             return leg.to.name
@@ -96,7 +97,7 @@ final class NavigationEngine {
         switch currentLeg {
         case .approach(let leg), .bike(let leg), .walk(let leg):
             updateMovement(leg, location: location, coordinate: coordinate)
-        case .fold(let leg), .unfold(let leg), .wait(let leg):
+        case .fold(let leg), .unfold(let leg), .wait(let leg), .stop(let leg):
             distanceToNext = coordinate.distance(to: leg.place.coordinate)
         case .transit(let leg):
             distanceToNext = coordinate.distance(to: leg.to.coordinate)
@@ -122,7 +123,7 @@ final class NavigationEngine {
                 guidance.signal(.warning, settings: settings)
             }
             if now >= leg.endTime { advanceAutomatically(now: now) }
-        case .approach, .bike, .walk:
+        case .approach, .bike, .walk, .stop:
             break
         }
     }
@@ -131,6 +132,24 @@ final class NavigationEngine {
         let next = currentLegIndex + 1
         if journey.legs.indices.contains(next), case .transit(let leg) = journey.legs[next],
            !TransitRefreshPolicy.canUseTimes(leg, now: now) { return }
+        advance()
+    }
+
+    func journeyAfterStop(now: Date) -> Journey? {
+        guard case .stop(let stop) = currentLeg else { return nil }
+        var legs = journey.legs
+        legs[currentLegIndex] = .stop(TransitionLeg(id: stop.id, place: stop.place, startTime: stop.startTime,
+            endTime: max(now, stop.endTime), stop: stop.stop))
+        return TransitJourneyUpdater.apply([:], to: journey.replacingLegs(legs), from: currentLegIndex, now: now)
+    }
+
+    func continueFromStop(with updated: Journey, now: Date) {
+        guard case .stop(let stop) = currentLeg else { return }
+        var legs = updated.legs
+        if stop.endTime > now {
+            legs.insert(.wait(TransitionLeg(place: stop.place, startTime: now, endTime: stop.endTime)), at: currentLegIndex + 1)
+        }
+        journey = updated.replacingLegs(legs)
         advance()
     }
 
@@ -234,6 +253,9 @@ final class NavigationEngine {
             guidance.speak("Nimm \(leg.line) Richtung \(leg.headsign)\(platform)", settings: settings)
         case .bike, .walk:
             guidance.speak(instruction, settings: settings)
+        case .stop:
+            guidance.speak("Zwischenziel erreicht. Bestätige Weiterfahren, wenn du bereit bist.", settings: settings)
+            guidance.signal(.success, settings: settings)
         case .wait:
             guidance.speak("Warte hier auf deine Weiterfahrt", settings: settings)
         }

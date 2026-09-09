@@ -65,10 +65,39 @@ enum RouteTiming: Codable, Hashable, Sendable {
     }
 }
 
+struct RouteStop: Codable, Hashable, Identifiable, Sendable {
+    var id: String = UUID().uuidString
+    var place: Place
+    var stayMinutes: Int = 0
+
+    static func validate(_ stops: [RouteStop]) throws {
+        guard stops.count <= 3, Set(stops.map(\.id)).count == stops.count,
+              stops.allSatisfy({ !$0.id.isEmpty && (0...1440).contains($0.stayMinutes)
+                  && $0.place.coordinate.latitude.isFinite && abs($0.place.coordinate.latitude) <= 90
+                  && $0.place.coordinate.longitude.isFinite && abs($0.place.coordinate.longitude) <= 180 }) else {
+            throw RoutePlannerError.stopInput
+        }
+    }
+}
+
 struct RouteRequest: Codable, Hashable, Sendable {
     let origin: Place
     let destination: Place
     let timing: RouteTiming
+    let stops: [RouteStop]
+
+    init(origin: Place, destination: Place, timing: RouteTiming, stops: [RouteStop] = []) {
+        self.origin = origin; self.destination = destination; self.timing = timing; self.stops = stops
+    }
+    private enum CodingKeys: String, CodingKey { case origin, destination, timing, stops }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        origin = try values.decode(Place.self, forKey: .origin)
+        destination = try values.decode(Place.self, forKey: .destination)
+        timing = try values.decode(RouteTiming.self, forKey: .timing)
+        stops = try values.decodeIfPresent([RouteStop].self, forKey: .stops) ?? []
+        try RouteStop.validate(stops)
+    }
 }
 
 enum TransitModePreference: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
@@ -182,6 +211,7 @@ enum JourneyLegKind: String, Codable, CaseIterable, Sendable {
     case transit
     case unfold
     case wait
+    case stop
 
     var title: String {
         switch self {
@@ -192,6 +222,7 @@ enum JourneyLegKind: String, Codable, CaseIterable, Sendable {
         case .transit: "ÖPNV"
         case .unfold: "Entfalten"
         case .wait: "Warten"
+        case .stop: "Zwischenziel"
         }
     }
 }
@@ -356,12 +387,14 @@ struct TransitLeg: Identifiable, Codable, Hashable, Sendable {
 }
 
 struct TransitionLeg: Identifiable, Codable, Hashable, Sendable {
+    let stop: RouteStop?
     let id: UUID
     let place: Place
     let startTime: Date
     let endTime: Date
 
-    init(id: UUID = UUID(), place: Place, startTime: Date, endTime: Date) {
+    init(id: UUID = UUID(), place: Place, startTime: Date, endTime: Date, stop: RouteStop? = nil) {
+        self.stop = stop
         self.id = id
         self.place = place
         self.startTime = startTime
@@ -377,11 +410,12 @@ enum JourneyLeg: Codable, Hashable, Identifiable, Sendable {
     case transit(TransitLeg)
     case unfold(TransitionLeg)
     case wait(TransitionLeg)
+    case stop(TransitionLeg)
 
     var id: UUID {
         switch self {
         case .approach(let leg), .bike(let leg), .walk(let leg): leg.id
-        case .fold(let leg), .unfold(let leg), .wait(let leg): leg.id
+        case .fold(let leg), .unfold(let leg), .wait(let leg), .stop(let leg): leg.id
         case .transit(let leg): leg.id
         }
     }
@@ -395,13 +429,14 @@ enum JourneyLeg: Codable, Hashable, Identifiable, Sendable {
         case .transit: .transit
         case .unfold: .unfold
         case .wait: .wait
+        case .stop: .stop
         }
     }
 
     var startTime: Date {
         switch self {
         case .approach(let leg), .bike(let leg), .walk(let leg): leg.startTime
-        case .fold(let leg), .unfold(let leg), .wait(let leg): leg.startTime
+        case .fold(let leg), .unfold(let leg), .wait(let leg), .stop(let leg): leg.startTime
         case .transit(let leg): leg.startTime
         }
     }
@@ -409,7 +444,7 @@ enum JourneyLeg: Codable, Hashable, Identifiable, Sendable {
     var endTime: Date {
         switch self {
         case .approach(let leg), .bike(let leg), .walk(let leg): leg.endTime
-        case .fold(let leg), .unfold(let leg), .wait(let leg): leg.endTime
+        case .fold(let leg), .unfold(let leg), .wait(let leg), .stop(let leg): leg.endTime
         case .transit(let leg): leg.endTime
         }
     }
@@ -417,7 +452,7 @@ enum JourneyLeg: Codable, Hashable, Identifiable, Sendable {
     var coordinates: [Coordinate] {
         switch self {
         case .approach(let leg), .bike(let leg), .walk(let leg): leg.coordinates
-        case .fold(let leg), .unfold(let leg), .wait(let leg): [leg.place.coordinate]
+        case .fold(let leg), .unfold(let leg), .wait(let leg), .stop(let leg): [leg.place.coordinate]
         case .transit(let leg): leg.coordinates
         }
     }
@@ -425,7 +460,7 @@ enum JourneyLeg: Codable, Hashable, Identifiable, Sendable {
     var startPlace: Place {
         switch self {
         case .approach(let leg), .bike(let leg), .walk(let leg): leg.from
-        case .fold(let leg), .unfold(let leg), .wait(let leg): leg.place
+        case .fold(let leg), .unfold(let leg), .wait(let leg), .stop(let leg): leg.place
         case .transit(let leg): leg.from
         }
     }
@@ -433,7 +468,7 @@ enum JourneyLeg: Codable, Hashable, Identifiable, Sendable {
     var endPlace: Place {
         switch self {
         case .approach(let leg), .bike(let leg), .walk(let leg): leg.to
-        case .fold(let leg), .unfold(let leg), .wait(let leg): leg.place
+        case .fold(let leg), .unfold(let leg), .wait(let leg), .stop(let leg): leg.place
         case .transit(let leg): leg.to
         }
     }
@@ -450,7 +485,7 @@ enum JourneyLeg: Codable, Hashable, Identifiable, Sendable {
         case .approach(let leg): .approach(leg.shifted(by: interval))
         case .bike(let leg): .bike(leg.shifted(by: interval))
         case .walk(let leg): .walk(leg.shifted(by: interval))
-        case .transit, .fold, .unfold, .wait: self
+        case .transit, .fold, .unfold, .wait, .stop: self
         }
     }
 }
@@ -643,6 +678,9 @@ extension JourneyPlanning {
 
 indirect enum RoutePlannerError: LocalizedError, Equatable, Sendable {
     case placesTooClose
+    case stopInput
+    case stopSection(Int, RoutePlannerError)
+    case stopBudget
     case offline
     case noRoute
     case rateLimited
@@ -658,6 +696,9 @@ indirect enum RoutePlannerError: LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
+        case .stopInput: "Bitte höchstens drei Zwischenziele und Aufenthalte von 0 bis 1440 Minuten wählen."
+        case .stopSection(let index, let error): "Teilstrecke \(index): \(error.localizedDescription)"
+        case .stopBudget: "Die Suche mit Zwischenzielen hat ihr Anfrage- oder Zeitlimit erreicht."
         case .placesTooClose: "Start und Ziel liegen zu nah beieinander."
         case .offline: "Keine Internetverbindung. Bitte Verbindung prüfen."
         case .noRoute: "Keine passende Route gefunden. Ändere Ziel oder Zeit."
@@ -722,6 +763,8 @@ extension RoutePlannerError {
         switch self {
         case .rateLimited, .serverPause: true
         case .multiple(let issues): issues.contains(where: \.stopsRequests)
+        case .stopSection(_, let error): error.stopsRequests
+        case .stopBudget: true
         default: false
         }
     }
@@ -755,13 +798,22 @@ final class PlanningServerPause: @unchecked Sendable {
 enum CyclingComparison {
     static func excess(_ journey: Journey, limit: Int) -> TimeInterval {
         guard journey.isDirect else { return 0 }
-        let seconds = journey.legs.filter { $0.kind == .bike }.reduce(0.0) { $0 + $1.endTime.timeIntervalSince($1.startTime) }
+        var seconds = 0.0, current = 0.0
+        for leg in journey.legs {
+            if leg.kind == .stop { seconds = max(seconds, current); current = 0 }
+            else if leg.kind == .bike { current += leg.endTime.timeIntervalSince(leg.startTime) }
+        }
+        seconds = max(seconds, current)
         return max(0, seconds - Double(limit * 60))
+    }
+    static func sectionExcess(_ journey: Journey, limit: Int) -> TimeInterval {
+        if journey.isDirect { return excess(journey, limit: limit) }
+        return max(0, journey.legs.filter { $0.kind == .bike }.map { $0.endTime.timeIntervalSince($0.startTime) - Double(limit*60) }.max() ?? 0)
     }
     static func label(_ journey: Journey, limit: Int) -> String? {
         let over = excess(journey, limit: limit)
         guard over > 0 else { return nil }
         let minutes = Int(ceil((over + Double(limit * 60)) / 60))
-        return "\(minutes) Min. Radfahrt · \(Int(ceil(over / 60))) Min. über deinem Radlimit"
+        return "\(minutes) Min. \(journey.stops.isEmpty ? "Radfahrt" : "längste Radetappe") · \(Int(ceil(over / 60))) Min. über deinem Radlimit"
     }
 }
