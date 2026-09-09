@@ -95,6 +95,17 @@
         </p>
       </section>
       <section
+        id="history-view"
+        class="screen"
+        aria-labelledby="history-heading"
+        hidden
+      >
+        <h1 id="history-heading">Fahrten</h1>
+        <p class="subtitle">Deine letzten 20 Planungen auf diesem Gerät.</p>
+        <p id="history-empty" class="message"></p>
+        <ul id="history-list" class="history-list"></ul>
+      </section>
+      <section
         id="map-view"
         class="map-screen"
         aria-label="Reiseübersicht"
@@ -153,6 +164,9 @@
           ></p>
           <p id="issues" class="notice" hidden></p>
           <p id="saved-notice" class="notice" hidden></p>
+          <button id="replan-saved" class="primary" type="button" hidden>
+            Jetzt neu planen
+          </button>
           <div id="late-departure" class="notice" hidden>
             <span id="late-departure-text"></span>
             <button id="late-settings" type="button" class="text-button">
@@ -222,8 +236,9 @@
           <h2>Unterwegs verfügbar</h2>
           <label class="toggle-row"
             ><span
-              >Letzte Reise offline behalten<small
-                >Eine Reise, nur auf diesem Gerät.</small
+              >Fahrten auf diesem Gerät speichern<small
+                >Bis zu 20 Planungen, auch offline. Ausschalten löscht den
+                Verlauf.</small
               ></span
             ><input
               id="offline-enabled"
@@ -231,7 +246,7 @@
               role="switch"
               checked /></label
           ><button id="delete-saved" class="text-button">
-            Gespeicherte Reise löschen
+            Fahrtenverlauf löschen
           </button>
           <p id="storage-message" class="message" role="status"></p>
           <button id="clear-data" class="text-button" type="button">
@@ -256,7 +271,7 @@
             <p>
               Ortssuchen, Start, Ziel, Zeitpunkt und Routing-Einstellungen gehen
               an Transitous; Kartenabrufe an OpenStreetMap. Einstellungen und
-              Favoriten, letzte Orte und optional die zuletzt gewählte Reise
+              Favoriten, letzte Orte und optional die letzten 20 Planungen
               bleiben auf diesem Gerät. Keine Analyse-Tools, keine GPS-Spuren.
               Gespeicherte Zeiten sind der Stand der Abfrage. Neue Planung und
               Karten benötigen Internet; die Offline-Übersicht zeigt den
@@ -284,6 +299,7 @@
     <nav class="app-tabs" aria-label="Hauptbereiche">
       <button id="tab-route" aria-current="page">
         <span data-icon="map"></span>Route</button
+      ><button id="tab-history"><span data-icon="wait"></span>Fahrten</button
       ><button id="tab-settings">
         <span data-icon="settings"></span>Einstellungen
       </button>
@@ -370,10 +386,26 @@
         </div>
       </form>
     </dialog>
+    <dialog id="delete-history-dialog" aria-labelledby="delete-history-heading">
+      <h2 id="delete-history-heading">Fahrtenverlauf löschen?</h2>
+      <p>
+        Alle gespeicherten Planungen werden von diesem Gerät entfernt. Favoriten
+        und Einstellungen bleiben erhalten.
+      </p>
+      <p id="delete-history-status" class="message" role="status"></p>
+      <div class="form-actions">
+        <button id="cancel-delete-history" class="secondary" type="button">
+          Abbrechen
+        </button>
+        <button id="confirm-delete-history" class="primary" type="button">
+          Verlauf löschen
+        </button>
+      </div>
+    </dialog>
     <dialog id="delete-data-dialog" aria-labelledby="delete-data-heading">
       <h2 id="delete-data-heading">Alle lokalen Daten löschen?</h2>
       <p>
-        Favoriten, letzte Orte, Einstellungen und gespeicherte Reise werden
+        Favoriten, letzte Orte, Einstellungen und gespeicherte Fahrten werden
         unwiderruflich entfernt.
       </p>
       <p id="delete-data-status" class="message" role="status"></p>

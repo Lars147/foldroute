@@ -532,3 +532,24 @@ test("planning deep link loads offline under the static subpath without replacin
     "48.180000,11.620000",
   );
 });
+
+test("PWA history keeps multiple trips across an offline restart", async ({
+  page,
+  context,
+}) => {
+  await production(page);
+  await plan(page);
+  await page.locator("#close-route").click();
+  await plan(page);
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(2);
+  await context.setOffline(true);
+  await page.goto(root);
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(2);
+  await page.locator(".history-open").last().click();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await expect(page.locator("#replan-saved")).toBeDisabled();
+  await expect(page.locator("#map")).toHaveClass(/offline-map/);
+});

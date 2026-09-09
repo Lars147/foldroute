@@ -770,7 +770,14 @@ test("settings errors keep old offline snapshot but never restore invalidated op
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(page.locator("#route-duration")).toContainText("32 min");
   await page.locator("#tab-settings").click();
-  await expect(page.locator("#foldingDuration")).toHaveValue("4.5");
+  await expect(page.locator("#foldingDuration")).toHaveValue("3");
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("foldroute.routing.v3")!)
+          .foldingDuration,
+    ),
+  ).toBe(270);
   expect(original.settings.foldingDuration).toBe(180);
   expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("180");
 });
@@ -1466,8 +1473,158 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   await page.goto("/");
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(page.locator("#route-duration")).toContainText("50 min");
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-open").first()).toContainText("Café");
+  await page.locator(".history-open").first().click();
   await page.locator("#panel-size").click();
   await expect(page.locator("#journey-detail")).toContainText(
     "Geplanter Aufenthalt: 10 min",
   );
+});
+
+test("history retains calculations, restores without requests and replans from fixed points", async ({
+  page,
+  context,
+}) => {
+  await setup(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await plan(page);
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await page.locator("#tab-route").click();
+  await page.locator(".route-choice").last().click();
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await page.locator("#tab-route").click();
+  await page.locator("#close-route").click();
+  await plan(page);
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(2);
+  await page.goto("/");
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(2);
+  let requests = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/")) requests++;
+  });
+  await page.evaluate(() => {
+    navigator.geolocation.getCurrentPosition = () => {
+      throw new Error("Archive must not request location");
+    };
+  });
+  await page.locator(".history-open").last().click();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await page.goBack();
+  await expect(page.locator("#history-view")).toBeVisible();
+  await page.goForward();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  expect(requests).toBe(0);
+  await context.setOffline(true);
+  await page.locator("#tab-history").click();
+  await page.locator(".history-open").first().click();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await expect(page.locator("#replan-saved")).toBeDisabled();
+  expect(requests).toBe(0);
+  await context.setOffline(false);
+  const queried = page.waitForRequest("**/api/v6/plan?*");
+  await page.locator("#replan-saved").click();
+  const url = new URL((await queried).url());
+  expect(url.searchParams.get("fromPlace")?.split(",").map(Number)).toEqual([
+    48.132, 11.5756,
+  ]);
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator("#saved-notice")).toBeHidden();
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(3);
+  await page.screenshot({
+    path: `test-results/history-${test.info().project.name}.png`,
+  });
+});
+
+test("history deletion and disabling persist without restoring deleted calculations", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await page.locator(".history-row > button[aria-label]").click();
+  await expect(page.locator(".history-row")).toHaveCount(0);
+  await page.locator("#tab-route").click();
+  await page.locator(".route-choice").last().click();
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(0);
+  await page.locator("#tab-route").click();
+  await page.locator("#close-route").click();
+  await plan(page);
+  await page.locator("#tab-settings").click();
+  await page.locator("#delete-saved").click();
+  await page.locator("#cancel-delete-history").click();
+  await expect(page.locator("#delete-saved")).toBeEnabled();
+  await page.locator("#delete-saved").click();
+  await page.locator("#confirm-delete-history").click();
+  await expect(page.locator("#delete-saved")).toBeDisabled();
+  await page.locator("#tab-route").click();
+  await page.locator("#close-route").click();
+  await plan(page);
+  await page.locator("#tab-settings").click();
+  await page.locator("#offline-enabled").uncheck();
+  await expect(page.locator("#storage-message")).toContainText(
+    "Speicherung ausgeschaltet",
+  );
+  await page.goto("/");
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(0);
+  await expect(page.locator("#history-empty")).toContainText(
+    "Speicherung ausgeschaltet",
+  );
+});
+
+test("history storage caps entries atomically and guards pending writes during deletion", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await expect(page.locator("#storage-message")).toContainText("gespeichert");
+  const result = await page.evaluate(async () => {
+    const path = "/src/offline.ts";
+    const { OfflineStore } = await import(path);
+    const store = new OfflineStore();
+    const snapshot = (await store.read()).snapshot;
+    await store.clear();
+    await Promise.all(
+      Array.from({ length: 21 }, (_, i) =>
+        store.save(snapshot, `calculation-${i}`),
+      ),
+    );
+    const full = await store.read();
+    await store.save(
+      { ...snapshot, journey: { ...snapshot.journey, id: "changed" } },
+      "calculation-10",
+    );
+    const updated = await store.read();
+    const pending = store.save(snapshot, "late");
+    await store.clear();
+    await pending;
+    const cleared = await store.read();
+    await store.remove("deleted");
+    await store.save(snapshot, "deleted");
+    const afterDelete = await store.read();
+    return {
+      ids: full.entries.map((e: { id: string }) => e.id),
+      count: updated.entries.length,
+      selected: updated.entries.find(
+        (e: { id: string }) => e.id === "calculation-10",
+      ).snapshot.journey.id,
+      cleared: cleared.entries.length,
+      afterDelete: afterDelete.entries.length,
+    };
+  });
+  expect(result.ids).toHaveLength(20);
+  expect(result.ids[0]).toBe("calculation-20");
+  expect(result.ids).not.toContain("calculation-0");
+  expect(result.count).toBe(20);
+  expect(result.selected).toBe("changed");
+  expect(result.cleared).toBe(0);
+  expect(result.afterDelete).toBe(0);
 });

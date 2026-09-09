@@ -102,79 +102,157 @@ export function validSnapshot(value: unknown): value is SavedJourney {
     )
   );
 }
-export class OfflineStore {
-  async read(): Promise<{
-    enabled: boolean;
-    snapshot?: SavedJourney;
-    invalid: boolean;
-  }> {
-    const db = await localDatabase.open();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("state", "readwrite"),
-        store = tx.objectStore("state");
-      const enabled = store.get("enabled"),
-        saved = store.get("last");
-      let snapshot: SavedJourney | undefined,
-        invalid = false;
-      saved.onsuccess = () => {
-        if (saved.result !== undefined) {
-          if (validSnapshot(saved.result)) snapshot = saved.result;
-          else {
-            invalid = true;
-            store.delete("last");
-          }
-        }
-      };
-      tx.oncomplete = () =>
-        resolve({
-          enabled: enabled.result !== false,
-          snapshot: enabled.result === false ? undefined : snapshot,
-          invalid,
-        });
-      tx.onabort = () => reject(tx.error);
-    });
+export interface HistoryEntry {
+  id: string;
+  snapshot: SavedJourney;
+}
+interface HistoryData {
+  version: 1;
+  entries: HistoryEntry[];
+}
+export function readHistory(
+  value: unknown,
+  legacy?: unknown,
+): {
+  entries: HistoryEntry[];
+  invalid: boolean;
+} {
+  if (value === undefined) {
+    return {
+      entries: validSnapshot(legacy)
+        ? [{ id: "legacy", snapshot: legacy }]
+        : [],
+      invalid: legacy !== undefined && !validSnapshot(legacy),
+    };
   }
-  async save(snapshot: SavedJourney): Promise<boolean> {
-    const generation = localDatabase.generation;
-    if (!validSnapshot(snapshot))
-      throw new Error("Reise kann nicht offline gespeichert werden.");
+  if (!object(value) || value.version !== 1 || !Array.isArray(value.entries))
+    return { entries: [], invalid: true };
+  const ids = new Set<string>();
+  const entries = value.entries.filter(
+    (entry: unknown): entry is HistoryEntry => {
+      if (
+        !object(entry) ||
+        typeof entry.id !== "string" ||
+        !entry.id ||
+        ids.has(entry.id) ||
+        !validSnapshot(entry.snapshot)
+      )
+        return false;
+      ids.add(entry.id);
+      return true;
+    },
+  );
+  return {
+    entries: entries.slice(0, 20),
+    invalid: entries.length !== value.entries.length,
+  };
+}
+export function retainHistory(
+  entries: HistoryEntry[],
+  entry: HistoryEntry,
+): HistoryEntry[] {
+  const index = entries.findIndex((item) => item.id === entry.id);
+  if (index >= 0)
+    return entries.map((item) => (item.id === entry.id ? entry : item));
+  return [entry, ...entries]
+    .sort((a, b) => b.snapshot.savedAt - a.snapshot.savedAt)
+    .slice(0, 20);
+}
+interface StoredHistory {
+  enabled: boolean;
+  entries: HistoryEntry[];
+  snapshot?: SavedJourney;
+  invalid: boolean;
+}
+export class OfflineStore {
+  private generation = 0;
+  private deleted = new Set<string>();
+
+  private async transaction(
+    change?: (state: StoredHistory) => void,
+    generation = this.generation,
+    databaseGeneration = localDatabase.generation,
+  ): Promise<StoredHistory | undefined> {
     const db = await localDatabase.open();
-    if (generation !== localDatabase.generation) return false;
+    if (
+      generation !== this.generation ||
+      databaseGeneration !== localDatabase.generation
+    )
+      return;
     return new Promise((resolve, reject) => {
       const tx = db.transaction("state", "readwrite"),
         store = tx.objectStore("state"),
-        enabled = store.get("enabled");
-      let saved = false;
-      enabled.onsuccess = () => {
-        if (enabled.result !== false) {
-          store.put(snapshot, "last");
-          saved = true;
+        enabled = store.get("enabled"),
+        last = store.get("last"),
+        history = store.get("history");
+      let result: StoredHistory | undefined;
+      history.onsuccess = () => {
+        if (
+          generation !== this.generation ||
+          databaseGeneration !== localDatabase.generation
+        )
+          return;
+        const decoded = readHistory(history.result, last.result);
+        result = { ...decoded, enabled: enabled.result !== false };
+        if (!result.enabled) result.entries = [];
+        change?.(result);
+        result.snapshot = result.entries[0]?.snapshot;
+        if (
+          change ||
+          history.result === undefined ||
+          decoded.invalid ||
+          (!result.enabled && decoded.entries.length > 0)
+        ) {
+          const data: HistoryData = { version: 1, entries: result.entries };
+          store.put(data, "history");
+          store.put(result.enabled, "enabled");
+          // Keep the existing latest-journey record compatible with older clients.
+          if (result.snapshot) store.put(result.snapshot, "last");
+          else store.delete("last");
         }
       };
-      tx.oncomplete = () => resolve(saved);
+      tx.oncomplete = () => resolve(result);
       tx.onabort = () => reject(tx.error);
     });
   }
+  async read(): Promise<StoredHistory> {
+    return (
+      (await this.transaction()) ?? {
+        enabled: true,
+        entries: [],
+        invalid: false,
+      }
+    );
+  }
+  async save(snapshot: SavedJourney, id: string): Promise<boolean> {
+    if (!validSnapshot(snapshot))
+      throw new Error("Reise kann nicht offline gespeichert werden.");
+    let saved = false;
+    await this.transaction((state) => {
+      if (state.enabled && !this.deleted.has(id)) {
+        state.entries = retainHistory(state.entries, { id, snapshot });
+        saved = true;
+      }
+    });
+    return saved;
+  }
   async setEnabled(enabled: boolean): Promise<void> {
-    const generation = localDatabase.generation;
-    const db = await localDatabase.open();
-    if (generation !== localDatabase.generation) return;
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("state", "readwrite"),
-        store = tx.objectStore("state");
-      store.put(enabled, "enabled");
-      if (!enabled) store.delete("last");
-      tx.oncomplete = () => resolve();
-      tx.onabort = () => reject(tx.error);
+    this.generation++;
+    await this.transaction((state) => {
+      state.enabled = enabled;
+      if (!enabled) state.entries = [];
     });
   }
   async clear(): Promise<void> {
-    const db = await localDatabase.open();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("state", "readwrite");
-      tx.objectStore("state").delete("last");
-      tx.oncomplete = () => resolve();
-      tx.onabort = () => reject(tx.error);
+    this.generation++;
+    await this.transaction((state) => {
+      state.entries = [];
+    });
+  }
+  async remove(id: string): Promise<void> {
+    this.deleted.add(id);
+    await this.transaction((state) => {
+      state.entries = state.entries.filter((entry) => entry.id !== id);
     });
   }
 }

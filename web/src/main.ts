@@ -18,8 +18,8 @@ import { PlaceSearch, locate, clearSearchLocation } from "./search";
 import { PlanningSession, type PlanningState } from "./planning-state";
 import { RouteMap } from "./map-view";
 import { JourneyView } from "./journey-view";
-import { OfflineStore, type SavedJourney } from "./offline";
-import { el, node, icon, localDate, clock, dateLabel } from "./ui";
+import { OfflineStore, type SavedJourney, type HistoryEntry } from "./offline";
+import { el, node, icon, localDate, clock, dateLabel, duration } from "./ui";
 import { setupPWA } from "./pwa";
 import { PlaceBook } from "./places";
 import { localDatabase } from "./storage";
@@ -30,7 +30,10 @@ import {
   type ParsedRouteLink,
 } from "./route-url";
 
-type View = "search" | "map" | "settings";
+type View = "search" | "map" | "settings" | "history";
+let historyEntries: HistoryEntry[] = [];
+let openedHistoryId: string | undefined;
+const suppressedCalculations = new Set<string>();
 let view: View = "search",
   settings: RoutingSettings = structuredClone(defaults);
 let settingsReplanPending = false;
@@ -88,6 +91,7 @@ const routeMap = new RouteMap(
 );
 const journeyView = new JourneyView((id) => session.select(id));
 const session = new PlanningSession(api, renderPlanning, (request, options) => {
+  openedHistoryId = undefined;
   activePlan = structuredClone({ request, settings: options });
   activePlanId ??= crypto.randomUUID();
   writeHistory();
@@ -98,7 +102,7 @@ function updateLinkUI() {
 }
 function writeHistory(push = false) {
   history[push ? "pushState" : "replaceState"](
-    { view, planId: activePlanId },
+    { view, planId: activePlanId, historyId: openedHistoryId },
     "",
     routeURL(location.href, activePlan),
   );
@@ -106,6 +110,7 @@ function writeHistory(push = false) {
   updateLinkUI();
 }
 function releasePlan() {
+  openedHistoryId = undefined;
   activePlan = undefined;
   activePlanId = undefined;
   temporarySettings = false;
@@ -139,7 +144,7 @@ async function restoreLink(
     timing = "now";
     time = Date.now() / 1000;
     contextUI();
-    show(next === "settings" ? "settings" : "search", false);
+    show(next === "settings" || next === "history" ? next : "search", false);
     writeHistory();
     el("place-status").textContent =
       parsed.kind === "invalid"
@@ -206,11 +211,13 @@ function show(next: View, push = true) {
   el("search-view").hidden = next !== "search";
   el("map-view").hidden = next !== "map";
   el("settings-view").hidden = next !== "settings";
-  el("tab-route").toggleAttribute("aria-current", next !== "settings");
-  if (next !== "settings") el("tab-route").setAttribute("aria-current", "page");
-  el("tab-settings").toggleAttribute("aria-current", next === "settings");
-  if (next === "settings")
-    el("tab-settings").setAttribute("aria-current", "page");
+  el("history-view").hidden = next !== "history";
+  for (const tab of ["route", "history", "settings"]) {
+    const active =
+      tab === "route" ? next === "search" || next === "map" : tab === next;
+    if (active) el(`tab-${tab}`).setAttribute("aria-current", "page");
+    else el(`tab-${tab}`).removeAttribute("aria-current");
+  }
   if (push) writeHistory(true);
   if (next === "search") {
     destination.activate();
@@ -225,11 +232,31 @@ function show(next: View, push = true) {
 window.addEventListener("popstate", (event) => {
   if (dialog.open) closeAdjust();
   const next: View =
-    event.state?.view === "settings"
-      ? "settings"
-      : event.state?.view === "search"
-        ? "search"
-        : "map";
+    event.state?.view === "history"
+      ? "history"
+      : event.state?.view === "settings"
+        ? "settings"
+        : event.state?.view === "search"
+          ? "search"
+          : "map";
+  if (event.state?.historyId) {
+    const entry = historyEntries.find(
+      (item) => item.id === event.state.historyId,
+    );
+    if (entry) {
+      if (openedHistoryId !== entry.id)
+        openSnapshot(entry.snapshot, entry.id, false);
+      show(next, false);
+    } else {
+      show("history", false);
+      toast("Diese gespeicherte Fahrt ist nicht mehr vorhanden.");
+    }
+    return;
+  }
+  if (next === "history") {
+    show("history", false);
+    return;
+  }
   if (event.state?.planId === activePlanId) {
     show(next === "map" && !session.state.request ? "search" : next, false);
     writeHistory();
@@ -241,7 +268,78 @@ window.addEventListener("popstate", (event) => {
     );
   }
 });
+function historyUI() {
+  el("history-list").replaceChildren();
+  el("history-empty").hidden = historyEntries.length > 0;
+  el("history-empty").textContent = offlineEnabled
+    ? "Noch keine Fahrten. Erfolgreiche Planungen werden hier automatisch gespeichert."
+    : "Speicherung ausgeschaltet. Aktiviere sie in den Einstellungen, um deine nächsten Planungen zu behalten.";
+  el<HTMLButtonElement>("delete-saved").disabled = !historyEntries.length;
+  for (const entry of historyEntries) {
+    const { journey, savedAt, request } = entry.snapshot;
+    const row = node("li", "", "history-row");
+    const open = node("button", "", "history-open");
+    open.type = "button";
+    open.append(node("strong", journey.destination.name));
+    open.append(
+      node(
+        "span",
+        `${journey.origin.name === "Aktueller Standort" ? "Startpunkt" : journey.origin.name} → ${journey.destination.name}`,
+      ),
+    );
+    if (request.stops?.length)
+      open.append(
+        node(
+          "small",
+          `Über ${request.stops.map((stop) => stop.place.name).join(" · ")}`,
+        ),
+      );
+    open.append(
+      node(
+        "small",
+        `${dateLabel(savedAt)}, ${clock(savedAt)} · ${duration(journey.arrival - journey.departure)}`,
+      ),
+    );
+    open.onclick = () => openSnapshot(entry.snapshot, entry.id);
+    const remove = node("button", "", "icon-button");
+    remove.type = "button";
+    remove.setAttribute(
+      "aria-label",
+      `Fahrt nach ${journey.destination.name} löschen`,
+    );
+    remove.append(icon("close"));
+    remove.onclick = () => void deleteHistoryEntry(entry.id);
+    row.append(open, remove);
+    el("history-list").append(row);
+  }
+}
+async function reloadHistory() {
+  const generation = storageGeneration;
+  const result = await store.read();
+  if (generation !== storageGeneration) return;
+  historyEntries = result.entries;
+  saved = result.snapshot;
+  savedUI();
+}
+async function deleteHistoryEntry(id: string) {
+  storageGeneration++;
+  suppressedCalculations.add(id);
+  if (session.state.calculationId === id) activeSnapshot = undefined;
+  try {
+    await store.remove(id);
+    await reloadHistory();
+    toast("Fahrt gelöscht.");
+  } catch {
+    toast("Fahrt konnte nicht gelöscht werden. Bitte erneut versuchen.");
+  }
+}
+function suppressCurrentSave() {
+  if (session.state.calculationId)
+    suppressedCalculations.add(session.state.calculationId);
+  activeSnapshot = undefined;
+}
 function savedUI() {
+  historyUI();
   el("open-saved").hidden = !saved;
   el("saved-description").textContent = saved
     ? `${saved.journey.destination.name} · ${dateLabel(saved.savedAt)}, ${clock(saved.savedAt)}`
@@ -250,13 +348,12 @@ function savedUI() {
   el("offline-empty").hidden = navigator.onLine || !!saved;
   el<HTMLInputElement>("offline-enabled").checked = offlineEnabled;
 }
-async function persist(snapshot: SavedJourney) {
+async function persist(snapshot: SavedJourney, id: string) {
   const generation = storageGeneration;
   try {
-    if (await store.save(snapshot)) {
+    if (await store.save(snapshot, id)) {
       if (offlineEnabled && generation === storageGeneration) {
-        saved = snapshot;
-        savedUI();
+        await reloadHistory();
         el("storage-message").textContent =
           "Letzte Reise auf diesem Gerät gespeichert.";
       }
@@ -277,9 +374,11 @@ function renderPlanning(state: PlanningState) {
     state.selected &&
     state.request &&
     state.resultSettings &&
-    !state.restored
+    !state.restored &&
+    state.calculationId &&
+    !suppressedCalculations.has(state.calculationId)
   ) {
-    const key = JSON.stringify([state.selected.id, state.queriedAt]);
+    const key = JSON.stringify([state.selected, state.calculationId]);
     if (key !== persistKey) {
       persistKey = key;
       activeSnapshot = {
@@ -289,9 +388,12 @@ function renderPlanning(state: PlanningState) {
         settings: structuredClone(state.resultSettings),
         journey: state.selected,
       };
-      if (offlineEnabled) void persist(activeSnapshot);
+      if (offlineEnabled) void persist(activeSnapshot, state.calculationId);
     }
   }
+  el("replan-saved").hidden = !state.restored;
+  el<HTMLButtonElement>("replan-saved").disabled =
+    !navigator.onLine || state.busy;
   el<HTMLButtonElement>("update-now").disabled = state.busy || dialog.open;
 }
 const destination = new PlaceSearch(
@@ -726,6 +828,12 @@ function openSettings() {
   settingsUI();
   show("settings");
 }
+el("tab-history").onclick = () => {
+  show("history");
+  void reloadHistory().catch(() =>
+    toast("Fahrten konnten nicht geladen werden."),
+  );
+};
 el("tab-settings").onclick = openSettings;
 el("header-settings").onclick = openSettings;
 el("late-settings").onclick = openSettings;
@@ -738,7 +846,13 @@ el("reset-settings").onclick = () => {
 };
 el("settings-form").onsubmit = (event) => {
   event.preventDefault();
-  show(session.state.request ? "map" : beforeSettings);
+  show(
+    beforeSettings === "history"
+      ? "history"
+      : session.state.request
+        ? "map"
+        : beforeSettings,
+  );
 };
 el("clear-data").onclick = () => {
   el("delete-data-status").textContent = "";
@@ -767,6 +881,7 @@ el("confirm-delete-data").onclick = async () => {
     localStorage.removeItem(storageKey);
     localStorage.removeItem(legacyStorageKey);
     saved = undefined;
+    historyEntries = [];
     offlineEnabled = true;
     personalSettings = structuredClone(defaults);
     releasePlan();
@@ -802,13 +917,16 @@ el("offline-enabled").onchange = async () => {
     await store.setEnabled(enabled);
     if (generation !== storageGeneration) return;
     if (!enabled) {
+      suppressCurrentSave();
       saved = undefined;
+      historyEntries = [];
       el("storage-message").textContent =
-        "Gespeicherte Reise gelöscht. Offline-Speicherung ausgeschaltet.";
+        "Fahrten gelöscht. Speicherung ausgeschaltet.";
     } else {
       el("storage-message").textContent =
-        "Die nächste gewählte Reise wird offline gespeichert.";
-      if (activeSnapshot) await persist(activeSnapshot);
+        "Die nächsten Planungen werden auf diesem Gerät gespeichert.";
+      if (activeSnapshot && session.state.calculationId)
+        await persist(activeSnapshot, session.state.calculationId);
     }
     savedUI();
   } catch {
@@ -824,42 +942,80 @@ el("offline-enabled").onchange = async () => {
     checkbox.disabled = false;
   }
 };
-el("delete-saved").onclick = async () => {
+el("delete-saved").onclick = () => {
+  el("delete-history-status").textContent = "";
+  el<HTMLDialogElement>("delete-history-dialog").showModal();
+};
+el("cancel-delete-history").onclick = () =>
+  el<HTMLDialogElement>("delete-history-dialog").close();
+el("confirm-delete-history").onclick = async () => {
+  const button = el<HTMLButtonElement>("confirm-delete-history");
+  button.disabled = true;
   storageGeneration++;
+  suppressCurrentSave();
   try {
     await store.clear();
-    saved = undefined;
-    savedUI();
-    el("storage-message").textContent = "Gespeicherte Reise gelöscht.";
+    await reloadHistory();
+    el<HTMLDialogElement>("delete-history-dialog").close();
+    el("storage-message").textContent = "Fahrtenverlauf gelöscht.";
   } catch {
-    el("storage-message").textContent =
+    el("delete-history-status").textContent =
       "Löschen fehlgeschlagen. Bitte erneut versuchen.";
+  } finally {
+    button.disabled = false;
   }
 };
-function openSaved() {
-  if (!saved) return;
+function openSnapshot(snapshot: SavedJourney, id?: string, push = true) {
+  settingsReplanPending = false;
+  openedHistoryId = id;
   activePlan = {
-    request: structuredClone(saved.request),
-    settings: migrateSettings(saved.settings)!,
+    request: structuredClone(snapshot.request),
+    settings: migrateSettings(snapshot.settings)!,
   };
+  // Historic coordinates stay fixed, even when their original label was GPS-based.
+  for (const place of [
+    activePlan.request.origin,
+    activePlan.request.destination,
+  ]) {
+    if (place.name === "Aktueller Standort")
+      place.name =
+        place === activePlan.request.origin ? "Startpunkt" : "Zielpunkt";
+  }
+  settings = structuredClone(activePlan.settings);
+  temporarySettings = true;
   activePlanId = crypto.randomUUID();
-  session.restore(saved.journey, saved.request, saved.savedAt);
-  destination.set(saved.request.destination);
-  originOverride =
-    saved.request.origin.name === "Aktueller Standort"
-      ? undefined
-      : saved.request.origin;
-  stops = structuredClone(saved.request.stops ?? []);
-  timing = saved.request.timing;
-  time = saved.request.time;
+  session.restore(snapshot.journey, activePlan.request, snapshot.savedAt);
+  destination.set(activePlan.request.destination);
+  originOverride = activePlan.request.origin;
+  stops = structuredClone(activePlan.request.stops ?? []);
+  timing = activePlan.request.timing;
+  time = activePlan.request.time;
   contextUI();
+  settingsUI();
   journeyView.setSize("normal");
-  show("map");
+  if (view === "map") {
+    if (push) writeHistory(true);
+  } else show("map", push);
+}
+function openSaved() {
+  if (saved) openSnapshot(saved, historyEntries[0]?.id);
 }
 el("open-saved").onclick = openSaved;
+el("replan-saved").onclick = async () => {
+  if (!activePlan || !navigator.onLine) return;
+  const request = structuredClone(activePlan.request);
+  request.timing = "now";
+  request.time = Date.now() / 1000;
+  timing = "now";
+  time = request.time;
+  contextUI();
+  await session.calculate(request, settings, false);
+};
 function connectionChanged() {
   el("connection").hidden = navigator.onLine;
   savedUI();
+  el<HTMLButtonElement>("replan-saved").disabled =
+    !navigator.onLine || session.state.busy;
   if (view === "map") {
     journeyView.render(session.state, settings.maxCyclingMinutes);
     routeMap.show(session.state.journeys, session.state.selected);
@@ -873,11 +1029,14 @@ void store
   .read()
   .then((result) => {
     if (storageGeneration === 0) offlineEnabled = result.enabled;
-    if (!activeSnapshot && storageGeneration === 0) saved = result.snapshot;
+    if (!activeSnapshot && storageGeneration === 0) {
+      saved = result.snapshot;
+      historyEntries = result.entries;
+    }
     savedUI();
     if (result.invalid)
       el("storage-message").textContent =
-        "Eine nicht lesbare gespeicherte Reise wurde entfernt.";
+        "Nicht lesbare gespeicherte Fahrten wurden entfernt.";
     if (
       !navigator.onLine &&
       saved &&

@@ -19,6 +19,7 @@ export interface PlanningState {
   issues: string[];
   restored: boolean;
   resultSettings?: RoutingSettings;
+  calculationId?: string;
 }
 export class PlanningSession {
   state: PlanningState = {
@@ -155,6 +156,7 @@ export class PlanningSession {
       if (generation !== this.generation) return;
       locating = false;
       const queriedAt = Date.now() / 1000;
+      const calculationId = crypto.randomUUID();
       if (request.timing === "now")
         request = { ...request, time: Math.floor(queriedAt) };
       this.resolved?.(request, calculationSettings);
@@ -188,6 +190,7 @@ export class PlanningSession {
           journeys,
           selected: journeys.find((j) => j.id === selected?.id) ?? journeys[0],
           resultSettings: calculationSettings,
+          calculationId,
           request,
           queriedAt,
           busy: update.status === "searching",

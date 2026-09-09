@@ -1117,3 +1117,43 @@ dialog.compact .dialog-actions {
   min-width: 44px;
   min-height: 44px;
 }
+
+.history-list {
+  list-style: none;
+  margin: 24px 0;
+  padding: 0;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.history-open {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 20px 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.history-open small {
+  color: var(--muted);
+}
+.history-row > .icon-button {
+  flex-shrink: 0;
+}
+#replan-saved {
+  width: 100%;
+  margin-bottom: 12px;
+}
+@media (max-width: 599px) {
+  .app-tabs {
+    gap: 0;
+  }
+  .app-tabs button {
+    flex: 1;
+    padding-inline: 8px;
+  }
+}
