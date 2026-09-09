@@ -138,7 +138,7 @@ test("offline restart restores exactly the saved journey without API or tile cac
   await production(page);
   await plan(page);
   await context.setOffline(true);
-  await page.reload();
+  await page.goto(root);
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(page.locator("#route-duration")).toContainText("32 min");
   await expect(page.locator("#map")).toHaveClass(/offline-map/);
@@ -178,7 +178,7 @@ test("disabling offline storage deletes the saved route and survives restart", a
   await page.locator("#offline-enabled").uncheck();
   await expect(page.locator("#storage-message")).toContainText("ausgeschaltet");
   await context.setOffline(true);
-  await page.reload();
+  await page.goto(root);
   await expect(page.locator("#offline-empty")).toBeVisible();
   await page.locator("#tab-settings").click();
   await expect(page.locator("#offline-enabled")).not.toBeChecked();
@@ -334,7 +334,7 @@ test("switching alternatives replaces the single saved record", async ({
     )
     .toBe("bike-1");
   await context.setOffline(true);
-  await page.reload();
+  await page.goto(root);
   await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
   await expect(page.locator(".route-choice")).toHaveCount(1);
 });
@@ -493,11 +493,42 @@ test("saved comparison remains labeled offline using the current cycling limit",
     )
     .toBe(true);
   await context.setOffline(true);
-  await page.reload();
+  await page.goto(root);
   await expect(page.locator("#cycling-comparison")).toContainText(
     "2 Min. über deinem Radlimit",
   );
   await expect(page.locator("#status")).toContainText(
     "Keine Verbindung innerhalb deines Radlimits",
+  );
+});
+
+test("planning deep link loads offline under the static subpath without replacing it with a saved trip", async ({
+  page,
+  context,
+}) => {
+  await production(page);
+  await plan(page);
+  const link = new URL(page.url());
+  link.searchParams.set("toName", "Anderes Ziel");
+  link.searchParams.set("to", "48.180000,11.620000");
+  await context.setOffline(true);
+  await page.goto(link.href);
+  await expect(page.locator("#status")).toContainText("brauchst du Internet");
+  await expect(page.locator("#saved-notice")).toBeHidden();
+  await expect(page.locator("#refresh-route")).toBeDisabled();
+  expect(page.url()).toBe(link.href);
+  await page.reload();
+  await expect(page.locator("#status")).toContainText("brauchst du Internet");
+  expect(page.url()).toBe(link.href);
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#adjust-destination")).toHaveValue("Anderes Ziel");
+  await page.locator("#cancel-adjust").click();
+  await context.setOffline(false);
+  const request = page.waitForRequest((r) =>
+    r.url().includes("directModes=BIKE"),
+  );
+  await page.locator("#refresh-route").click();
+  expect(new URL((await request).url()).searchParams.get("toPlace")).toBe(
+    "48.180000,11.620000",
   );
 });

@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-IwG33aQK.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CujQY68O.css">
+    <script type="module" crossorigin src="./assets/index-DM4HJS18.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DhxwUAlg.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search">
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -170,6 +170,20 @@
               aria-label="Reiseabschnitte"
             ></div>
             <div id="journey-detail"></div>
+            <div class="plan-link-actions">
+              <button id="copy-plan" class="secondary" type="button" hidden>
+                Planungslink kopieren
+              </button>
+              <label id="plan-link-fallback" hidden
+                >Link zum Kopieren
+                <input
+                  id="plan-link-value"
+                  type="text"
+                  readonly
+                  aria-label="Planungslink"
+                />
+              </label>
+            </div>
           </div>
           <div class="panel-actions">
             <button id="adjust-route" class="primary">Route anpassen</button

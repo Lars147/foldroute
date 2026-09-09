@@ -1084,3 +1084,13 @@ dialog.compact .dialog-actions {
 .suggestions li[role="row"] > [role="gridcell"]:not(:first-child) {
   flex: 0 0 44px;
 }
+
+.plan-link-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.plan-link-actions input {
+  width: 100%;
+  min-width: 0;
+}

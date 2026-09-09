@@ -168,6 +168,20 @@
               aria-label="Reiseabschnitte"
             ></div>
             <div id="journey-detail"></div>
+            <div class="plan-link-actions">
+              <button id="copy-plan" class="secondary" type="button" hidden>
+                Planungslink kopieren
+              </button>
+              <label id="plan-link-fallback" hidden
+                >Link zum Kopieren
+                <input
+                  id="plan-link-value"
+                  type="text"
+                  readonly
+                  aria-label="Planungslink"
+                />
+              </label>
+            </div>
           </div>
           <div class="panel-actions">
             <button id="adjust-route" class="primary">Route anpassen</button

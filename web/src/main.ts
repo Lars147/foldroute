@@ -21,11 +21,22 @@ import { el, node, icon, localDate, clock, dateLabel } from "./ui";
 import { setupPWA } from "./pwa";
 import { PlaceBook } from "./places";
 import { localDatabase } from "./storage";
+import {
+  readRouteURL,
+  routeURL,
+  type RouteLink,
+  type ParsedRouteLink,
+} from "./route-url";
 
 type View = "search" | "map" | "settings";
 let view: View = "search",
   settings: RoutingSettings = structuredClone(defaults);
 let settingsReplanPending = false;
+let personalSettings: RoutingSettings;
+let temporarySettings = false;
+let activePlan: RouteLink | undefined;
+let activePlanId: string | undefined;
+const initialLink = readRouteURL(new URL(location.href));
 let originOverride: Place | undefined,
   timing: Timing = "now",
   time = Date.now() / 1000;
@@ -57,6 +68,7 @@ try {
   el("storage-message").textContent =
     "Einstellungen gelten nur für diese Sitzung.";
 }
+personalSettings = structuredClone(settings);
 document
   .querySelectorAll<HTMLElement>("[data-icon]")
   .forEach((element) => element.append(icon(element.dataset.icon!)));
@@ -72,7 +84,98 @@ const routeMap = new RouteMap(
   () => journeyView.setSize("collapsed"),
 );
 const journeyView = new JourneyView((id) => session.select(id));
-const session = new PlanningSession(api, renderPlanning);
+const session = new PlanningSession(api, renderPlanning, (request, options) => {
+  activePlan = structuredClone({ request, settings: options });
+  activePlanId ??= crypto.randomUUID();
+  writeHistory();
+});
+function updateLinkUI() {
+  el("copy-plan").hidden = !activePlan;
+  el<HTMLButtonElement>("copy-plan").disabled = session.state.locating;
+}
+function writeHistory(push = false) {
+  history[push ? "pushState" : "replaceState"](
+    { view, planId: activePlanId },
+    "",
+    routeURL(location.href, activePlan),
+  );
+  el("plan-link-fallback").hidden = true;
+  updateLinkUI();
+}
+function releasePlan() {
+  activePlan = undefined;
+  activePlanId = undefined;
+  temporarySettings = false;
+  settings = structuredClone(personalSettings);
+  settingsUI();
+}
+function beginPlanning() {
+  activePlan = undefined;
+  activePlanId = crypto.randomUUID();
+  settingsReplanPending = false;
+  session.clear();
+  activeSnapshot = undefined;
+  persistKey = "";
+  if (view === "map") writeHistory(true);
+  else show("map");
+}
+async function restoreLink(
+  parsed: ParsedRouteLink,
+  next: View = "map",
+  id?: string,
+) {
+  settingsReplanPending = false;
+  session.clear();
+  activeSnapshot = undefined;
+  persistKey = "";
+  releasePlan();
+  if (parsed.kind !== "plan") {
+    originOverride = undefined;
+    destination.set();
+    timing = "now";
+    time = Date.now() / 1000;
+    contextUI();
+    show(next === "settings" ? "settings" : "search", false);
+    writeHistory();
+    el("place-status").textContent =
+      parsed.kind === "invalid"
+        ? "Der Planungslink ist unvollständig oder ungültig. Bitte eine neue Route planen."
+        : "";
+    return;
+  }
+  activePlan = structuredClone(parsed.plan);
+  activePlanId = id ?? crypto.randomUUID();
+  temporarySettings = true;
+  settings = structuredClone(activePlan.settings);
+  const request = activePlan.request;
+  originOverride = request.origin;
+  destination.set(request.destination);
+  timing = request.timing;
+  time = request.time;
+  settingsUI();
+  contextUI();
+  session.prepare(
+    request,
+    navigator.onLine
+      ? ""
+      : "Für diese Planung brauchst du Internet. Danach auf Aktualisieren tippen.",
+  );
+  show(next === "settings" ? "settings" : "map", false);
+  writeHistory();
+  if (next === "settings") {
+    settingsReplanPending = true;
+    return;
+  }
+  if (request.timing !== "now" && request.time < Date.now() / 1000) {
+    const message =
+      "Der Zeitpunkt dieses Links liegt in der Vergangenheit. Bitte einen neuen Zeitpunkt wählen.";
+    session.stop(message);
+    openAdjust(request.destination);
+    el("adjust-status").textContent = message;
+    return;
+  }
+  if (navigator.onLine) await session.calculate(request, settings, false);
+}
 function show(next: View, push = true) {
   const replan =
     view === "settings" &&
@@ -103,7 +206,7 @@ function show(next: View, push = true) {
   el("tab-settings").toggleAttribute("aria-current", next === "settings");
   if (next === "settings")
     el("tab-settings").setAttribute("aria-current", "page");
-  if (push) history.pushState({ view: next }, "", location.href);
+  if (push) writeHistory(true);
   if (next === "search") {
     destination.activate();
     updateSearchEmpty();
@@ -114,18 +217,24 @@ function show(next: View, push = true) {
   }
   if (replan) void refreshRoute();
 }
-history.replaceState({ view: "search" }, "", location.href);
 window.addEventListener("popstate", (event) => {
-  if (dialog.open) dialog.close();
-  const next = event.state?.view as View;
-  show(
-    next === "settings"
+  if (dialog.open) closeAdjust();
+  const next: View =
+    event.state?.view === "settings"
       ? "settings"
-      : next === "map" && session.state.request
-        ? "map"
-        : "search",
-    false,
-  );
+      : event.state?.view === "search"
+        ? "search"
+        : "map";
+  if (event.state?.planId === activePlanId) {
+    show(next === "map" && !session.state.request ? "search" : next, false);
+    writeHistory();
+  } else {
+    void restoreLink(
+      readRouteURL(new URL(location.href)),
+      next,
+      event.state?.planId,
+    );
+  }
 });
 function savedUI() {
   el("open-saved").hidden = !saved;
@@ -156,6 +265,7 @@ async function persist(snapshot: SavedJourney) {
   }
 }
 function renderPlanning(state: PlanningState) {
+  updateLinkUI();
   journeyView.render(state, settings.maxCyclingMinutes);
   if (view === "map") routeMap.show(state.journeys, state.selected);
   if (
@@ -234,9 +344,8 @@ async function start(place: Place) {
       "Für neue Routen brauchst du eine Internetverbindung.";
     return;
   }
-  session.clear();
+  beginPlanning();
   journeyView.setSize("normal");
-  show("map");
   const result = await session.calculate(
     {
       origin: originOverride ?? {
@@ -392,7 +501,7 @@ el("route-form").onsubmit = async (event) => {
   const target = draftDestination.value;
   destination.set(target);
   closeAdjust();
-  show("map");
+  beginPlanning();
   journeyView.setSize("normal");
   const result = await session.calculate(
     {
@@ -416,8 +525,15 @@ el("route-form").onsubmit = async (event) => {
   }
 };
 async function refreshRoute() {
-  const request = session.state.request;
+  const request = activePlan?.request ?? session.state.request;
   if (!request) return;
+  if (request.timing !== "now" && request.time < Date.now() / 1000) {
+    const message = "Bitte einen aktuellen oder zukünftigen Zeitpunkt wählen.";
+    session.stop(message);
+    openAdjust(request.destination);
+    el("adjust-status").textContent = message;
+    return;
+  }
   const result = await session.calculate(
     request,
     settings,
@@ -433,6 +549,7 @@ el("refresh-route").onclick = () => void refreshRoute();
 el("close-route").onclick = () => {
   settingsReplanPending = false;
   session.clear();
+  releasePlan();
   mapLocationRequest?.abort();
   destination.set();
   originOverride = undefined;
@@ -442,6 +559,7 @@ el("close-route").onclick = () => {
   el("search-empty").hidden = false;
   el("place-status").textContent = "";
   show("search");
+  writeHistory();
 };
 el("cancel").onclick = () => session.stop();
 el("dismiss-location-error").onclick = () => {
@@ -538,7 +656,7 @@ function settingsUI() {
 }
 function settingsSummary() {
   el("settings-summary").textContent =
-    `${settings.cyclingSpeedKilometersPerHour} km/h · ${settings.foldingDuration / 60} min je Falten und Entfalten. Änderungen werden gespeichert; beim Verlassen wird neu berechnet.`;
+    `${settings.cyclingSpeedKilometersPerHour} km/h · ${settings.foldingDuration / 60} min je Falten und Entfalten. ${temporarySettings ? "Einstellungen gelten nur für diese Planung; beim Verlassen wird neu berechnet." : "Änderungen werden gespeichert; beim Verlassen wird neu berechnet."}`;
 }
 function applySettings(next: RoutingSettings) {
   if (!validSettings(next) || JSON.stringify(settings) === JSON.stringify(next))
@@ -550,6 +668,15 @@ function applySettings(next: RoutingSettings) {
     activeSnapshot = undefined;
     persistKey = "";
   }
+  if (activePlan) {
+    activePlan = { ...activePlan, settings: structuredClone(settings) };
+    writeHistory();
+  }
+  if (temporarySettings) {
+    settingsSummary();
+    return;
+  }
+  personalSettings = structuredClone(settings);
   try {
     localStorage.setItem(storageKey, JSON.stringify(settings));
     localStorage.removeItem(legacyStorageKey);
@@ -606,7 +733,8 @@ el("confirm-delete-data").onclick = async () => {
     localStorage.removeItem(legacyStorageKey);
     saved = undefined;
     offlineEnabled = true;
-    settings = structuredClone(defaults);
+    personalSettings = structuredClone(defaults);
+    releasePlan();
     originOverride = undefined;
     timing = "now";
     time = Date.now() / 1000;
@@ -618,6 +746,7 @@ el("confirm-delete-data").onclick = async () => {
     contextUI();
     el<HTMLDialogElement>("delete-data-dialog").close();
     show("search");
+    writeHistory();
     toast("Alle lokalen Daten gelöscht.");
   } catch {
     el("delete-data-status").textContent =
@@ -673,6 +802,11 @@ el("delete-saved").onclick = async () => {
 };
 function openSaved() {
   if (!saved) return;
+  activePlan = {
+    request: structuredClone(saved.request),
+    settings: migrateSettings(saved.settings)!,
+  };
+  activePlanId = crypto.randomUUID();
   session.restore(saved.journey, saved.request, saved.savedAt);
   destination.set(saved.request.destination);
   originOverride =
@@ -707,7 +841,14 @@ void store
     if (result.invalid)
       el("storage-message").textContent =
         "Eine nicht lesbare gespeicherte Reise wurde entfernt.";
-    if (!navigator.onLine && saved && view === "search") openSaved();
+    if (
+      !navigator.onLine &&
+      saved &&
+      view === "search" &&
+      initialLink.kind === "none" &&
+      !activePlan
+    )
+      openSaved();
   })
   .catch(() => {
     el("storage-message").textContent =
@@ -784,3 +925,23 @@ window.visualViewport?.addEventListener("resize", visualViewportChanged);
 window.visualViewport?.addEventListener("scroll", visualViewportChanged);
 window.addEventListener("resize", visualViewportChanged);
 visualViewportChanged();
+
+// Read links after every form and dialog handler is ready. Offline storage must
+// never replace an explicitly linked planning request with an unrelated trip.
+if (initialLink.kind !== "none") void restoreLink(initialLink);
+else writeHistory();
+el("copy-plan").onclick = async () => {
+  if (!activePlan || session.state.locating) return;
+  const link = routeURL(location.href, activePlan).href;
+  try {
+    if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+    await navigator.clipboard.writeText(link);
+    toast("Planungslink kopiert.");
+  } catch {
+    const input = el<HTMLInputElement>("plan-link-value");
+    input.value = link;
+    el("plan-link-fallback").hidden = false;
+    input.focus();
+    input.select();
+  }
+};

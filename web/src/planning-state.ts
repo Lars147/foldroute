@@ -36,6 +36,10 @@ export class PlanningSession {
   constructor(
     private client: ApiClient,
     private change: (s: PlanningState) => void,
+    private resolved?: (
+      request: RouteRequest,
+      settings: RoutingSettings,
+    ) => void,
   ) {}
   private emit() {
     this.change(this.state);
@@ -100,6 +104,11 @@ export class PlanningSession {
     };
     this.emit();
   }
+  prepare(request: RouteRequest, message = "") {
+    this.clear();
+    this.state = { ...this.state, request, message };
+    this.emit();
+  }
   async calculate(
     request: RouteRequest,
     settings: RoutingSettings,
@@ -148,6 +157,7 @@ export class PlanningSession {
       const queriedAt = Date.now() / 1000;
       if (request.timing === "now")
         request = { ...request, time: Math.floor(queriedAt) };
+      this.resolved?.(request, calculationSettings);
       this.state = {
         ...this.state,
         locating: false,

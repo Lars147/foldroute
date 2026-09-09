@@ -772,6 +772,7 @@ test("settings errors keep old offline snapshot but never restore invalidated op
   await page.locator("#tab-settings").click();
   await expect(page.locator("#foldingDuration")).toHaveValue("4.5");
   expect(original.settings.foldingDuration).toBe(180);
+  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("180");
 });
 
 test("clearing local data requires confirmation and removes all app records", async ({
@@ -920,3 +921,233 @@ test("transit renders before a pending comparison and an explicit comparison sta
   await page.getByRole("button", { name: /Fahrradvergleich:/ }).click();
   await expect(page.locator("#option-title")).toContainText("Fahrradvergleich");
 });
+
+// Planning links carry the request, independently of the selected result.
+test("planning URL reloads fixed endpoints without location access and keeps now dynamic", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  const link = page.url();
+  const params = new URL(link).searchParams;
+  expect(params.get("from")).toBe("48.132000,11.575600");
+  expect(params.get("fromName")).toBe("Startpunkt");
+  expect(params.has("time")).toBe(false);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        getCurrentPosition() {
+          throw new Error("Shared link must not locate");
+        },
+      },
+    });
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.reload();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.clock.setFixedTime(new Date("2026-09-04T08:05:00Z"));
+  const direct = page.waitForRequest((r) =>
+    r.url().includes("directModes=BIKE"),
+  );
+  await page.locator("#refresh-route").click();
+  expect(new URL((await direct).url()).searchParams.get("time")).toBe(
+    "2026-09-04T08:05:00Z",
+  );
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  expect(page.url()).toBe(link);
+  expect(errors).toEqual([]);
+});
+
+test("link options and edits remain temporary, including Back from settings", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  const link = new URL(page.url());
+  link.searchParams.set("maxCyclingMinutes", "17");
+  await page.goto(link.href);
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#settings-summary")).toContainText(
+    "nur für diese Planung",
+  );
+  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("17");
+  await page.locator("#foldingDuration").fill("4");
+  let calculations = 0;
+  page.on("request", (r) => {
+    if (r.url().includes("directModes=BIKE")) calculations++;
+  });
+  await page.goBack();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  expect(calculations).toBe(1);
+  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("240");
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("foldroute.routing.v3")!),
+    ),
+  ).toMatchObject({ maxCyclingMinutes: 60, foldingDuration: 180 });
+  await page.locator("#close-route").click();
+  expect(new URL(page.url()).searchParams.has("v")).toBe(false);
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("60");
+  await expect(page.locator("#foldingDuration")).toHaveValue("3");
+});
+
+test("Back and Forward restore distinct submitted plans without result history entries", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  const first = page.url();
+  const length = await page.evaluate(() => history.length);
+  await page.locator(".route-choice").last().click();
+  expect(page.url()).toBe(first);
+  expect(await page.evaluate(() => history.length)).toBe(length);
+  await page.locator("#adjust-route").click();
+  await page.route("**/api/v1/geocode?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json: [{ name: "Weiteres Ziel", lat: 48.176, lon: 11.6 }],
+    }),
+  );
+  await choose(page, "adjust-destination", "Weiteres Ziel");
+  await page
+    .locator("#route-form")
+    .evaluate((form: HTMLFormElement) => form.requestSubmit());
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  const second = page.url();
+  expect(new URL(second).searchParams.get("toName")).toBe("Weiteres Ziel");
+  await page.goBack();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  expect(page.url()).toBe(first);
+  await page.goForward();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  expect(page.url()).toBe(second);
+});
+
+test("expired and invalid links never start API searches or change personal settings", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  const url = new URL(page.url());
+  let requests = 0;
+  page.on("request", (r) => {
+    if (r.url().includes("/v6/plan")) requests++;
+  });
+  url.searchParams.set("timing", "depart");
+  url.searchParams.set("time", "2026-09-03T08:00:00Z");
+  await page.goto(url.href);
+  await expect(page.locator("#adjust-dialog")).toBeVisible();
+  await expect(page.locator("#adjust-status")).toContainText("Vergangenheit");
+  expect(requests).toBe(0);
+  url.searchParams.set("v", "999");
+  await page.goto(url.href);
+  await expect(page.locator("#place-status")).toContainText("ungültig");
+  expect(requests).toBe(0);
+  expect(new URL(page.url()).searchParams.has("v")).toBe(false);
+});
+
+test("copy planning link provides a selectable fallback when clipboard is denied", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: () =>
+          Promise.reject(new DOMException("Denied", "NotAllowedError")),
+      },
+    }),
+  );
+  await plan(page);
+  await page.locator("#copy-plan").click();
+  await expect(page.locator("#plan-link-value")).toBeVisible();
+  await expect(page.locator("#plan-link-value")).toHaveValue(page.url());
+  expect(
+    await page
+      .locator("#plan-link-value")
+      .evaluate(
+        (input: HTMLInputElement) =>
+          input.selectionEnd! - input.selectionStart!,
+      ),
+  ).toBe(page.url().length);
+});
+
+test("abandoned location lookup cannot publish placeholder coordinates or rewrite the URL", async ({
+  page,
+}) => {
+  await setup(page, false);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        getCurrentPosition(success: (result: unknown) => void) {
+          (window as unknown as { finishLocation: () => void }).finishLocation =
+            () => success({ coords: { latitude: 48.132, longitude: 11.5756 } });
+        },
+      },
+    });
+  });
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toContainText(
+    "Standort wird ermittelt",
+  );
+  expect(new URL(page.url()).searchParams.has("from")).toBe(false);
+  await page.locator("#close-route").click();
+  await page.evaluate(() =>
+    (window as unknown as { finishLocation: () => void }).finishLocation(),
+  );
+  await expect(page.locator("#search-view")).toBeVisible();
+  expect(new URL(page.url()).searchParams.has("v")).toBe(false);
+});
+
+test("copy succeeds and planning details fit a narrow mobile viewport", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: async (text: string) => {
+          document.documentElement.dataset.copiedLink = text;
+        },
+      },
+    }),
+  );
+  await plan(page);
+  await page.locator("#panel-size").click();
+  await page.locator("#copy-plan").click();
+  await expect(page.locator("#toast")).toHaveText("Planungslink kopiert.");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-copied-link",
+    page.url(),
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  await page.screenshot({ path: "test-results/planning-link-mobile.png" });
+});
+
+for (const mode of ["depart", "arrive"] as const)
+  test(`fixed ${mode} link preserves the chosen UTC instant and local form time`, async ({
+    page,
+  }) => {
+    await setup(page);
+    await plan(page);
+    const link = new URL(page.url());
+    link.searchParams.set("timing", mode);
+    link.searchParams.set("time", "2026-09-04T09:00:00Z");
+    const query = page.waitForRequest((r) =>
+      r.url().includes("directModes=BIKE"),
+    );
+    await page.goto(link.href);
+    const params = new URL((await query).url()).searchParams;
+    expect(params.get("time")).toBe("2026-09-04T09:00:00Z");
+    expect(params.get("arriveBy")).toBe(String(mode === "arrive"));
+    await expect(page.locator("#cancel")).toBeHidden();
+    await page.locator("#adjust-route").click();
+    await expect(page.locator("#timing")).toHaveValue(mode);
+    await expect(page.locator("#when")).toHaveValue("2026-09-04T11:00");
+  });
