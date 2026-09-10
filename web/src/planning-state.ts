@@ -198,7 +198,7 @@ export class PlanningSession {
           restored: false,
           message:
             update.status === "searching"
-              ? "Weitere Verbindungen werden geprüft …"
+              ? "Verbindungen optimieren …"
               : update.status === "partial"
                 ? "Suche teilweise abgeschlossen."
                 : "Verbindungen gefunden.",

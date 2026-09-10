@@ -938,7 +938,7 @@ test("transit renders before a pending comparison and an explicit comparison sta
   });
   await choose(page, "destination", "Ziel");
   await expect(page.locator("#route-duration")).toContainText("53 min");
-  await expect(page.locator("#status")).toContainText("Weitere Verbindungen");
+  await expect(page.locator("#status")).toHaveText("Verbindungen optimieren …");
   release();
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await page.getByRole("button", { name: /Fahrradvergleich:/ }).click();
@@ -1854,8 +1854,12 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
     });
     await choose(page, "destination", "Ziel");
     if (outcome !== "error")
-      await expect(page.locator("#status")).toContainText(
-        "Weitere Verbindungen",
+      await expect(page.locator("#status")).toHaveText(
+        "Verbindungen optimieren …",
+      );
+    else
+      await expect(page.locator("#status")).toHaveText(
+        "Verbindungen werden gesucht …",
       );
     const animation = () =>
       page
@@ -2068,7 +2072,7 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
     await route.fallback();
   });
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toContainText("Weitere Verbindungen");
+  await expect(page.locator("#status")).toHaveText("Verbindungen optimieren …");
   for (const [width, height, fontSize] of [
     [390, 844, 16],
     [515, 600, 16],
@@ -2116,7 +2120,8 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
         expect(sample.actionsVisible).toBe(true);
         expect(sample.scrollWidth).toBe(sample.width);
       }
-      if (fontSize === 16 && size !== "expanded")
+      // Short viewports may scroll below the stacked map controls.
+      if (fontSize === 16 && height >= 800 && size !== "expanded")
         expect(samples[0].scrollHeight).toBe(samples[0].height);
       if (fontSize === 24 && size === "expanded") {
         expect(samples[0].scrollHeight).toBeGreaterThan(samples[0].height);

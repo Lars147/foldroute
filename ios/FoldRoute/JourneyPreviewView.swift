@@ -190,7 +190,7 @@ struct JourneyPreviewView: View {
                             .accessibilityIdentifier("lateDepartureNotice")
                         }
                         if model.bikeTransferSearchStatus == .searching {
-                            ProgressView("Weitere Verbindungen werden geprüft …")
+                            ProgressView("Verbindungen optimieren …")
                                 .font(.caption)
                         }
                         if let notice = model.planningNotice {
