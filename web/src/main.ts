@@ -18,8 +18,13 @@ import { PlaceSearch, locate, clearSearchLocation } from "./search";
 import { PlanningSession, type PlanningState } from "./planning-state";
 import { RouteMap } from "./map-view";
 import { JourneyView } from "./journey-view";
-import { OfflineStore, type SavedJourney, type HistoryEntry } from "./offline";
-import { el, node, icon, localDate, clock, dateLabel, duration } from "./ui";
+import {
+  OfflineStore,
+  sameHistoryRoute,
+  type SavedJourney,
+  type HistoryEntry,
+} from "./offline";
+import { el, node, icon, localDate, clock, dateLabel } from "./ui";
 import { setupPWA } from "./pwa";
 import { PlaceBook } from "./places";
 import { localDatabase } from "./storage";
@@ -34,6 +39,8 @@ type View = "search" | "map" | "settings" | "history";
 let historyEntries: HistoryEntry[] = [];
 let openedHistoryId: string | undefined;
 const suppressedCalculations = new Set<string>();
+let currentSaveSuppressed = false;
+let planningWasBusy = false;
 let view: View = "search",
   settings: RoutingSettings = structuredClone(defaults);
 let settingsReplanPending = false;
@@ -276,14 +283,13 @@ function historyUI() {
     : "Speicherung ausgeschaltet. Aktiviere sie in den Einstellungen, um deine nächsten Planungen zu behalten.";
   el<HTMLButtonElement>("delete-saved").disabled = !historyEntries.length;
   for (const entry of historyEntries) {
-    const { journey, savedAt, request } = entry.snapshot;
+    const { journey, request } = entry.snapshot;
     const row = node("li", "", "history-row");
     const open = node("button", "", "history-open");
     open.type = "button";
-    open.append(node("strong", journey.destination.name));
     open.append(
       node(
-        "span",
+        "strong",
         `${journey.origin.name === "Aktueller Standort" ? "Startpunkt" : journey.origin.name} → ${journey.destination.name}`,
       ),
     );
@@ -294,12 +300,6 @@ function historyUI() {
           `Über ${request.stops.map((stop) => stop.place.name).join(" · ")}`,
         ),
       );
-    open.append(
-      node(
-        "small",
-        `${dateLabel(savedAt)}, ${clock(savedAt)} · ${duration(journey.arrival - journey.departure)}`,
-      ),
-    );
     open.onclick = () => openSnapshot(entry.snapshot, entry.id);
     const remove = node("button", "", "icon-button");
     remove.type = "button";
@@ -323,8 +323,10 @@ async function reloadHistory() {
 }
 async function deleteHistoryEntry(id: string) {
   storageGeneration++;
-  suppressedCalculations.add(id);
-  if (session.state.calculationId === id) activeSnapshot = undefined;
+  const entry = historyEntries.find((item) => item.id === id);
+  const request = activePlan?.request ?? session.state.request;
+  if (entry && request && sameHistoryRoute(entry.snapshot.request, request))
+    suppressCurrentSave();
   try {
     await store.remove(id);
     await reloadHistory();
@@ -334,6 +336,7 @@ async function deleteHistoryEntry(id: string) {
   }
 }
 function suppressCurrentSave() {
+  currentSaveSuppressed = true;
   if (session.state.calculationId)
     suppressedCalculations.add(session.state.calculationId);
   activeSnapshot = undefined;
@@ -367,6 +370,8 @@ async function persist(snapshot: SavedJourney, id: string) {
   }
 }
 function renderPlanning(state: PlanningState) {
+  if (state.busy && !planningWasBusy) currentSaveSuppressed = false;
+  planningWasBusy = state.busy;
   updateLinkUI();
   journeyView.render(state, settings.maxCyclingMinutes);
   if (view === "map") routeMap.show(state.journeys, state.selected);
@@ -375,6 +380,7 @@ function renderPlanning(state: PlanningState) {
     state.request &&
     state.resultSettings &&
     !state.restored &&
+    !currentSaveSuppressed &&
     state.calculationId &&
     !suppressedCalculations.has(state.calculationId)
   ) {

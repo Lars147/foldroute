@@ -22,7 +22,7 @@ export class JourneyView {
           ? "normal"
           : this.size === "normal"
             ? "expanded"
-            : "collapsed",
+            : "normal",
       );
     const handle = el("panel-handle");
     handle.onpointerdown = (e) => {
@@ -79,15 +79,17 @@ export class JourneyView {
     el("journey-panel").dataset.size = size;
     el("panel-size").textContent =
       size === "collapsed"
-        ? "Details öffnen"
+        ? "Übersicht öffnen"
         : size === "normal"
           ? "Mehr Details"
-          : "Details einklappen";
-    el("panel-size").setAttribute(
-      "aria-expanded",
-      String(size !== "collapsed"),
-    );
-    el("panel-details").inert = size === "collapsed";
+          : "Weniger Details";
+    el("panel-size").setAttribute("aria-expanded", String(size === "expanded"));
+    const details = el("panel-details");
+    if (size !== "expanded" && details.contains(document.activeElement))
+      el("panel-size").focus();
+    details.hidden = size !== "expanded";
+    details.inert = size !== "expanded";
+    el("panel-content").scrollTop = 0;
   }
   render(state: PlanningState, cyclingLimit = 30) {
     el("status").textContent = state.message;

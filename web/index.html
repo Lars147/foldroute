@@ -101,7 +101,7 @@
         hidden
       >
         <h1 id="history-heading">Fahrten</h1>
-        <p class="subtitle">Deine letzten 20 Planungen auf diesem Gerät.</p>
+        <p class="subtitle">Deine letzten 20 Strecken auf diesem Gerät.</p>
         <p id="history-empty" class="message"></p>
         <ul id="history-list" class="history-list"></ul>
       </section>
@@ -130,7 +130,12 @@
         >
           <div id="panel-handle" class="panel-handle"><span></span></div>
           <div class="panel-tools">
-            <button id="panel-size" class="text-button" aria-expanded="true">
+            <button
+              id="panel-size"
+              class="text-button"
+              aria-expanded="false"
+              aria-controls="panel-details"
+            >
               Mehr Details</button
             ><button
               id="close-route"
@@ -140,64 +145,72 @@
             ></button>
           </div>
           <div
-            id="panel-summary"
-            class="panel-summary"
+            id="panel-content"
+            class="panel-content"
             tabindex="0"
-            aria-label="Verbindungen wechseln"
+            aria-label="Reiseinformationen"
           >
-            <p id="option-title" class="option-title">Deine Möglichkeiten</p>
-            <h2 id="route-arrival">Route finden.</h2>
-            <p id="route-duration">Rad und ÖPNV gemeinsam geplant.</p>
-            <p id="route-range"></p>
-          </div>
-          <div
-            id="choices"
-            class="route-choices"
-            role="group"
-            aria-label="Verbindung auswählen"
-          ></div>
-          <p
-            id="status"
-            class="panel-status"
-            role="status"
-            aria-live="polite"
-          ></p>
-          <p id="issues" class="notice" hidden></p>
-          <p id="saved-notice" class="notice" hidden></p>
-          <button id="replan-saved" class="primary" type="button" hidden>
-            Jetzt neu planen
-          </button>
-          <div id="late-departure" class="notice" hidden>
-            <span id="late-departure-text"></span>
-            <button id="late-settings" type="button" class="text-button">
-              Einstellungen öffnen
-            </button>
-          </div>
-          <p id="map-error" class="map-error" role="status" hidden></p>
-          <p id="cycling-comparison" class="notice" role="status" hidden></p>
-          <div id="panel-details" class="panel-details">
             <div
-              id="fold-line"
-              class="fold-line"
-              aria-label="Reiseabschnitte"
+              id="panel-summary"
+              class="panel-summary"
+              tabindex="0"
+              aria-label="Verbindungen wechseln"
+            >
+              <p id="option-title" class="option-title">Deine Möglichkeiten</p>
+              <h2 id="route-arrival">Route finden.</h2>
+              <p id="route-duration">Rad und ÖPNV gemeinsam geplant.</p>
+              <p id="route-range"></p>
+            </div>
+            <div
+              id="choices"
+              class="route-choices"
+              role="group"
+              aria-label="Verbindung auswählen"
             ></div>
-            <div id="journey-detail"></div>
-            <div class="plan-link-actions">
-              <button id="copy-plan" class="secondary" type="button" hidden>
-                Planungslink kopieren
+            <p
+              id="status"
+              class="panel-status"
+              role="status"
+              aria-live="polite"
+            ></p>
+            <p id="issues" class="notice" hidden></p>
+            <p id="saved-notice" class="notice" hidden></p>
+            <div id="late-departure" class="notice" hidden>
+              <span id="late-departure-text"></span>
+              <button id="late-settings" type="button" class="text-button">
+                Einstellungen öffnen
               </button>
-              <label id="plan-link-fallback" hidden
-                >Link zum Kopieren
-                <input
-                  id="plan-link-value"
-                  type="text"
-                  readonly
-                  aria-label="Planungslink"
-                />
-              </label>
+            </div>
+            <p id="map-error" class="map-error" role="status" hidden></p>
+            <p id="cycling-comparison" class="notice" role="status" hidden></p>
+            <div id="panel-details" class="panel-details" hidden inert>
+              <div
+                id="fold-line"
+                class="fold-line"
+                aria-label="Reiseabschnitte"
+              ></div>
+              <div id="journey-detail"></div>
+              <div class="plan-link-actions">
+                <button id="copy-plan" class="secondary" type="button" hidden>
+                  Planungslink kopieren
+                </button>
+                <label id="plan-link-fallback" hidden
+                  >Link zum Kopieren
+                  <input
+                    id="plan-link-value"
+                    type="text"
+                    readonly
+                    aria-label="Planungslink"
+                  />
+                </label>
+              </div>
             </div>
           </div>
           <div class="panel-actions">
+            <button id="replan-saved" class="primary" type="button" hidden>
+              Jetzt neu planen
+            </button>
+
             <button id="adjust-route" class="primary">Route anpassen</button
             ><button id="refresh-route" class="secondary">Aktualisieren</button
             ><button id="cancel" class="secondary" hidden>
@@ -237,7 +250,7 @@
           <label class="toggle-row"
             ><span
               >Fahrten auf diesem Gerät speichern<small
-                >Bis zu 20 Planungen, auch offline. Ausschalten löscht den
+                >Bis zu 20 Strecken, auch offline. Ausschalten löscht den
                 Verlauf.</small
               ></span
             ><input
@@ -271,7 +284,7 @@
             <p>
               Ortssuchen, Start, Ziel, Zeitpunkt und Routing-Einstellungen gehen
               an Transitous; Kartenabrufe an OpenStreetMap. Einstellungen und
-              Favoriten, letzte Orte und optional die letzten 20 Planungen
+              Favoriten, letzte Orte und optional die letzten 20 Strecken
               bleiben auf diesem Gerät. Keine Analyse-Tools, keine GPS-Spuren.
               Gespeicherte Zeiten sind der Stand der Abfrage. Neue Planung und
               Karten benötigen Internet; die Offline-Übersicht zeigt den

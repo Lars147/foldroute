@@ -533,7 +533,7 @@ test("planning deep link loads offline under the static subpath without replacin
   );
 });
 
-test("PWA history keeps multiple trips across an offline restart", async ({
+test("PWA history deduplicates repeated trips across an offline restart", async ({
   page,
   context,
 }) => {
@@ -542,12 +542,12 @@ test("PWA history keeps multiple trips across an offline restart", async ({
   await page.locator("#close-route").click();
   await plan(page);
   await page.locator("#tab-history").click();
-  await expect(page.locator(".history-row")).toHaveCount(2);
+  await expect(page.locator(".history-row")).toHaveCount(1);
   await context.setOffline(true);
   await page.goto(root);
   await expect(page.locator("#saved-notice")).toBeVisible();
   await page.locator("#tab-history").click();
-  await expect(page.locator(".history-row")).toHaveCount(2);
+  await expect(page.locator(".history-row")).toHaveCount(1);
   await page.locator(".history-open").last().click();
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(page.locator("#replan-saved")).toBeDisabled();

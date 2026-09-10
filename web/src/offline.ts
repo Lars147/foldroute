@@ -4,10 +4,12 @@ import {
   validLegacySettings,
   type LegacyRoutingSettings,
   type Journey,
+  type Place,
   type RouteRequest,
   type StoredRoutingSettings,
 } from "./model";
 import { localDatabase } from "./storage";
+import { distance } from "./geometry";
 interface Snapshot {
   savedAt: number;
   request: RouteRequest;
@@ -104,11 +106,39 @@ export function validSnapshot(value: unknown): value is SavedJourney {
 }
 export interface HistoryEntry {
   id: string;
+  calculationId?: string;
   snapshot: SavedJourney;
 }
 interface HistoryData {
   version: 1;
   entries: HistoryEntry[];
+}
+const genericPlaces = new Set([
+  "aktueller standort",
+  "startpunkt",
+  "zielpunkt",
+]);
+function sameHistoryPlace(a: Place, b: Place): boolean {
+  const aName = a.name.trim(),
+    bName = b.name.trim();
+  return (
+    distance(a, b) <= 25 &&
+    (genericPlaces.has(aName.toLocaleLowerCase("de")) ||
+      genericPlaces.has(bName.toLocaleLowerCase("de")) ||
+      aName.localeCompare(bName, "de", { sensitivity: "accent" }) === 0)
+  );
+}
+export function sameHistoryRoute(a: RouteRequest, b: RouteRequest): boolean {
+  const aStops = a.stops ?? [],
+    bStops = b.stops ?? [];
+  return (
+    sameHistoryPlace(a.origin, b.origin) &&
+    sameHistoryPlace(a.destination, b.destination) &&
+    aStops.length === bStops.length &&
+    aStops.every((stop, index) =>
+      sameHistoryPlace(stop.place, bStops[index].place),
+    )
+  );
 }
 export function readHistory(
   value: unknown,
@@ -116,6 +146,7 @@ export function readHistory(
 ): {
   entries: HistoryEntry[];
   invalid: boolean;
+  changed?: boolean;
 } {
   if (value === undefined) {
     return {
@@ -134,6 +165,8 @@ export function readHistory(
         !object(entry) ||
         typeof entry.id !== "string" ||
         !entry.id ||
+        (entry.calculationId !== undefined &&
+          (typeof entry.calculationId !== "string" || !entry.calculationId)) ||
         ids.has(entry.id) ||
         !validSnapshot(entry.snapshot)
       )
@@ -142,22 +175,52 @@ export function readHistory(
       return true;
     },
   );
+  const unique: HistoryEntry[] = [];
+  for (const entry of [...entries].sort(
+    (a, b) => b.snapshot.savedAt - a.snapshot.savedAt,
+  )) {
+    if (
+      !unique.some((previous) =>
+        sameHistoryRoute(previous.snapshot.request, entry.snapshot.request),
+      )
+    )
+      unique.push(entry);
+  }
+  const retained = unique.slice(0, 20);
   return {
-    entries: entries.slice(0, 20),
+    entries: retained,
     invalid: entries.length !== value.entries.length,
+    changed:
+      retained.length !== value.entries.length ||
+      retained.some((entry, index) => entry !== value.entries[index]),
   };
 }
 export function retainHistory(
   entries: HistoryEntry[],
   entry: HistoryEntry,
 ): HistoryEntry[] {
-  const index = entries.findIndex((item) => item.id === entry.id);
-  if (index >= 0)
-    return entries.map((item) => (item.id === entry.id ? entry : item));
-  return [entry, ...entries]
+  const previous = entries.find((item) =>
+    sameHistoryRoute(item.snapshot.request, entry.snapshot.request),
+  );
+  if (previous && previous.snapshot.savedAt > entry.snapshot.savedAt)
+    return entries;
+  const updated = {
+    ...entry,
+    id: previous?.id ?? entry.id,
+    calculationId: entry.calculationId ?? entry.id,
+  };
+  return [
+    updated,
+    ...entries.filter(
+      (item) =>
+        item.id !== updated.id &&
+        !sameHistoryRoute(item.snapshot.request, entry.snapshot.request),
+    ),
+  ]
     .sort((a, b) => b.snapshot.savedAt - a.snapshot.savedAt)
     .slice(0, 20);
 }
+
 interface StoredHistory {
   enabled: boolean;
   entries: HistoryEntry[];
@@ -167,6 +230,7 @@ interface StoredHistory {
 export class OfflineStore {
   private generation = 0;
   private deleted = new Set<string>();
+  private calculationEntries = new Map<string, string>();
 
   private async transaction(
     change?: (state: StoredHistory) => void,
@@ -201,6 +265,7 @@ export class OfflineStore {
           change ||
           history.result === undefined ||
           decoded.invalid ||
+          decoded.changed ||
           (!result.enabled && decoded.entries.length > 0)
         ) {
           const data: HistoryData = { version: 1, entries: result.entries };
@@ -229,10 +294,32 @@ export class OfflineStore {
       throw new Error("Reise kann nicht offline gespeichert werden.");
     let saved = false;
     await this.transaction((state) => {
-      if (state.enabled && !this.deleted.has(id)) {
-        state.entries = retainHistory(state.entries, { id, snapshot });
-        saved = true;
-      }
+      const knownEntry = this.calculationEntries.get(id);
+      if (
+        !state.enabled ||
+        this.deleted.has(id) ||
+        (knownEntry && this.deleted.has(knownEntry))
+      )
+        return;
+      const previous = state.entries.find((entry) =>
+        sameHistoryRoute(entry.snapshot.request, snapshot.request),
+      );
+      if (
+        previous &&
+        (previous.snapshot.savedAt > snapshot.savedAt ||
+          (knownEntry &&
+            previous.calculationId &&
+            previous.calculationId !== id &&
+            previous.snapshot.savedAt === snapshot.savedAt))
+      )
+        return;
+      state.entries = retainHistory(state.entries, {
+        id,
+        calculationId: id,
+        snapshot,
+      });
+      this.calculationEntries.set(id, previous?.id ?? id);
+      saved = true;
     });
     return saved;
   }
@@ -250,6 +337,7 @@ export class OfflineStore {
     });
   }
   async remove(id: string): Promise<void> {
+    this.generation++;
     this.deleted.add(id);
     await this.transaction((state) => {
       state.entries = state.entries.filter((entry) => entry.id !== id);

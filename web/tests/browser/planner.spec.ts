@@ -103,7 +103,7 @@ for (const [width, height] of [
     });
     await page.locator("#map-location").click({ position: { x: 24, y: 4 } });
     await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
-    for (const size of ["expanded", "collapsed", "normal"]) {
+    for (const size of ["expanded", "normal", "expanded"]) {
       await page.locator("#panel-size").click();
       await expect(page.locator("#journey-panel")).toHaveAttribute(
         "data-size",
@@ -155,7 +155,9 @@ test("manual map gestures release location focus; button restores it and route c
   await page.mouse.down();
   await page.mouse.move(map!.x + 180, map!.y + 180, { steps: 12 });
   await page.mouse.up();
-  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(30);
+  // Content-sized panels change route fitting after gestures. A retained
+  // location focus would center within 2px, regardless of the panel height.
+  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(5);
   await page.locator("#panel-size").click();
   await page.waitForTimeout(300);
   // Route fitting may move the marker again during the panel transition;
@@ -169,11 +171,14 @@ test("manual map gestures release location focus; button restores it and route c
   await page.waitForTimeout(300);
   await page.locator("#panel-size").click();
   await page.waitForTimeout(300);
-  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(30);
+  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(5);
   await page.locator("#map-location").click();
   await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
   await page.locator(".route-choice").last().click();
-  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(30);
+  // Expanded details intentionally defer fitting the tiny remaining map area.
+  // Return to the overview to observe that the route change released focus.
+  await page.locator("#panel-size").click();
+  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(5);
 });
 
 for (const width of [320, 390, 768, 1479])
@@ -215,7 +220,7 @@ for (const width of [320, 390, 768, 1479])
     await page.locator("#panel-size").click();
     await expect(page.locator("#journey-panel")).toHaveAttribute(
       "data-size",
-      "collapsed",
+      "normal",
     );
     await expect(page.locator("#adjust-route")).toBeInViewport();
   });
@@ -397,6 +402,17 @@ test("dark appearance, large text and reduced motion remain usable", async ({
   await plan(page);
   await page.locator("#panel-size").click();
   await page.addStyleTag({ content: ":root {font-size: 24px !important;}" });
+  expect(
+    await page.locator("#route-arrival").evaluate((element) => {
+      const groups = [...element.querySelectorAll(".route-time")].map((group) =>
+        group.getBoundingClientRect(),
+      );
+      return (
+        groups[0].bottom <= groups[1].top ||
+        groups[0].right + 8 <= groups[1].left
+      );
+    }),
+  ).toBe(true);
   await expect(page.locator("#adjust-route")).toBeVisible();
   await page.locator("#adjust-route").click();
   await expect(page.locator("#adjust-dialog")).toBeVisible();
@@ -1069,6 +1085,7 @@ test("copy planning link provides a selectable fallback when clipboard is denied
     }),
   );
   await plan(page);
+  await page.locator("#panel-size").click();
   await page.locator("#copy-plan").click();
   await expect(page.locator("#plan-link-value")).toBeVisible();
   await expect(page.locator("#plan-link-value")).toHaveValue(page.url());
@@ -1190,6 +1207,14 @@ test("three regular routes keep their places and comparison is an optional fourt
   await expect(page.locator(".route-choice")).toHaveCount(4);
   await expect(page.locator(".route-choice").last()).toContainText("Vergleich");
   await page.locator(".route-choice").last().click();
+  await expect
+    .poll(() =>
+      page
+        .locator("#panel-content")
+        .evaluate((e) => e.scrollHeight - e.clientHeight),
+    )
+    .toBeLessThanOrEqual(1);
+  await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
   await page.locator("#panel-size").click();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
@@ -1482,7 +1507,7 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   );
 });
 
-test("history retains calculations, restores without requests and replans from fixed points", async ({
+test("history deduplicates routes, restores without requests and replans from fixed points", async ({
   page,
   context,
 }) => {
@@ -1499,10 +1524,12 @@ test("history retains calculations, restores without requests and replans from f
   await page.locator("#close-route").click();
   await plan(page);
   await page.locator("#tab-history").click();
-  await expect(page.locator(".history-row")).toHaveCount(2);
+  await expect(page.locator(".history-row")).toHaveCount(1);
   await page.goto("/");
   await page.locator("#tab-history").click();
-  await expect(page.locator(".history-row")).toHaveCount(2);
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await expect(page.locator(".history-open small")).toHaveCount(0);
+  await expect(page.locator(".history-open strong")).toHaveCount(1);
   let requests = 0;
   page.on("request", (request) => {
     if (request.url().includes("/api/")) requests++;
@@ -1535,7 +1562,7 @@ test("history retains calculations, restores without requests and replans from f
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator("#saved-notice")).toBeHidden();
   await page.locator("#tab-history").click();
-  await expect(page.locator(".history-row")).toHaveCount(3);
+  await expect(page.locator(".history-row")).toHaveCount(1);
   await page.screenshot({
     path: `test-results/history-${test.info().project.name}.png`,
   });
@@ -1592,14 +1619,24 @@ test("history storage caps entries atomically and guards pending writes during d
     const store = new OfflineStore();
     const snapshot = (await store.read()).snapshot;
     await store.clear();
+    const routeSnapshot = (i: number) => {
+      const result = structuredClone(snapshot);
+      result.request.destination.longitude += i * 0.001;
+      result.savedAt += i;
+      return result;
+    };
     await Promise.all(
       Array.from({ length: 21 }, (_, i) =>
-        store.save(snapshot, `calculation-${i}`),
+        store.save(routeSnapshot(i), `calculation-${i}`),
       ),
     );
     const full = await store.read();
     await store.save(
-      { ...snapshot, journey: { ...snapshot.journey, id: "changed" } },
+      {
+        ...routeSnapshot(10),
+        savedAt: snapshot.savedAt + 100,
+        journey: { ...snapshot.journey, id: "changed" },
+      },
       "calculation-10",
     );
     const updated = await store.read();
@@ -1627,4 +1664,380 @@ test("history storage caps entries atomically and guards pending writes during d
   expect(result.selected).toBe("changed");
   expect(result.cleared).toBe(0);
   expect(result.afterDelete).toBe(0);
+});
+
+for (const width of [320, 390, 430, 1479]) {
+  test(`route overview fits its content and pins actions at ${width}px`, async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.setViewportSize({ width, height: 844 });
+    await plan(page);
+    await expect(page.locator("#panel-details")).toBeHidden();
+    await expect(page.locator("#panel-size")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    await expect
+      .poll(() =>
+        page
+          .locator("#panel-content")
+          .evaluate((e) => e.scrollHeight - e.clientHeight),
+      )
+      .toBeLessThanOrEqual(1);
+    const checkActions = async () => {
+      expect(
+        await page.evaluate(() => {
+          const panel = document.getElementById("journey-panel")!;
+          const bounds = panel.getBoundingClientRect();
+          const tabs = document
+            .querySelector(".app-tabs")!
+            .getBoundingClientRect();
+          return (
+            ["adjust-route", "refresh-route"].every((id) => {
+              const box = document.getElementById(id)!.getBoundingClientRect();
+              return (
+                box.top >= bounds.top &&
+                box.bottom <= bounds.bottom &&
+                box.bottom <= tabs.top
+              );
+            }) && panel.scrollHeight <= panel.clientHeight + 1
+          );
+        }),
+      ).toBe(true);
+    };
+    await checkActions();
+    await page.screenshot({
+      path: `test-results/route-overview-${width}-${test.info().project.name}.png`,
+    });
+    await page.locator("#panel-size").click();
+    await expect(page.locator("#panel-details")).toBeVisible();
+    await page.locator("#panel-content").evaluate((e) => {
+      e.scrollTop = e.scrollHeight;
+    });
+    await checkActions();
+    await page.locator("#panel-size").click();
+    await expect(page.locator("#panel-details")).toBeHidden();
+    await expect(page.locator("#copy-plan")).not.toBeVisible();
+    await expect(page.locator("#panel-content")).toHaveJSProperty(
+      "scrollTop",
+      0,
+    );
+    await checkActions();
+  });
+}
+
+test("small route panels scroll only content, retaining archive actions and warnings", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await page.locator("#tab-history").click();
+  await page.locator(".history-open").first().click();
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.evaluate(() => {
+    const notice = document.getElementById("issues")!;
+    notice.hidden = false;
+    notice.textContent = "Ein wichtiger Hinweis zur Verbindung. ".repeat(20);
+  });
+  await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
+  await expect
+    .poll(() =>
+      page
+        .locator("#panel-content")
+        .evaluate((e) => e.scrollHeight > e.clientHeight),
+    )
+    .toBe(true);
+  await page.locator("#panel-content").evaluate((e) => {
+    e.scrollTop = e.scrollHeight;
+  });
+  expect(
+    await page.evaluate(() =>
+      ["journey-panel", "panel-details", "issues"].every(
+        (id) =>
+          !["auto", "scroll"].includes(
+            getComputedStyle(document.getElementById(id)!).overflowY,
+          ),
+      ),
+    ),
+  ).toBe(true);
+  await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#refresh-route")).toBeInViewport({ ratio: 1 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "24px";
+  });
+  await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
+});
+
+test("route panel minimizes by dragging and restores an accessible overview", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await plan(page);
+  const handle = (await page.locator("#panel-handle").boundingBox())!;
+  await page.mouse.move(
+    handle.x + handle.width / 2,
+    handle.y + handle.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    handle.x + handle.width / 2,
+    handle.y + handle.height / 2 + 65,
+    { steps: 5 },
+  );
+  await page.mouse.up();
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-size",
+    "collapsed",
+  );
+  await expect(page.locator("#panel-size")).toHaveText("Übersicht öffnen");
+  await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
+  await page.locator("#panel-size").press("Enter");
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-size",
+    "normal",
+  );
+  await expect(page.locator("#panel-details")).toHaveJSProperty("inert", true);
+  await page.locator("#panel-size").press("Enter");
+  await expect(page.locator("#panel-details")).toHaveJSProperty("inert", false);
+  await expect(page.locator("#panel-size")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await page.locator("#panel-content").evaluate((e) => {
+    e.scrollTop = e.scrollHeight;
+  });
+  await page.locator("#panel-size").press("Enter");
+  await expect(page.locator("#panel-size")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await expect(page.locator("#panel-content")).toHaveJSProperty("scrollTop", 0);
+});
+
+for (const outcome of ["complete", "cancel", "error"] as const) {
+  test(`route status spinner follows ${outcome} and respects reduced motion`, async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/v6/plan?*", async (route) => {
+      const direct =
+        new URL(route.request().url()).searchParams.get("directModes") ===
+        "BIKE";
+      if (!direct || outcome === "error") await gate;
+      if (outcome === "error")
+        await route.fulfill({ status: 500, headers: cors });
+      else
+        await route.fulfill({
+          headers: cors,
+          json: direct ? fixture.direct : fixture.multimodal,
+        });
+    });
+    await choose(page, "destination", "Ziel");
+    if (outcome !== "error")
+      await expect(page.locator("#status")).toContainText(
+        "Weitere Verbindungen",
+      );
+    const animation = () =>
+      page
+        .locator("#status")
+        .evaluate((e) => getComputedStyle(e, "::before").animationName);
+    await expect.poll(animation).toBe("route-loading");
+    await expect(page.locator("#status")).toHaveAttribute(
+      "aria-live",
+      "polite",
+    );
+    await page.locator("#panel-size").click();
+    await expect.poll(animation).toBe("route-loading");
+    await page.locator("#panel-size").click();
+    const handle = (await page.locator("#panel-handle").boundingBox())!;
+    await page.mouse.move(
+      handle.x + handle.width / 2,
+      handle.y + handle.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      handle.x + handle.width / 2,
+      handle.y + handle.height / 2 + 65,
+      { steps: 5 },
+    );
+    await page.mouse.up();
+    await expect(page.locator("#journey-panel")).toHaveAttribute(
+      "data-size",
+      "collapsed",
+    );
+    await expect(page.locator("#status")).toBeVisible();
+    await expect(page.locator("#cancel")).toBeInViewport({ ratio: 1 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect.poll(animation).toBe("none");
+    expect(
+      await page
+        .locator("#status")
+        .evaluate((e) => getComputedStyle(e, "::before").content),
+    ).toBe('""');
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect.poll(animation).toBe("route-loading");
+    if (outcome === "cancel") await page.locator("#cancel").click();
+    release();
+    await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+    await expect.poll(animation).toBe("none");
+    expect(
+      await page
+        .locator("#status")
+        .evaluate((e) => getComputedStyle(e, "::before").content),
+    ).toBe("none");
+    await page.locator("#panel-size").click();
+    await expect(page.locator("#status")).toContainText(
+      outcome === "cancel"
+        ? "abgebrochen"
+        : outcome === "error"
+          ? "nicht beantworten"
+          : "Verbindungen gefunden",
+    );
+  });
+}
+
+test("history normalizes persisted duplicates and guards stable IDs against late updates", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await expect(page.locator("#storage-message")).toContainText("gespeichert");
+  const result = await page.evaluate(async () => {
+    const path = "/src/offline.ts";
+    const { OfflineStore } = await import(path);
+    const storagePath = "/src/storage.ts";
+    const { localDatabase } = await import(storagePath);
+    const store = new OfflineStore();
+    const snapshot = (await store.read()).snapshot;
+    const newer = { ...snapshot, savedAt: snapshot.savedAt + 10 };
+    const db = await localDatabase.open();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("state", "readwrite");
+      tx.objectStore("state").put(
+        {
+          version: 1,
+          entries: [
+            { id: "older", snapshot },
+            { id: "stable", snapshot: newer },
+          ],
+        },
+        "history",
+      );
+      tx.objectStore("state").put(snapshot, "last");
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error);
+    });
+    const normalized = await store.read();
+    const persisted = await new Promise<any>((resolve, reject) => {
+      const tx = db.transaction("state", "readonly");
+      const history = tx.objectStore("state").get("history");
+      const last = tx.objectStore("state").get("last");
+      tx.oncomplete = () =>
+        resolve({ history: history.result, last: last.result });
+      tx.onabort = () => reject(tx.error);
+    });
+    await store.save(
+      { ...newer, savedAt: newer.savedAt + 1 },
+      "new-calculation",
+    );
+    const stable = (await store.read()).entries[0].id;
+    const stale = await store.save(snapshot, "late");
+    await store.remove(stable);
+    const resurrected = await store.save(
+      { ...newer, savedAt: newer.savedAt + 2 },
+      "new-calculation",
+    );
+    const removed = (await store.read()).entries.length;
+    const recreated = await store.save(
+      { ...newer, savedAt: newer.savedAt + 3 },
+      "deliberate-new-calculation",
+    );
+    return {
+      invalid: normalized.invalid,
+      normalized: normalized.entries.length,
+      persisted: persisted.history.entries.length,
+      last: persisted.last.savedAt === newer.savedAt,
+      stable,
+      stale,
+      resurrected,
+      removed,
+      recreated,
+    };
+  });
+  expect(result).toEqual({
+    invalid: false,
+    normalized: 1,
+    persisted: 1,
+    last: true,
+    stable: "stable",
+    stale: false,
+    resurrected: false,
+    removed: 0,
+    recreated: true,
+  });
+});
+
+test("history deletion during a pending recalculation does not resurrect the route", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v6/plan?*", async (route) => {
+    await gate;
+    await route.fallback();
+  });
+  const started = page.waitForRequest("**/api/v6/plan?*");
+  await page.locator("#refresh-route").click();
+  await started;
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await page.locator(".history-row > button[aria-label]").click();
+  await expect(page.locator(".history-row")).toHaveCount(0);
+  release();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator(".history-row")).toHaveCount(0);
+  await page.locator("#tab-route").click();
+  await page.locator("#refresh-route").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(1);
+});
+
+test("history deletion while locating survives the location response", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await page.evaluate(() => {
+    navigator.geolocation.getCurrentPosition = (success) => {
+      (window as any).resolveHistoryLocation = () =>
+        success({
+          coords: { latitude: 48.132, longitude: 11.5756 },
+        } as GeolocationPosition);
+    };
+  });
+  await page.locator("#refresh-route").click();
+  await expect(page.locator("#status")).toContainText(
+    "Standort wird ermittelt",
+  );
+  await page.locator("#tab-history").click();
+  await page.locator(".history-row > button[aria-label]").click();
+  await expect(page.locator(".history-row")).toHaveCount(0);
+  await page.evaluate(() => (window as any).resolveHistoryLocation());
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator(".history-row")).toHaveCount(0);
 });
