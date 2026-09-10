@@ -58,7 +58,7 @@ async function locationCenterError(page: Page) {
     const map = document.getElementById("map")!.getBoundingClientRect(),
       panel = document.getElementById("journey-panel")!.getBoundingClientRect(),
       marker = document
-        .querySelector('#map path[fill="#171a1c"]')!
+        .querySelector("#map .route-marker-start")!
         .getBoundingClientRect();
     const x =
         innerWidth >= 900
@@ -2121,4 +2121,143 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
   }
   release();
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+});
+
+test("route markers identify endpoints and ordered stops with accessible popups", async ({
+  page,
+  context,
+}) => {
+  await setupVia(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("#search-adjust").click();
+  await choose(page, "origin", "Start");
+  await choose(page, "adjust-destination", "Ziel");
+  for (const [i, name] of ["Café", "See", "Park"].entries()) {
+    await page.locator("#add-stop").click();
+    await choose(page, `via-${i}`, name);
+  }
+  await page.locator("#calculate").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expect(page.locator("#map .route-marker")).toHaveCount(5);
+  await expect(page.locator(".route-marker-stop")).toHaveText(["1", "2", "3"]);
+  await expect(page.locator("#map .leaflet-tooltip")).toHaveCount(0);
+  const marker = page.getByRole("button", {
+    name: "Zwischenstopp 1: Café",
+    exact: true,
+  });
+  const size = await marker.boundingBox();
+  expect(size!.width).toBeGreaterThanOrEqual(44);
+  expect(size!.height).toBeGreaterThanOrEqual(44);
+  await marker.click();
+  await expect(page.locator(".route-marker-info")).toHaveText(
+    "Zwischenstopp 1: Café",
+  );
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-size",
+    "normal",
+  );
+  await page.locator(".leaflet-popup-close-button").click();
+  await marker.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".route-marker-info")).toHaveText(
+    "Zwischenstopp 1: Café",
+  );
+  await page.locator(".leaflet-popup-close-button").click();
+  await marker.focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator(".route-marker-info")).toBeVisible();
+  await page.locator(".leaflet-popup-close-button").click();
+
+  await page.locator("#adjust-route").click();
+  await page
+    .getByRole("button", { name: "Zwischenziel 3 nach oben", exact: true })
+    .click();
+  await page.locator("#swap").click();
+  await page.locator("#calculate").click();
+  await expect(
+    page.getByRole("button", { name: "Start: Ziel", exact: true }),
+  ).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Ziel: Start", exact: true }),
+  ).toBeAttached();
+  for (const [i, name] of ["See", "Park", "Café"].entries())
+    await expect(
+      page.getByRole("button", {
+        name: `Zwischenstopp ${i + 1}: ${name}`,
+        exact: true,
+      }),
+    ).toBeAttached();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-open")).toHaveCount(2);
+  await context.setOffline(true);
+  await page.locator(".history-open").first().click();
+  await expect(page.locator("#map")).toHaveClass(/offline-map/);
+  await expect(page.locator("#map .route-marker")).toHaveCount(5);
+  await expect(page.locator(".route-marker-stop")).toHaveText(["1", "2", "3"]);
+  await page.screenshot({
+    path: `test-results/route-markers-${test.info().project.name}.png`,
+  });
+});
+
+test("coincident route places share their symbols and safely rendered place names", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.evaluate(async () => {
+    const modulePath = "/src/map-view.ts";
+    const { RouteMap } = await import(modulePath);
+    document.getElementById("search-view")!.hidden = true;
+    document.getElementById("map-view")!.hidden = false;
+    const origin = {
+      name: "<img src=x onerror=alert(1)>",
+      detail: "",
+      latitude: 48.132,
+      longitude: 11.5756,
+    };
+    const stop = { id: "same", place: origin, stayMinutes: 0 };
+    const journey = {
+      id: "coincident",
+      origin,
+      destination: origin,
+      departure: 1000,
+      arrival: 1060,
+      transfers: 0,
+      isDirect: true,
+      legs: [
+        {
+          kind: "stop",
+          stop,
+          from: origin,
+          to: origin,
+          start: 1000,
+          end: 1060,
+          distance: 0,
+          coordinates: [origin],
+        },
+      ],
+    };
+    const map = new RouteMap(
+      () => {},
+      () => {
+        document.getElementById("journey-panel")!.dataset.size = "collapsed";
+      },
+    );
+    map.show([journey], journey, false);
+  });
+  await expect(page.locator("#map .route-marker")).toHaveCount(1);
+  await expect(page.locator(".route-marker-start")).toHaveCount(1);
+  await expect(page.locator(".route-marker-destination")).toHaveCount(1);
+  await expect(page.locator(".route-marker-stop")).toHaveText("1");
+  await page.locator("#map .route-marker").click();
+  await expect(page.locator(".route-marker-info p")).toHaveText([
+    "Start: <img src=x onerror=alert(1)>",
+    "Zwischenstopp 1: <img src=x onerror=alert(1)>",
+    "Ziel: <img src=x onerror=alert(1)>",
+  ]);
+  await expect(page.locator(".route-marker-info img")).toHaveCount(0);
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-size",
+    "normal",
+  );
 });

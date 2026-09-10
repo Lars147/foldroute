@@ -1,7 +1,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Journey, Place } from "./model";
-import { el, node, legColors } from "./ui";
+import { el, node, icon, legColors } from "./ui";
 export class RouteMap {
   private map?: L.Map;
   private tiles?: L.TileLayer;
@@ -11,6 +11,7 @@ export class RouteMap {
   private online = true;
   private locationFocus?: Place;
   private adjustingCamera = false;
+  private markerHalfWidth = 22;
   constructor(
     private onSelect: (id: string) => void,
     private onBackground: () => void,
@@ -86,37 +87,85 @@ export class RouteMap {
         .forEach((j) => draw(j, false));
       if (selected) {
         draw(selected, true);
-        selected.legs
-          .filter((l) => l.kind === "stop")
-          .forEach((leg, index) => {
-            L.circleMarker([leg.from.latitude, leg.from.longitude], {
-              radius: 10,
-              color: "#171a1c",
-              weight: 2,
-              fillColor: "#ffd43b",
-              fillOpacity: 1,
-            })
-              .bindTooltip(node("span", `${index + 1}: ${leg.from.name}`), {
-                permanent: true,
-              })
-              .addTo(this.routes!);
-          });
-        for (const [p, label] of [
-          [selected.origin, "Start"],
-          [selected.destination, "Ziel"],
-        ] as const)
-          L.circleMarker([p.latitude, p.longitude], {
-            radius: 7,
-            color: "#fff",
-            weight: 3,
-            fillColor: "#171a1c",
-            fillOpacity: 1,
-          })
-            .bindTooltip(node("span", `${label}: ${p.name}`))
-            .addTo(this.routes!);
+        this.drawPlaces(selected);
       }
       this.resize();
     } else this.map.invalidateSize({ pan: false });
+  }
+  private drawPlaces(journey: Journey) {
+    type MapPlace = {
+      place: Place;
+      kind: "start" | "stop" | "destination";
+      label: string;
+      number?: number;
+    };
+    const points: MapPlace[] = [
+      { place: journey.origin, kind: "start", label: "Start" },
+      ...journey.legs
+        .filter((leg) => leg.kind === "stop")
+        .map((leg, index): MapPlace => ({
+          place: leg.from,
+          kind: "stop",
+          label: `Zwischenstopp ${index + 1}`,
+          number: index + 1,
+        })),
+      { place: journey.destination, kind: "destination", label: "Ziel" },
+    ];
+    const groups = new Map<string, MapPlace[]>();
+    for (const point of points) {
+      const key = `${point.place.latitude},${point.place.longitude}`;
+      const group = groups.get(key) ?? [];
+      group.push(point);
+      groups.set(key, group);
+    }
+    this.markerHalfWidth = Math.max(
+      22,
+      ...Array.from(groups.values(), (group) => 22 * group.length),
+    );
+    for (const group of groups.values()) {
+      const symbols = node("span", "", "route-marker-symbols");
+      symbols.setAttribute("aria-hidden", "true");
+      const popup = node("div", "", "route-marker-info");
+      const labels = group.map(
+        (point) => `${point.label}: ${point.place.name}`,
+      );
+      for (const [index, point] of group.entries()) {
+        const slot = node("span", "", "route-marker-slot");
+        const symbol = node(
+          "span",
+          point.number === undefined ? "" : String(point.number),
+          `route-marker-symbol route-marker-${point.kind}`,
+        );
+        if (point.kind === "destination") symbol.append(icon("flag"));
+        slot.append(symbol);
+        symbols.append(slot);
+        popup.append(node("p", labels[index]));
+      }
+      const width = 44 * group.length;
+      const { latitude, longitude } = group[0].place;
+      const marker = L.marker([latitude, longitude], {
+        icon: L.divIcon({
+          html: symbols,
+          className: "route-marker",
+          iconSize: [width, 44],
+          iconAnchor: [width / 2, 22],
+          popupAnchor: [0, -16],
+        }),
+        title: labels.join(" · "),
+        keyboard: true,
+        bubblingMouseEvents: false,
+      })
+        .bindPopup(popup)
+        .addTo(this.routes!);
+      const element = marker.getElement()!;
+      element.setAttribute("aria-label", labels.join(" · "));
+      element.addEventListener("keydown", (event) => {
+        if (event.key === " ") {
+          event.preventDefault();
+          marker.openPopup();
+        }
+      });
+    }
   }
   resize() {
     if (!this.map || el("map-view").hidden) return;
@@ -126,18 +175,25 @@ export class RouteMap {
       return;
     }
     if (!this.selected) return;
-    const coordinates = this.selected.legs.flatMap((l) =>
-      l.coordinates.map((p) => [p.latitude, p.longitude] as [number, number]),
-    );
+    const coordinates = [
+      this.selected.origin,
+      this.selected.destination,
+      ...this.selected.legs.flatMap((leg) => leg.coordinates),
+    ].map((p) => [p.latitude, p.longitude] as [number, number]);
     if (!coordinates.length) return;
     const desktop = window.innerWidth >= 900,
       panel = el("journey-panel").getBoundingClientRect(),
       height = el("map").clientHeight;
     // Expanded details prioritize reading. Refit once enough map is visible again.
     if (!desktop && height - panel.height < 100) return;
+    const markerPadding = this.markerHalfWidth + 8;
     this.map.fitBounds(L.latLngBounds(coordinates), {
-      paddingTopLeft: desktop ? [460, 35] : [28, 35],
-      paddingBottomRight: desktop ? [65, 40] : [45, panel.height + 45],
+      paddingTopLeft: desktop
+        ? [Math.max(460, panel.right + markerPadding), 35]
+        : [Math.max(28, markerPadding), 35],
+      paddingBottomRight: desktop
+        ? [Math.max(65, markerPadding), 40]
+        : [Math.max(45, markerPadding), panel.height + 45],
       maxZoom: 15,
       animate: false,
     });

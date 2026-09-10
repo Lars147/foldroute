@@ -1165,3 +1165,62 @@ dialog.compact .dialog-actions {
     height: calc(100% - 16px);
   }
 }
+
+.route-marker {
+  background: transparent;
+  border: 0;
+  border-radius: 22px;
+}
+.route-marker-symbols {
+  display: flex;
+  height: 44px;
+  background: #171a1c;
+  border-radius: 22px;
+}
+.route-marker-symbols:has(.route-marker-slot:only-child) {
+  background: transparent;
+}
+.route-marker-slot {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+.route-marker-symbol {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 5px #0006;
+}
+.route-marker-start {
+  width: 18px;
+  height: 18px;
+  border-width: 3px;
+  background: #171a1c;
+}
+.route-marker-destination {
+  background: #171a1c;
+  color: #ffd43b;
+}
+.route-marker-destination .icon {
+  width: 18px;
+  height: 18px;
+}
+.route-marker-stop {
+  background: #ffd43b;
+  color: #171a1c;
+  border-color: #171a1c;
+  font:
+    750 14px/1 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+.route-marker-info p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
