@@ -40,6 +40,7 @@ let historyEntries: HistoryEntry[] = [];
 let openedHistoryId: string | undefined;
 const suppressedCalculations = new Set<string>();
 let currentSaveSuppressed = false;
+let sharingPlan = false;
 let planningWasBusy = false;
 let view: View = "search",
   settings: RoutingSettings = structuredClone(defaults);
@@ -104,8 +105,9 @@ const session = new PlanningSession(api, renderPlanning, (request, options) => {
   writeHistory();
 });
 function updateLinkUI() {
-  el("copy-plan").hidden = !activePlan;
-  el<HTMLButtonElement>("copy-plan").disabled = session.state.locating;
+  el("share-plan").hidden = !activePlan;
+  el<HTMLButtonElement>("share-plan").disabled =
+    session.state.locating || sharingPlan;
 }
 function writeHistory(push = false) {
   history[push ? "pushState" : "replaceState"](
@@ -689,6 +691,14 @@ el("cancel").onclick = () => session.stop();
 el("dismiss-location-error").onclick = () => {
   el("map-location-error").hidden = true;
 };
+el("map-route").onclick = () => {
+  if (!session.state.selected) return;
+  mapLocationRequest?.abort();
+  mapLocationRequest = undefined;
+  el<HTMLButtonElement>("map-location").disabled = false;
+  el("map-location-error").hidden = true;
+  routeMap.fitRoute();
+};
 el("map-location").onclick = async () => {
   el("map-location-error").hidden = true;
   mapLocationRequest?.abort();
@@ -1132,18 +1142,42 @@ visualViewportChanged();
 // never replace an explicitly linked planning request with an unrelated trip.
 if (initialLink.kind !== "none") void restoreLink(initialLink);
 else writeHistory();
-el("copy-plan").onclick = async () => {
-  if (!activePlan || session.state.locating) return;
+el("share-plan").onclick = async () => {
+  if (!activePlan || session.state.locating || sharingPlan) return;
   const link = routeURL(location.href, activePlan).href;
+  sharingPlan = true;
+  el("plan-link-fallback").hidden = true;
+  updateLinkUI();
   try {
-    if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-    await navigator.clipboard.writeText(link);
-    toast("Planungslink kopiert.");
-  } catch {
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: "FoldRoute", url: link });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError")
+          return;
+      }
+    }
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(link);
+        toast("Planungslink kopiert.");
+        return;
+      } catch {
+        // A denied clipboard still allows manual copying below.
+      }
+    }
+    // Do not display a stale link if the plan changed while sharing.
+    if (!activePlan || routeURL(location.href, activePlan).href !== link)
+      return;
     const input = el<HTMLInputElement>("plan-link-value");
     input.value = link;
     el("plan-link-fallback").hidden = false;
+    el("panel-content").scrollTop = 0;
     input.focus();
     input.select();
+  } finally {
+    sharingPlan = false;
+    updateLinkUI();
   }
 };

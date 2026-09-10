@@ -43,6 +43,8 @@ const paths: Record<string, string> = {
   settings:
     '<path d="M4 7h6m4 0h6M4 17h10m4 0h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/>',
   search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
+  "fit-route": '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+  share: '<path d="M12 16V3m-4 4 4-4 4 4M8 10H5v11h14V10h-3"/>',
   flag: '<path d="M5 21V3m0 0c5-4 9 4 14 0v10c-5 4-9-4-14 0"/>',
   close: '<path d="m6 6 12 12M6 18 18 6"/>',
   chevron: '<path d="m9 5 7 7-7 7"/>',

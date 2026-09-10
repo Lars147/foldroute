@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-BsTLLOsg.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CjxGgumz.css">
+    <script type="module" crossorigin src="./assets/index-DN3TWPWY.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Dru0a7vM.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search">
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -120,6 +120,15 @@
           aria-label="Karte auf aktuellen Standort zentrieren"
           data-icon="location"
         ></button>
+        <button
+          id="map-route"
+          class="map-location map-route icon-button"
+          type="button"
+          aria-label="Gesamte Route anzeigen"
+          title="Gesamte Route anzeigen"
+          data-icon="fit-route"
+          hidden
+        ></button>
         <div class="map-credit">
           <span id="map-label">© OpenStreetMap-Mitwirkende</span
           ><a href="https://www.openstreetmap.org/copyright">Kartendaten</a>
@@ -138,13 +147,25 @@
               aria-expanded="false"
               aria-controls="panel-details"
             >
-              Mehr Details</button
-            ><button
-              id="close-route"
-              class="icon-button"
-              aria-label="Route schließen"
-              data-icon="close"
-            ></button>
+              Mehr Details
+            </button>
+            <div class="panel-tool-actions">
+              <button
+                id="share-plan"
+                class="icon-button"
+                type="button"
+                aria-label="Planung teilen"
+                title="Planung teilen"
+                data-icon="share"
+                hidden
+              ></button>
+              <button
+                id="close-route"
+                class="icon-button"
+                aria-label="Route schließen"
+                data-icon="close"
+              ></button>
+            </div>
           </div>
           <div
             id="panel-content"
@@ -152,6 +173,15 @@
             tabindex="0"
             aria-label="Reiseinformationen"
           >
+            <label id="plan-link-fallback" class="plan-link-actions" hidden>
+              Link zum Kopieren
+              <input
+                id="plan-link-value"
+                type="text"
+                readonly
+                aria-label="Planungslink"
+              />
+            </label>
             <div
               id="panel-summary"
               class="panel-summary"
@@ -192,20 +222,6 @@
                 aria-label="Reiseabschnitte"
               ></div>
               <div id="journey-detail"></div>
-              <div class="plan-link-actions">
-                <button id="copy-plan" class="secondary" type="button" hidden>
-                  Planungslink kopieren
-                </button>
-                <label id="plan-link-fallback" hidden
-                  >Link zum Kopieren
-                  <input
-                    id="plan-link-value"
-                    type="text"
-                    readonly
-                    aria-label="Planungslink"
-                  />
-                </label>
-              </div>
             </div>
           </div>
           <div class="panel-actions">

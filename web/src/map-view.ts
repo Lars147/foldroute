@@ -12,6 +12,8 @@ export class RouteMap {
   private locationFocus?: Place;
   private adjustingCamera = false;
   private markerHalfWidth = 22;
+  private zooming = false;
+  private pendingRouteFit = false;
   constructor(
     private onSelect: (id: string) => void,
     private onBackground: () => void,
@@ -27,6 +29,16 @@ export class RouteMap {
         scrollWheelZoom: true,
       }).setView([50, 10], 4);
       this.map.on("click", this.onBackground);
+      this.map.on("zoomstart", () => {
+        this.zooming = true;
+      });
+      this.map.on("zoomend", () => {
+        this.zooming = false;
+        if (this.pendingRouteFit) {
+          this.pendingRouteFit = false;
+          this.fitRoute();
+        }
+      });
       this.map.on("movestart zoomstart", () => {
         if (!this.adjustingCamera) this.locationFocus = undefined;
       });
@@ -45,6 +57,8 @@ export class RouteMap {
         if (this.online) el("map-error").hidden = true;
       });
     }
+    el("map-route").hidden = !selected;
+    if (!selected) this.pendingRouteFit = false;
     this.online = online;
     if (online && !this.map.hasLayer(this.tiles!)) this.tiles!.addTo(this.map);
     if (!online && this.map.hasLayer(this.tiles!)) this.tiles!.remove();
@@ -174,7 +188,22 @@ export class RouteMap {
       this.centerLocation();
       return;
     }
-    if (!this.selected) return;
+    this.fitSelectedRoute();
+  }
+  fitRoute() {
+    if (!this.map || !this.selected || el("map-view").hidden) return;
+    this.locationFocus = undefined;
+    this.map.stop();
+    if (this.zooming) {
+      this.pendingRouteFit = true;
+      return;
+    }
+    this.map.closePopup();
+    this.map.invalidateSize({ pan: false });
+    this.fitSelectedRoute(true);
+  }
+  private fitSelectedRoute(explicit = false) {
+    if (!this.map || !this.selected) return;
     const coordinates = [
       this.selected.origin,
       this.selected.destination,
@@ -185,8 +214,30 @@ export class RouteMap {
       panel = el("journey-panel").getBoundingClientRect(),
       height = el("map").clientHeight;
     // Expanded details prioritize reading. Refit once enough map is visible again.
-    if (!desktop && height - panel.height < 100) return;
+    if (!explicit && !desktop && height - panel.height < 100) return;
     const markerPadding = this.markerHalfWidth + 8;
+    if (explicit) {
+      const bounds = el("map").getBoundingClientRect();
+      const left = desktop ? Math.max(0, panel.right - bounds.left) : 0;
+      const bottom = desktop
+        ? bounds.height
+        : Math.max(0, Math.min(bounds.height, panel.top - bounds.top));
+      if (bounds.width <= left || bottom <= 0) return;
+      const horizontal = Math.min(markerPadding, (bounds.width - left - 1) / 2);
+      const vertical = Math.min(30, (bottom - 1) / 2);
+      // Keep the route clear of the map buttons, without negative fitting space.
+      const right = Math.min(
+        Math.max(136 + this.markerHalfWidth, horizontal),
+        bounds.width - left - horizontal - 1,
+      );
+      this.map.fitBounds(L.latLngBounds(coordinates), {
+        paddingTopLeft: [left + horizontal, vertical],
+        paddingBottomRight: [right, bounds.height - bottom + vertical],
+        maxZoom: 15,
+        animate: false,
+      });
+      return;
+    }
     this.map.fitBounds(L.latLngBounds(coordinates), {
       paddingTopLeft: desktop
         ? [Math.max(460, panel.right + markerPadding), 35]
@@ -199,6 +250,7 @@ export class RouteMap {
     });
   }
   center(place: Place) {
+    this.pendingRouteFit = false;
     this.locationFocus = place;
     this.resize();
   }

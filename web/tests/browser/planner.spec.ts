@@ -1076,17 +1076,22 @@ test("copy planning link provides a selectable fallback when clipboard is denied
   page,
 }) => {
   await setup(page);
-  await page.evaluate(() =>
-    Object.defineProperty(navigator, "clipboard", {
-      value: {
-        writeText: () =>
-          Promise.reject(new DOMException("Denied", "NotAllowedError")),
-      },
-    }),
+  await page.evaluate(
+    () =>
+      Object.defineProperty(navigator, "share", {
+        configurable: true,
+        value: undefined,
+      }) &&
+      Object.defineProperty(navigator, "clipboard", {
+        value: {
+          writeText: () =>
+            Promise.reject(new DOMException("Denied", "NotAllowedError")),
+        },
+      }),
   );
   await plan(page);
   await page.locator("#panel-size").click();
-  await page.locator("#copy-plan").click();
+  await page.locator("#share-plan").click();
   await expect(page.locator("#plan-link-value")).toBeVisible();
   await expect(page.locator("#plan-link-value")).toHaveValue(page.url());
   expect(
@@ -1131,18 +1136,23 @@ test("copy succeeds and planning details fit a narrow mobile viewport", async ({
 }) => {
   await setup(page);
   await page.setViewportSize({ width: 320, height: 844 });
-  await page.evaluate(() =>
-    Object.defineProperty(navigator, "clipboard", {
-      value: {
-        writeText: async (text: string) => {
-          document.documentElement.dataset.copiedLink = text;
+  await page.evaluate(
+    () =>
+      Object.defineProperty(navigator, "share", {
+        configurable: true,
+        value: undefined,
+      }) &&
+      Object.defineProperty(navigator, "clipboard", {
+        value: {
+          writeText: async (text: string) => {
+            document.documentElement.dataset.copiedLink = text;
+          },
         },
-      },
-    }),
+      }),
   );
   await plan(page);
   await page.locator("#panel-size").click();
-  await page.locator("#copy-plan").click();
+  await page.locator("#share-plan").click();
   await expect(page.locator("#toast")).toHaveText("Planungslink kopiert.");
   await expect(page.locator("html")).toHaveAttribute(
     "data-copied-link",
@@ -1718,7 +1728,7 @@ for (const width of [320, 390, 430, 1479]) {
     await checkActions();
     await page.locator("#panel-size").click();
     await expect(page.locator("#panel-details")).toBeHidden();
-    await expect(page.locator("#copy-plan")).not.toBeVisible();
+    await expect(page.locator("#share-plan")).toBeVisible();
     await expect(page.locator("#panel-content")).toHaveJSProperty(
       "scrollTop",
       0,
@@ -2260,4 +2270,239 @@ test("coincident route places share their symbols and safely rendered place name
     "data-size",
     "normal",
   );
+});
+
+for (const outcome of ["success", "cancel", "error"] as const) {
+  test(`native share handles ${outcome} and prevents duplicate requests`, async ({
+    page,
+  }) => {
+    await setup(page);
+    await plan(page);
+    await page.evaluate(() => {
+      const state = {
+        calls: 0,
+        copied: "",
+        data: null as unknown,
+        finish: (_outcome: string) => {},
+      };
+      (window as any).shareProbe = state;
+      Object.defineProperty(navigator, "share", {
+        configurable: true,
+        value: (data: unknown) => {
+          state.calls++;
+          state.data = data;
+          return new Promise<void>((resolve, reject) => {
+            state.finish = (outcome) => {
+              if (outcome === "success") resolve();
+              else
+                reject(
+                  new DOMException(
+                    outcome,
+                    outcome === "cancel" ? "AbortError" : "NotAllowedError",
+                  ),
+                );
+            };
+          });
+        },
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            state.copied = text;
+          },
+        },
+      });
+    });
+    await page
+      .getByRole("button", { name: "Planung teilen", exact: true })
+      .click();
+    await expect(page.locator("#share-plan")).toBeDisabled();
+    await page
+      .locator("#share-plan")
+      .evaluate((e: HTMLButtonElement) => e.click());
+    expect(await page.evaluate(() => (window as any).shareProbe.calls)).toBe(1);
+    expect(await page.evaluate(() => (window as any).shareProbe.data)).toEqual({
+      title: "FoldRoute",
+      url: page.url(),
+    });
+    await page.evaluate(
+      (outcome) => (window as any).shareProbe.finish(outcome),
+      outcome,
+    );
+    await expect(page.locator("#share-plan")).toBeEnabled();
+    expect(await page.evaluate(() => (window as any).shareProbe.copied)).toBe(
+      outcome === "error" ? page.url() : "",
+    );
+    await expect(page.locator("#plan-link-fallback")).toBeHidden();
+  });
+}
+
+test("share remains beside close and manual copying works in every panel size", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await plan(page);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    document.documentElement.style.fontSize = "24px";
+  });
+  for (const size of ["normal", "expanded", "collapsed"]) {
+    await page.evaluate((size) => {
+      document.getElementById("journey-panel")!.dataset.size = size;
+      const details = document.getElementById("panel-details")!;
+      details.hidden = size !== "expanded";
+      details.inert = size !== "expanded";
+    }, size);
+    await page.locator("#share-plan").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#plan-link-value")).toBeVisible();
+    await expect(page.locator("#plan-link-value")).toBeFocused();
+    await expect(page.locator("#plan-link-value")).toHaveValue(page.url());
+    const share = (await page.locator("#share-plan").boundingBox())!;
+    const close = (await page.locator("#close-route").boundingBox())!;
+    expect(share.x + share.width).toBeLessThan(close.x);
+    expect(share.y).toBe(close.y);
+    expect(share.width).toBe(close.width);
+    expect(share.height).toBe(close.height);
+    await expect(page.locator("#share-plan")).toBeInViewport({ ratio: 1 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(320);
+  }
+  await page.screenshot({
+    path: `test-results/share-panel-${test.info().project.name}.png`,
+  });
+});
+
+async function expectRouteFits(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const map = document.getElementById("map")!.getBoundingClientRect();
+        const panel = document
+          .getElementById("journey-panel")!
+          .getBoundingClientRect();
+        const left = innerWidth >= 900 ? panel.right : map.left;
+        const bottom = innerWidth >= 900 ? map.bottom : panel.top;
+        return [...document.querySelectorAll("#map .route-marker")].every(
+          (element) => {
+            const box = element.getBoundingClientRect();
+            return (
+              box.left >= left - 1 &&
+              box.right <= map.right + 1 &&
+              box.top >= map.top - 1 &&
+              box.bottom <= bottom + 1
+            );
+          },
+        );
+      }),
+    )
+    .toBe(true);
+}
+
+for (const [width, height] of [
+  [320, 844],
+  [844, 390],
+  [1479, 986],
+]) {
+  test(`route fit restores the route and preserves panel state at ${width}x${height}`, async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.setViewportSize({ width, height });
+    await plan(page);
+    let requests = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/")) requests++;
+    });
+    await page.evaluate(() => {
+      navigator.geolocation.getCurrentPosition = () => {
+        throw new Error("Route fit must not request GPS");
+      };
+    });
+    for (const size of ["normal", "expanded", "collapsed"]) {
+      await page.evaluate((size) => {
+        document.getElementById("journey-panel")!.dataset.size = size;
+        const details = document.getElementById("panel-details")!;
+        details.hidden = size !== "expanded";
+        details.inert = size !== "expanded";
+      }, size);
+      await page.locator("#map").focus();
+      await page.keyboard.press("+");
+      await page.keyboard.press("ArrowLeft");
+      await page.locator("#panel-content").evaluate((e) => {
+        e.scrollTop = e.scrollHeight;
+      });
+      const scroll = await page
+        .locator("#panel-content")
+        .evaluate((e) => e.scrollTop);
+      await page
+        .getByRole("button", { name: "Gesamte Route anzeigen", exact: true })
+        .click();
+      await expectRouteFits(page);
+      await expect(page.locator("#journey-panel")).toHaveAttribute(
+        "data-size",
+        size,
+      );
+      await expect(page.locator("#panel-content")).toHaveJSProperty(
+        "scrollTop",
+        scroll,
+      );
+      await expect(page.locator("#map-route")).toBeInViewport({ ratio: 1 });
+    }
+    expect(requests).toBe(0);
+    await page.screenshot({
+      path: `test-results/route-fit-${width}-${test.info().project.name}.png`,
+    });
+    await page.locator("#close-route").click();
+    await expect(page.locator("#map-route")).toBeHidden();
+  });
+}
+
+test("route fit overrides a pending location response and works offline with stops", async ({
+  page,
+  context,
+}) => {
+  await setupVia(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("#search-adjust").click();
+  await choose(page, "origin", "Start");
+  await choose(page, "adjust-destination", "Ziel");
+  await page.locator("#add-stop").click();
+  await choose(page, "via-0", "Café");
+  await page.locator("#calculate").click();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await page.evaluate(() => {
+    navigator.geolocation.getCurrentPosition = (success) => {
+      (window as any).finishMapLocation = () =>
+        success({
+          coords: { latitude: 52.52, longitude: 13.405 },
+        } as GeolocationPosition);
+    };
+  });
+  await page.locator("#map-location").click();
+  await expect(page.locator("#map-location")).toBeDisabled();
+  await page.locator("#map-route").click();
+  await expect(page.locator("#map-location")).toBeEnabled();
+  await expectRouteFits(page);
+  await page.evaluate(() => (window as any).finishMapLocation());
+  await expectRouteFits(page);
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-open")).toHaveCount(1);
+  await context.setOffline(true);
+  await page.locator(".history-open").click();
+  await expect(page.locator("#map")).toHaveClass(/offline-map/);
+  await page.locator("#map-route").focus();
+  await page.keyboard.press("Enter");
+  await expectRouteFits(page);
+  await expect(page.locator(".route-marker-stop")).toHaveText("1");
 });
