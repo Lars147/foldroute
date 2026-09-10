@@ -2041,3 +2041,84 @@ test("history deletion while locating survives the location response", async ({
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator(".history-row")).toHaveCount(0);
 });
+
+test("spinner rotation keeps scroll geometry stable in every panel size", async ({
+  page,
+}) => {
+  await setup(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v6/plan?*", async (route) => {
+    if (
+      new URL(route.request().url()).searchParams.get("directModes") !== "BIKE"
+    )
+      await gate;
+    await route.fallback();
+  });
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#status")).toContainText("Weitere Verbindungen");
+  for (const [width, height, fontSize] of [
+    [390, 844, 16],
+    [515, 600, 16],
+    [320, 568, 24],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = size + "px";
+    }, fontSize);
+    for (const size of ["normal", "collapsed", "expanded"]) {
+      const samples = await page.evaluate((size) => {
+        const panel = document.getElementById("journey-panel")!;
+        panel.dataset.size = size;
+        const details = document.getElementById("panel-details")!;
+        details.hidden = size !== "expanded";
+        details.inert = size !== "expanded";
+        const content = document.getElementById("panel-content")!;
+        const probe = document.createElement("style");
+        document.head.append(probe);
+        const samples = [];
+        for (const angle of [0, 45, 90, 135, 180, 225, 270, 315, 360]) {
+          probe.textContent = `.journey-panel.is-loading #status::before {
+            animation: none; transform: rotate(${angle}deg);
+          }`;
+          const actions = document
+            .querySelector(".panel-actions")!
+            .getBoundingClientRect();
+          const bounds = panel.getBoundingClientRect();
+          samples.push({
+            height: content.clientHeight,
+            scrollHeight: content.scrollHeight,
+            width: content.clientWidth,
+            scrollWidth: content.scrollWidth,
+            panelHeight: bounds.height,
+            actionsTop: actions.top,
+            actionsVisible:
+              actions.top >= bounds.top && actions.bottom <= bounds.bottom,
+          });
+        }
+        probe.remove();
+        return samples;
+      }, size);
+      for (const sample of samples) {
+        expect(sample).toEqual(samples[0]);
+        expect(sample.actionsVisible).toBe(true);
+        expect(sample.scrollWidth).toBe(sample.width);
+      }
+      if (fontSize === 16 && size !== "expanded")
+        expect(samples[0].scrollHeight).toBe(samples[0].height);
+      if (fontSize === 24 && size === "expanded") {
+        expect(samples[0].scrollHeight).toBeGreaterThan(samples[0].height);
+        await page.locator("#panel-content").evaluate((element) => {
+          element.scrollTop = element.scrollHeight;
+        });
+        expect(
+          await page.locator("#panel-content").evaluate((e) => e.scrollTop),
+        ).toBeGreaterThan(0);
+      }
+    }
+  }
+  release();
+  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+});

@@ -620,6 +620,10 @@ input[type="search"] {
 .journey-panel[data-size="collapsed"] .route-choices {
   margin-top: 5px;
 }
+.journey-panel.is-loading #status {
+  /* Rotated bounds must not enlarge the scroll area in WebKit. */
+  contain: paint;
+}
 .journey-panel.is-loading #status::before {
   content: "";
   display: inline-block;
