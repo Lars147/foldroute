@@ -18,7 +18,8 @@ enum RouteCameraFitter {
         coordinates: [Coordinate],
         viewportSize: CGSize,
         insets: MapCameraInsets,
-        minimumContentDimension: CLLocationDistance = minimumRouteDimension
+        minimumContentDimension: CLLocationDistance = minimumRouteDimension,
+        minimumVisibleSize: CGFloat = minimumVisibleDimension
     ) -> MKMapRect? {
         guard !coordinates.isEmpty, viewportSize.width > 0, viewportSize.height > 0 else {
             return nil
@@ -37,11 +38,11 @@ enum RouteCameraFitter {
         let contentWidth = max(maximumX - minimumX, minimumMapPoints)
         let contentHeight = max(maximumY - minimumY, minimumMapPoints)
         let visibleWidth = max(
-            minimumVisibleDimension,
+            minimumVisibleSize,
             viewportSize.width - insets.leading - insets.trailing
         )
         let visibleHeight = max(
-            minimumVisibleDimension,
+            minimumVisibleSize,
             viewportSize.height - insets.top - insets.bottom
         )
         let mapPointsPerPoint = max(
@@ -67,6 +68,21 @@ enum RouteCameraFitter {
             height: viewportMapHeight
         )
     }
+    static func selectedRouteRect(
+        journey: Journey, viewportSize: CGSize, insets: MapCameraInsets
+    ) -> MKMapRect? {
+        guard viewportSize.width > insets.leading + insets.trailing,
+              viewportSize.height > insets.top + insets.bottom else { return nil }
+        let places = [journey.origin, journey.destination]
+            + [journey.waypoint].compactMap { $0 } + journey.stops.map(\.place)
+        return mapRect(
+            coordinates: places.map(\.coordinate) + journey.legs.flatMap(\.coordinates),
+            viewportSize: viewportSize,
+            insets: insets,
+            minimumVisibleSize: 1
+        )
+    }
+
 }
 
 struct RouteMapView: View {
@@ -86,6 +102,7 @@ struct RouteMapView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var centersPlanningLocation = false
+    @State private var showsSelectedRoute = false
     @State private var navigationState = NavigationCameraState()
     @State private var navigationOffset = CGSize.zero
     @State private var anchorCorrectionsRemaining = 0
@@ -168,13 +185,14 @@ struct RouteMapView: View {
                 }
                 .mapStyle(.standard(elevation: .realistic, emphasis: .muted))
                 .mapControls {
-                    if onBackgroundTapped == nil && navigationCamera == nil {
+                    if onBackgroundTapped == nil && navigationCamera == nil && journey == nil {
                         MapCompass()
                         MapUserLocationButton()
                     }
                 }
                 .onChange(of: journey?.id) { _, _ in
                     centersPlanningLocation = false
+                    showsSelectedRoute = false
                     updateCamera(viewportSize: geometry.size, animated: true)
                 }
                 .onChange(of: model.location.currentLocation) { _, _ in
@@ -204,7 +222,7 @@ struct RouteMapView: View {
                 }
                 .task(id: planningLocationInsets) {
                     await Task.yield()
-                    guard !Task.isCancelled, navigationCamera == nil, centersPlanningLocation else { return }
+                    guard !Task.isCancelled, navigationCamera == nil, centersPlanningLocation || showsSelectedRoute else { return }
                     updateCamera(viewportSize: geometry.size, animated: false)
                 }
                 .task(id: idleCenterCoordinate) {
@@ -266,24 +284,44 @@ struct RouteMapView: View {
                         }
                         .padding(.trailing, 16)
                         .padding(.top, max(geometry.safeAreaInsets.top, cameraInsets.top) + 8)
-                    } else if onBackgroundTapped != nil {
-                        VStack(spacing: 12) {
-                            Button {
-                                centersPlanningLocation = true
-                                model.location.requestSingleUpdate()
-                                updateCamera(viewportSize: geometry.size, animated: true)
-                            } label: {
-                                Image(systemName: centersPlanningLocation ? "location.fill" : "location")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(FoldRouteColor.signalYellow)
-                                    .frame(width: 48, height: 48)
-                                    .background(FoldRouteColor.asphalt.opacity(0.88), in: Circle())
-                                    .contentShape(Circle())
-                            }
+                    } else if onBackgroundTapped != nil || journey != nil {
+                        VStack(alignment: .trailing, spacing: 12) {
+                            VStack(spacing: 8) {
+                                Button {
+                                    centersPlanningLocation = true
+                                    model.location.requestSingleUpdate()
+                                    updateCamera(viewportSize: geometry.size, animated: true)
+                                } label: {
+                                    Image(systemName: centersPlanningLocation ? "location.fill" : "location")
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundStyle(FoldRouteColor.signalYellow)
+                                        .frame(width: 48, height: 48)
+                                        .background(FoldRouteColor.asphalt.opacity(0.88), in: Circle())
+                                        .contentShape(Circle())
+                                }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Aktuellen Standort anzeigen")
                                 .accessibilityValue(centersPlanningLocation ? "Standort zentriert" : "Karte frei beweglich")
                                 .accessibilityIdentifier("planningLocationButton")
+                                if journey != nil {
+                                    Button {
+                                        centersPlanningLocation = false
+                                        showsSelectedRoute = true
+                                        updateCamera(viewportSize: geometry.size, animated: true)
+                                    } label: {
+                                        Image(systemName: "viewfinder")
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundStyle(FoldRouteColor.signalYellow)
+                                            .frame(width: 48, height: 48)
+                                            .background(FoldRouteColor.asphalt.opacity(0.88), in: Circle())
+                                            .contentShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Gesamte Route anzeigen")
+                                    .accessibilityHint("Passt die ausgewählte Strecke in den sichtbaren Kartenbereich ein.")
+                                    .accessibilityIdentifier("planningRouteFitButton")
+                                }
+                            }
                             MapCompass(scope: mapScopeID)
                         }
                         .padding(.trailing, 16)
@@ -320,6 +358,18 @@ struct RouteMapView: View {
             return
         }
         guard let journey else { return }
+        if showsSelectedRoute {
+            guard let rect = RouteCameraFitter.selectedRouteRect(
+                journey: journey, viewportSize: viewportSize,
+                insets: planningLocationInsets ?? cameraInsets
+            ) else { return }
+            if animated && !reduceMotion {
+                withAnimation(.easeInOut(duration: 0.45)) { position = .rect(rect) }
+            } else {
+                position = .rect(rect)
+            }
+            return
+        }
         let coordinates = ([journey] + backgroundJourneys)
             .flatMap(\.legs)
             .flatMap(\.coordinates)

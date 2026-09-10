@@ -16,6 +16,10 @@ Kein API-Schlüssel und kein Backend nötig. Die App ist deutsch, metrisch und a
 
 Eine andere Bundle-ID installiert die App als separate Anwendung. Vorhandene lokale Daten der bisherigen Installation werden dabei nicht übernommen.
 
+## Kartenansicht
+
+„Gesamte Route anzeigen“ unter dem Standort-Button passt die ausgewählte Strecke mit Start, Ziel und Zwischenstopps wieder in den freien Kartenbereich ein. Panelmodus und Scrollposition bleiben erhalten. Die Aktion benötigt keine neue Standortabfrage oder Routenberechnung und funktioniert auch bei gespeicherten Reisen. Die laufende Navigation behält ihre eigene Standort-Zentrierung.
+
 ## Architektur
 
 `AppModel` koordiniert den Ablauf. `TransitousClient` implementiert die austauschbare `JourneyPlanning`-Grenze und übersetzt MOTIS-Daten in eigene Domain-Modelle. `NavigationEngine` arbeitet nur auf diesen Modellen. `LocationService` liefert flüchtige GPS-Daten, `GuidanceService` Sprache/Haptik/Benachrichtigungen und `SwiftDataJourneyStore` lokale Persistenz.

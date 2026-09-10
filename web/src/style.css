@@ -342,23 +342,32 @@ input[type="search"] {
   box-shadow: 0 3px 15px #0002;
 }
 .map-screen > .map-route {
-  right: 72px;
+  right: 16px;
+  top: 70px;
 }
 .map-location .icon {
   width: 22px;
 }
 .leaflet-top.leaflet-right {
-  top: 72px;
-  right: 6px;
+  top: 128px;
+  right: 16px;
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.leaflet-top.leaflet-right .leaflet-control {
+  margin-right: 0;
+  float: none;
 }
 .map-credit {
   position: absolute;
   top: 12px;
   left: 12px;
-  right: 134px;
+  right: 78px;
   z-index: 1;
   width: fit-content;
-  max-width: calc(100% - 146px);
+  max-width: calc(100% - 90px);
   padding: 3px 6px;
   background: #ffffffdf;
   border-radius: 5px;
@@ -381,7 +390,7 @@ input[type="search"] {
   right: 10px;
   bottom: 8px;
   height: auto;
-  max-height: calc(100% - 78px);
+  max-height: calc(100% - 134px);
   min-height: 0;
   background: #171a1cf7;
   color: #fff;
@@ -394,8 +403,8 @@ input[type="search"] {
   z-index: 3;
 }
 .journey-panel[data-size="expanded"] {
-  height: calc(100% - 78px);
-  max-height: calc(100% - 78px);
+  height: calc(100% - 134px);
+  max-height: calc(100% - 134px);
 }
 .panel-content {
   min-height: 0;
@@ -1223,4 +1232,20 @@ dialog.compact .dialog-actions {
 .route-marker-info p {
   margin: 6px 0;
   overflow-wrap: anywhere;
+}
+
+@media (min-width: 600px) and (max-width: 899px) and (max-height: 450px) {
+  .journey-panel {
+    padding-bottom: 8px;
+  }
+  .panel-handle {
+    height: 12px;
+    min-height: 12px;
+  }
+  .panel-actions:has(#replan-saved:not([hidden])) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  #replan-saved {
+    grid-column: auto;
+  }
 }

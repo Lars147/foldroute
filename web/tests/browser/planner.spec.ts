@@ -2457,6 +2457,39 @@ for (const [width, height] of [
         "scrollTop",
         scroll,
       );
+      const location = (await page.locator("#map-location").boundingBox())!;
+      const route = (await page.locator("#map-route").boundingBox())!;
+      expect(route.x).toBe(location.x);
+      expect(route.y - location.y - location.height).toBe(8);
+      expect([
+        route.width,
+        route.height,
+        location.width,
+        location.height,
+      ]).toEqual([48, 48, 48, 48]);
+      const hadTouchClass = await page
+        .locator("#map")
+        .evaluate((map) => map.classList.contains("leaflet-touch"));
+      for (const touch of [false, true]) {
+        await page.locator("#map").evaluate((map, enabled) => {
+          map.classList.toggle("leaflet-touch", enabled);
+        }, touch);
+        const zoom = (await page
+          .locator(".leaflet-control-zoom")
+          .boundingBox())!;
+        expect(zoom.x + zoom.width / 2).toBeCloseTo(
+          route.x + route.width / 2,
+          1,
+        );
+        expect(zoom.y).toBeGreaterThanOrEqual(route.y + route.height);
+      }
+      await page.locator("#map").evaluate((map, enabled) => {
+        map.classList.toggle("leaflet-touch", enabled);
+      }, hadTouchClass);
+      if (width < 900) {
+        const panel = (await page.locator("#journey-panel").boundingBox())!;
+        expect(route.y + route.height).toBeLessThanOrEqual(panel.y);
+      }
       await expect(page.locator("#map-route")).toBeInViewport({ ratio: 1 });
     }
     expect(requests).toBe(0);

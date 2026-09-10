@@ -218,6 +218,41 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
         )
     }
 
+
+    func testSelectedRouteCameraFitsEndpointsStopsAndWaypointWithExpandedPanel() throws {
+        let start = Place(name: "Start", coordinate: Coordinate(latitude: 48.13, longitude: 11.50))
+        let goal = Place(name: "Ziel", coordinate: Coordinate(latitude: 48.18, longitude: 11.70))
+        let waypoint = Place(name: "Geplanter Start", coordinate: Coordinate(latitude: 48.12, longitude: 11.52))
+        let stopPlace = Place(name: "Zwischenziel", coordinate: Coordinate(latitude: 48.20, longitude: 11.60))
+        let stop = RouteStop(place: stopPlace)
+        let now = Date()
+        let journey = Journey(
+            id: "camera", origin: start, destination: goal, waypoint: waypoint,
+            departure: now, arrival: now.addingTimeInterval(60),
+            legs: [.stop(TransitionLeg(place: stopPlace, startTime: now, endTime: now, stop: stop))],
+            transfers: 0, isDirect: false, score: 0
+        )
+        let viewport = CGSize(width: 390, height: 844)
+        // Only 60 points remain for the route; the ordinary fitter assumes at least 120.
+        let insets = MapCameraInsets(top: 80, leading: 24, bottom: 704, trailing: 24)
+        let rect = try XCTUnwrap(RouteCameraFitter.selectedRouteRect(
+            journey: journey, viewportSize: viewport, insets: insets
+        ))
+        for place in [start, goal, waypoint, stopPlace] {
+            let point = MKMapPoint(place.coordinate.clCoordinate)
+            let x = (point.x - rect.minX) / rect.width * viewport.width
+            let y = (point.y - rect.minY) / rect.height * viewport.height
+            XCTAssertGreaterThanOrEqual(x, insets.leading - 0.5)
+            XCTAssertLessThanOrEqual(x, viewport.width - insets.trailing + 0.5)
+            XCTAssertGreaterThanOrEqual(y, insets.top - 0.5)
+            XCTAssertLessThanOrEqual(y, viewport.height - insets.bottom + 0.5)
+        }
+        XCTAssertNil(RouteCameraFitter.selectedRouteRect(
+            journey: journey, viewportSize: viewport,
+            insets: MapCameraInsets(top: 80, bottom: 764)
+        ))
+    }
+
     func testIdleCameraCentersLocationInsideVisibleMapArea() throws {
         let coordinate = Coordinate(latitude: 48.3705, longitude: 10.8978)
         let viewport = CGSize(width: 430, height: 850)

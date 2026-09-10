@@ -227,7 +227,7 @@ export class RouteMap {
       const vertical = Math.min(30, (bottom - 1) / 2);
       // Keep the route clear of the map buttons, without negative fitting space.
       const right = Math.min(
-        Math.max(136 + this.markerHalfWidth, horizontal),
+        Math.max(80 + this.markerHalfWidth, horizontal),
         bounds.width - left - horizontal - 1,
       );
       this.map.fitBounds(L.latLngBounds(coordinates), {

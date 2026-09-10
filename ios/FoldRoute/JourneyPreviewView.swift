@@ -85,7 +85,7 @@ struct JourneyPreviewView: View {
                 summary: summaryHeight + (panel.size == .collapsed && compactStartBelow ? 92 : 0) + (panel.size == .collapsed && model.planningNotice != nil ? compactIssueHeight + 12 : 0) + (panel.size == .collapsed && model.lateDepartureDelay(for: journey) != nil ? compactHintHeight + 12 : 0),
                 actions: actionsHeight,
                 hasAlternatives: journeys.count > 1,
-                topClearance: 72
+                topClearance: 128
             )
             let compact = panel.size == .collapsed
             let height = min(heights.expanded, max(heights.collapsed, heights[panel.size] - dragOffset))
