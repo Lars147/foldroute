@@ -109,7 +109,7 @@ export class JourneyView {
       );
     if (onlyComparison && !state.busy)
       el("status").textContent =
-        `${state.message === "Verbindungen gefunden." ? "" : state.message + " "}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`;
+        `${state.message ? state.message + " " : ""}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`;
     el("cycling-comparison").textContent = j
       ? cyclingComparisonLabel(j, cyclingLimit)
       : "";

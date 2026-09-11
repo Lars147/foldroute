@@ -201,7 +201,7 @@ export class PlanningSession {
               ? "Verbindungen optimieren …"
               : update.status === "partial"
                 ? "Suche teilweise abgeschlossen."
-                : "Verbindungen gefunden.",
+                : "",
           issues: update.issues,
         };
         this.emit();

@@ -1,3 +1,4 @@
+import { expectPlanningComplete } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import { defaults } from "../../src/model";
 import { mapResponse, baseVariants } from "../../src/transitous";
@@ -45,7 +46,7 @@ async function production(page: Page) {
 async function plan(page: Page) {
   await page.locator("#destination").fill("Ziel");
   await page.locator("#destination-options").locator(".place-select").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator("#storage-message")).toHaveText(
     "Letzte Reise auf diesem Gerät gespeichert.",
   );
@@ -206,7 +207,7 @@ test("local storage failure does not prevent online planning", async ({
   await production(page);
   await page.locator("#destination").fill("Ziel");
   await page.locator("#destination-options").locator(".place-select").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator("#route-duration")).toContainText("32 min");
   await expect(page.locator("#storage-message")).toContainText(
     "nicht offline gespeichert",
@@ -310,7 +311,7 @@ test("switching alternatives replaces the single saved record", async ({
   );
   await page.locator("#destination").fill("Ziel");
   await page.locator("#destination-options").locator(".place-select").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.locator(".route-choice").last().click();
   await expect
     .poll(() =>

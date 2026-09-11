@@ -1,3 +1,4 @@
+import { expectPlanningComplete } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import { defaults, type Journey } from "../../src/model";
 import type { PlanningState } from "../../src/planning-state";
@@ -50,7 +51,7 @@ async function choose(page: Page, id: string, name: string) {
 async function plan(page: Page) {
   await choose(page, "destination", "Ziel");
   await expect(page.locator("#route-duration")).toContainText("32 min");
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
 }
 // The mocked GPS position equals the route origin, so its existing marker
 // provides a rendered screen coordinate without exposing the map to tests.
@@ -147,7 +148,7 @@ test("manual map gestures release location focus; button restores it and route c
     }),
   );
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".route-choice")).toHaveCount(2);
   await page.locator("#map-location").click();
   await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
@@ -196,24 +197,22 @@ for (const width of [320, 390, 768, 1479])
       "data-size",
       "normal",
     );
+    const normalHeight = (await page.locator("#journey-panel").boundingBox())!
+      .height;
     await page.locator("#panel-size").click();
     await expect(page.locator("#journey-panel")).toHaveAttribute(
       "data-size",
       "expanded",
     );
     await expect(page.locator("#journey-detail")).toContainText("Rad");
-    if (width < 900)
-      await expect
-        .poll(async () =>
-          page
-            .locator("#journey-panel")
-            .evaluate(
-              (e) =>
-                e.clientHeight /
-                document.getElementById("map-view")!.clientHeight,
-            ),
-        )
-        .toBeGreaterThan(0.85);
+    if (width < 900) {
+      const panel = (await page.locator("#journey-panel").boundingBox())!;
+      const routeButton = (await page.locator("#map-route").boundingBox())!;
+      expect(panel.height).toBeGreaterThan(normalHeight);
+      expect(panel.y).toBeGreaterThanOrEqual(
+        routeButton.y + routeButton.height,
+      );
+    }
     await page.screenshot({
       path: `test-results/app-${width}.png`,
       fullPage: true,
@@ -310,7 +309,7 @@ test("settings persist immediately and replan once on leaving", async ({
     maxCyclingMinutes: 17,
   });
   await page.locator("#save-settings").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   expect(directRequests).toBe(1);
   await page.reload();
   await page.locator("#tab-settings").click();
@@ -419,7 +418,7 @@ test("choice labels keep arrival times for both search modes and update dates wi
       busy: false,
       locating: false,
       restored: false,
-      message: "Verbindungen gefunden.",
+      message: "",
       issues: [],
     };
     const view = new JourneyView(() => {});
@@ -486,7 +485,7 @@ test("better alternatives replace automatic selection", async ({ page }) => {
   });
   await choose(page, "destination", "Ziel");
   await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".route-choice")).toHaveText([
     "10:53 · 53 min",
     "· 11:01 · 1 h 1 min",
@@ -746,7 +745,7 @@ test("map location help persists and clears on retry; manual origin clears dialo
   await expect(page.locator("#adjust-location-help")).toBeHidden();
   await page.locator("#calculate").click();
   await expect(page.locator("#adjust-dialog")).toBeHidden();
-  await expect(page.locator("#status")).toContainText("Verbindungen gefunden");
+  await expectPlanningComplete(page);
 });
 
 test("help opens direct topics and fits narrow screens with enlarged text", async ({
@@ -922,7 +921,7 @@ test("clearing local data requires confirmation and removes all app records", as
     .getByRole("button", { name: "Ziel: Favorit", exact: true })
     .click();
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.locator("#tab-settings").click();
   await page.locator("#foldingDuration").fill("4");
   await page.locator("#clear-data").click();
@@ -966,7 +965,7 @@ test("late-departure notice appears only after search completes and opens settin
     }),
   );
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator("#late-departure")).toContainText("1 h nach");
   await page.locator("#late-settings").click();
   await expect(page.locator("#settings-view")).toBeVisible();
@@ -981,7 +980,7 @@ test("an expired fixed departure requires adjustment and sends no new plan reque
   await page.locator("#timing").selectOption("depart");
   await page.locator("#when").fill("2026-09-04T10:00");
   await page.locator("#calculate").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.clock.setFixedTime(new Date("2026-09-04T08:01:00Z"));
   let requests = 0;
   page.on("request", (r) => {
@@ -1015,7 +1014,7 @@ test("long direct rides are labeled comparisons and suitable transit is preferre
     }),
   );
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".route-choice[aria-pressed=true]")).toHaveText(
     "10:53 · 53 min",
   );
@@ -1055,7 +1054,7 @@ test("transit renders before a pending comparison and an explicit comparison sta
   await expect(page.locator("#route-duration")).toContainText("53 min");
   await expect(page.locator("#status")).toHaveText("Verbindungen optimieren …");
   release();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.getByRole("button", { name: /Fahrradvergleich:/ }).click();
   await expect(page.locator("#option-title")).toContainText("Fahrradvergleich");
 });
@@ -1083,7 +1082,7 @@ test("planning URL reloads fixed endpoints without location access and keeps now
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.reload();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.clock.setFixedTime(new Date("2026-09-04T08:05:00Z"));
   const direct = page.waitForRequest((r) =>
     r.url().includes("directModes=BIKE"),
@@ -1092,7 +1091,7 @@ test("planning URL reloads fixed endpoints without location access and keeps now
   expect(new URL((await direct).url()).searchParams.get("time")).toBe(
     "2026-09-04T08:05:00Z",
   );
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   expect(page.url()).toBe(link);
   expect(errors).toEqual([]);
 });
@@ -1105,7 +1104,7 @@ test("link options and edits remain temporary, including Back from settings", as
   const link = new URL(page.url());
   link.searchParams.set("maxCyclingMinutes", "17");
   await page.goto(link.href);
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.locator("#tab-settings").click();
   await expect(page.locator("#settings-summary")).toContainText(
     "nur für diese Planung",
@@ -1117,7 +1116,7 @@ test("link options and edits remain temporary, including Back from settings", as
     if (r.url().includes("directModes=BIKE")) calculations++;
   });
   await page.goBack();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   expect(calculations).toBe(1);
   expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("240");
   expect(
@@ -1153,14 +1152,14 @@ test("Back and Forward restore distinct submitted plans without result history e
   await page
     .locator("#route-form")
     .evaluate((form: HTMLFormElement) => form.requestSubmit());
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   const second = page.url();
   expect(new URL(second).searchParams.get("toName")).toBe("Weiteres Ziel");
   await page.goBack();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   expect(page.url()).toBe(first);
   await page.goForward();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   expect(page.url()).toBe(second);
 });
 
@@ -1328,7 +1327,7 @@ test("three regular routes keep their places and comparison is an optional fourt
     }),
   );
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".route-choice")).toHaveCount(4);
   await expect(page.locator(".route-choice").last()).toHaveAccessibleName(
     /Fahrradvergleich:/,
@@ -1359,7 +1358,7 @@ test("three regular routes keep their places and comparison is an optional fourt
   await page.locator("#tab-settings").click();
   await page.locator("#showCyclingComparison").uncheck();
   await page.locator("#save-settings").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".route-choice")).toHaveCount(3);
   await expect(page.locator("#cycling-comparison")).toBeHidden();
   expect(new URL(page.url()).searchParams.get("showCyclingComparison")).toBe(
@@ -1373,7 +1372,7 @@ test("three regular routes keep their places and comparison is an optional fourt
     ),
   ).toBe(false);
   await page.reload();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".route-choice")).toHaveCount(3);
   await page.locator("#tab-settings").click();
   await expect(page.locator("#showCyclingComparison")).not.toBeChecked();
@@ -1408,7 +1407,7 @@ test("hidden comparison arriving first does not finish the search before transit
   await expect(page.locator("#cancel")).toBeVisible();
   await expect(page.locator(".route-choice")).toHaveCount(0);
   release();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".route-choice")).toHaveCount(1);
   await expect(page.locator("#cycling-comparison")).toBeHidden();
 });
@@ -1516,7 +1515,7 @@ test("free stops edit, reorder, reverse and cancel without changing the active p
 }) => {
   await setupVia(page);
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.locator("#adjust-route").click();
   for (const [i, name] of ["Café", "See", "Park"].entries()) {
     await page.locator("#add-stop").click();
@@ -1569,7 +1568,7 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
     .locator("#via-fields > div:not([hidden]) input[type=number]")
     .fill("10");
   await page.locator("#calculate").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator("#route-duration")).toContainText("50 min");
   expect(new URL(page.url()).searchParams.get("v")).toBe("2");
   expect(new URL(page.url()).searchParams.get("via1Stay")).toBe("10");
@@ -1689,7 +1688,7 @@ test("history deduplicates routes, restores without requests and replans from fi
   expect(url.searchParams.get("fromPlace")?.split(",").map(Number)).toEqual([
     48.132, 11.5756,
   ]);
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator("#saved-notice")).toBeHidden();
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-row")).toHaveCount(1);
@@ -2030,13 +2029,17 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
         .evaluate((e) => getComputedStyle(e, "::before").content),
     ).toBe("none");
     await page.locator("#panel-size").click();
-    await expect(page.locator("#status")).toContainText(
-      outcome === "cancel"
-        ? "abgebrochen"
-        : outcome === "error"
-          ? "nicht beantworten"
-          : "Verbindungen gefunden",
-    );
+    if (outcome === "complete") {
+      for (let i = 0; i < 3; i++) {
+        await expectPlanningComplete(page);
+        await page.locator("#panel-size").click();
+      }
+    } else {
+      await expect(page.locator("#status")).toContainText(
+        outcome === "cancel" ? "abgebrochen" : "nicht beantworten",
+      );
+      await expect(page.locator("#status")).toBeVisible();
+    }
   });
 }
 
@@ -2142,11 +2145,11 @@ test("history deletion during a pending recalculation does not resurrect the rou
   await page.locator(".history-row > button[aria-label]").click();
   await expect(page.locator(".history-row")).toHaveCount(0);
   release();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".history-row")).toHaveCount(0);
   await page.locator("#tab-route").click();
   await page.locator("#refresh-route").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-row")).toHaveCount(1);
 });
@@ -2172,7 +2175,7 @@ test("history deletion while locating survives the location response", async ({
   await page.locator(".history-row > button[aria-label]").click();
   await expect(page.locator(".history-row")).toHaveCount(0);
   await page.evaluate(() => (window as any).resolveHistoryLocation());
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator(".history-row")).toHaveCount(0);
 });
 
@@ -2255,7 +2258,7 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
     }
   }
   release();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
 });
 
 test("route markers identify endpoints and ordered stops with accessible popups", async ({
@@ -2272,7 +2275,7 @@ test("route markers identify endpoints and ordered stops with accessible popups"
     await choose(page, `via-${i}`, name);
   }
   await page.locator("#calculate").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await expect(page.locator("#map .route-marker")).toHaveCount(5);
   await expect(page.locator(".route-marker-stop")).toHaveText(["1", "2", "3"]);
   await expect(page.locator("#map .leaflet-tooltip")).toHaveCount(0);
@@ -2322,7 +2325,7 @@ test("route markers identify endpoints and ordered stops with accessible popups"
         exact: true,
       }),
     ).toBeAttached();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-open")).toHaveCount(2);
   await context.setOffline(true);
@@ -2638,7 +2641,7 @@ test("route fit overrides a pending location response and works offline with sto
   await page.locator("#add-stop").click();
   await choose(page, "via-0", "Café");
   await page.locator("#calculate").click();
-  await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
+  await expectPlanningComplete(page);
   await page.evaluate(() => {
     navigator.geolocation.getCurrentPosition = (success) => {
       (window as any).finishMapLocation = () =>
