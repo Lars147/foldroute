@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
-import { defaults } from "../../src/model";
+import { defaults, type Journey } from "../../src/model";
+import type { PlanningState } from "../../src/planning-state";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -356,6 +357,120 @@ test("cancel retains progressive results and ignores delayed responses", async (
   await expect(page.locator("#route-duration")).toContainText("32 min");
   await expect(page.locator("#status")).toContainText("abgebrochen");
 });
+test("choice labels keep arrival times for both search modes and update dates without changing IDs", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  const labels = await page.evaluate(async () => {
+    const modulePath = "/src/journey-view.ts";
+    const { JourneyView } = await import(modulePath);
+    const origin = {
+      name: "Start",
+      detail: "",
+      latitude: 48.13,
+      longitude: 11.57,
+    };
+    const destination = { ...origin, name: "Ziel", latitude: 48.17 };
+    const makeJourney = (
+      id: string,
+      arrival: string,
+      minutes: number,
+    ): Journey => {
+      const end = Date.parse(arrival) / 1000,
+        start = end - minutes * 60;
+      return {
+        id,
+        origin,
+        destination,
+        departure: start,
+        arrival: end,
+        transfers: 0,
+        isDirect: true,
+        legs: [
+          {
+            id,
+            kind: "bike",
+            from: origin,
+            to: destination,
+            start,
+            end,
+            distance: 6800,
+            coordinates: [origin, destination],
+          },
+        ],
+      };
+    };
+    const journeys = [
+      makeJourney("one", "2026-09-04T23:50:00+02:00", 55),
+      makeJourney("two", "2026-09-04T23:55:00+02:00", 45),
+      makeJourney("comparison", "2026-09-04T23:59:00+02:00", 80),
+    ];
+    const state: PlanningState = {
+      journeys,
+      selected: journeys[1],
+      queriedAt: Date.now() / 1000,
+      request: {
+        origin,
+        destination,
+        timing: "depart",
+        time: journeys[0].departure,
+      },
+      busy: false,
+      locating: false,
+      restored: false,
+      message: "Verbindungen gefunden.",
+      issues: [],
+    };
+    const view = new JourneyView(() => {});
+    const texts = () =>
+      Array.from(document.querySelectorAll(".route-choice"), (b) =>
+        b.textContent!.trim(),
+      );
+    view.render(state, 60);
+    const departure = texts();
+    state.request!.timing = "arrive";
+    view.render(state, 60);
+    const arrival = texts();
+    document.querySelector<HTMLButtonElement>('[data-journey="two"]')!.focus();
+    journeys[1].arrival += 600;
+    journeys[1].legs[0].end += 600;
+    view.render(state, 60);
+    return {
+      departure,
+      arrival,
+      updated: texts(),
+      selected: document
+        .querySelector('[aria-pressed="true"].route-choice')
+        ?.getAttribute("data-journey"),
+      focused: (document.activeElement as HTMLElement)?.dataset.journey,
+      accessible: document
+        .querySelector('[data-journey="two"]')
+        ?.getAttribute("aria-label"),
+      decorative: document
+        .querySelector('[data-journey="comparison"] .icon')
+        ?.getAttribute("aria-hidden"),
+    };
+  });
+  expect(labels.departure).toEqual([
+    "23:50 · 55 min",
+    "23:55 · 45 min",
+    "· 23:59 · 1 h 20 min",
+  ]);
+  expect(labels.arrival).toEqual(labels.departure);
+  expect(labels.updated).toEqual([
+    "4. Sept. 23:50 · 55 min",
+    "5. Sept. 00:05 · 55 min",
+    "· 4. Sept. 23:59 · 1 h 20 min",
+  ]);
+  expect(labels.selected).toBe("two");
+  expect(labels.focused).toBe("two");
+  expect(labels.accessible).toContain(
+    "Ankunft 5. Sept. 00:05, Abfahrt 4. Sept. 23:10, Gesamtdauer 55 min",
+  );
+  expect(labels.decorative).toBe("true");
+});
+
 test("better alternatives replace automatic selection", async ({ page }) => {
   await setup(page);
   const direct = structuredClone(fixture.direct);
@@ -373,11 +488,11 @@ test("better alternatives replace automatic selection", async ({ page }) => {
   await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator(".route-choice")).toHaveText([
-    "1 · 53 min",
-    "Vergleich · 1 h 1 min",
+    "10:53 · 53 min",
+    "· 11:01 · 1 h 1 min",
   ]);
   await expect(page.locator(".route-choice[aria-pressed=true]")).toHaveText(
-    "1 · 53 min",
+    "10:53 · 53 min",
   );
   await expect(page.locator("#route-duration")).toContainText("53 min");
   await page.locator("#panel-summary").press("ArrowRight");
@@ -902,7 +1017,7 @@ test("long direct rides are labeled comparisons and suitable transit is preferre
   await choose(page, "destination", "Ziel");
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator(".route-choice[aria-pressed=true]")).toHaveText(
-    "1 · 53 min",
+    "10:53 · 53 min",
   );
   await page.getByRole("button", { name: /Fahrradvergleich: 46 Min/ }).click();
   await expect(page.locator("#cycling-comparison")).toHaveText(
@@ -1215,7 +1330,12 @@ test("three regular routes keep their places and comparison is an optional fourt
   await choose(page, "destination", "Ziel");
   await expect(page.locator("#status")).toHaveText("Verbindungen gefunden.");
   await expect(page.locator(".route-choice")).toHaveCount(4);
-  await expect(page.locator(".route-choice").last()).toContainText("Vergleich");
+  await expect(page.locator(".route-choice").last()).toHaveAccessibleName(
+    /Fahrradvergleich:/,
+  );
+  await expect(
+    page.locator(".route-choice").last().locator(".icon svg"),
+  ).toHaveCount(1);
   await page.locator(".route-choice").last().click();
   await expect
     .poll(() =>

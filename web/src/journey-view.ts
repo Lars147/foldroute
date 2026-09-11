@@ -136,7 +136,7 @@ export class JourneyView {
       el("saved-notice").textContent =
         `Gespeicherter Stand: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}. Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`;
     const key = JSON.stringify([
-      state.journeys.map((j) => j.id),
+      state.journeys.map((j) => [j.id, j.departure, j.arrival]),
       j?.id,
       state.restored,
       state.queriedAt,
@@ -150,18 +150,27 @@ export class JourneyView {
         ? document.activeElement.dataset.journey
         : undefined;
     el("choices").replaceChildren();
+    const differentArrivalDays =
+      new Set(
+        state.journeys.map((journey) =>
+          new Date(journey.arrival * 1000).toDateString(),
+        ),
+      ).size > 1;
     state.journeys.forEach((journey, index) => {
+      const comparison = cyclingExcess(journey, cyclingLimit) > 0;
+      const arrival = `${differentArrivalDays ? dateLabel(journey.arrival) + " " : ""}${clock(journey.arrival)}`;
       const button = node(
         "button",
-        `${cyclingExcess(journey, cyclingLimit) > 0 ? "Vergleich" : index + 1} · ${duration(journey.arrival - journey.departure)}`,
+        `${comparison ? " · " : ""}${arrival} · ${duration(journey.arrival - journey.departure)}`,
         "route-choice",
       );
+      if (comparison) button.prepend(icon("bike"));
       button.type = "button";
       button.dataset.journey = journey.id;
       button.setAttribute("aria-pressed", String(journey.id === j?.id));
       button.setAttribute(
         "aria-label",
-        `${cyclingExcess(journey, cyclingLimit) > 0 ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: ${duration(journey.arrival - journey.departure)}, ${clock(journey.departure)} bis ${clock(journey.arrival)}`,
+        `${comparison ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: Ankunft ${dateLabel(journey.arrival)} ${clock(journey.arrival)}, Abfahrt ${dateLabel(journey.departure)} ${clock(journey.departure)}, Gesamtdauer ${duration(journey.arrival - journey.departure)}`,
       );
       button.onclick = () => this.select(journey.id);
       el("choices").append(button);

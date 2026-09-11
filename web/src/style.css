@@ -505,6 +505,10 @@ input[type="search"] {
   color: #171a1c;
   border-color: #ffd43b;
 }
+.route-choice .icon {
+  width: 1rem;
+  height: 1rem;
+}
 .panel-status,
 .map-error {
   color: #b8c1c3;
