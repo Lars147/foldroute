@@ -221,3 +221,74 @@ for (const width of [320, 390, 1280]) {
     });
   });
 }
+
+for (const width of [320, 390, 1280]) {
+  test(`dragging changes visible panel heights at ${width}`, async ({
+    page,
+    browserName,
+  }) => {
+    await page.setViewportSize({ width, height: 760 });
+    await preview(page);
+    const panel = page.locator("#journey-panel");
+    const panelHeight = async () => (await panel.boundingBox())!.height;
+    const drag = async (dy: number) => {
+      const box = (await page.locator("#panel-handle").boundingBox())!;
+      const x = box.x + box.width / 2,
+        y = box.y + box.height / 2;
+      if (browserName === "chromium") {
+        const session = await page.context().newCDPSession(page);
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchStart",
+          touchPoints: [{ x, y }],
+        });
+        for (let i = 1; i <= 5; i++)
+          await session.send("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: [{ x, y: y + (dy * i) / 5 }],
+          });
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchEnd",
+          touchPoints: [],
+        });
+        await session.detach();
+      } else {
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x, y + dy, { steps: 5 });
+        await page.mouse.up();
+      }
+    };
+    await expect(page.locator(".route-choice").nth(1)).toBeInViewport({
+      ratio: 1,
+    });
+    const normal = await panelHeight();
+    await drag(65);
+    await expect(panel).toHaveAttribute("data-size", "collapsed");
+    await expect.poll(panelHeight).toBeLessThan(normal - 20);
+    const collapsed = await panelHeight();
+    await expect(page.locator(".route-choice").first()).toBeInViewport({
+      ratio: 1,
+    });
+    await drag(-65);
+    await expect(panel).toHaveAttribute("data-size", "normal");
+    await expect.poll(panelHeight).toBe(normal);
+    await drag(-65);
+    await expect(panel).toHaveAttribute("data-size", "expanded");
+    await expect.poll(panelHeight).toBeGreaterThan(normal + 20);
+    await drag(65);
+    await expect.poll(panelHeight).toBe(normal);
+    const cancelHandle = (await page.locator("#panel-handle").boundingBox())!;
+    const x = cancelHandle.x + cancelHandle.width / 2;
+    const y = cancelHandle.y + cancelHandle.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page
+      .locator("#panel-handle")
+      .dispatchEvent("pointercancel", { pointerId: 1 });
+    await page.mouse.move(x, y + 65);
+    await page.mouse.up();
+    expect(await panelHeight()).toBe(normal);
+    expect(collapsed).toBeLessThan(normal);
+    await expect(page.locator("#panel-summary")).toBeInViewport({ ratio: 1 });
+  });
+}

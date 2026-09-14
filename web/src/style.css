@@ -397,7 +397,7 @@ input[type="search"] {
   left: 10px;
   right: 10px;
   bottom: 8px;
-  height: auto;
+  height: var(--overview-height, auto);
   max-height: calc(100% - 134px);
   min-height: 0;
   background: #171a1cf7;
@@ -931,7 +931,7 @@ dialog form {
     width: 420px;
     top: 20px;
     bottom: auto;
-    height: auto;
+    height: var(--overview-height, auto);
     max-height: calc(100% - 40px);
     min-height: 0;
   }

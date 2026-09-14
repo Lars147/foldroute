@@ -363,11 +363,21 @@ export class JourneyView {
       return;
     }
     const { state, limit, recommendation, recommendedID } = this.lastRender;
-    if (!state.journeys.length || !panel.offsetWidth) return;
-    // Measure every offered summary off-screen so selection cannot change the map's free area.
+    if (!state.journeys.length) {
+      panel.style.removeProperty("--overview-height");
+      el("panel-summary").style.minHeight = "0px";
+      return;
+    }
+    if (!panel.offsetWidth) return;
+    // Reserve only the fixed time header across alternatives, not all route content.
     const probe = panel.cloneNode(true) as HTMLElement;
     probe.inert = true;
     probe.setAttribute("aria-hidden", "true");
+    probe.classList.remove(
+      "panel-full-height",
+      "panel-scroll-all",
+      "panel-map-only",
+    );
     Object.assign(probe.style, {
       position: "fixed",
       left: "-10000px",
@@ -381,13 +391,12 @@ export class JourneyView {
       visibility: "hidden",
       pointerEvents: "none",
     });
-    probe.querySelector<HTMLElement>("#panel-content")!.style.overflow =
-      "visible";
-    const probeSummary = probe.querySelector<HTMLElement>("#panel-summary")!;
-    probeSummary.style.minHeight = "0";
+    const content = probe.querySelector<HTMLElement>("#panel-content")!;
+    content.style.overflow = "visible";
+    const summary = probe.querySelector<HTMLElement>("#panel-summary")!;
+    summary.style.minHeight = "0";
     document.body.append(probe);
     let summaryHeight = 0;
-    let height = 0;
     for (const journey of state.journeys) {
       this.renderSummary(
         probe,
@@ -397,41 +406,32 @@ export class JourneyView {
         recommendation,
         recommendedID,
       );
-      const comparison = probe.querySelector<HTMLElement>(
-        "#cycling-comparison",
-      )!;
-      comparison.hidden = cyclingExcess(journey, limit) === 0;
-      comparison.textContent = cyclingComparisonLabel(journey, limit);
-      const delay =
-        !state.busy && !state.restored && !state.staleReason
-          ? lateDepartureDelay(journey, state.request)
-          : undefined;
-      probe.querySelector<HTMLElement>("#late-departure")!.hidden =
-        delay === undefined;
-      probe.querySelector<HTMLElement>("#late-departure-text")!.textContent =
-        delay === undefined
-          ? ""
-          : `Start erst ${clock(journey.departure)} – ${duration(delay)} nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.`;
       summaryHeight = Math.max(
         summaryHeight,
-        probeSummary.getBoundingClientRect().height,
+        summary.getBoundingClientRect().height,
       );
-      height = Math.max(height, probe.getBoundingClientRect().height);
     }
+    summary.style.minHeight = `${summaryHeight}px`;
+    const fixedHeight =
+      probe.getBoundingClientRect().height -
+      content.getBoundingClientRect().height;
+    const rows = [...probe.querySelectorAll<HTMLElement>(".route-choice")];
+    const count = this.size === "collapsed" ? 1 : 2;
+    const lastRow = rows[Math.min(count, rows.length) - 1];
+    const contentHeight = lastRow
+      ? lastRow.getBoundingClientRect().bottom -
+        content.getBoundingClientRect().top
+      : content.getBoundingClientRect().height;
     probe.remove();
     el("panel-summary").style.minHeight = `${summaryHeight}px`;
-    const maximum =
-      el("map-view").clientHeight -
-      (panel.classList.contains("panel-full-height")
-        ? 16
-        : innerWidth >= 900
-          ? 40
-          : 134);
-    panel.style.minHeight =
-      this.size === "expanded"
-        ? "0px"
-        : `${Math.max(0, Math.min(height, maximum))}px`;
+    panel.style.minHeight = "0px";
+    panel.style.setProperty(
+      "--overview-height",
+      // Leave room for row borders and fractional layout rounding in WebKit.
+      `${Math.ceil(fixedHeight + contentHeight) + 4}px`,
+    );
   }
+
   private details(j: Journey, restored: boolean) {
     const line = el("fold-line");
     line.replaceChildren();

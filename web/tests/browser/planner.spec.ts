@@ -1804,7 +1804,7 @@ test("history storage caps entries atomically and guards pending writes during d
 });
 
 for (const width of [320, 390, 430, 1479]) {
-  test(`route overview fits its content and pins actions at ${width}px`, async ({
+  test(`route overview shows two choices and pins actions at ${width}px`, async ({
     page,
   }) => {
     await setup(page);
@@ -1815,13 +1815,13 @@ for (const width of [320, 390, 430, 1479]) {
       "aria-expanded",
       "false",
     );
-    await expect
-      .poll(() =>
-        page
-          .locator("#panel-content")
-          .evaluate((e) => e.scrollHeight - e.clientHeight),
-      )
-      .toBeLessThanOrEqual(1);
+    await expect(page.locator(".route-choice").first()).toBeInViewport({
+      ratio: 1,
+    });
+    if ((await page.locator(".route-choice").count()) > 1)
+      await expect(page.locator(".route-choice").nth(1)).toBeInViewport({
+        ratio: 1,
+      });
     const checkActions = async () => {
       expect(
         await page.evaluate(() => {
@@ -2256,9 +2256,6 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
         if (!sample.scrollAll) expect(sample.actionsVisible).toBe(true);
         expect(sample.scrollWidth).toBe(sample.width);
       }
-      // Short viewports may scroll below the stacked map controls.
-      if (fontSize === 16 && height >= 800 && size !== "expanded")
-        expect(samples[0].scrollHeight).toBe(samples[0].height);
       if (fontSize === 24 && size === "expanded") {
         expect(samples[0].scrollHeight).toBeGreaterThan(samples[0].height);
         const scroller = page.locator(
