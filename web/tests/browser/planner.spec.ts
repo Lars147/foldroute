@@ -103,6 +103,8 @@ for (const [width, height] of [
         },
       });
     });
+    if (await page.locator("#map-location").evaluate((e) => e.inert))
+      await page.locator("#panel-map-toggle").click();
     await page.locator("#map-location").click({ position: { x: 24, y: 4 } });
     await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
     for (const size of ["expanded", "normal", "expanded"]) {
@@ -111,6 +113,8 @@ for (const [width, height] of [
         "data-size",
         size,
       );
+      if (await page.locator("#map-location").evaluate((e) => e.inert))
+        await page.locator("#panel-map-toggle").click();
       await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
       // Check after the CSS transition too, not only at its first frame.
       await page.waitForTimeout(300);
@@ -1343,13 +1347,10 @@ test("three regular routes keep their places and comparison is an optional fourt
     page.locator(".route-choice").last().locator(".icon svg"),
   ).toHaveCount(1);
   await page.locator(".route-choice").last().click();
-  await expect
-    .poll(() =>
-      page
-        .locator("#panel-content")
-        .evaluate((e) => e.scrollHeight - e.clientHeight),
-    )
-    .toBeLessThanOrEqual(1);
+  await expect(page.locator("#panel-summary")).toBeInViewport({ ratio: 1 });
+  await expect(page.locator(".route-choice").last()).toBeInViewport({
+    ratio: 1,
+  });
   await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
   await page.locator("#panel-size").click();
   expect(
@@ -1863,49 +1864,48 @@ for (const width of [320, 390, 430, 1479]) {
   });
 }
 
-test("small route panels scroll only content, retaining archive actions and warnings", async ({
+test("small route panels retain archive actions through the measured scroll fallback", async ({
   page,
 }) => {
   await setup(page);
   await plan(page);
   await page.locator("#tab-history").click();
   await page.locator(".history-open").first().click();
-  await page.setViewportSize({ width: 844, height: 390 });
-  await page.evaluate(() => {
-    const notice = document.getElementById("issues")!;
-    notice.hidden = false;
-    notice.textContent = "Ein wichtiger Hinweis zur Verbindung. ".repeat(20);
-  });
-  await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
-  await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
-  await expect
-    .poll(() =>
-      page
-        .locator("#panel-content")
-        .evaluate((e) => e.scrollHeight > e.clientHeight),
-    )
-    .toBe(true);
-  await page.locator("#panel-content").evaluate((e) => {
-    e.scrollTop = e.scrollHeight;
-  });
-  expect(
-    await page.evaluate(() =>
-      ["journey-panel", "panel-details", "issues"].every(
-        (id) =>
-          !["auto", "scroll"].includes(
-            getComputedStyle(document.getElementById(id)!).overflowY,
-          ),
-      ),
-    ),
-  ).toBe(true);
-  await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
-  await expect(page.locator("#refresh-route")).toBeInViewport({ ratio: 1 });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = "24px";
-  });
-  await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
-  await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
+  for (const [width, height, fontSize] of [
+    [844, 390, 16],
+    [390, 844, 24],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate((fontSize) => {
+      document.documentElement.style.fontSize = `${fontSize}px`;
+      const notice = document.getElementById("issues")!;
+      notice.hidden = false;
+      notice.textContent = "Ein wichtiger Hinweis zur Verbindung. ".repeat(20);
+    }, fontSize);
+    await page.evaluate(async () => {
+      for (let i = 0; i < 3; i++) await new Promise(requestAnimationFrame);
+    });
+    const all = await page
+      .locator("#journey-panel")
+      .evaluate((e) => e.classList.contains("panel-scroll-all"));
+    const scroller = page.locator(all ? "#journey-panel" : "#panel-content");
+    await expect
+      .poll(() => scroller.evaluate((e) => e.scrollHeight > e.clientHeight))
+      .toBe(true);
+    await scroller.evaluate((e) => (e.scrollTop = e.scrollHeight));
+    await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#refresh-route")).toBeInViewport({ ratio: 1 });
+    if (all)
+      await expect(page.locator("#panel-content")).toHaveCSS(
+        "overflow-y",
+        "visible",
+      );
+    else
+      await expect(page.locator("#panel-summary")).toBeInViewport({ ratio: 1 });
+    await scroller.evaluate((e) => (e.scrollTop = 0));
+    await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
+  }
 });
 
 test("route panel minimizes by dragging and restores an accessible overview", async ({
@@ -2213,13 +2213,18 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
       document.documentElement.style.fontSize = size + "px";
     }, fontSize);
     for (const size of ["normal", "collapsed", "expanded"]) {
-      const samples = await page.evaluate((size) => {
+      const samples = await page.evaluate(async (size) => {
         const panel = document.getElementById("journey-panel")!;
         panel.dataset.size = size;
         const details = document.getElementById("panel-details")!;
         details.hidden = size !== "expanded";
         details.inert = size !== "expanded";
-        const content = document.getElementById("panel-content")!;
+        // Let measured fixed-header height select the normal or full-panel fallback.
+        for (let frame = 0; frame < 3; frame++)
+          await new Promise(requestAnimationFrame);
+        const content = panel.classList.contains("panel-scroll-all")
+          ? panel
+          : document.getElementById("panel-content")!;
         const probe = document.createElement("style");
         document.head.append(probe);
         const samples = [];
@@ -2232,6 +2237,7 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
             .getBoundingClientRect();
           const bounds = panel.getBoundingClientRect();
           samples.push({
+            scrollAll: content === panel,
             height: content.clientHeight,
             scrollHeight: content.scrollHeight,
             width: content.clientWidth,
@@ -2247,7 +2253,7 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
       }, size);
       for (const sample of samples) {
         expect(sample).toEqual(samples[0]);
-        expect(sample.actionsVisible).toBe(true);
+        if (!sample.scrollAll) expect(sample.actionsVisible).toBe(true);
         expect(sample.scrollWidth).toBe(sample.width);
       }
       // Short viewports may scroll below the stacked map controls.
@@ -2255,12 +2261,14 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
         expect(samples[0].scrollHeight).toBe(samples[0].height);
       if (fontSize === 24 && size === "expanded") {
         expect(samples[0].scrollHeight).toBeGreaterThan(samples[0].height);
-        await page.locator("#panel-content").evaluate((element) => {
+        const scroller = page.locator(
+          samples[0].scrollAll ? "#journey-panel" : "#panel-content",
+        );
+        await scroller.evaluate((element) => {
           element.scrollTop = element.scrollHeight;
         });
-        expect(
-          await page.locator("#panel-content").evaluate((e) => e.scrollTop),
-        ).toBeGreaterThan(0);
+        expect(await scroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(0);
+        await expect(page.locator("#cancel")).toBeInViewport({ ratio: 1 });
       }
     }
   }

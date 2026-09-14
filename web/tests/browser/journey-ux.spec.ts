@@ -187,3 +187,37 @@ test("full-height panel can reveal the map without losing its route", async ({
     "true",
   );
 });
+
+for (const width of [320, 390, 1280]) {
+  test(`time header stays fixed while route content scrolls at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await preview(page);
+    await page.locator("#panel-size").click();
+    const content = page.locator("#panel-content");
+    await page.locator("#issues").evaluate((e) => {
+      e.hidden = false;
+      e.textContent = "Hinweis zur Verbindung. ".repeat(100);
+    });
+    await expect
+      .poll(() => content.evaluate((e) => e.scrollHeight > e.clientHeight))
+      .toBe(true);
+    const header = await page.locator("#panel-summary").boundingBox();
+    const actions = await page.locator(".panel-actions").boundingBox();
+    await content.evaluate((e) => (e.scrollTop = 80));
+    await expect.poll(() => content.evaluate((e) => e.scrollTop)).toBe(80);
+    expect(await page.locator("#panel-summary").boundingBox()).toEqual(header);
+    expect(await page.locator(".panel-actions").boundingBox()).toEqual(actions);
+    await page.locator("#panel-summary").focus();
+    await page.keyboard.press("ArrowRight");
+    expect(await content.evaluate((e) => e.scrollTop)).toBe(80);
+    expect(await page.locator("#panel-summary").boundingBox()).toEqual(header);
+    await content.evaluate((e) => (e.scrollTop = e.scrollHeight));
+    expect(await page.locator("#panel-summary").boundingBox()).toEqual(header);
+    await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
+    await page.screenshot({
+      path: test.info().outputPath("fixed-time-header.png"),
+    });
+  });
+}

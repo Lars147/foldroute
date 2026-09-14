@@ -4499,12 +4499,14 @@ extension FoldRouteTests {
         model.journey = model.journeyOptions[0]
         for (name, size, type) in [
             ("portrait", CGSize(width: 390, height: 760), DynamicTypeSize.large),
+            ("portrait-details", CGSize(width: 390, height: 760), DynamicTypeSize.large),
             ("landscape", CGSize(width: 760, height: 340), DynamicTypeSize.large),
             ("large-text", CGSize(width: 390, height: 760), DynamicTypeSize.accessibility5),
             ("map-mode", CGSize(width: 760, height: 340), DynamicTypeSize.large)
         ] {
             var panel = JourneyPanelState()
             if name == "map-mode" { panel.set(.collapsed) }
+            if name == "portrait-details" { panel.set(.expanded) }
             let root = JourneyPreviewView(panel: .constant(panel))
                 .environment(model).dynamicTypeSize(type)
             let host = UIHostingController(rootView: root)
@@ -4528,7 +4530,9 @@ extension FoldRouteTests {
                 func scrollViews(in view: UIView) -> [UIScrollView] {
                     (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
                 }
-                if let scroll = scrollViews(in: host.view).last(where: { $0.contentSize.height > $0.bounds.height }) {
+                let scrollable = scrollViews(in: host.view).filter { $0.contentSize.height > $0.bounds.height }
+                if name == "portrait-details" { XCTAssertEqual(scrollable.count, 1) }
+                if let scroll = scrollable.last {
                     scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentSize.height - scroll.bounds.height), animated: false)
                     try await Task.sleep(for: .milliseconds(150))
                     let bottom = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in

@@ -98,6 +98,7 @@ export class JourneyView {
           this.fixedHeight =
             height(".panel-tools") +
             height(".panel-handle") +
+            height(".panel-summary") +
             height(".panel-actions") +
             20;
           this.choiceHeight =
@@ -115,12 +116,14 @@ export class JourneyView {
           "panel-scroll-all",
           available - 16 < fixed + row,
         );
+        if (!panel.classList.contains("panel-scroll-all")) panel.scrollTop = 0;
         this.updateMapAccess();
       });
     });
     for (const element of [
       el("map-view"),
       el("choices"),
+      el("panel-summary"),
       ...el("journey-panel").querySelectorAll(".panel-tools, .panel-actions"),
     ])
       observer.observe(element);
@@ -355,7 +358,7 @@ export class JourneyView {
   }
   private reserveOverviewHeight() {
     const panel = el("journey-panel");
-    if (!this.lastRender || this.size === "expanded" || this.mapOnly) {
+    if (!this.lastRender || this.mapOnly) {
       panel.style.minHeight = "0px";
       return;
     }
@@ -380,7 +383,10 @@ export class JourneyView {
     });
     probe.querySelector<HTMLElement>("#panel-content")!.style.overflow =
       "visible";
+    const probeSummary = probe.querySelector<HTMLElement>("#panel-summary")!;
+    probeSummary.style.minHeight = "0";
     document.body.append(probe);
+    let summaryHeight = 0;
     let height = 0;
     for (const journey of state.journeys) {
       this.renderSummary(
@@ -406,9 +412,14 @@ export class JourneyView {
         delay === undefined
           ? ""
           : `Start erst ${clock(journey.departure)} – ${duration(delay)} nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.`;
+      summaryHeight = Math.max(
+        summaryHeight,
+        probeSummary.getBoundingClientRect().height,
+      );
       height = Math.max(height, probe.getBoundingClientRect().height);
     }
     probe.remove();
+    el("panel-summary").style.minHeight = `${summaryHeight}px`;
     const maximum =
       el("map-view").clientHeight -
       (panel.classList.contains("panel-full-height")
@@ -416,7 +427,10 @@ export class JourneyView {
         : innerWidth >= 900
           ? 40
           : 134);
-    panel.style.minHeight = `${Math.max(0, Math.min(height, maximum))}px`;
+    panel.style.minHeight =
+      this.size === "expanded"
+        ? "0px"
+        : `${Math.max(0, Math.min(height, maximum))}px`;
   }
   private details(j: Journey, restored: boolean) {
     const line = el("fold-line");

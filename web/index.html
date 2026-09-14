@@ -178,6 +178,17 @@
             </div>
           </div>
           <div
+            id="panel-summary"
+            class="panel-summary"
+            tabindex="0"
+            aria-label="Verbindungen wechseln"
+          >
+            <p id="option-title" class="option-title">Deine Möglichkeiten</p>
+            <h2 id="route-arrival">Route finden.</h2>
+            <p id="route-duration">Rad und ÖPNV gemeinsam geplant.</p>
+            <p id="route-range"></p>
+          </div>
+          <div
             id="panel-content"
             class="panel-content"
             tabindex="0"
@@ -192,17 +203,6 @@
                 aria-label="Planungslink"
               />
             </label>
-            <div
-              id="panel-summary"
-              class="panel-summary"
-              tabindex="0"
-              aria-label="Verbindungen wechseln"
-            >
-              <p id="option-title" class="option-title">Deine Möglichkeiten</p>
-              <h2 id="route-arrival">Route finden.</h2>
-              <p id="route-duration">Rad und ÖPNV gemeinsam geplant.</p>
-              <p id="route-range"></p>
-            </div>
             <div
               id="choices"
               class="route-choices"
@@ -474,7 +474,9 @@
       <span>Neue Version verfügbar.</span>
       <div class="update-actions">
         <button id="update-later" type="button">Später</button>
-        <button id="update-now" type="button" class="primary">Aktualisieren</button>
+        <button id="update-now" type="button" class="primary">
+          Aktualisieren
+        </button>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

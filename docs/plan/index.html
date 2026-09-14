@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-DnpT8KsA.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-B1X5F20z.css">
+    <script type="module" crossorigin src="./assets/index-CQWrum8w.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-D-lLvuYm.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search">
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -180,6 +180,17 @@
             </div>
           </div>
           <div
+            id="panel-summary"
+            class="panel-summary"
+            tabindex="0"
+            aria-label="Verbindungen wechseln"
+          >
+            <p id="option-title" class="option-title">Deine Möglichkeiten</p>
+            <h2 id="route-arrival">Route finden.</h2>
+            <p id="route-duration">Rad und ÖPNV gemeinsam geplant.</p>
+            <p id="route-range"></p>
+          </div>
+          <div
             id="panel-content"
             class="panel-content"
             tabindex="0"
@@ -194,17 +205,6 @@
                 aria-label="Planungslink"
               />
             </label>
-            <div
-              id="panel-summary"
-              class="panel-summary"
-              tabindex="0"
-              aria-label="Verbindungen wechseln"
-            >
-              <p id="option-title" class="option-title">Deine Möglichkeiten</p>
-              <h2 id="route-arrival">Route finden.</h2>
-              <p id="route-duration">Rad und ÖPNV gemeinsam geplant.</p>
-              <p id="route-range"></p>
-            </div>
             <div
               id="choices"
               class="route-choices"
@@ -476,7 +476,9 @@
       <span>Neue Version verfügbar.</span>
       <div class="update-actions">
         <button id="update-later" type="button">Später</button>
-        <button id="update-now" type="button" class="primary">Aktualisieren</button>
+        <button id="update-now" type="button" class="primary">
+          Aktualisieren
+        </button>
       </div>
     </div>
   </body>

@@ -81,3 +81,5 @@ Nach bestätigtem **Navigation beenden** berechnet FoldRoute bis zu drei aktuell
 Für den Navigationsstart gelten [Standort- und Entfernungsgrenzen](routing.md#navigationsstart-ios). Aktuelle ÖPNV-Zeiten und Störungsvorschläge sind unter [Echtzeit während der Navigation](routing.md#echtzeit-während-der-navigation-ios) beschrieben.
 
 Beim Vergleich der Routen bleibt der Kartenausschnitt stabil. Die Übersicht umfasst alle angebotenen Alternativen und erweitert sich bei nachgeladenen Umwegen nur bei Bedarf. Nach eigenem Verschieben oder Zoomen stellt „Alle Routen anzeigen“ die gemeinsame Übersicht wieder her; bei einer einzelnen Verbindung heißt die Aktion „Gesamte Route anzeigen“.
+
+In Web/PWA und der iPhone-Reisevorschau bleiben Abfahrt, Ankunft und Gesamtdauer beim Scrollen sichtbar. Alternativen, Hinweise und Reisedetails scrollen darunter; die Aktionen bleiben unten erreichbar. Bei wenig Platz nutzt das Panel zunächst die volle Höhe. Reicht diese bei großer Schrift oder im Querformat nicht aus, lässt sich ausnahmsweise das gesamte Panel scrollen.

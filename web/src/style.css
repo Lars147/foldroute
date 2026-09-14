@@ -466,6 +466,8 @@ input[type="search"] {
   border-radius: 50%;
 }
 .panel-summary {
+  padding: 4px;
+  margin: 0 -4px;
   touch-action: pan-y;
   flex-shrink: 0;
 }
@@ -1301,6 +1303,7 @@ dialog.compact .dialog-actions {
   top: auto;
   height: auto;
 }
+.panel-map-only .panel-summary,
 .panel-map-only .panel-content,
 .panel-map-only .panel-actions {
   display: none;

@@ -11,19 +11,22 @@ struct JourneyPreviewView: View {
     @State private var contentHeight: CGFloat = 320
     @State private var actionsHeight: CGFloat = 112
     @State private var headerHeight: CGFloat = 44
+    @State private var summaryHeight: CGFloat = 150
+    @State private var choiceHeight: CGFloat = 64
     @State private var lastHandleDrag = Date.distantPast
 
     var body: some View {
         if let journey = model.journey {
             GeometryReader { geometry in
                 let available = max(0, geometry.size.height - 8)
-                let fullHeight = dynamicTypeSize.isAccessibilitySize || available < 500
-                let heights = JourneyPanelHeights(available: available, summary: headerHeight,
+                let fixedHeight = headerHeight + (model.isReplanningAfterNavigation ? 0 : summaryHeight) + actionsHeight + 64
+                let fullHeight = dynamicTypeSize.isAccessibilitySize || available - 128 < fixedHeight + choiceHeight
+                let heights = JourneyPanelHeights(available: available, summary: headerHeight + (model.isReplanningAfterNavigation ? 0 : summaryHeight),
                     actions: actionsHeight, content: contentHeight, topClearance: fullHeight ? 0 : 128)
                 let mapMode = fullHeight && panel.size == .collapsed
                 let coveredMap = fullHeight && !mapMode
                 let height = mapMode ? headerHeight + 32 : heights[fullHeight ? .expanded : panel.size]
-                let scrollActions = fullHeight || headerHeight + actionsHeight + 240 > height
+                let scrollAll = available < fixedHeight + choiceHeight
                 let mapPanelHeight = coveredMap || panel.size == .expanded
                     ? min(cameraPanelHeight, available * 0.65) : cameraPanelHeight
                 ZStack(alignment: .bottom) {
@@ -42,35 +45,17 @@ struct JourneyPreviewView: View {
                     .accessibilityHidden(coveredMap)
                     .allowsHitTesting(!coveredMap)
 
-                    VStack(spacing: 12) {
-                        panelHeader(fullHeight: fullHeight)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
-                        if !mapMode {
+                    Group {
+                        if scrollAll && !mapMode {
                             ScrollView {
-                                VStack(alignment: .leading, spacing: 16) {
-                                    if model.isReplanningAfterNavigation {
-                                        Text("Neue Routen nach \(model.destination?.name ?? journey.destination.name)").font(.headline)
-                                    } else {
-                                        choices
-                                        reservedAlternativeContent(journey) { summary($0) }
-                                        if panel.size == .expanded {
-                                            FoldLine(legs: journey.legs)
-                                            ForEach(journey.legs) { JourneyLegRow(leg: $0) }
-                                        }
-                                    }
-                                    reservedAlternativeContent(journey) { planningNotices($0) }
-                                    if scrollActions { actions }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                                    if !scrollActions { contentHeight = $0 }
-                                }
+                                panelContents(journey, fullHeight: fullHeight, mapMode: false, scrollAll: true)
                             }
                             .scrollBounceBehavior(.basedOnSize)
                             .onScrollPhaseChange { _, phase in
                                 if phase == .interacting { model.holdSelectedJourney() }
                             }
-                            if !scrollActions { actions }
+                        } else {
+                            panelContents(journey, fullHeight: fullHeight, mapMode: mapMode, scrollAll: false)
                         }
                     }
                     .padding(16)
@@ -94,6 +79,59 @@ struct JourneyPreviewView: View {
                 Text("Der geplante Start liegt \(distance.formattedDistance) von deinem Standort entfernt.")
             }
         }
+    }
+
+    private func panelContents(_ journey: Journey, fullHeight: Bool, mapMode: Bool, scrollAll: Bool) -> some View {
+        VStack(spacing: 12) {
+            panelHeader(fullHeight: fullHeight)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
+                .fixedSize(horizontal: false, vertical: true)
+            if !mapMode {
+                if !model.isReplanningAfterNavigation {
+                    reservedAlternativeContent(journey) { summary($0) }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { summaryHeight = $0 }
+                        .accessibilityIdentifier("journeyTimeHeader")
+                }
+                if scrollAll {
+                    routeContents(journey)
+                } else {
+                    ScrollView {
+                        routeContents(journey)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .onScrollPhaseChange { _, phase in
+                        if phase == .interacting { model.holdSelectedJourney() }
+                    }
+                }
+                actions
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func routeContents(_ journey: Journey) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if model.isReplanningAfterNavigation {
+                Text("Neue Routen nach \(model.destination?.name ?? journey.destination.name)").font(.headline)
+            } else {
+                choices
+                if panel.size == .expanded {
+                    FoldLine(legs: journey.legs)
+                    ForEach(journey.legs) { JourneyLegRow(leg: $0) }
+                }
+            }
+            reservedAlternativeContent(journey) { option in
+                VStack(alignment: .leading, spacing: 16) {
+                    if let comparison = CyclingComparison.label(option, limit: model.resultCyclingLimit) {
+                        Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.signalYellow)
+                    }
+                    planningNotices(option)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
     }
 
     private func reservedAlternativeContent<Content: View>(_ selected: Journey,
@@ -164,9 +202,6 @@ struct JourneyPreviewView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(optionTitle(journey)).font(.caption.weight(.semibold)).foregroundStyle(FoldRouteColor.signalYellow)
             JourneyTimeSummary(journey: journey)
-            if let comparison = CyclingComparison.label(journey, limit: model.resultCyclingLimit) {
-                Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.signalYellow)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -207,6 +242,9 @@ struct JourneyPreviewView: View {
                 .accessibilityLabel("\(optionTitle(option)). Ankunft \(option.arrival.formatted(date: .abbreviated, time: .shortened)), Gesamtdauer \(option.duration.formattedDuration). \(JourneyEffort(option).label)")
                 .accessibilityAddTraits(selected ? [.isSelected] : [])
                 .accessibilityIdentifier("journeyChoice-\(option.id)")
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
+                    if option.id == options.first?.id { choiceHeight = measured }
+                }
             }
         }
         .accessibilityElement(children: .contain)
