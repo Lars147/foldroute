@@ -7,6 +7,14 @@ export class RouteMap {
   private tiles?: L.TileLayer;
   private routes?: L.FeatureGroup;
   private selected?: Journey;
+  private journeys: Journey[] = [];
+  private envelope?: L.LatLngBounds;
+  private context?: string;
+  private manualCamera = false;
+  private layoutKey = "";
+  private reservedPanelHeight = 0;
+  private fitPending = false;
+  private overviewArea?: L.Bounds;
   private signature = "";
   private online = true;
   private locationFocus?: Place;
@@ -21,7 +29,12 @@ export class RouteMap {
     new ResizeObserver(() => this.resize()).observe(el("journey-panel"));
     window.addEventListener("resize", () => this.resize());
   }
-  show(journeys: Journey[], selected?: Journey, online = navigator.onLine) {
+  show(
+    journeys: Journey[],
+    selected?: Journey,
+    online = navigator.onLine,
+    context?: string,
+  ) {
     if (!this.map) {
       this.map = L.map("map", {
         zoomControl: false,
@@ -40,7 +53,10 @@ export class RouteMap {
         }
       });
       this.map.on("movestart zoomstart", () => {
-        if (!this.adjustingCamera) this.locationFocus = undefined;
+        if (!this.adjustingCamera) {
+          this.locationFocus = undefined;
+          this.manualCamera = true;
+        }
       });
       L.control.zoom({ position: "topright" }).addTo(this.map);
       this.routes = L.featureGroup().addTo(this.map);
@@ -70,11 +86,50 @@ export class RouteMap {
       el("map-error").hidden = false;
       el("map-error").textContent = "Offline · Straßenkarte nicht verfügbar.";
     }
-    const signature = JSON.stringify([journeys.map((j) => j.id), selected?.id]);
+    const routes =
+      selected && !journeys.some((j) => j.id === selected.id)
+        ? [...journeys, selected]
+        : journeys;
+    const nextContext =
+      context ??
+      (selected
+        ? JSON.stringify([selected.origin, selected.destination])
+        : undefined);
+    if (nextContext !== this.context || !selected) {
+      this.context = nextContext;
+      this.envelope = undefined;
+      this.manualCamera = false;
+      this.locationFocus = undefined;
+      this.layoutKey = "";
+      this.overviewArea = undefined;
+    }
+    this.journeys = routes;
+    this.selected = selected;
+    const label =
+      routes.length > 1 ? "Alle Routen anzeigen" : "Gesamte Route anzeigen";
+    el("map-route").setAttribute("aria-label", label);
+    el("map-route").title = label;
+    const coordinates = this.routeCoordinates();
+    const bounds = coordinates.length ? L.latLngBounds(coordinates) : undefined;
+    if (bounds && (!this.envelope || !this.envelope.contains(bounds))) {
+      this.envelope = this.envelope ? this.envelope.extend(bounds) : bounds;
+      this.fitPending = true;
+    }
+    const signature = JSON.stringify([
+      routes.map((j) => [
+        j.id,
+        j.origin,
+        j.destination,
+        j.legs.map((leg) => [
+          leg.kind,
+          leg.coordinates,
+          leg.kind === "stop" ? leg.from : null,
+        ]),
+      ]),
+      selected?.id,
+    ]);
     if (signature !== this.signature) {
       this.signature = signature;
-      if (selected?.id !== this.selected?.id) this.locationFocus = undefined;
-      this.selected = selected;
       this.routes!.clearLayers();
       const draw = (j: Journey, active: boolean) =>
         j.legs.forEach((leg) => {
@@ -103,8 +158,8 @@ export class RouteMap {
         draw(selected, true);
         this.drawPlaces(selected);
       }
-      this.resize();
-    } else this.map.invalidateSize({ pan: false });
+    }
+    this.resize();
   }
   private drawPlaces(journey: Journey) {
     type MapPlace = {
@@ -183,16 +238,47 @@ export class RouteMap {
   }
   resize() {
     if (!this.map || el("map-view").hidden) return;
-    this.map.invalidateSize({ pan: false });
+    const size = this.map.getSize();
+    if (size.x !== el("map").clientWidth || size.y !== el("map").clientHeight)
+      this.map.invalidateSize({ pan: false });
     if (this.locationFocus) {
       this.centerLocation();
       return;
     }
-    this.fitSelectedRoute();
+    const panel = el("journey-panel");
+    const layout = JSON.stringify([
+      el("map").clientWidth,
+      el("map").clientHeight,
+      panel.dataset.size,
+      panel.classList.contains("panel-map-only"),
+    ]);
+    let changed = layout !== this.layoutKey;
+    const height = panel.getBoundingClientRect().height;
+    if (changed) this.reservedPanelHeight = height;
+    else if (innerWidth < 900 && height > this.reservedPanelHeight + 0.5) {
+      this.reservedPanelHeight = height;
+      changed = true;
+    }
+    this.layoutKey = layout;
+    if (!this.manualCamera && (this.fitPending || changed)) {
+      if (changed) this.overviewArea = undefined;
+      this.fitOverview();
+    }
+  }
+  private routeCoordinates(): [number, number][] {
+    return this.journeys
+      .flatMap((j) => [
+        j.origin,
+        j.destination,
+        ...j.legs.filter((leg) => leg.kind === "stop").map((leg) => leg.from),
+        ...j.legs.flatMap((leg) => leg.coordinates),
+      ])
+      .map((p) => [p.latitude, p.longitude]);
   }
   fitRoute() {
     if (!this.map || !this.selected || el("map-view").hidden) return;
     this.locationFocus = undefined;
+    this.manualCamera = false;
     this.map.stop();
     if (this.zooming) {
       this.pendingRouteFit = true;
@@ -200,21 +286,29 @@ export class RouteMap {
     }
     this.map.closePopup();
     this.map.invalidateSize({ pan: false });
-    this.fitSelectedRoute(true);
+    const coordinates = this.routeCoordinates();
+    this.envelope = coordinates.length
+      ? L.latLngBounds(coordinates)
+      : undefined;
+    this.fitOverview(true);
   }
-  private fitSelectedRoute(explicit = false) {
-    if (!this.map || !this.selected) return;
-    const coordinates = [
-      this.selected.origin,
-      this.selected.destination,
-      ...this.selected.legs.flatMap((leg) => leg.coordinates),
-    ].map((p) => [p.latitude, p.longitude] as [number, number]);
-    if (!coordinates.length) return;
+  private fitOverview(explicit = false) {
+    if (!this.map || !this.selected || !this.envelope) return;
+    const coordinates = this.envelope;
     const desktop = window.innerWidth >= 900,
       panel = el("journey-panel").getBoundingClientRect(),
       height = el("map").clientHeight;
     // Expanded details prioritize reading. Refit once enough map is visible again.
     if (!explicit && !desktop && height - panel.height < 100) return;
+    this.fitPending = false;
+    if (
+      !explicit &&
+      this.overviewArea &&
+      [coordinates.getNorthWest(), coordinates.getSouthEast()].every((point) =>
+        this.overviewArea!.contains(this.map!.latLngToContainerPoint(point)),
+      )
+    )
+      return;
     const markerPadding = this.markerHalfWidth + 8;
     if (explicit) {
       const bounds = el("map").getBoundingClientRect();
@@ -230,7 +324,7 @@ export class RouteMap {
         Math.max(80 + this.markerHalfWidth, horizontal),
         bounds.width - left - horizontal - 1,
       );
-      this.map.fitBounds(L.latLngBounds(coordinates), {
+      this.setOverviewBounds(coordinates, {
         paddingTopLeft: [left + horizontal, vertical],
         paddingBottomRight: [right, bounds.height - bottom + vertical],
         maxZoom: 15,
@@ -238,16 +332,29 @@ export class RouteMap {
       });
       return;
     }
-    this.map.fitBounds(L.latLngBounds(coordinates), {
+    this.setOverviewBounds(coordinates, {
       paddingTopLeft: desktop
         ? [Math.max(460, panel.right + markerPadding), 35]
         : [Math.max(28, markerPadding), 35],
       paddingBottomRight: desktop
         ? [Math.max(65, markerPadding), 40]
-        : [Math.max(45, markerPadding), panel.height + 45],
+        : [Math.max(45, markerPadding), Math.max(panel.height, this.reservedPanelHeight) + 45],
       maxZoom: 15,
       animate: false,
     });
+  }
+  private setOverviewBounds(
+    bounds: L.LatLngBounds,
+    options: L.FitBoundsOptions,
+  ) {
+    const topLeft = L.point(options.paddingTopLeft ?? [0, 0]);
+    const bottomRight = this.map!.getSize().subtract(
+      L.point(options.paddingBottomRight ?? [0, 0]),
+    );
+    this.overviewArea = L.bounds(topLeft, bottomRight);
+    this.adjustingCamera = true;
+    this.map!.fitBounds(bounds, options);
+    this.adjustingCamera = false;
   }
   center(place: Place) {
     this.pendingRouteFit = false;

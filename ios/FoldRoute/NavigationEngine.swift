@@ -90,7 +90,16 @@ final class NavigationEngine {
         onProgress?(NavigationProgress(legIndex: currentLegIndex, maneuverIndex: currentManeuverIndex))
     }
 
-    func update(location: CLLocation) {
+    func invalidateLocation() {
+        offRouteSamples = 0
+        distanceToNext = nil
+    }
+
+    func update(location: CLLocation, now: Date = Date()) {
+        guard NavigationStartPolicy.isUsable(location, now: now) else {
+            invalidateLocation()
+            return
+        }
         guard case .active = phase, let currentLeg else { return }
         let coordinate = Coordinate(location.coordinate)
 
@@ -151,6 +160,13 @@ final class NavigationEngine {
         }
         journey = updated.replacingLegs(legs)
         advance()
+    }
+
+    @discardableResult
+    func completeLeg(expectedID: UUID) -> Bool {
+        guard case .active = phase, !isReplanning, currentLeg?.id == expectedID else { return false }
+        advance()
+        return true
     }
 
     func advance() {

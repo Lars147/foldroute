@@ -49,6 +49,10 @@ let personalSettings: RoutingSettings;
 let temporarySettings = false;
 let activePlan: RouteLink | undefined;
 let activePlanId: string | undefined;
+const planResults = new Map<
+  string,
+  { plan: RouteLink; state: PlanningState; settingsReplanPending: boolean }
+>();
 const initialLink = readRouteURL(new URL(location.href));
 let originOverride: Place | undefined,
   timing: Timing = "now",
@@ -104,6 +108,7 @@ const session = new PlanningSession(api, renderPlanning, (request, options) => {
   activePlanId ??= crypto.randomUUID();
   writeHistory();
 });
+journeyView.onDetailsOpened = () => session.holdSelection();
 function updateLinkUI() {
   el("share-plan").hidden = !activePlan;
   el<HTMLButtonElement>("share-plan").disabled =
@@ -135,6 +140,7 @@ function beginPlanning() {
   persistKey = "";
   if (view === "map") writeHistory(true);
   else show("map");
+  el("panel-summary").focus({ preventScroll: true });
 }
 async function restoreLink(
   parsed: ParsedRouteLink,
@@ -173,13 +179,27 @@ async function restoreLink(
   time = request.time;
   settingsUI();
   contextUI();
+  const previousResult = planResults.get(activePlanId);
+  if (
+    previousResult &&
+    routeURL(location.href, previousResult.plan).href ===
+      routeURL(location.href, activePlan).href
+  ) {
+    settingsReplanPending = previousResult.settingsReplanPending;
+    session.restoreContext(previousResult.state);
+    show(next === "settings" || next === "history" ? next : "map", false);
+    if (view === "map") el("panel-summary").focus({ preventScroll: true });
+    writeHistory();
+    return;
+  }
   session.prepare(
     request,
     navigator.onLine
       ? ""
       : "Für diese Planung brauchst du Internet. Danach auf Aktualisieren tippen.",
   );
-  show(next === "settings" ? "settings" : "map", false);
+  show(next === "settings" || next === "history" ? next : "map", false);
+  if (view === "map") el("panel-summary").focus({ preventScroll: true });
   writeHistory();
   if (next === "settings") {
     settingsReplanPending = true;
@@ -189,8 +209,10 @@ async function restoreLink(
     const message =
       "Der Zeitpunkt dieses Links liegt in der Vergangenheit. Bitte einen neuen Zeitpunkt wählen.";
     session.stop(message);
-    openAdjust(request.destination);
-    el("adjust-status").textContent = message;
+    if (view === "map") {
+      openAdjust(request.destination);
+      el("adjust-status").textContent = message;
+    }
     return;
   }
   if (navigator.onLine) await session.calculate(request, settings, false);
@@ -201,10 +223,7 @@ function show(next: View, push = true) {
     next !== "settings" &&
     settingsReplanPending &&
     !!session.state.request;
-  if (replan) {
-    settingsReplanPending = false;
-    next = "map";
-  }
+  if (replan) updateSettingsReplanPending(false);
   if (view === next) {
     if (next === "map") requestAnimationFrame(() => routeMap.resize());
     return;
@@ -233,10 +252,10 @@ function show(next: View, push = true) {
     updateSearchEmpty();
   }
   if (next === "map") {
-    routeMap.show(session.state.journeys, session.state.selected);
+    showRouteMap(session.state);
     requestAnimationFrame(() => routeMap.resize());
   }
-  if (replan) void refreshRoute();
+  if (replan) void refreshRoute(false);
 }
 window.addEventListener("popstate", (event) => {
   if (dialog.open) closeAdjust();
@@ -254,16 +273,18 @@ window.addEventListener("popstate", (event) => {
     );
     if (entry) {
       if (openedHistoryId !== entry.id)
-        openSnapshot(entry.snapshot, entry.id, false);
+        openSnapshot(
+          entry.snapshot,
+          entry.id,
+          false,
+          next === "map",
+          event.state.planId,
+        );
       show(next, false);
     } else {
       show("history", false);
       toast("Diese gespeicherte Fahrt ist nicht mehr vorhanden.");
     }
-    return;
-  }
-  if (next === "history") {
-    show("history", false);
     return;
   }
   if (event.state?.planId === activePlanId) {
@@ -302,6 +323,20 @@ function historyUI() {
           `Über ${request.stops.map((stop) => stop.place.name).join(" · ")}`,
         ),
       );
+    const plannedAt = new Date(entry.snapshot.savedAt * 1000);
+    const timestamp = node(
+      "time",
+      `Zuletzt geplant: ${plannedAt.toLocaleDateString("de-DE", {
+        day: "numeric",
+        month: "short",
+        ...(plannedAt.getFullYear() !== new Date().getFullYear()
+          ? { year: "numeric" as const }
+          : {}),
+      })}, ${clock(entry.snapshot.savedAt)}`,
+      "history-timestamp",
+    );
+    timestamp.dateTime = plannedAt.toISOString();
+    open.append(timestamp);
     open.onclick = () => openSnapshot(entry.snapshot, entry.id);
     const remove = node("button", "", "icon-button");
     remove.type = "button";
@@ -371,17 +406,38 @@ async function persist(snapshot: SavedJourney, id: string) {
     );
   }
 }
+function showRouteMap(state: PlanningState) {
+  routeMap.show(
+    state.journeys,
+    state.selected,
+    navigator.onLine,
+    JSON.stringify([state.calculationId ?? state.queriedAt, state.request]),
+  );
+}
 function renderPlanning(state: PlanningState) {
+  if (activePlanId && activePlan && state.selected) {
+    planResults.set(activePlanId, {
+      ...structuredClone({ plan: activePlan, state }),
+      settingsReplanPending:
+        planResults.get(activePlanId)?.settingsReplanPending ?? false,
+    });
+    if (planResults.size > 32)
+      planResults.delete(planResults.keys().next().value!);
+  }
   if (state.busy && !planningWasBusy) currentSaveSuppressed = false;
   planningWasBusy = state.busy;
   updateLinkUI();
-  journeyView.render(state, settings.maxCyclingMinutes);
-  if (view === "map") routeMap.show(state.journeys, state.selected);
+  journeyView.render(
+    state,
+    state.resultSettings?.maxCyclingMinutes ?? settings.maxCyclingMinutes,
+  );
+  if (view === "map") showRouteMap(state);
   if (
     state.selected &&
     state.request &&
     state.resultSettings &&
     !state.restored &&
+    !state.staleReason &&
     !currentSaveSuppressed &&
     state.calculationId &&
     !suppressedCalculations.has(state.calculationId)
@@ -443,6 +499,7 @@ const draftDestination = new PlaceSearch(
 );
 const stopEditor = new StopEditor(api, book, toast);
 let useLocation = true;
+let adjustMode: "context" | "replan" = "context";
 let draftLocationRequest: AbortController | undefined;
 function cancelDraftLocation() {
   draftLocationRequest?.abort();
@@ -478,7 +535,7 @@ async function start(place: Place) {
     settings,
     !originOverride,
   );
-  if (result === "location-error") {
+  if (result === "location-error" && view === "map") {
     openAdjust(place);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
@@ -487,6 +544,8 @@ async function start(place: Place) {
 }
 function openAdjust(target?: Place) {
   destination.cancel();
+  adjustMode = activePlan || session.state.request ? "replan" : "context";
+  el("use-context").hidden = adjustMode !== "context";
   const request = session.state.request;
   stopEditor.set(structuredClone(stops));
   draftOrigin.set(originOverride ?? request?.origin);
@@ -609,6 +668,7 @@ function readContext(): boolean {
   return true;
 }
 el("use-context").onclick = () => {
+  if (adjustMode !== "context") return;
   if (readContext()) {
     closeAdjust();
     toast("Start, Zwischenziele und Zeitpunkt übernommen.");
@@ -643,28 +703,35 @@ el("route-form").onsubmit = async (event) => {
     settings,
     !originOverride,
   );
-  if (result === "location-error") {
+  if (result === "location-error" && view === "map") {
     openAdjust(target);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
   }
 };
-async function refreshRoute() {
+async function refreshRoute(interactive = true) {
   const request = activePlan?.request ?? session.state.request;
   if (!request) return;
   if (request.timing !== "now" && request.time < Date.now() / 1000) {
     const message = "Bitte einen aktuellen oder zukünftigen Zeitpunkt wählen.";
     session.stop(message);
-    openAdjust(request.destination);
-    el("adjust-status").textContent = message;
+    if (interactive && view === "map") {
+      openAdjust(request.destination);
+      el("adjust-status").textContent = message;
+    }
     return;
+  }
+  if (activePlan && openedHistoryId) {
+    openedHistoryId = undefined;
+    activePlanId = crypto.randomUUID();
+    writeHistory(true);
   }
   const result = await session.calculate(
     request,
     settings,
     request.origin.name === "Aktueller Standort",
   );
-  if (result === "location-error") {
+  if (result === "location-error" && interactive && view === "map") {
     openAdjust(request.destination);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
@@ -686,6 +753,7 @@ el("close-route").onclick = () => {
   el("place-status").textContent = "";
   show("search");
   writeHistory();
+  destination.input.focus({ preventScroll: true });
 };
 el("cancel").onclick = () => session.stop();
 el("dismiss-location-error").onclick = () => {
@@ -808,21 +876,33 @@ function settingsUI() {
 }
 function settingsSummary() {
   el("settings-summary").textContent =
-    `${settings.cyclingSpeedKilometersPerHour} km/h · ${settings.foldingDuration / 60} min je Falten und Entfalten. ${temporarySettings ? "Einstellungen gelten nur für diese Planung; beim Verlassen wird neu berechnet." : "Änderungen werden gespeichert; beim Verlassen wird neu berechnet."}`;
+    `${settings.cyclingSpeedKilometersPerHour} km/h · ${settings.foldingDuration / 60} min je Falten und Entfalten. ${temporarySettings ? "Einstellungen gelten nur für diese Planung." : "Änderungen werden gespeichert."}${session.state.request ? " Beim Verlassen wird einmal neu berechnet. Bisherige Ergebnisse bleiben bis dahin erhalten." : ""}`;
+}
+function updateSettingsReplanPending(pending: boolean) {
+  settingsReplanPending = pending;
+  const previousResult = activePlanId
+    ? planResults.get(activePlanId)
+    : undefined;
+  if (previousResult) previousResult.settingsReplanPending = pending;
 }
 function applySettings(next: RoutingSettings) {
   if (!validSettings(next) || JSON.stringify(settings) === JSON.stringify(next))
     return;
+  const firstChange = !settingsReplanPending;
   settings = structuredClone(next);
+  if (activePlan) {
+    if (firstChange) {
+      openedHistoryId = undefined;
+      activePlanId = crypto.randomUUID();
+    }
+    activePlan = { ...activePlan, settings: structuredClone(settings) };
+    writeHistory(firstChange);
+  }
   if (session.state.request) {
     session.invalidateForSettings();
-    settingsReplanPending = true;
+    updateSettingsReplanPending(true);
     activeSnapshot = undefined;
     persistKey = "";
-  }
-  if (activePlan) {
-    activePlan = { ...activePlan, settings: structuredClone(settings) };
-    writeHistory();
   }
   if (temporarySettings) {
     settingsSummary();
@@ -901,6 +981,7 @@ el("confirm-delete-data").onclick = async () => {
     offlineEnabled = true;
     personalSettings = structuredClone(defaults);
     releasePlan();
+    planResults.clear();
     originOverride = undefined;
     stops = [];
     timing = "now";
@@ -981,7 +1062,13 @@ el("confirm-delete-history").onclick = async () => {
     button.disabled = false;
   }
 };
-function openSnapshot(snapshot: SavedJourney, id?: string, push = true) {
+function openSnapshot(
+  snapshot: SavedJourney,
+  id?: string,
+  push = true,
+  focus = true,
+  planId?: string,
+) {
   settingsReplanPending = false;
   openedHistoryId = id;
   activePlan = {
@@ -999,8 +1086,13 @@ function openSnapshot(snapshot: SavedJourney, id?: string, push = true) {
   }
   settings = structuredClone(activePlan.settings);
   temporarySettings = true;
-  activePlanId = crypto.randomUUID();
-  session.restore(snapshot.journey, activePlan.request, snapshot.savedAt);
+  activePlanId = planId ?? crypto.randomUUID();
+  session.restore(
+    snapshot.journey,
+    activePlan.request,
+    snapshot.savedAt,
+    activePlan.settings,
+  );
   destination.set(activePlan.request.destination);
   originOverride = activePlan.request.origin;
   stops = structuredClone(activePlan.request.stops ?? []);
@@ -1012,11 +1104,12 @@ function openSnapshot(snapshot: SavedJourney, id?: string, push = true) {
   if (view === "map") {
     if (push) writeHistory(true);
   } else show("map", push);
+  if (focus) el("panel-summary").focus({ preventScroll: true });
 }
-function openSaved() {
-  if (saved) openSnapshot(saved, historyEntries[0]?.id);
+function openSaved(focus = true) {
+  if (saved) openSnapshot(saved, historyEntries[0]?.id, true, focus);
 }
-el("open-saved").onclick = openSaved;
+el("open-saved").onclick = () => openSaved();
 el("replan-saved").onclick = async () => {
   if (!activePlan || !navigator.onLine) return;
   const request = structuredClone(activePlan.request);
@@ -1024,6 +1117,10 @@ el("replan-saved").onclick = async () => {
   request.time = Date.now() / 1000;
   timing = "now";
   time = request.time;
+  openedHistoryId = undefined;
+  activePlanId = crypto.randomUUID();
+  activePlan = { request, settings: structuredClone(settings) };
+  writeHistory(true);
   contextUI();
   await session.calculate(request, settings, false);
 };
@@ -1033,8 +1130,12 @@ function connectionChanged() {
   el<HTMLButtonElement>("replan-saved").disabled =
     !navigator.onLine || session.state.busy;
   if (view === "map") {
-    journeyView.render(session.state, settings.maxCyclingMinutes);
-    routeMap.show(session.state.journeys, session.state.selected);
+    journeyView.render(
+      session.state,
+      session.state.resultSettings?.maxCyclingMinutes ??
+        settings.maxCyclingMinutes,
+    );
+    showRouteMap(session.state);
   }
   if (!navigator.onLine && session.state.busy)
     session.stop("Offline. Bereits gefundene Verbindungen bleiben verfügbar.");
@@ -1060,7 +1161,7 @@ void store
       initialLink.kind === "none" &&
       !activePlan
     )
-      openSaved();
+      openSaved(false);
   })
   .catch(() => {
     el("storage-message").textContent =

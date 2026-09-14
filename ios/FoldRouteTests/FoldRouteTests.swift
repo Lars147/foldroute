@@ -2,6 +2,8 @@ import CoreLocation
 import Foundation
 import MapKit
 import SwiftData
+import SwiftUI
+import UIKit
 import XCTest
 @testable import FoldRoute
 
@@ -1975,7 +1977,7 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
                 horizontalAccuracy: 5,
                 verticalAccuracy: 5,
                 timestamp: start
-            )
+            ), now: start
         )
         XCTAssertEqual(engine.phase, .active(legIndex: 1, maneuverIndex: 0))
 
@@ -2002,11 +2004,11 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
         )
 
         engine.start()
-        engine.update(location: offRoute)
-        engine.update(location: offRoute)
+        engine.update(location: offRoute, now: offRoute.timestamp)
+        engine.update(location: offRoute, now: offRoute.timestamp)
         XCTAssertEqual(rerouteCount, 0)
 
-        engine.update(location: offRoute)
+        engine.update(location: offRoute, now: offRoute.timestamp)
         XCTAssertEqual(rerouteCount, 1)
         XCTAssertTrue(engine.isReplanning)
     }
@@ -2864,7 +2866,7 @@ extension FoldRouteTests {
     }
 
     @MainActor
-    func testRoutingSettingsInvalidateImmediatelyAndBatchOnExit() async throws {
+    func testRoutingSettingsRetainFallbackAndBatchOnExit() async throws {
         let planner = RecordingJourneyPlanner()
         let (model, store) = try settingsModel(planner: planner)
         let origin = model.origin
@@ -2873,9 +2875,9 @@ extension FoldRouteTests {
         model.timingSelection = .arrive
         model.plannedDate = future
         model.settings.maxWalkingMinutes = 5
-        XCTAssertNil(model.journey)
-        XCTAssertTrue(model.journeyOptions.isEmpty)
-        XCTAssertNil(try store.loadActiveJourney())
+        XCTAssertNotNil(model.journey)
+        XCTAssertFalse(model.journeyOptions.isEmpty)
+        XCTAssertNotNil(try store.loadActiveJourney())
         model.settings.foldingDuration = 90
         model.settings.cyclingSpeedKilometersPerHour = 20
         model.saveSettings()
@@ -2907,7 +2909,7 @@ extension FoldRouteTests {
         for change in changes {
             let (model, _) = try settingsModel(planner: UnusedJourneyPlanner())
             change(&model.settings)
-            XCTAssertNil(model.journey)
+            XCTAssertNotNil(model.journey)
             XCTAssertTrue(model.isPreviewReplan)
             model.discardRoute()
             XCTAssertNil(model.finishSettingsEditing())
@@ -2937,7 +2939,7 @@ extension FoldRouteTests {
         model.settings.maxWalkingMinutes += 1
         await model.finishSettingsEditing()?.value
         guard case .failed = model.planningState else { return XCTFail("Expected failure") }
-        XCTAssertNil(model.journey)
+        XCTAssertNotNil(model.journey)
         await model.retryPreviewPlanning()?.value
         let requests = await planner.recordedRequests()
         XCTAssertEqual(requests.count, 2)
@@ -3007,6 +3009,10 @@ private final class SettingsStreamPlanner: JourneyPlanning, @unchecked Sendable 
             }
         }
     }
+    func emitEmpty(_ index: Int) {
+        let stream = lock.withLock { streams[index] }
+        stream.yield(JourneyOptionsUpdate(journeys: [], status: .searching))
+    }
     func fail(_ index: Int) {
         let stream = lock.withLock { streams[index] }
         stream.finish(throwing: RoutePlannerError.noRoute)
@@ -3042,7 +3048,7 @@ extension FoldRouteTests {
         await first.value
         try await awaitGate { planner.cancelled(0) }
         planner.emit(0, journey: makeJourney(id: "stale"))
-        XCTAssertNil(model.journey)
+        XCTAssertNotNil(model.journey)
         let replacement = try XCTUnwrap(model.finishSettingsEditing())
         try await awaitGate { planner.count == 2 }
         planner.emit(1, journey: makeJourney(id: "fresh"))
@@ -3060,7 +3066,7 @@ extension FoldRouteTests {
         model.settings.foldingDuration += 30
         await first.value
         try await awaitGate { planner.cancelled(0) }
-        XCTAssertNil(model.journey)
+        XCTAssertNotNil(model.journey)
         let second = try XCTUnwrap(model.finishSettingsEditing())
         try await awaitGate { planner.count == 2 }
         model.discardRoute()
@@ -3073,7 +3079,7 @@ extension FoldRouteTests {
     }
 
     @MainActor
-    func testSettingsCancelProgressiveSearchWithoutRestoringOldCards() async throws {
+    func testSettingsCancelProgressiveSearchRetainingCurrentCards() async throws {
         let planner = SettingsStreamPlanner()
         let (model, _) = try settingsModel(planner: planner)
         let first = Task { await model.planRoute() }
@@ -3084,8 +3090,8 @@ extension FoldRouteTests {
         model.settings.maxBikeTransfers = 0
         try await awaitGate { planner.cancelled(0) }
         planner.emit(0, journey: makeJourney(id: "late-alternative"))
-        XCTAssertNil(model.journey)
-        XCTAssertTrue(model.journeyOptions.isEmpty)
+        XCTAssertNotNil(model.journey)
+        XCTAssertFalse(model.journeyOptions.isEmpty)
         model.discardRoute()
     }
 }
@@ -3168,7 +3174,7 @@ extension FoldRouteTests {
         XCTAssertEqual(model.previewTiming, first.timing)
         assertFrozenNow(first.timing)
         model.settings.maxCyclingMinutes = 60
-        XCTAssertNil(model.journey)
+        XCTAssertNotNil(model.journey)
         await model.finishSettingsEditing()?.value
         let requests = await planner.recordedRequests()
         XCTAssertEqual(requests.count, 2)
@@ -3256,9 +3262,9 @@ extension FoldRouteTests {
             model.plannedDate = future
             let task = try XCTUnwrap(model.refreshPlannedRoutes())
             XCTAssertTrue(model.isPreviewReplan)
-            XCTAssertNil(model.journey)
-            XCTAssertTrue(model.journeyOptions.isEmpty)
-            XCTAssertNil(try store.loadActiveJourney())
+            XCTAssertNotNil(model.journey)
+            XCTAssertFalse(model.journeyOptions.isEmpty)
+            XCTAssertNotNil(try store.loadActiveJourney())
             XCTAssertNil(model.refreshPlannedRoutes())
             XCTAssertNil(model.finishSettingsEditing())
             await task.value
@@ -4301,5 +4307,331 @@ extension FoldRouteTests {
         XCTAssertEqual(model.navigation?.journey.stops, original.stops)
         XCTAssertEqual(try store.loadActiveSnapshot()?.progress?.legIndex, 1)
         model.stopNavigation()
+    }
+}
+
+
+extension FoldRouteTests {
+    @MainActor
+    func testFallbackKeepsOriginalConfigurationUntilSuccessfulReplacement() async throws {
+        let planner = SettingsStreamPlanner()
+        let (model, store) = try settingsModel(planner: planner)
+        let previous = model.journey
+        let oldSettings = model.settings
+        model.settings.maxCyclingMinutes = 1
+        XCTAssertEqual(model.previewResultSettings, oldSettings)
+        XCTAssertEqual(model.resultCyclingLimit, oldSettings.maxCyclingMinutes)
+        XCTAssertEqual(try store.loadSettings(), model.settings)
+        let failed = try XCTUnwrap(model.finishSettingsEditing())
+        try await awaitGate { planner.count == 1 }
+        planner.emitEmpty(0)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(model.journey, previous)
+        XCTAssertEqual(model.previewResultSettings, oldSettings)
+        planner.fail(0)
+        await failed.value
+        XCTAssertEqual(model.journey, previous)
+        XCTAssertTrue(model.fallbackNotice?.contains("Neuberechnung nicht möglich") == true)
+        XCTAssertEqual(model.settings.maxCyclingMinutes, 1)
+        XCTAssertNil(model.finishSettingsEditing())
+        let retry = try XCTUnwrap(model.retryPreviewPlanning())
+        try await awaitGate { planner.count == 2 }
+        planner.emit(1, journey: makeJourney(id: "new-settings"))
+        await retry.value
+        XCTAssertEqual(model.journey?.id, "new-settings")
+        XCTAssertEqual(model.previewResultSettings, model.settings)
+        XCTAssertNil(model.fallbackNotice)
+    }
+
+    @MainActor
+    func testIntentionalDetailsHoldSelectionAndRecommendByTimeNotPosition() async throws {
+        let planner = SettingsStreamPlanner()
+        let (model, _) = try settingsModel(planner: planner)
+        let initial = Task { await model.planRoute() }
+        try await awaitGate { planner.count == 1 }
+        let old = benefitJourney(id: "old", direct: false, bikeMeters: 1000, arrival: 4000)
+        planner.emit(0, journey: old, complete: false)
+        await initial.value
+        let overviewID = model.previewOverviewID
+        model.holdSelectedJourney()
+        let better = benefitJourney(id: "better", direct: false, bikeMeters: 1000, arrival: 3000)
+        planner.emit(0, journey: better)
+        for _ in 0..<100 where model.recommendedJourney?.id != better.id { await Task.yield() }
+        XCTAssertEqual(model.journey?.id, old.id)
+        XCTAssertEqual(model.recommendedJourney?.id, better.id)
+        XCTAssertTrue(model.journeyOptions.contains { $0.id == better.id })
+        XCTAssertEqual(model.previewOverviewID, overviewID)
+        model.selectJourney(id: better.id)
+        XCTAssertEqual(model.journey?.id, better.id)
+        let tied = benefitJourney(id: "a-tie", direct: false, bikeMeters: 10, arrival: 3000)
+        model.journeyOptions = [tied, better]
+        XCTAssertEqual(model.recommendedJourney?.id, tied.id)
+        XCTAssertEqual(model.journey?.id, better.id)
+    }
+
+    func testJourneyEffortIncludesApproachButExcludesTransitionsAndKeepsZero() {
+        let original = makeJourney()
+        guard case .bike(let movement) = original.legs[0] else { return XCTFail("Expected movement") }
+        let transition = TransitionLeg(place: original.origin, startTime: original.departure,
+            endTime: original.departure.addingTimeInterval(600))
+        let result = original.replacingLegs([.approach(movement), .walk(movement), .fold(transition), .wait(transition), .unfold(transition)])
+        let effort = JourneyEffort(result)
+        let minutes = Int(movement.endTime.timeIntervalSince(movement.startTime) / 60)
+        XCTAssertEqual(effort.cyclingMinutes, minutes)
+        XCTAssertEqual(effort.walkingMinutes, minutes)
+        let idle = JourneyEffort(original.replacingLegs([.wait(transition)]))
+        XCTAssertEqual(idle.cyclingMinutes, 0)
+        XCTAssertEqual(idle.walkingMinutes, 0)
+        XCTAssertTrue(idle.label.contains("0 min"))
+    }
+
+    func testLocationStatusCoversPermissionAccuracyAndClockBoundaries() {
+        let now = Date()
+        func fix(age: Double = 0, accuracy: Double = 5) -> CLLocation {
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: 48, longitude: 11), altitude: 0,
+                       horizontalAccuracy: accuracy, verticalAccuracy: 5, timestamp: now.addingTimeInterval(-age))
+        }
+        XCTAssertEqual(LocationStatus.evaluate(authorization: .notDetermined, servicesEnabled: true, location: nil, now: now), .notDetermined)
+        XCTAssertEqual(LocationStatus.evaluate(authorization: .denied, servicesEnabled: true, location: fix(), now: now), .denied)
+        XCTAssertEqual(LocationStatus.evaluate(authorization: .restricted, servicesEnabled: false, location: nil, now: now), .restricted)
+        XCTAssertEqual(LocationStatus.evaluate(authorization: .authorizedWhenInUse, servicesEnabled: false, location: fix(), now: now), .disabled)
+        XCTAssertEqual(LocationStatus.evaluate(authorization: .authorizedWhenInUse, servicesEnabled: true, location: nil, now: now), .missing)
+        for (age, accuracy, expected) in [(60.0, 100.0, LocationStatus.ready), (60.01, 5, .stale), (0, 100.01, .inaccurate), (0, -1, .inaccurate), (0, 5, .ready)] {
+            XCTAssertEqual(LocationStatus.evaluate(authorization: .authorizedWhenInUse, servicesEnabled: true,
+                location: fix(age: age, accuracy: accuracy), now: now), expected)
+        }
+    }
+
+    @MainActor
+    func testBadFixCannotCompleteLegAndResetsOffRouteSequence() {
+        let journey = makeJourney()
+        var settings = NavigationSettings.defaults
+        settings.audioEnabled = false
+        settings.hapticsEnabled = false
+        let engine = NavigationEngine(journey: journey, settings: settings, guidance: GuidanceService())
+        let now = Date()
+        let staleEnd = CLLocation(coordinate: journey.destination.coordinate.clCoordinate, altitude: 0,
+            horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: now.addingTimeInterval(-61))
+        engine.start()
+        engine.update(location: staleEnd, now: now)
+        XCTAssertEqual(engine.currentLegIndex, 0)
+        XCTAssertNotEqual(engine.phase, .arrived)
+        var reroutes = 0
+        engine.onReroute = { reroutes += 1 }
+        let offRoute = CLLocation(coordinate: CLLocationCoordinate2D(latitude: 48.25, longitude: 11.75), altitude: 0,
+            horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: now)
+        engine.update(location: offRoute, now: now)
+        engine.update(location: offRoute, now: now)
+        engine.update(location: staleEnd, now: now)
+        engine.update(location: offRoute, now: now)
+        XCTAssertEqual(reroutes, 0)
+        engine.update(location: offRoute, now: now)
+        engine.update(location: offRoute, now: now)
+        XCTAssertEqual(reroutes, 1)
+    }
+
+    @MainActor
+    func testCompletionConfirmationRejectsAnAlreadyAdvancedLeg() {
+        let original = makeJourney()
+        let transition = TransitionLeg(place: original.destination, startTime: original.arrival,
+            endTime: original.arrival.addingTimeInterval(600))
+        let journey = original.replacingLegs(original.legs + [.wait(transition)])
+        var settings = NavigationSettings.defaults
+        settings.audioEnabled = false
+        settings.hapticsEnabled = false
+        let engine = NavigationEngine(journey: journey, settings: settings, guidance: GuidanceService())
+        engine.start()
+        let previousID = journey.legs[0].id
+        engine.advance()
+        XCTAssertFalse(engine.completeLeg(expectedID: previousID))
+        XCTAssertEqual(engine.currentLegIndex, 1)
+        XCTAssertTrue(JourneyLegKind.transit.requiresCompletionConfirmation)
+        XCTAssertFalse(JourneyLegKind.fold.requiresCompletionConfirmation)
+        XCTAssertFalse(JourneyLegKind.stop.requiresCompletionConfirmation)
+    }
+
+    @MainActor
+    func testFallbackNoticeSurvivesNavigationRestoreAndProgress() throws {
+        let store = try makeHomeStore()
+        var settings = NavigationSettings.defaults
+        settings.audioEnabled = false
+        settings.hapticsEnabled = false
+        try store.saveSettings(settings)
+        let original = makeJourney()
+        let transition = TransitionLeg(place: original.destination, startTime: original.arrival,
+            endTime: original.arrival.addingTimeInterval(600))
+        let journey = original.replacingLegs(original.legs + [.wait(transition)])
+        let notice = "Neuberechnung nicht möglich – bisherige Route bleibt nutzbar."
+        try store.saveActiveSnapshot(ActiveJourneySnapshot(journey: journey,
+            progress: NavigationProgress(legIndex: 0, maneuverIndex: 0), fallbackNotice: notice))
+        let model = try AppModel(planner: UnusedJourneyPlanner(), store: store, location: LocationService(), guidance: GuidanceService())
+        XCTAssertEqual(model.fallbackNotice, notice)
+        model.navigation?.advance()
+        XCTAssertEqual(try store.loadActiveSnapshot()?.fallbackNotice, notice)
+        XCTAssertEqual(try store.loadActiveSnapshot()?.progress?.legIndex, 1)
+        model.stopNavigation(discardRoute: true)
+        let legacy = try JSONEncoder().encode(ActiveJourneySnapshot(journey: journey))
+        XCTAssertNil(try JSONDecoder().decode(ActiveJourneySnapshot.self, from: legacy).fallbackNotice)
+    }
+
+    @MainActor
+    func testMutePersistsWithoutChangingRouteOrHaptics() throws {
+        let (model, store) = try settingsModel(planner: UnusedJourneyPlanner())
+        let route = model.journey
+        let haptics = model.settings.hapticsEnabled
+        model.setAudioEnabled(false)
+        XCTAssertFalse(try store.loadSettings().audioEnabled)
+        XCTAssertEqual(model.journey, route)
+        XCTAssertEqual(model.settings.hapticsEnabled, haptics)
+        XCTAssertNil(model.finishSettingsEditing())
+    }
+}
+
+
+extension FoldRouteTests {
+    @MainActor
+    func testPreviewLayoutAttachmentsForPortraitLandscapeAndLargeText() async throws {
+        let (model, _) = try settingsModel(planner: UnusedJourneyPlanner())
+        model.journeyOptions = (0..<4).map { index in
+            benefitJourney(id: "option-\(index)", direct: index == 3, bikeMeters: 1000,
+                arrival: 3000 + Double(index) * 300)
+        }
+        model.journey = model.journeyOptions[0]
+        for (name, size, type) in [
+            ("portrait", CGSize(width: 390, height: 760), DynamicTypeSize.large),
+            ("landscape", CGSize(width: 760, height: 340), DynamicTypeSize.large),
+            ("large-text", CGSize(width: 390, height: 760), DynamicTypeSize.accessibility5),
+            ("map-mode", CGSize(width: 760, height: 340), DynamicTypeSize.large)
+        ] {
+            var panel = JourneyPanelState()
+            if name == "map-mode" { panel.set(.collapsed) }
+            let root = JourneyPreviewView(panel: .constant(panel))
+                .environment(model).dynamicTypeSize(type)
+            let host = UIHostingController(rootView: root)
+            let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+            window.rootViewController = host
+            window.isHidden = false
+            host.view.frame = window.bounds
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(400))
+            host.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "preview-" + name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            XCTAssertGreaterThan(image.size.height, 0)
+            if name != "portrait" && name != "map-mode" {
+                func scrollViews(in view: UIView) -> [UIScrollView] {
+                    (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+                }
+                if let scroll = scrollViews(in: host.view).last(where: { $0.contentSize.height > $0.bounds.height }) {
+                    scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentSize.height - scroll.bounds.height), animated: false)
+                    try await Task.sleep(for: .milliseconds(150))
+                    let bottom = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                        host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                    }
+                    let bottomAttachment = XCTAttachment(image: bottom)
+                    bottomAttachment.name = "preview-" + name + "-bottom"
+                    bottomAttachment.lifetime = .keepAlways
+                    add(bottomAttachment)
+                }
+            }
+            window.isHidden = true
+        }
+    }
+
+    @MainActor
+    func testFreshFixClearsPreviousLocationError() {
+        let service = LocationService()
+        let manager = CLLocationManager()
+        service.locationManager(manager, didFailWithError: NSError(domain: kCLErrorDomain, code: 0))
+        XCTAssertNotNil(service.lastError)
+        service.locationManager(manager, didUpdateLocations: [CLLocation(latitude: 48, longitude: 11)])
+        XCTAssertNil(service.lastError)
+    }
+}
+
+
+extension FoldRouteTests {
+    @MainActor
+    func testNavigationLayoutAttachmentsIncludeMuteAndCompletionActions() async throws {
+        let store = try makeHomeStore()
+        var settings = NavigationSettings.defaults
+        settings.audioEnabled = false
+        settings.hapticsEnabled = false
+        try store.saveSettings(settings)
+        let journey = makeJourney()
+        try store.saveActiveSnapshot(ActiveJourneySnapshot(journey: journey,
+            progress: NavigationProgress(legIndex: 0, maneuverIndex: 0),
+            fallbackNotice: "Neuberechnung nicht möglich – bisherige Route bleibt nutzbar."))
+        let model = try AppModel(planner: UnusedJourneyPlanner(), store: store, location: LocationService(), guidance: GuidanceService())
+        for (name, size) in [("portrait", CGSize(width: 390, height: 760)), ("landscape", CGSize(width: 760, height: 340))] {
+            let host = UIHostingController(rootView: ActiveNavigationView().environment(model))
+            let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+            window.rootViewController = host
+            window.isHidden = false
+            host.view.frame = window.bounds
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(300))
+            let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "navigation-" + name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            if name == "landscape" {
+                func scrollViews(in view: UIView) -> [UIScrollView] {
+                    (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+                }
+                let scroll = try XCTUnwrap(scrollViews(in: host.view).last(where: { $0.contentSize.height > $0.bounds.height }))
+                scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentSize.height - scroll.bounds.height), animated: false)
+                try await Task.sleep(for: .milliseconds(150))
+                let bottom = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                    host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                }
+                let bottomAttachment = XCTAttachment(image: bottom)
+                bottomAttachment.name = "navigation-landscape-bottom"
+                bottomAttachment.lifetime = .keepAlways
+                add(bottomAttachment)
+            }
+            window.isHidden = true
+        }
+        XCTAssertNotNil(model.navigation)
+        model.stopNavigation(discardRoute: true)
+    }
+}
+
+extension FoldRouteTests {
+    func testOverviewEnvelopeIsIndependentOfSelectionAndOnlyGrowsUntilReset() throws {
+        let north = Coordinate(latitude: 48.2, longitude: 11.6)
+        let south = Coordinate(latitude: 48.08, longitude: 11.6)
+        let west = Coordinate(latitude: 48.13, longitude: 11.57)
+        let east = Coordinate(latitude: 48.15, longitude: 11.65)
+        var state = PlanningOverviewState()
+        XCTAssertTrue(state.include([north, south, west, east]))
+        let original = try XCTUnwrap(state.envelope)
+        XCTAssertFalse(state.include([east, west, south, north]))
+        XCTAssertFalse(state.include([west, east]))
+        let unchanged = try XCTUnwrap(state.envelope)
+        XCTAssertEqual(unchanged.origin.x, original.origin.x)
+        XCTAssertEqual(unchanged.origin.y, original.origin.y)
+        XCTAssertEqual(unchanged.size.width, original.size.width)
+        XCTAssertEqual(unchanged.size.height, original.size.height)
+        let distant = Coordinate(latitude: 49, longitude: 11.6)
+        XCTAssertTrue(state.include([distant, west, east]))
+        XCTAssertTrue(try XCTUnwrap(state.envelope).contains(original))
+        state.isManual = true
+        XCTAssertFalse(state.include([west, east]))
+        XCTAssertTrue(state.isManual)
+        state.reset()
+        XCTAssertFalse(state.isManual)
+        XCTAssertNil(state.envelope)
+        XCTAssertTrue(state.include([west, east]))
+        XCTAssertFalse(try XCTUnwrap(state.envelope).contains(MKMapPoint(distant.clCoordinate)))
     }
 }

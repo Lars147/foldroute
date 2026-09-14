@@ -6,15 +6,26 @@ import {
   compare,
   cyclingExcess,
   cyclingComparisonLabel,
+  journeyEffort,
 } from "./model";
 import { type PlanningState } from "./planning-state";
 import { el, node, clock, duration, dateLabel, icon, legColors } from "./ui";
 export type PanelSize = "collapsed" | "normal" | "expanded";
 export class JourneyView {
+  onDetailsOpened?: () => void;
   private key = "";
   private size: PanelSize = "normal";
   private dragY?: number;
   private swipe?: { x: number; y: number };
+  private mapOnly = false;
+  private fixedHeight = 0;
+  private choiceHeight = 44;
+  private lastRender?: {
+    state: PlanningState;
+    limit: number;
+    recommendation: string;
+    recommendedID?: string;
+  };
   constructor(private select: (id: string) => void) {
     el("panel-size").onclick = () =>
       this.setSize(
@@ -23,7 +34,12 @@ export class JourneyView {
           : this.size === "normal"
             ? "expanded"
             : "normal",
+        true,
       );
+    el("panel-map-toggle").onclick = () => {
+      this.mapOnly = !this.mapOnly;
+      this.updateMapAccess();
+    };
     const handle = el("panel-handle");
     handle.onpointerdown = (e) => {
       this.dragY = e.clientY;
@@ -42,6 +58,7 @@ export class JourneyView {
             : this.size === "expanded"
               ? "normal"
               : "collapsed",
+          true,
         );
     };
     handle.onpointercancel = () => (this.dragY = undefined);
@@ -64,6 +81,74 @@ export class JourneyView {
         this.next(e.key === "ArrowRight" ? 1 : -1);
       }
     };
+    let resizePending = false;
+    const observer = new ResizeObserver(() => {
+      if (resizePending) return;
+      resizePending = true;
+      requestAnimationFrame(() => {
+        resizePending = false;
+        this.reserveOverviewHeight();
+        const panel = el("journey-panel");
+        const available = el("map-view").clientHeight;
+        if (!available) return;
+        const height = (selector: string) =>
+          panel.querySelector<HTMLElement>(selector)!.offsetHeight;
+        // Preserve natural content measurements while the map-only toolbar hides them.
+        if (!this.mapOnly) {
+          this.fixedHeight =
+            height(".panel-tools") +
+            height(".panel-handle") +
+            height(".panel-actions") +
+            20;
+          this.choiceHeight =
+            panel.querySelector<HTMLElement>(".route-choice")?.offsetHeight ??
+            44;
+        }
+        const fixed = this.fixedHeight;
+        const row = this.choiceHeight;
+        const clearance = window.innerWidth >= 900 ? 40 : 134;
+        panel.classList.toggle(
+          "panel-full-height",
+          available - clearance < fixed + row,
+        );
+        panel.classList.toggle(
+          "panel-scroll-all",
+          available - 16 < fixed + row,
+        );
+        this.updateMapAccess();
+      });
+    });
+    for (const element of [
+      el("map-view"),
+      el("choices"),
+      ...el("journey-panel").querySelectorAll(".panel-tools, .panel-actions"),
+    ])
+      observer.observe(element);
+  }
+  private updateMapAccess() {
+    const panel = el("journey-panel");
+    const full =
+      panel.classList.contains("panel-full-height") && window.innerWidth < 900;
+    if (!full) this.mapOnly = false;
+    panel.classList.toggle("panel-map-only", this.mapOnly);
+    const toggle = el<HTMLButtonElement>("panel-map-toggle");
+    toggle.hidden = !full;
+    const label = this.mapOnly ? "Reise anzeigen" : "Karte anzeigen";
+    toggle.setAttribute("aria-label", label);
+    toggle.title = label;
+    toggle.setAttribute("aria-expanded", String(this.mapOnly));
+    if (toggle.hidden && document.activeElement === toggle)
+      el("panel-size").focus({ preventScroll: true });
+    for (const element of [
+      el("map"),
+      el("map-location"),
+      el("map-route"),
+      document.querySelector<HTMLElement>(".map-credit")!,
+    ]) {
+      if (full && !this.mapOnly && element.contains(document.activeElement))
+        toggle.focus({ preventScroll: true });
+      element.inert = full && !this.mapOnly;
+    }
   }
   private next(direction: number) {
     const buttons = Array.from(
@@ -74,8 +159,12 @@ export class JourneyView {
     );
     buttons[(index + direction + buttons.length) % buttons.length]?.click();
   }
-  setSize(size: PanelSize) {
+  setSize(size: PanelSize, userInitiated = false) {
+    if (userInitiated && size === "expanded" && this.size !== "expanded")
+      this.onDetailsOpened?.();
     this.size = size;
+    this.mapOnly = false;
+    this.updateMapAccess();
     el("journey-panel").dataset.size = size;
     el("panel-size").textContent =
       size === "collapsed"
@@ -90,9 +179,16 @@ export class JourneyView {
     details.hidden = size !== "expanded";
     details.inert = size !== "expanded";
     el("panel-content").scrollTop = 0;
+    this.reserveOverviewHeight();
   }
   render(state: PlanningState, cyclingLimit = 30) {
+    cyclingLimit = state.resultSettings?.maxCyclingMinutes ?? cyclingLimit;
     el("status").textContent = state.message;
+    el("stale-notice").textContent = state.staleReason ?? "";
+    el("stale-notice").hidden = !state.staleReason;
+    el("refresh-route").textContent = state.staleReason
+      ? "Erneut versuchen"
+      : "Aktualisieren";
     el("cancel").hidden = !state.busy;
     el("refresh-route").hidden = state.busy;
     el<HTMLButtonElement>("refresh-route").disabled =
@@ -116,7 +212,7 @@ export class JourneyView {
     el("cycling-comparison").hidden =
       !j || cyclingExcess(j, cyclingLimit) === 0;
     const delay =
-      j && !state.busy && !state.restored
+      j && !state.busy && !state.restored && !state.staleReason
         ? lateDepartureDelay(j, state.request)
         : undefined;
     el("late-departure").hidden = delay === undefined;
@@ -128,22 +224,38 @@ export class JourneyView {
       state.request?.timing === "arrive"
         ? "Späteste Abfahrt"
         : "Früheste Ankunft";
-    const recommendedID = state.journeys
+    const recommended = state.journeys
       .filter((j) => cyclingExcess(j, cyclingLimit) === 0)
-      .sort((a, b) => compare(a, b, state.request?.timing ?? "now"))[0]?.id;
+      .sort((a, b) => compare(a, b, state.request?.timing ?? "now"))[0];
+    const recommendedID = recommended?.id;
+    this.lastRender = {
+      state,
+      limit: cyclingLimit,
+      recommendation,
+      recommendedID,
+    };
     el("saved-notice").hidden = !state.restored;
     if (state.restored)
       el("saved-notice").textContent =
         `Gespeicherter Stand: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}. Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`;
     const key = JSON.stringify([
-      state.journeys.map((j) => [j.id, j.departure, j.arrival]),
+      state.journeys.map((j) => [
+        j.id,
+        j.departure,
+        j.arrival,
+        journeyEffort(j),
+        j.legs.map(({ coordinates: _coordinates, ...detail }) => detail),
+      ]),
       j?.id,
       state.restored,
       state.queriedAt,
       state.request?.timing,
       cyclingLimit,
     ]);
-    if (key === this.key) return;
+    if (key === this.key) {
+      this.reserveOverviewHeight();
+      return;
+    }
     this.key = key;
     const focused =
       document.activeElement instanceof HTMLElement
@@ -159,18 +271,22 @@ export class JourneyView {
     state.journeys.forEach((journey, index) => {
       const comparison = cyclingExcess(journey, cyclingLimit) > 0;
       const arrival = `${differentArrivalDays ? dateLabel(journey.arrival) + " " : ""}${clock(journey.arrival)}`;
-      const button = node(
-        "button",
+      const button = node("button", "", "route-choice");
+      const heading = node(
+        "span",
         `${comparison ? " · " : ""}${arrival} · ${duration(journey.arrival - journey.departure)}`,
-        "route-choice",
+        "route-choice-time",
       );
-      if (comparison) button.prepend(icon("bike"));
+      if (comparison) heading.prepend(icon("bike"));
+      const effort = journeyEffort(journey);
+      const effortText = `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
+      button.append(heading, node("span", effortText, "route-choice-effort"));
       button.type = "button";
       button.dataset.journey = journey.id;
       button.setAttribute("aria-pressed", String(journey.id === j?.id));
       button.setAttribute(
         "aria-label",
-        `${comparison ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: Ankunft ${dateLabel(journey.arrival)} ${clock(journey.arrival)}, Abfahrt ${dateLabel(journey.departure)} ${clock(journey.departure)}, Gesamtdauer ${duration(journey.arrival - journey.departure)}`,
+        `${comparison ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: Ankunft ${dateLabel(journey.arrival)} ${clock(journey.arrival)}, Abfahrt ${dateLabel(journey.departure)} ${clock(journey.departure)}, Gesamtdauer ${duration(journey.arrival - journey.departure)}, ${effortText}`,
       );
       button.onclick = () => this.select(journey.id);
       el("choices").append(button);
@@ -184,13 +300,43 @@ export class JourneyView {
       el("journey-detail").replaceChildren();
       return;
     }
+    this.renderSummary(
+      document,
+      j,
+      state,
+      cyclingLimit,
+      recommendation,
+      recommendedID,
+    );
+    this.lastRender = {
+      state,
+      limit: cyclingLimit,
+      recommendation,
+      recommendedID,
+    };
+    this.reserveOverviewHeight();
+    this.details(j, state.restored);
+    if (focused)
+      Array.from(el("choices").querySelectorAll<HTMLButtonElement>("button"))
+        .find((b) => b.dataset.journey === focused)
+        ?.focus({ preventScroll: true });
+  }
+  private renderSummary(
+    root: ParentNode,
+    j: Journey,
+    state: PlanningState,
+    cyclingLimit: number,
+    recommendation: string,
+    recommendedID?: string,
+  ) {
+    const element = (id: string) => root.querySelector<HTMLElement>(`#${id}`)!;
     const index = state.journeys.findIndex((x) => x.id === j.id);
-    el("option-title").textContent = state.restored
+    element("option-title").textContent = state.restored
       ? "Gespeicherte Reise"
       : cyclingExcess(j, cyclingLimit) > 0
         ? `Fahrradvergleich · ${Math.ceil(cyclingExcess(j, cyclingLimit) / 60)} Min. über deinem Radlimit`
         : `${j.id === recommendedID ? recommendation : `Alternative ${index + 1}`}${j.isDirect ? " · Nur Fahrrad" : ""}`;
-    const times = el("route-arrival");
+    const times = element("route-arrival");
     times.replaceChildren();
     for (const [label, time] of [
       ["Abfahrt", j.departure],
@@ -202,15 +348,75 @@ export class JourneyView {
         group.append(node("small", dateLabel(time)));
       times.append(group);
     }
-    el("route-duration").textContent =
+    element("route-duration").textContent =
       `Gesamtdauer · ${duration(j.arrival - j.departure)}`;
-    el("route-range").textContent =
+    element("route-range").textContent =
       `${dateLabel(j.departure)} ${clock(j.departure)} – ${dateLabel(j.arrival)} ${clock(j.arrival)} · ${j.transfers} Umstiege · ${(bikeDistance(j) / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km Rad`;
-    this.details(j, state.restored);
-    if (focused)
-      Array.from(el("choices").querySelectorAll<HTMLButtonElement>("button"))
-        .find((b) => b.dataset.journey === focused)
-        ?.focus({ preventScroll: true });
+  }
+  private reserveOverviewHeight() {
+    const panel = el("journey-panel");
+    if (!this.lastRender || this.size === "expanded" || this.mapOnly) {
+      panel.style.minHeight = "0px";
+      return;
+    }
+    const { state, limit, recommendation, recommendedID } = this.lastRender;
+    if (!state.journeys.length || !panel.offsetWidth) return;
+    // Measure every offered summary off-screen so selection cannot change the map's free area.
+    const probe = panel.cloneNode(true) as HTMLElement;
+    probe.inert = true;
+    probe.setAttribute("aria-hidden", "true");
+    Object.assign(probe.style, {
+      position: "fixed",
+      left: "-10000px",
+      right: "auto",
+      top: "0",
+      bottom: "auto",
+      width: `${panel.offsetWidth}px`,
+      height: "auto",
+      minHeight: "0",
+      maxHeight: "none",
+      visibility: "hidden",
+      pointerEvents: "none",
+    });
+    probe.querySelector<HTMLElement>("#panel-content")!.style.overflow =
+      "visible";
+    document.body.append(probe);
+    let height = 0;
+    for (const journey of state.journeys) {
+      this.renderSummary(
+        probe,
+        journey,
+        state,
+        limit,
+        recommendation,
+        recommendedID,
+      );
+      const comparison = probe.querySelector<HTMLElement>(
+        "#cycling-comparison",
+      )!;
+      comparison.hidden = cyclingExcess(journey, limit) === 0;
+      comparison.textContent = cyclingComparisonLabel(journey, limit);
+      const delay =
+        !state.busy && !state.restored && !state.staleReason
+          ? lateDepartureDelay(journey, state.request)
+          : undefined;
+      probe.querySelector<HTMLElement>("#late-departure")!.hidden =
+        delay === undefined;
+      probe.querySelector<HTMLElement>("#late-departure-text")!.textContent =
+        delay === undefined
+          ? ""
+          : `Start erst ${clock(journey.departure)} – ${duration(delay)} nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.`;
+      height = Math.max(height, probe.getBoundingClientRect().height);
+    }
+    probe.remove();
+    const maximum =
+      el("map-view").clientHeight -
+      (panel.classList.contains("panel-full-height")
+        ? 16
+        : innerWidth >= 900
+          ? 40
+          : 134);
+    panel.style.minHeight = `${Math.max(0, Math.min(height, maximum))}px`;
   }
   private details(j: Journey, restored: boolean) {
     const line = el("fold-line");

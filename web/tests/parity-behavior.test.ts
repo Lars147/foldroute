@@ -188,7 +188,7 @@ describe("selection and delayed departures", () => {
         manual ? ["better", "old"] : ["better"],
       );
     });
-  it("settings invalidation rejects late responses and retains retry context", async () => {
+  it("settings changes reject late responses and retain the old result context", async () => {
     vi.stubGlobal("navigator", { onLine: true });
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -202,10 +202,12 @@ describe("selection and delayed departures", () => {
     const session = new PlanningSession(new ApiClient(), () => {});
     const task = session.calculate(request, defaults, false);
     await vi.waitFor(() => expect(session.state.selected).toBeDefined());
+    const resultSettings = session.state.resultSettings;
+    const queriedAt = session.state.queriedAt;
     session.invalidateForSettings();
     release();
     await task;
-    expect(session.state.journeys).toEqual([]);
+    expect(session.state.journeys.map((j) => j.id)).toEqual(["old"]);
     expect(session.state.request).toEqual(request);
     vi.mocked(planRoutes).mockImplementation(async function* () {
       throw new Error("offline");
@@ -215,8 +217,11 @@ describe("selection and delayed departures", () => {
       { ...defaults, foldingDuration: 240 },
       false,
     );
-    expect(session.state.selected).toBeUndefined();
+    expect(session.state.selected?.id).toBe("old");
     expect(session.state.request).toEqual(request);
+    expect(session.state.resultSettings).toEqual(resultSettings);
+    expect(session.state.queriedAt).toBe(queriedAt);
+    expect(session.state.staleReason).toContain("bisherigen Einstellungen");
     expect(session.state.message).toBe("offline");
   });
 });

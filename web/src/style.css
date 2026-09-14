@@ -223,6 +223,14 @@ input[type="search"] {
   flex: 1;
   overflow-wrap: anywhere;
 }
+.context-copy {
+  display: grid;
+  gap: 4px;
+}
+.context-copy strong {
+  color: var(--ink);
+  font-size: 0.875rem;
+}
 .suggestions {
   list-style: none;
   padding: 0;
@@ -450,9 +458,9 @@ input[type="search"] {
   color: #c4c9c9;
 }
 .panel-tools .icon-button {
-  width: 38px;
-  height: 38px;
-  min-height: 38px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
   padding: 0;
   background: #ffffff10;
   border-radius: 50%;
@@ -486,19 +494,34 @@ input[type="search"] {
   overflow-wrap: anywhere;
 }
 .route-choices {
-  display: flex;
+  display: grid;
   gap: 7px;
   flex-shrink: 0;
-  flex-wrap: wrap;
   margin: 10px 0 0;
 }
 .route-choice {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
   border: 1px solid #4e585b;
-  border-radius: 20px;
-  font-size: 0.6875rem;
+  border-radius: 12px;
+  font-size: 0.8125rem;
   padding: 7px 12px;
-  min-height: 36px;
+  min-height: 44px;
   color: #c1c8cb;
+}
+.route-choice-time {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.route-choice-effort {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
 }
 .route-choice[aria-pressed="true"] {
   background: #ffd43b;
@@ -903,11 +926,6 @@ dialog form {
     max-height: calc(100% - 40px);
     min-height: 0;
   }
-  .journey-panel[data-size="collapsed"] {
-    top: auto;
-    bottom: 20px;
-    height: auto;
-  }
   .journey-panel[data-size="expanded"] {
     height: calc(100% - 40px);
     max-height: calc(100% - 40px);
@@ -1163,6 +1181,11 @@ dialog.compact .dialog-actions {
 .history-open small {
   color: var(--muted);
 }
+.history-timestamp {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
 .history-row > .icon-button {
   flex-shrink: 0;
 }
@@ -1252,4 +1275,26 @@ dialog.compact .dialog-actions {
   #replan-saved {
     grid-column: auto;
   }
+}
+.journey-panel.panel-full-height {
+  top: 8px;
+  bottom: 8px;
+  height: auto;
+  max-height: calc(100% - 16px);
+}
+.journey-panel.panel-scroll-all {
+  display: block;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.panel-scroll-all .panel-content {
+  overflow: visible;
+}
+.journey-panel.panel-map-only {
+  top: auto;
+  height: auto;
+}
+.panel-map-only .panel-content,
+.panel-map-only .panel-actions {
+  display: none;
 }

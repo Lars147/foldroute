@@ -79,3 +79,61 @@
 @media(max-width:760px){.comparison-district-labels{font-size:17px}}
 
 .project-copy>.project-status{display:inline-flex;align-items:center;gap:10px;max-width:none;padding:8px 14px;margin-bottom:24px;border:1px solid var(--yellow);border-radius:6px;background:var(--yellow);color:var(--ink);font-size:12px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}.project-status::before{content:"";width:8px;height:8px;flex-shrink:0;border-radius:50%;background:currentColor}
+
+/* Platform availability stays next to the action it explains. */
+[hidden]{display:none!important}
+h1,h2,h3,h4{overflow-wrap:anywhere}
+.hero-copy{min-width:0}
+.button,.brand{max-width:100%;overflow-wrap:anywhere}
+.hero-availability{max-width:405px;margin-top:20px;font-size:13px;color:var(--muted)}
+.hero-availability p{margin-bottom:10px}
+.hero-availability strong{color:var(--ink)}
+.hero-availability a,.project-web-link a,.questions a{text-decoration:underline;text-underline-offset:3px}
+.project-copy>.project-web-link{margin:20px 0 0}
+.footer>a:not(.brand){font-size:12px;color:var(--muted)}
+
+/* Each stage owns its content; CSS changes placement, never reading order. */
+.journey-layout{display:block}
+.journey-stage+.journey-stage{margin-top:12px}
+.journey-stage .guidance{margin-top:12px}
+.step:disabled{cursor:default;opacity:1}
+.guidance-symbol.fold-tone{color:var(--yellow)}
+.guidance-symbol.transit-tone{color:#bdb5ff}
+.guidance h3{overflow-wrap:anywhere}
+.guidance-top{font-size:12px}
+.guidance{overflow-wrap:anywhere}
+@media(min-width:761px){
+  .journey-ready{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:repeat(4,auto);column-gap:28px;row-gap:8px}
+  .journey-ready .journey-stage{display:contents}
+  .journey-ready .step{grid-column:1}
+  .journey-ready .journey-stage:nth-child(1) .step{grid-row:1}
+  .journey-ready .journey-stage:nth-child(2) .step{grid-row:2}
+  .journey-ready .journey-stage:nth-child(3) .step{grid-row:3}
+  .journey-ready .journey-stage:nth-child(4) .step{grid-row:4}
+  .journey-ready .guidance{grid-column:2;grid-row:1 / 5;margin:0}
+}
+@media(max-width:760px){
+  .header{height:auto;min-height:86px;padding-block:20px;flex-wrap:wrap;gap:12px}
+  .mode-strip>.wrap{flex-wrap:wrap}
+  .features article{grid-template-columns:40px minmax(0,1fr)}
+  .features p,.project{overflow-wrap:anywhere}
+  dl>div{flex-wrap:wrap}
+  .journey-stage .guidance{min-height:0;padding:24px 20px;margin:10px 0 20px}
+  .step>span:not(.step-icon){min-width:0;overflow-wrap:anywhere}
+  .guidance>p{min-height:0}
+  .guidance-foot{overflow-wrap:anywhere}
+  .guidance-foot>span{min-width:0}
+  .live-dot{flex-shrink:0}
+  .journey-ready .step::after{content:"+";margin-left:auto;font-size:24px;flex-shrink:0}
+  .journey-ready .step[aria-expanded="true"]::after{content:"−"}
+}
+
+/* Switching examples preserves the shared map's dimensions and position. */
+.comparison-note{margin-bottom:24px}
+.comparison-controls{display:flex;gap:8px;margin-bottom:18px}
+.comparison-controls button{flex:1;min-width:0;padding:12px 10px;border:1px solid #9ba59b;border-radius:8px;background:var(--paper);color:var(--ink);font-weight:650;font-size:14px;cursor:pointer;overflow-wrap:anywhere}
+.comparison-controls button[aria-pressed="true"]{background:var(--yellow);border-color:var(--ink)}
+@media(max-width:760px){
+  .comparison-option h3{min-height:2.5em;overflow-wrap:anywhere}
+  .comparison-ready .comparison-option h3{position:absolute;width:1px;height:1px;min-height:0;margin:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+}

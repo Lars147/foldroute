@@ -85,9 +85,37 @@ enum RouteCameraFitter {
 
 }
 
+/// Camera state belongs to a result set, independently of its selected alternative.
+struct PlanningOverviewState {
+    private(set) var envelope: MKMapRect?
+    var isManual = false
+
+    mutating func reset() { envelope = nil; isManual = false }
+
+    @discardableResult
+    mutating func include(_ coordinates: [Coordinate]) -> Bool {
+        guard let first = coordinates.first else { return false }
+        let point = MKMapPoint(first.clCoordinate)
+        let bounds = coordinates.dropFirst().reduce(MKMapRect(origin: point, size: MKMapSize(width: 0, height: 0))) {
+            $0.union(MKMapRect(origin: MKMapPoint($1.clCoordinate), size: MKMapSize(width: 0, height: 0)))
+        }
+        if let envelope, envelope.contains(bounds) { return false }
+        envelope = envelope.map { $0.union(bounds) } ?? bounds
+        return true
+    }
+
+    var coordinates: [Coordinate] {
+        guard let envelope else { return [] }
+        return [Coordinate(MKMapPoint(x: envelope.minX, y: envelope.minY).coordinate),
+                Coordinate(MKMapPoint(x: envelope.maxX, y: envelope.maxY).coordinate)]
+    }
+}
+
 struct RouteMapView: View {
     let journey: Journey?
     var alternativeJourneys: [Journey] = []
+    var overviewID: UUID? = nil
+    var planningPanelMode: String = "normal"
     var highlightedLegID: UUID?
     var navigationCamera: NavigationCameraInput? = nil
     var cameraInsets: MapCameraInsets = .zero
@@ -102,7 +130,11 @@ struct RouteMapView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var centersPlanningLocation = false
-    @State private var showsSelectedRoute = false
+    @State private var overview = PlanningOverviewState()
+    @State private var overviewInsets: MapCameraInsets?
+    @State private var overviewLayout = ""
+    @State private var overviewViewport = CGSize.zero
+    @State private var currentOverviewRect: MKMapRect?
     @State private var navigationState = NavigationCameraState()
     @State private var navigationOffset = CGSize.zero
     @State private var anchorCorrectionsRemaining = 0
@@ -191,17 +223,25 @@ struct RouteMapView: View {
                     }
                 }
                 .onChange(of: journey?.id) { _, _ in
+                    if navigationCamera != nil { updateNavigationCamera(animated: true) }
+                }
+                .onChange(of: overviewID) { _, _ in
+                    overview.reset()
+                    overviewInsets = nil
                     centersPlanningLocation = false
-                    showsSelectedRoute = false
-                    updateCamera(viewportSize: geometry.size, animated: true)
+                    updateCamera(viewportSize: geometry.size, animated: false)
                 }
                 .onChange(of: model.location.currentLocation) { _, _ in
                     if navigationCamera == nil, centersPlanningLocation {
                         updateCamera(viewportSize: geometry.size, animated: true)
                     }
                 }
-                .onChange(of: alternativeJourneys.map(\.id)) { _, _ in
+                .onChange(of: overviewCoordinates) { _, _ in
                     updateCamera(viewportSize: geometry.size, animated: true)
+                }
+                .task(id: planningPanelMode) {
+                    await Task.yield()
+                    if !Task.isCancelled { updateCamera(viewportSize: geometry.size, animated: false) }
                 }
                 .task(id: cameraInsets) {
                     if navigationCamera != nil {
@@ -222,7 +262,7 @@ struct RouteMapView: View {
                 }
                 .task(id: planningLocationInsets) {
                     await Task.yield()
-                    guard !Task.isCancelled, navigationCamera == nil, centersPlanningLocation || showsSelectedRoute else { return }
+                    guard !Task.isCancelled, navigationCamera == nil, centersPlanningLocation else { return }
                     updateCamera(viewportSize: geometry.size, animated: false)
                 }
                 .task(id: idleCenterCoordinate) {
@@ -246,13 +286,14 @@ struct RouteMapView: View {
                     updateNavigationCamera(animated: true)
                 }
                 .onChange(of: position.positionedByUser) { _, byUser in
-                    if byUser { centersPlanningLocation = false }
+                    if byUser { centersPlanningLocation = false; overview.isManual = true }
                     if byUser && navigationCamera != nil {
                         navigationState.pause()
                         anchorCorrectionsRemaining = 0
                     }
                 }
                 .onMapCameraChange(frequency: .onEnd) { context in
+                    if navigationCamera == nil { currentOverviewRect = context.rect }
                     correctNavigationAnchor(camera: context.camera, proxy: proxy, viewport: geometry.size)
                 }
                 .simultaneousGesture(
@@ -306,8 +347,9 @@ struct RouteMapView: View {
                                 if journey != nil {
                                     Button {
                                         centersPlanningLocation = false
-                                        showsSelectedRoute = true
-                                        updateCamera(viewportSize: geometry.size, animated: true)
+                                        overview.reset()
+                                        overviewInsets = nil
+                                        updateCamera(viewportSize: geometry.size, animated: false)
                                     } label: {
                                         Image(systemName: "viewfinder")
                                             .font(.system(size: 20, weight: .semibold))
@@ -317,8 +359,8 @@ struct RouteMapView: View {
                                             .contentShape(Circle())
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityLabel("Gesamte Route anzeigen")
-                                    .accessibilityHint("Passt die ausgewählte Strecke in den sichtbaren Kartenbereich ein.")
+                                    .accessibilityLabel(overviewJourneys.count > 1 ? "Alle Routen anzeigen" : "Gesamte Route anzeigen")
+                                    .accessibilityHint("Zeigt alle angebotenen Strecken im sichtbaren Kartenbereich.")
                                     .accessibilityIdentifier("planningRouteFitButton")
                                 }
                             }
@@ -357,33 +399,47 @@ struct RouteMapView: View {
             }
             return
         }
-        guard let journey else { return }
-        if showsSelectedRoute {
-            guard let rect = RouteCameraFitter.selectedRouteRect(
-                journey: journey, viewportSize: viewportSize,
-                insets: planningLocationInsets ?? cameraInsets
-            ) else { return }
-            if animated && !reduceMotion {
-                withAnimation(.easeInOut(duration: 0.45)) { position = .rect(rect) }
-            } else {
-                position = .rect(rect)
-            }
-            return
+        guard journey != nil else { return }
+        let extended = overview.include(overviewCoordinates)
+        let newLayout = overviewInsets == nil || overviewLayout != planningPanelMode || overviewViewport != viewportSize
+        let reserved = newLayout ? cameraInsets : MapCameraInsets(
+            top: max(overviewInsets?.top ?? 0, cameraInsets.top),
+            leading: max(overviewInsets?.leading ?? 0, cameraInsets.leading),
+            bottom: max(overviewInsets?.bottom ?? 0, cameraInsets.bottom),
+            trailing: max(overviewInsets?.trailing ?? 0, cameraInsets.trailing))
+        let layoutChanged = newLayout || reserved != overviewInsets
+        guard !overview.isManual, extended || layoutChanged else { return }
+        if !layoutChanged, let rect = currentOverviewRect, let insets = overviewInsets,
+           let envelope = overview.envelope, viewportSize.width > 0, viewportSize.height > 0 {
+            let scaleX = rect.width / viewportSize.width, scaleY = rect.height / viewportSize.height
+            let visible = MKMapRect(x: rect.minX + insets.leading * scaleX,
+                                    y: rect.minY + insets.top * scaleY,
+                                    width: max(0, rect.width - (insets.leading + insets.trailing) * scaleX),
+                                    height: max(0, rect.height - (insets.top + insets.bottom) * scaleY))
+            if visible.contains(envelope) { return }
         }
-        let coordinates = ([journey] + backgroundJourneys)
-            .flatMap(\.legs)
-            .flatMap(\.coordinates)
-        guard
-            let mapRect = RouteCameraFitter.mapRect(
-                coordinates: coordinates,
-                viewportSize: viewportSize,
-                insets: cameraInsets
-            )
-        else { return }
-        if animated {
-            withAnimation(.easeInOut(duration: 0.55)) { position = .rect(mapRect) }
-        } else {
-            position = .rect(mapRect)
+        if layoutChanged {
+            overviewInsets = reserved
+            overviewLayout = planningPanelMode
+            overviewViewport = viewportSize
+        }
+        guard let mapRect = RouteCameraFitter.mapRect(
+            coordinates: overview.coordinates, viewportSize: viewportSize,
+            insets: overviewInsets ?? cameraInsets
+        ) else { return }
+        position = .rect(mapRect)
+    }
+
+    private var overviewJourneys: [Journey] {
+        var routes = alternativeJourneys
+        if let journey, !routes.contains(where: { $0.id == journey.id }) { routes.append(journey) }
+        return routes.sorted { $0.id < $1.id }
+    }
+
+    private var overviewCoordinates: [Coordinate] {
+        overviewJourneys.flatMap { route in
+            ([route.origin, route.destination] + [route.waypoint].compactMap { $0 } + route.stops.map(\.place)).map(\.coordinate)
+                + route.legs.flatMap(\.coordinates)
         }
     }
 

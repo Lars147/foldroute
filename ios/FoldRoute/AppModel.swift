@@ -123,7 +123,26 @@ final class AppModel {
     var routeStops: [RouteStop] = []
     var journey: Journey? { didSet { if let journey { routeStops = journey.stops } } }
     var journeyOptions: [Journey] = []
+    private(set) var previewOverviewID = UUID()
     private(set) var previewTiming: RouteTiming?
+    private(set) var previewResultSettings: NavigationSettings?
+    private(set) var fallbackNotice: String?
+
+    var resultCyclingLimit: Int { (previewResultSettings ?? settings).maxCyclingMinutes }
+
+    var recommendedJourney: Journey? {
+        journeyOptions.filter { CyclingComparison.excess($0, limit: resultCyclingLimit) == 0 }
+            .sorted { JourneyOptionSelector.comesBefore($0, $1, timing: previewTiming ?? routeTiming) }.first
+    }
+
+    func holdSelectedJourney() {
+        if let journey { explicitlySelectedJourneyID = journey.id }
+    }
+
+    func selectJourney(id: String) {
+        guard let index = journeyOptions.firstIndex(where: { $0.id == id }) else { return }
+        selectJourney(at: index)
+    }
 
     func lateDepartureDelay(for journey: Journey) -> TimeInterval? {
         guard navigation == nil, planningState == .ready,
@@ -135,7 +154,15 @@ final class AppModel {
     var settings: NavigationSettings {
         didSet {
             if oldValue.routingConfiguration != settings.routingConfiguration {
+                if journey != nil, previewResultSettings == nil { previewResultSettings = oldValue }
                 invalidateRouteForSettings()
+            }
+            if oldValue != settings {
+                if !settings.audioEnabled, oldValue.audioEnabled { guidance.stopSpeaking() }
+                saveSettings()
+                if oldValue.audioEnabled != settings.audioEnabled, let engine = navigation {
+                    updateTransitAlerts(for: engine)
+                }
             }
         }
     }
@@ -222,10 +249,12 @@ final class AppModel {
         location.onLocation = { [weak self] location in
             self?.handle(location)
         }
+        location.onStatusChange = { [weak self] in self?.refreshLocationState() }
         if let snapshot = try store.loadActiveSnapshot(),
            let progress = snapshot.progress,
            progress.isValid(for: snapshot.journey),
            (try? StreetGeometryValidator.validate(snapshot.journey, startingAt: progress.legIndex)) != nil {
+            fallbackNotice = snapshot.fallbackNotice
             journey = snapshot.journey
             routeStops = snapshot.journey.stops
             origin = snapshot.journey.origin
@@ -351,6 +380,7 @@ final class AppModel {
             journey = plannedJourneys.first
             isReplanningAfterNavigation = false
             planningState = .ready
+            isPreviewReplan = false
         } catch is CancellationError {
             if generation == planningGeneration { planningState = .idle }
         } catch let error as RoutePlannerError {
@@ -429,7 +459,8 @@ final class AppModel {
         let token = UUID()
         bikeTransferToken = token
         explicitlySelectedJourneyID = nil
-        let upstream = planner.alternativeUpdates(request, settings: settings)
+        let calculationSettings = settings
+        let upstream = planner.alternativeUpdates(request, settings: calculationSettings)
         let stream = AsyncThrowingStream<JourneyOptionsUpdate, Error> { continuation in
             let producer = Task {
                 do {
@@ -447,7 +478,7 @@ final class AppModel {
         var initialUpdate: JourneyOptionsUpdate?
         var options: [Journey] = []
         while let update = try await iterator.next(isolation: MainActor.shared) {
-            options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
+            options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: calculationSettings.maxCyclingMinutes, showCyclingComparison: calculationSettings.showCyclingComparison)
             if !options.isEmpty { initialUpdate = update; break }
         }
         guard let initial = initialUpdate else { throw RoutePlannerError.noRoute }
@@ -456,7 +487,10 @@ final class AppModel {
         guard let first = options.first else { throw RoutePlannerError.noRoute }
         do { try store.saveActiveJourney(first) }
         catch { throw RoutePlannerError.storageFailure }
+        previewOverviewID = UUID()
         previewTiming = request.timing
+        previewResultSettings = calculationSettings
+        fallbackNotice = nil
         bikeTransferSearchStatus = initial.status
         planningIssues = initial.issues
         if initial.status == .searching {
@@ -467,10 +501,10 @@ final class AppModel {
                     while let update = try await iterator.next(isolation: MainActor.shared) {
                         guard !Task.isCancelled, generation == planningGeneration,
                               bikeTransferToken == token, navigation == nil else { return }
-                        var options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
+                        var options = JourneyOptionSelector.select(from: update.journeys, timing: request.timing, cyclingLimit: calculationSettings.maxCyclingMinutes, showCyclingComparison: calculationSettings.showCyclingComparison)
                         if let selectedID = explicitlySelectedJourneyID, let selected = journey, selected.id == selectedID,
                            !options.contains(where: { $0.id == selectedID }) {
-                            options = JourneyOptionSelector.retaining(selected, in: options, cyclingLimit: settings.maxCyclingMinutes, showComparison: settings.showCyclingComparison)
+                            options = JourneyOptionSelector.retaining(selected, in: options, cyclingLimit: calculationSettings.maxCyclingMinutes, showComparison: calculationSettings.showCyclingComparison)
                         }
                         guard let first = options.first else { continue }
                         let selected = options.first { $0.id == explicitlySelectedJourneyID } ?? first
@@ -582,6 +616,8 @@ final class AppModel {
         origin = nil
         destination = nil
         previewTiming = nil
+        previewResultSettings = nil
+        fallbackNotice = nil
         journey = nil
         journeyOptions = []
         planningState = .idle
@@ -637,11 +673,14 @@ final class AppModel {
                     onward: journey
                 )
                 guard generation == navigationGeneration, !Task.isCancelled else { return }
+                let previousNotice = fallbackNotice
+                let previousLegIDs = Set(journey.legs.map(\.id))
+                if !combined.legs.contains(where: { previousLegIDs.contains($0.id) }) { fallbackNotice = nil }
+                do { try activateNavigation(with: combined, startLocationUpdates: true) }
+                catch { fallbackNotice = previousNotice; throw error }
                 self.journey = combined
                 journeyOptions = [combined]
-                try store.saveActiveJourney(combined)
                 navigationStartState = .idle
-                try activateNavigation(with: combined, startLocationUpdates: true)
             } catch let error as RoutePlannerError {
                 guard generation == navigationGeneration, !Task.isCancelled else { return }
                 navigationStartState = .failed(error.localizedDescription)
@@ -688,6 +727,8 @@ final class AppModel {
             guard let replacement = replacements.first else {
                 throw RoutePlannerError.noRoute
             }
+            fallbackNotice = nil
+            previewResultSettings = settings
             origin = currentPlace
             journeyOptions = replacements
             journey = replacement
@@ -799,36 +840,17 @@ final class AppModel {
 
     private func invalidateRouteForSettings() {
         guard navigation == nil, destination != nil else { return }
-        if planningRequestsPaused {
-            settingsReplanPending = true
-            return
-        }
         invalidatePreview()
         settingsReplanPending = true
     }
 
     @discardableResult
     func refreshPlannedRoutes() -> Task<Void, Never>? {
-        guard !blockPausedPlanning() else { return nil }
         guard navigation == nil, journey != nil, destination != nil,
               !planningState.isLoading, !navigationStartState.isLoading,
-              !isReplanningAfterNavigation, !isPreviewReplan, previewReplanTask == nil else { return nil }
-        let previous = journey
-        let previousOptions = journeyOptions
+              !isReplanningAfterNavigation, previewReplanTask == nil else { return nil }
         invalidatePreview()
-        let generation = planningGeneration
-        guard let refresh = retryPreviewPlanning() else { return nil }
-        return Task { [weak self] in
-            await refresh.value
-            guard let self, generation == planningGeneration, !Task.isCancelled,
-                  case .failed = planningState, !planningIssues.isEmpty else { return }
-            journey = previous
-            journeyOptions = previousOptions
-            if let previous {
-                do { try store.saveActiveJourney(previous) }
-                catch { dataMessage = "Route konnte nicht gespeichert werden." }
-            }
-        }
+        return retryPreviewPlanning()
     }
 
     private func invalidatePreview() {
@@ -840,12 +862,18 @@ final class AppModel {
         planningGeneration += 1
         settingsReplanPending = false
         isPreviewReplan = true
-        explicitlySelectedJourneyID = nil
-        journey = nil
-        journeyOptions = []
         planningState = .idle
-        do { try store.clearActiveJourney() }
-        catch { dataMessage = "Gespeicherte Route konnte nicht entfernt werden." }
+        if journey != nil {
+            previewResultSettings = previewResultSettings ?? settings
+            fallbackNotice = "Mit bisherigen Einstellungen geplant. Neuberechnung steht aus."
+        }
+    }
+
+    private func previewFailed(_ message: String) {
+        planningState = .failed(message)
+        if journey != nil {
+            fallbackNotice = "Neuberechnung nicht möglich – bisherige Route bleibt nutzbar. " + message
+        }
     }
 
     private func cancelPreviewReplanning() {
@@ -862,14 +890,19 @@ final class AppModel {
     @discardableResult
     func finishSettingsEditing() -> Task<Void, Never>? {
         saveSettings()
-        guard settingsReplanPending, !blockPausedPlanning() else { return nil }
+        guard settingsReplanPending else { return nil }
+        settingsReplanPending = false
         if !isPreviewReplan { invalidatePreview() }
         return retryPreviewPlanning()
     }
 
     @discardableResult
     func retryPreviewPlanning() -> Task<Void, Never>? {
-        guard !blockPausedPlanning() else { return nil }
+        settingsReplanPending = false
+        if let message = planningPauseMessage {
+            previewFailed(message)
+            return nil
+        }
         guard navigation == nil, isPreviewReplan, destination != nil,
               previewReplanTask == nil else { return nil }
         settingsReplanPending = false
@@ -879,7 +912,7 @@ final class AppModel {
             defer { if generation == planningGeneration { previewReplanTask = nil } }
             guard generation == planningGeneration, !Task.isCancelled else { return }
             if timingSelection != .now && plannedDate < Date() {
-                planningState = .failed("Der gewählte Zeitpunkt liegt in der Vergangenheit. Passe die Route an.")
+                previewFailed("Der gewählte Zeitpunkt liegt in der Vergangenheit. Passe die Route an.")
                 return
             }
             if origin == nil || origin?.name == "Aktueller Standort" || destination?.name == "Aktueller Standort" {
@@ -889,7 +922,7 @@ final class AppModel {
                 else { current = await locationForPlanning() }
                 guard generation == planningGeneration, !Task.isCancelled else { return }
                 guard let current, NavigationStartPolicy.isUsable(current) else {
-                    planningState = .failed("Aktueller Standort fehlt. Wähle einen Ort oder versuche es erneut.")
+                    previewFailed("Aktueller Standort fehlt. Wähle einen Ort oder versuche es erneut.")
                     return
                 }
                 let place = makeCurrentPlace(from: current, detail: location.hasPreciseLocation ? "Genauer Standort" : "Ungefährer Standort")
@@ -897,13 +930,14 @@ final class AppModel {
                 if destination?.name == "Aktueller Standort" { destination = place }
             }
             if timingSelection != .now && plannedDate < Date() {
-                planningState = .failed("Der gewählte Zeitpunkt liegt in der Vergangenheit. Passe die Route an.")
+                previewFailed("Der gewählte Zeitpunkt liegt in der Vergangenheit. Passe die Route an.")
                 return
             }
             planningState = .idle
             await planRoute()
             guard generation == planningGeneration, !Task.isCancelled else { return }
             if planningState == .ready { isPreviewReplan = false }
+            else if case .failed(let message) = planningState { previewFailed(message) }
         }
         previewReplanTask = task
         return task
@@ -928,6 +962,8 @@ final class AppModel {
             origin = nil
             destination = nil
             settings = .defaults
+            previewResultSettings = nil
+            fallbackNotice = nil
             journey = nil
             journeyOptions = []
             planningState = .idle
@@ -942,9 +978,23 @@ final class AppModel {
         if origin == nil { useCurrentLocationIfAvailable() }
     }
 
+    func setAudioEnabled(_ enabled: Bool) { settings.audioEnabled = enabled }
+
+    func refreshLocationState() {
+        location.refreshStatus()
+        if !location.status.isUsable { navigation?.invalidateLocation() }
+    }
+
+    func becameActive() {
+        location.refreshAuthorization()
+        refreshLocationState()
+        requestTransitRefresh()
+    }
+
     private func handle(_ location: CLLocation) {
         if origin == nil { useCurrentLocationIfAvailable() }
-        navigation?.update(location: location)
+        if self.location.status.isUsable { navigation?.update(location: location) }
+        else { navigation?.invalidateLocation() }
         requestTransitRefresh()
     }
 
@@ -956,6 +1006,7 @@ final class AppModel {
                 guard !Task.isCancelled else { return }
                 self?.requestTransitRefresh()
                 self?.navigation?.tick()
+                self?.refreshLocationState()
             }
         }
     }
@@ -982,7 +1033,10 @@ final class AppModel {
                 stops: engine.journey.remainingStops(from: nextIndex))
             let replacement = try await planner.plan(request, settings: settings)
             guard navigation === engine, engine.currentLeg?.id == stopID, !Task.isCancelled else { return }
-            try activateNavigation(with: replacement, startLocationUpdates: false)
+            let previousNotice = fallbackNotice
+            fallbackNotice = nil
+            do { try activateNavigation(with: replacement, startLocationUpdates: false) }
+            catch { fallbackNotice = previousNotice; throw error }
             journey = replacement
             journeyOptions = [replacement]
         } catch {
@@ -993,7 +1047,8 @@ final class AppModel {
 
     private func rerouteActiveNavigationFromCurrentLocation() async {
         guard let activeEngine = navigation else { return }
-        guard let current = location.currentLocation, let activeJourney = journey else {
+        guard let current = location.currentLocation, NavigationStartPolicy.isUsable(current),
+              let activeJourney = journey else {
             navigation?.setReplanning(false, message: "Standort fehlt. Alte Route bleibt aktiv.")
             return
         }
@@ -1017,7 +1072,11 @@ final class AppModel {
                 replacement = try await planner.plan(request, settings: settings)
             }
             guard navigation === activeEngine, !Task.isCancelled else { return }
-            try activateNavigation(with: replacement, startLocationUpdates: false)
+            let previousNotice = fallbackNotice
+            let previousLegIDs = Set(activeJourney.legs.dropFirst(activeEngine.currentLegIndex).map(\.id))
+            if !replacement.legs.contains(where: { previousLegIDs.contains($0.id) }) { fallbackNotice = nil }
+            do { try activateNavigation(with: replacement, startLocationUpdates: false) }
+            catch { fallbackNotice = previousNotice; throw error }
             journey = replacement
             journeyOptions = [replacement]
         } catch {
@@ -1118,7 +1177,7 @@ final class AppModel {
     ) throws {
         guard progress.isValid(for: journey) else { throw RoutePlannerError.noRoute }
         try StreetGeometryValidator.validate(journey, startingAt: progress.legIndex)
-        try store.saveActiveSnapshot(ActiveJourneySnapshot(journey: journey, progress: progress))
+        try store.saveActiveSnapshot(ActiveJourneySnapshot(journey: journey, progress: progress, fallbackNotice: fallbackNotice))
         let engine = NavigationEngine(journey: journey, settings: settings, guidance: guidance)
         engine.onReroute = { [weak self, weak engine] in
             Task {
@@ -1138,7 +1197,7 @@ final class AppModel {
             }
             self.updateTransitAlerts(for: engine)
             do {
-                try self.store.saveActiveSnapshot(ActiveJourneySnapshot(journey: engine.journey, progress: progress))
+                try self.store.saveActiveSnapshot(ActiveJourneySnapshot(journey: engine.journey, progress: progress, fallbackNotice: self.fallbackNotice))
             } catch {
                 engine.setReplanning(false, message: "Navigationsfortschritt konnte nicht gespeichert werden.")
             }
@@ -1226,7 +1285,8 @@ final class AppModel {
         journeyOptions = [updated]
         do {
             try store.saveActiveSnapshot(ActiveJourneySnapshot(
-                journey: updated, progress: NavigationProgress(legIndex: engine.currentLegIndex, maneuverIndex: engine.currentManeuverIndex)
+                journey: updated, progress: NavigationProgress(legIndex: engine.currentLegIndex, maneuverIndex: engine.currentManeuverIndex),
+                fallbackNotice: fallbackNotice
             ))
         } catch {
             engine.setReplanning(false, message: "Aktualisierte Navigation konnte nicht gespeichert werden.")

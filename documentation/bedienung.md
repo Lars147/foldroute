@@ -46,9 +46,9 @@ Nach einer fehlgeschlagenen manuellen Aktualisierung werden die bisherigen Ergeb
 
 ## Einstellungen ändern
 
-Änderungen an Radtempo, Gehzeit, Faltzeiten, Verkehrsmitteln oder Rad-Umstiegen verwerfen die bisherige Routenauswahl sofort. Beim Verlassen der Einstellungen plant FoldRoute automatisch mit den letzten Werten neu. Mehrere Änderungen werden zusammengefasst; der Speicherknopf allein startet keine Suche. Start, Ziel und Zeitwahl bleiben erhalten. „Aktueller Standort“ wird aktualisiert, „Jetzt“ neu ausgewertet; abgelaufene feste Zeiten erfordern eine Anpassung. Bei Fehlern bleibt die alte Route entfernt, und „Erneut versuchen“ erhält den Planungskontext.
+Änderungen an Radtempo, Gehzeit, Faltzeiten, Verkehrsmitteln oder Rad-Umstiegen erhalten die bisherige Route mit einem Hinweis auf die vorherigen Einstellungen. „Fertig“ oder das Verlassen der Einstellungen startet eine Neuberechnung mit den letzten Werten; mehrere Änderungen werden zusammengefasst. Start, Ziel und Zeitwahl bleiben erhalten. „Aktueller Standort“ wird aktualisiert, „Jetzt“ neu ausgewertet; abgelaufene feste Zeiten erfordern eine Anpassung. Bei Fehlern bleibt die bisherige Route nutzbar. „Erneut versuchen“ erhält den Planungskontext; „Bisherige Route starten“ startet die gekennzeichnete Route.
 
-Sprachansagen und Haptik lösen keine neue Route aus. Ohne bisherige Planung werden nur die Einstellungen gespeichert. Eine bereits gestartete Navigation bleibt bestehen. Alte Erst- und Nachsuchergebnisse können keine verworfene Route wiederherstellen.
+Sprachansagen und Haptik lösen keine neue Route aus. Ohne bisherige Planung werden nur die Einstellungen gespeichert. Eine bereits gestartete Navigation bleibt bestehen. Verspätete Ergebnisse abgebrochener Suchen können die aktuelle Planung nicht überschreiben.
 
 ## Faltzeiten und Zubringer
 
@@ -62,7 +62,7 @@ FoldRoute vergleicht Fuß–ÖPNV–Fuß, Fuß–ÖPNV–Rad, Rad–ÖPNV–Fuß
 
 Unter **Einstellungen → Rad-Umstiege** sind 0–3 interne Radetappen einstellbar, standardmäßig zwei. Die gemeinsame maximale Radzeit je Etappe beträgt 1–60 Minuten, standardmäßig 30 Minuten. Null deaktiviert die zusätzliche Suche. Erste und letzte Radetappe zählen nicht mit. Falten, Entfalten und drei Minuten Anschlusspuffer kommen zur Fahrzeit hinzu; vorhandene Tempo- und Verkehrsmittel-Einstellungen gelten weiterhin.
 
-Zunächst erscheinen die normalen Alternativen. Anschließend prüft FoldRoute zusätzliche Kombinationen aus ÖPNV, Rad und erneutem ÖPNV und ergänzt die besten Ergebnisse. Eine ausdrücklich ausgewählte Route bleibt erhalten. Schließen, neue Planung oder Navigationsstart beendet die Nachsuche. Bei Fehlern bleiben bereits gefundene Optionen nutzbar.
+Zunächst erscheinen die normalen Alternativen. Anschließend prüft FoldRoute zusätzliche Kombinationen aus ÖPNV, Rad und erneutem ÖPNV und ergänzt die besten Ergebnisse. Eine ausdrücklich ausgewählte Route oder das bewusste Öffnen ihrer Details hält die Auswahl beim Nachladen. Ein Wechsel bleibt über die angezeigten Routenalternativen möglich. Schließen, neue Planung oder Navigationsstart beendet die Nachsuche. Bei Fehlern bleiben bereits gefundene Optionen nutzbar.
 
 Suchgrenzen und Auswahlregeln stehen unter [Rad-Umstiege](routing.md#rad-umstiege).
 
@@ -79,3 +79,5 @@ Die aktive Navigation öffnet sofort eine um 45° geneigte Detailkarte in Fahrtr
 Nach bestätigtem **Navigation beenden** berechnet FoldRoute bis zu drei aktuelle Routen ab dem aktuellen Standort zum bisherigen Ziel, mit Abfahrt jetzt. Die Karte bleibt während der Berechnung sichtbar. Bei Standort- oder Netzwerkproblemen bietet das Panel einen erneuten Versuch und die Anpassung des Starts an; die beendete Navigation bleibt gestoppt. Schließen oder eine neue Zielauswahl verwirft noch ausstehende Ergebnisse. **Fahrt abschließen** nach Ankunft löst keine Neuberechnung aus.
 
 Für den Navigationsstart gelten [Standort- und Entfernungsgrenzen](routing.md#navigationsstart-ios). Aktuelle ÖPNV-Zeiten und Störungsvorschläge sind unter [Echtzeit während der Navigation](routing.md#echtzeit-während-der-navigation-ios) beschrieben.
+
+Beim Vergleich der Routen bleibt der Kartenausschnitt stabil. Die Übersicht umfasst alle angebotenen Alternativen und erweitert sich bei nachgeladenen Umwegen nur bei Bedarf. Nach eigenem Verschieben oder Zoomen stellt „Alle Routen anzeigen“ die gemeinsame Übersicht wieder her; bei einer einzelnen Verbindung heißt die Aktion „Gesamte Route anzeigen“.

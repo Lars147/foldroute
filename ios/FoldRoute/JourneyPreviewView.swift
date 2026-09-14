@@ -6,373 +6,311 @@ struct JourneyPreviewView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var panel: JourneyPanelState
-    @State private var lastHandleDrag = Date.distantPast
-    @GestureState private var dragOffset: CGFloat = 0
-    @State private var cameraPanelHeight: CGFloat = 0
-    @ScaledMetric(relativeTo: .title) private var summaryTimeSize = 32.0
-    @State private var summaryHeight: CGFloat = 110
-    @State private var compactIssueHeight: CGFloat = 0
-    @State private var compactHintHeight: CGFloat = 44
-    @State private var actionsHeight: CGFloat = 170
     @State private var showsAdjustments = false
+    @State private var cameraPanelHeight: CGFloat = 0
+    @State private var contentHeight: CGFloat = 320
+    @State private var actionsHeight: CGFloat = 112
+    @State private var headerHeight: CGFloat = 44
+    @State private var lastHandleDrag = Date.distantPast
 
     var body: some View {
         if let journey = model.journey {
-            if model.isReplanningAfterNavigation {
-                returnPlanningPreview(journey: journey)
-            } else {
-                preview(journey: journey)
-            }
-        }
-    }
-
-    private func returnPlanningPreview(journey: Journey) -> some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                RouteMapView(
-                    journey: journey,
-                    cameraInsets: MapCameraInsets(top: 64, leading: 24, bottom: cameraPanelHeight + 16, trailing: 24)
-                )
-                .ignoresSafeArea(edges: .top)
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("Neue Routen").font(.headline)
-                        Spacer()
-                        Button { model.discardRoute() } label: {
-                            Image(systemName: "xmark").frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("Route schließen")
-                    }
-                    Text("Nach \(model.destination?.name ?? journey.destination.name)")
-                        .font(.subheadline)
-                    if case .failed(let message) = model.planningState {
-                        Label(model.planningFailureMessage(message), systemImage: "exclamationmark.triangle")
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Erneut versuchen") { model.retryPlanningAfterNavigation() }
-                            .disabled(model.planningRequestsPaused)
-                            .buttonStyle(.borderedProminent)
-                            .tint(FoldRouteColor.signalYellow)
-                            .foregroundStyle(FoldRouteColor.asphalt)
-                        Button(model.origin == nil ? "Start wählen" : "Route anpassen") { showsAdjustments = true }
-                            .buttonStyle(.bordered)
-                    } else {
-                        ProgressView(model.planningState == .locating ? "Standort wird ermittelt …" : "Routen werden neu berechnet …")
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .cockpitPanel()
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cameraPanelHeight = $0 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
-            }
-        }
-        .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showsAdjustments) { RouteAdjustmentView(model: model) }
-    }
-
-    private func preview(journey: Journey) -> some View {
-        let journeys = model.journeyOptions.isEmpty ? [journey] : model.journeyOptions
-        let selection = Binding(
-            get: { model.selectedJourneyIndex },
-            set: { model.selectJourney(at: $0) }
-        )
-
-        return GeometryReader { geometry in
-            let compactStartBelow = dynamicTypeSize.isAccessibilitySize
-                || geometry.size.width - 56 - 124 < summaryTimeSize * 3.5
-            let heights = JourneyPanelHeights(
-                available: geometry.size.height - 8,
-                summary: summaryHeight + (panel.size == .collapsed && compactStartBelow ? 92 : 0) + (panel.size == .collapsed && model.planningNotice != nil ? compactIssueHeight + 12 : 0) + (panel.size == .collapsed && model.lateDepartureDelay(for: journey) != nil ? compactHintHeight + 12 : 0),
-                actions: actionsHeight,
-                hasAlternatives: journeys.count > 1,
-                topClearance: 128
-            )
-            let compact = panel.size == .collapsed
-            let height = min(heights.expanded, max(heights.collapsed, heights[panel.size] - dragOffset))
-            ZStack(alignment: .bottom) {
-                RouteMapView(
-                    journey: journey,
-                    alternativeJourneys: journeys,
-                    cameraInsets: MapCameraInsets(
-                        top: max(64, geometry.safeAreaInsets.top + 16),
-                        leading: 24,
-                        bottom: cameraPanelHeight + 16,
-                        trailing: 24
-                    ),
-                    planningLocationInsets: MapCameraInsets(
-                        top: max(64, geometry.safeAreaInsets.top + 16),
-                        leading: 24,
-                        bottom: height + 16,
-                        trailing: 24
-                    ),
-                    planningControlsTopY: geometry.frame(in: .global).minY + 12,
-                    onJourneySelected: { journeyID in
-                        guard
-                            let index = journeys.firstIndex(where: { $0.id == journeyID })
-                        else { return }
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            selection.wrappedValue = index
-                        }
-                    },
-                    onBackgroundTapped: { changePanel(to: .collapsed) }
-                )
-                .ignoresSafeArea(edges: .top)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    panelHandle(heights: heights)
-                        .padding(.bottom, -24)
-                    ZStack(alignment: compact ? .trailing : .topTrailing) {
-                        JourneyOptionsPager(
-                            journeys: journeys,
-                            cyclingLimit: model.settings.maxCyclingMinutes,
-                            searchComplete: model.bikeTransferSearchStatus != .searching,
-                            selection: selection,
-                            compact: compact,
-                            compactStartBelow: compactStartBelow,
-                            scrollsSummary: dynamicTypeSize.isAccessibilitySize || heights.expanded < summaryHeight + actionsHeight + 250
-                        )
-                        .frame(minHeight: compact ? 120 : nil)
-
-                        if compact {
-                            if !compactStartBelow { compactStartButton(fullWidth: false) }
-                        } else {
-                            Button {
-                                model.discardRoute()
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .frame(width: 44, height: 44)
-                                    .background(.white.opacity(0.22), in: Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Route schließen")
-                        }
-                    }
-
-                    if compact && compactStartBelow { compactStartButton(fullWidth: true) }
-
-                    if compact, model.lateDepartureDelay(for: journey) != nil {
-                        Button { changePanel(to: .normal) } label: {
-                            Text("Später Start · \(lateDepartureTime(journey.departure))")
-                                .font(.caption)
-                                .foregroundStyle(FoldRouteColor.signalYellow)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("Öffnet den vollständigen Hinweis")
-                        .accessibilityIdentifier("compactLateDepartureNotice")
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { compactHintHeight = $0 }
-                    }
-
-                    if compact, let notice = model.planningNotice {
-                        PlanningNoticeText(text: notice, maximumHeight: geometry.size.height * 0.35)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { compactIssueHeight = $0 }
-                    }
-                    if journeys.count > 1 {
-                        JourneyPageIndicator(
-                            pageCount: journeys.count,
-                            selection: selection
-                        )
-                    }
+            GeometryReader { geometry in
+                let available = max(0, geometry.size.height - 8)
+                let fullHeight = dynamicTypeSize.isAccessibilitySize || available < 500
+                let heights = JourneyPanelHeights(available: available, summary: headerHeight,
+                    actions: actionsHeight, content: contentHeight, topClearance: fullHeight ? 0 : 128)
+                let mapMode = fullHeight && panel.size == .collapsed
+                let coveredMap = fullHeight && !mapMode
+                let height = mapMode ? headerHeight + 32 : heights[fullHeight ? .expanded : panel.size]
+                let scrollActions = fullHeight || headerHeight + actionsHeight + 240 > height
+                let mapPanelHeight = coveredMap || panel.size == .expanded
+                    ? min(cameraPanelHeight, available * 0.65) : cameraPanelHeight
+                ZStack(alignment: .bottom) {
+                    RouteMapView(
+                        journey: journey,
+                        alternativeJourneys: model.isReplanningAfterNavigation ? [] : model.journeyOptions,
+                        overviewID: model.previewOverviewID,
+                        planningPanelMode: "\(panel.size)-\(mapMode)",
+                        cameraInsets: MapCameraInsets(top: 64, leading: 24, bottom: mapPanelHeight + 16, trailing: 88),
+                        planningLocationInsets: MapCameraInsets(top: 64, leading: 24, bottom: mapPanelHeight + 16, trailing: 88),
+                        planningControlsTopY: geometry.frame(in: .global).minY + 12,
+                        onJourneySelected: { model.selectJourney(id: $0) },
+                        onBackgroundTapped: { changePanel(to: .collapsed, intentional: false) }
+                    )
+                    .ignoresSafeArea(edges: .top)
+                    .accessibilityHidden(coveredMap)
+                    .allowsHitTesting(!coveredMap)
 
                     VStack(spacing: 12) {
-                        if let delay = model.lateDepartureDelay(for: journey), !compact {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label("Start erst \(lateDepartureTime(journey.departure)) – \(delay.formattedDuration) nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.", systemImage: "clock.badge.exclamationmark")
-                                    .font(.caption)
-                                    .foregroundStyle(FoldRouteColor.signalYellow)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Button("Einstellungen anpassen", action: openSettings)
-                                    .font(.subheadline.weight(.semibold))
-                                    .frame(maxWidth: .infinity, minHeight: 44)
+                        panelHeader(fullHeight: fullHeight)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
+                        if !mapMode {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 16) {
+                                    if model.isReplanningAfterNavigation {
+                                        Text("Neue Routen nach \(model.destination?.name ?? journey.destination.name)").font(.headline)
+                                    } else {
+                                        choices
+                                        reservedAlternativeContent(journey) { summary($0) }
+                                        if panel.size == .expanded {
+                                            FoldLine(legs: journey.legs)
+                                            ForEach(journey.legs) { JourneyLegRow(leg: $0) }
+                                        }
+                                    }
+                                    reservedAlternativeContent(journey) { planningNotices($0) }
+                                    if scrollActions { actions }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                                    if !scrollActions { contentHeight = $0 }
+                                }
                             }
-                            .accessibilityIdentifier("lateDepartureNotice")
-                        }
-                        if model.bikeTransferSearchStatus == .searching {
-                            ProgressView("Verbindungen optimieren …")
-                                .font(.caption)
-                        }
-                        if let notice = model.planningNotice {
-                            PlanningNoticeText(text: notice, maximumHeight: geometry.size.height * 0.22)
-                        }
-                        Group {
-                            if dynamicTypeSize.isAccessibilitySize {
-                                VStack(spacing: 4) { planningActions }
-                            } else {
-                                HStack(spacing: 12) { planningActions }
+                            .scrollBounceBehavior(.basedOnSize)
+                            .onScrollPhaseChange { _, phase in
+                                if phase == .interacting { model.holdSelectedJourney() }
                             }
+                            if !scrollActions { actions }
                         }
-                        .buttonStyle(.plain)
-                        .disabled(model.navigationStartState.isLoading || model.planningState.isLoading)
+                    }
+                    .padding(16)
+                    .frame(height: height)
+                    .background(FoldRouteColor.asphalt.opacity(fullHeight ? 1 : 0.97), in: RoundedRectangle(cornerRadius: 24))
+                    .foregroundStyle(.white)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
+                        if mapMode || (!fullHeight && panel.size != .expanded) { cameraPanelHeight = measured }
+                        else if cameraPanelHeight == 0 { cameraPanelHeight = min(measured, available * 0.65) }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $showsAdjustments) { RouteAdjustmentView(model: model) }
+            .alert("Startpunkt zu weit entfernt", isPresented: distantStartBinding, presenting: distantStartDistance) { _ in
+                Button("Route ab hier planen") { Task { await model.replanFromCurrentLocation() } }
+                Button("Abbrechen", role: .cancel) { model.cancelNavigationPreparation() }
+            } message: { distance in
+                Text("Der geplante Start liegt \(distance.formattedDistance) von deinem Standort entfernt.")
+            }
+        }
+    }
 
-                        Button {
-                            Task { await model.startNavigation() }
-                        } label: {
-                            Label(startButtonTitle, systemImage: "location.north.fill")
-                                .font(.headline)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.5)
-                                .frame(maxWidth: .infinity, minHeight: 54)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(FoldRouteColor.signalYellow)
-                        .foregroundStyle(FoldRouteColor.asphalt)
-                        .disabled(model.navigationStartState.isLoading)
+    private func reservedAlternativeContent<Content: View>(_ selected: Journey,
+        @ViewBuilder content: @escaping (Journey) -> Content) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(model.journeyOptions) { route in
+                content(route).hidden().accessibilityHidden(true).allowsHitTesting(false)
+            }
+            content(selected)
+        }
+    }
 
-                        if case .failed(let message) = model.navigationStartState {
-                            Label(message, systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(FoldRouteColor.signalYellow)
+    private func panelHeader(fullHeight: Bool) -> some View {
+        HStack(alignment: .top) {
+            if fullHeight {
+                Button { changePanel(to: panel.size == .collapsed ? .normal : .collapsed) } label: {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        Image(systemName: panel.size == .collapsed ? "list.bullet.rectangle" : "map")
+                            .font(.system(size: 20, weight: .semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    } else {
+                        Text(panel.size == .collapsed ? "Reise anzeigen" : "Karte anzeigen")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(panel.size == .collapsed ? "Reise anzeigen" : "Karte anzeigen")
+                .accessibilityIdentifier("toggleJourneyMap")
+            }
+            if !fullHeight || panel.size != .collapsed {
+                Button {
+                    guard Date().timeIntervalSince(lastHandleDrag) > 0.35 else { return }
+                    changePanel(to: panel.size == .expanded ? .normal : .expanded)
+                } label: {
+                    if fullHeight {
+                        Image(systemName: "list.bullet.rectangle")
+                            .font(.system(size: 20, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                    } else {
+                        Label(panel.size == .expanded ? "Weniger Details" : "Mehr Details", systemImage: "chevron.up.chevron.down")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(panel.size == .expanded ? "Weniger Details" : "Mehr Details")
+                .accessibilityIdentifier("journeyPanelHandle")
+                .accessibilityValue(panel.size.title)
+                .accessibilityAction(named: "Minimieren") { changePanel(to: .collapsed) }
+                .accessibilityAction(named: "Maximieren") { changePanel(to: .expanded) }
+                .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { value in
+                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                    lastHandleDrag = Date()
+                    changePanel(to: value.translation.height < 0 ? .expanded : .collapsed)
+                })
+            }
+            Button { model.discardRoute() } label: {
+                Image(systemName: "xmark").font(.system(size: 20, weight: .semibold)).frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Route schließen")
+        }
+    }
+
+    private func summary(_ journey: Journey) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(optionTitle(journey)).font(.caption.weight(.semibold)).foregroundStyle(FoldRouteColor.signalYellow)
+            JourneyTimeSummary(journey: journey)
+            if let comparison = CyclingComparison.label(journey, limit: model.resultCyclingLimit) {
+                Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.signalYellow)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .simultaneousGesture(DragGesture(minimumDistance: 40).onEnded { value in
+            guard abs(value.translation.width) > abs(value.translation.height),
+                  let index = model.journeyOptions.firstIndex(where: { $0.id == journey.id }),
+                  !model.journeyOptions.isEmpty else { return }
+            let count = model.journeyOptions.count
+            let next = (index + (value.translation.width < 0 ? 1 : count - 1)) % count
+            model.selectJourney(id: model.journeyOptions[next].id)
+        })
+    }
+
+    private var choices: some View {
+        let options = model.journeyOptions.isEmpty ? model.journey.map { [$0] } ?? [] : model.journeyOptions
+        let differentDays = Set(options.map { Calendar.current.startOfDay(for: $0.arrival) }).count > 1
+        return VStack(spacing: 8) {
+            ForEach(options) { option in
+                let comparison = CyclingComparison.excess(option, limit: model.resultCyclingLimit) > 0
+                let selected = option.id == model.journey?.id
+                Button { model.selectJourney(id: option.id) } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            if comparison { Image(systemName: "bicycle").accessibilityHidden(true) }
+                            Text("Ankunft \(option.arrival.formatted(date: differentDays ? .abbreviated : .omitted, time: .shortened)) · \(option.duration.formattedDuration)")
+                                .font(.subheadline.weight(.semibold))
                         }
+                        Text(JourneyEffort(option).label).font(.caption)
                     }
                     .fixedSize(horizontal: false, vertical: true)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(key: PanelActionsHeightKey.self, value: proxy.size.height)
-                        }
-                    }
-                    .frame(height: compact ? 0 : nil)
-                    .clipped()
-                    .opacity(compact ? 0 : 1)
-                    .accessibilityHidden(compact)
-                    .allowsHitTesting(!compact)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(selected ? FoldRouteColor.signalYellow : .white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    .foregroundStyle(selected ? FoldRouteColor.asphalt : .white)
                 }
-                .frame(height: max(0, height - 36), alignment: .top)
-                .cockpitPanel()
-                .clipped()
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
-            }
-            .onChange(of: heights[panel.size], initial: true) { _, height in
-                if panel.size != .expanded {
-                    cameraPanelHeight = height
-                } else if cameraPanelHeight == 0 {
-                    // A refreshed preview can first appear with its panel already expanded.
-                    cameraPanelHeight = heights.normal
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(optionTitle(option)). Ankunft \(option.arrival.formatted(date: .abbreviated, time: .shortened)), Gesamtdauer \(option.duration.formattedDuration). \(JourneyEffort(option).label)")
+                .accessibilityAddTraits(selected ? [.isSelected] : [])
+                .accessibilityIdentifier("journeyChoice-\(option.id)")
             }
         }
-        .onPreferenceChange(PanelSummaryHeightKey.self) { summaryHeight = $0 }
-        .onPreferenceChange(PanelActionsHeightKey.self) { actionsHeight = $0 }
-        .onChange(of: model.navigationStartState) { _, state in
-            if case .failed = state, panel.size == .collapsed { changePanel(to: .normal) }
-        }
-        .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showsAdjustments) {
-            RouteAdjustmentView(model: model)
-        }
-        .alert(
-            "Startpunkt zu weit entfernt",
-            isPresented: distantStartBinding,
-            presenting: distantStartDistance
-        ) { _ in
-            Button("Route ab hier planen") {
-                Task { await model.replanFromCurrentLocation() }
-            }
-            Button("Abbrechen", role: .cancel) {
-                model.cancelNavigationPreparation()
-            }
-        } message: { distance in
-            Text("Der geplante Start liegt \(distance.formattedDistance) von deinem Standort entfernt.")
-        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Verbindung auswählen")
     }
 
     @ViewBuilder
-    private func compactStartButton(fullWidth: Bool) -> some View {
-        Button {
-            Task { await model.startNavigation() }
-        } label: {
-            Group {
-                if model.navigationStartState.isLoading {
-                    ProgressView().tint(FoldRouteColor.asphalt)
-                } else {
-                    Text("Los").font(.system(size: 22, weight: .bold, design: .rounded))
-                }
-            }
-            .foregroundStyle(FoldRouteColor.asphalt)
-            .frame(width: fullWidth ? nil : 112, height: 80)
-            .frame(maxWidth: fullWidth ? .infinity : nil)
-            .background(FoldRouteColor.signalYellow, in: RoundedRectangle(cornerRadius: 24))
+    private func planningNotices(_ journey: Journey) -> some View {
+        if let notice = model.fallbackNotice {
+            Label(notice, systemImage: "exclamationmark.triangle").font(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("fallbackNotice")
         }
-        .buttonStyle(.plain)
-        .disabled(model.navigationStartState.isLoading || model.planningState.isLoading)
-        .accessibilityLabel(startButtonTitle)
-        .accessibilityIdentifier("compactStartNavigation")
+        if model.planningState.isLoading {
+            ProgressView(model.planningState == .locating ? "Standort wird ermittelt …" : "Routen werden neu berechnet …")
+        } else if model.bikeTransferSearchStatus == .searching {
+            ProgressView("Verbindungen optimieren …").font(.caption)
+        }
+        if let notice = model.planningNotice { Text(notice).font(.footnote).fixedSize(horizontal: false, vertical: true) }
+        if case .failed(let message) = model.planningState, model.fallbackNotice == nil {
+            Text(model.planningFailureMessage(message)).font(.footnote)
+        }
+        if let delay = model.lateDepartureDelay(for: journey) {
+            Text("Start erst \(lateDepartureTime(journey.departure)) – \(delay.formattedDuration) nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.")
+                .font(.caption).fixedSize(horizontal: false, vertical: true)
+            Button("Einstellungen anpassen", action: openSettings).frame(minHeight: 44)
+        }
+        if model.bikeTransferSearchStatus != .searching, !model.journeyOptions.isEmpty,
+           model.journeyOptions.allSatisfy({ CyclingComparison.excess($0, limit: model.resultCyclingLimit) > 0 }) {
+            Text("Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.").font(.caption)
+        }
+        if case .failed(let message) = model.navigationStartState {
+            Label(message, systemImage: "exclamationmark.triangle.fill").font(.footnote)
+        }
+    }
+
+    private var actions: some View {
+        VStack(spacing: 8) {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 8) { planningActions }
+            } else {
+                HStack(spacing: 12) { planningActions }
+            }
+            if !model.isReplanningAfterNavigation {
+                Button {
+                    Task { await model.startNavigation() }
+                } label: {
+                    Group {
+                        if dynamicTypeSize.isAccessibilitySize {
+                            Text(startButtonTitle)
+                        } else {
+                            Label(startButtonTitle, systemImage: "location.north.fill")
+                        }
+                    }
+                    .font(.headline).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(FoldRouteColor.signalYellow)
+                .foregroundStyle(FoldRouteColor.asphalt)
+                .disabled(model.navigationStartState.isLoading || model.planningState.isLoading)
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { actionsHeight = $0 }
     }
 
     @ViewBuilder
     private var planningActions: some View {
         Button {
-            if model.isPreviewReplan { model.retryPreviewPlanning() }
+            if model.isReplanningAfterNavigation { model.retryPlanningAfterNavigation() }
+            else if model.isPreviewReplan { model.retryPreviewPlanning() }
             else { model.refreshPlannedRoutes() }
         } label: {
-            Label("Aktualisieren", systemImage: "arrow.clockwise")
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
+            Text(model.isPreviewReplan || model.isReplanningAfterNavigation ? "Wiederholen" : "Aktualisieren")
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .disabled(model.planningRequestsPaused)
+        .disabled(model.planningRequestsPaused || model.planningState.isLoading || model.navigationStartState.isLoading)
         .accessibilityIdentifier("refreshPlannedRoutes")
         Button { showsAdjustments = true } label: {
-            Label("Route anpassen", systemImage: "slider.horizontal.3")
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
+            Text("Route anpassen").fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
+            .disabled(model.planningState.isLoading || model.navigationStartState.isLoading)
     }
 
-    private func changePanel(to size: JourneyPanelSize) {
-        withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.88)) {
-            panel.set(size)
+    private func optionTitle(_ journey: Journey) -> String {
+        if CyclingComparison.excess(journey, limit: model.resultCyclingLimit) > 0 { return "Fahrradvergleich" }
+        if journey.id == model.recommendedJourney?.id {
+            return (model.previewTiming ?? model.routeTiming).isArrival ? "Späteste Abfahrt" : "Früheste Ankunft"
         }
+        return "Alternative"
     }
 
-    private func panelHandle(heights: JourneyPanelHeights) -> some View {
-        Button {
-            guard Date().timeIntervalSince(lastHandleDrag) > 0.35 else { return }
-            changePanel(to: panel.size == .collapsed ? panel.lastOpenSize : .collapsed)
-        } label: {
-            Capsule()
-                .fill(.white.opacity(0.45))
-                .frame(width: 72, height: 5)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44, alignment: .top)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .offset(y: -10)
-        .accessibilityLabel("Routenübersicht")
-        .accessibilityValue(panel.size.title)
-        .accessibilityHint("Antippen klappt die Übersicht ein oder aus. Nach oben oder unten ziehen ändert die Größe.")
-        .accessibilityIdentifier("journeyPanelHandle")
-        .accessibilityAction(named: "Minimieren") { changePanel(to: .collapsed) }
-        .accessibilityAction(named: "Normale Größe") { changePanel(to: .normal) }
-        .accessibilityAction(named: "Maximieren") { changePanel(to: .expanded) }
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 10, coordinateSpace: .global)
-                .updating($dragOffset) { value, state, _ in
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                    state = value.translation.height
-                }
-                .onChanged { value in
-                    if abs(value.translation.height) > abs(value.translation.width) { lastHandleDrag = Date() }
-                }
-                .onEnded { value in
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                    lastHandleDrag = Date()
-                    changePanel(to: heights.nearest(to: heights[panel.size] - value.predictedEndTranslation.height))
-                }
-        )
+    private func changePanel(to size: JourneyPanelSize, intentional: Bool = true) {
+        if intentional { model.holdSelectedJourney() }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { panel.set(size) }
     }
 
     private var startButtonTitle: String {
         switch model.navigationStartState {
         case .locating: "Standort wird geprüft …"
         case .preparingApproach: "Route zum Start wird geplant …"
-        default: "Navigation starten"
+        default: model.fallbackNotice == nil ? "Navigation starten" : "Bisherige Route starten"
         }
     }
 
@@ -380,175 +318,26 @@ struct JourneyPreviewView: View {
         if case .distantStart(let distance) = model.navigationStartState { return distance }
         return nil
     }
-
     private var distantStartBinding: Binding<Bool> {
-        Binding(
-            get: { distantStartDistance != nil },
-            set: { if !$0 { model.cancelNavigationPreparation() } }
-        )
+        Binding(get: { distantStartDistance != nil }, set: { if !$0 { model.cancelNavigationPreparation() } })
     }
 }
 
-private struct JourneyOptionsPager: View {
-    let journeys: [Journey]
-    let cyclingLimit: Int
-    let searchComplete: Bool
-    @Binding var selection: Int
-    let compact: Bool
-    let compactStartBelow: Bool
-    let scrollsSummary: Bool
+struct JourneyEffort: Equatable {
+    let cyclingMinutes: Int
+    let walkingMinutes: Int
+    let transfers: Int
 
-    var body: some View {
-        TabView(selection: $selection) {
-            ForEach(journeys.indices, id: \.self) { index in
-                JourneyOptionDetails(
-                    journey: journeys[index],
-                    title: optionTitle(for: index),
-                    comparison: CyclingComparison.label(journeys[index], limit: cyclingLimit),
-                    onlyComparison: searchComplete && journeys.allSatisfy { CyclingComparison.excess($0, limit: cyclingLimit) > 0 },
-                    compact: compact,
-                    compactStartBelow: compactStartBelow,
-                    scrollsSummary: scrollsSummary
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .tag(index)
-            }
+    init(_ journey: Journey) {
+        func minutes(_ kinds: Set<JourneyLegKind>) -> Int {
+            max(0, Int((journey.legs.filter { kinds.contains($0.kind) }
+                .reduce(0) { $0 + max(0, $1.endTime.timeIntervalSince($1.startTime)) } / 60).rounded(.up)))
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .clipped()
+        cyclingMinutes = minutes([.bike, .approach])
+        walkingMinutes = minutes([.walk])
+        transfers = journey.transfers
     }
-
-    private func optionTitle(for index: Int) -> String {
-        if CyclingComparison.excess(journeys[index], limit: cyclingLimit) > 0 { return "Fahrradvergleich" }
-        return index == 0 ? "Empfohlene Verbindung" : "Alternative \(index)"
-    }
-}
-
-private struct JourneyOptionDetails: View {
-    let journey: Journey
-    let title: String
-    let comparison: String?
-    let onlyComparison: Bool
-    let compact: Bool
-    let compactStartBelow: Bool
-    let scrollsSummary: Bool
-
-    var body: some View {
-        Group {
-            if compact {
-                ScrollView(.vertical) { summary }
-                    .scrollBounceBehavior(.basedOnSize)
-            } else if scrollsSummary {
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        summary
-                        FoldLine(legs: journey.legs)
-                        legs
-                    }
-                }
-            } else {
-                VStack(alignment: .leading, spacing: compact ? 0 : 16) {
-                    summary
-                    timeline
-                    ScrollView(.vertical) { legs }
-                        .scrollIndicators(.automatic)
-                        .frame(height: compact ? 0 : nil)
-                        .opacity(compact ? 0 : 1)
-                        .accessibilityHidden(compact)
-                        .allowsHitTesting(!compact)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(title)
-    }
-
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(title)
-                if journey.isDirect {
-                    Image(systemName: "bicycle")
-                    Text("Nur Fahrrad")
-                }
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(FoldRouteColor.signalYellow)
-            .lineLimit(2)
-
-            if let comparison {
-                Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.signalYellow)
-                if onlyComparison {
-                    Text("Keine Verbindung innerhalb deines Radlimits gefunden.").font(.caption)
-                }
-            }
-            JourneyTimeSummary(journey: journey)
-
-        }
-        .padding(.trailing, compact ? (compactStartBelow ? 0 : 124) : 60)
-        .fixedSize(horizontal: false, vertical: true)
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(key: PanelSummaryHeightKey.self, value: proxy.size.height)
-            }
-        }
-    }
-
-    private var timeline: some View {
-        FoldLine(legs: journey.legs)
-            .frame(height: compact ? 0 : nil)
-            .clipped()
-            .opacity(compact ? 0 : 1)
-            .accessibilityHidden(compact)
-    }
-
-    private var legs: some View {
-        LazyVStack(spacing: 10) {
-            ForEach(journey.legs) { leg in
-                JourneyLegRow(leg: leg)
-            }
-        }
-    }
-}
-
-private struct JourneyPageIndicator: View {
-    let pageCount: Int
-    @Binding var selection: Int
-
-    var body: some View {
-        HStack(spacing: 7) {
-            ForEach(0..<pageCount, id: \.self) { index in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selection = index
-                    }
-                } label: {
-                    Capsule()
-                        .fill(
-                            index == selection
-                                ? FoldRouteColor.signalYellow
-                                : Color.white.opacity(0.28)
-                        )
-                        .frame(width: index == selection ? 20 : 7, height: 7)
-                        .animation(.easeInOut(duration: 0.2), value: selection)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Route \(index + 1) von \(pageCount)")
-                .accessibilityValue(index == selection ? "Ausgewählt" : "")
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .contain)
-    }
-}
-
-private struct PanelSummaryHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
+    var label: String { "\(cyclingMinutes) min Rad · \(walkingMinutes) min Fuß · \(transfers) \(transfers == 1 ? "Umstieg" : "Umstiege")" }
 }
 
 private struct FoldLine: View {
@@ -602,7 +391,7 @@ private struct JourneyLegRow: View {
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.62))
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             Text(leg.startTime, format: .dateTime.hour().minute())
@@ -637,7 +426,7 @@ private struct JourneyLegRow: View {
 
 extension TimeInterval {
     var formattedDuration: String {
-        let minutes = max(1, Int((self / 60).rounded()))
+        let minutes = max(1, Int((self / 60).rounded(.up)))
         if minutes < 60 { return "\(minutes) Min."
         }
         return "\(minutes / 60) Std. \(minutes % 60) Min."
@@ -648,13 +437,6 @@ extension Double {
     var formattedDistance: String {
         if self < 1_000 { return "\(Int(self.rounded())) m" }
         return String(format: "%.1f km", locale: Locale(identifier: "de_DE"), self / 1_000)
-    }
-}
-
-private struct PanelActionsHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }
 
@@ -686,11 +468,11 @@ struct JourneyPanelHeights {
     let normal: CGFloat
     let expanded: CGFloat
 
-    init(available: CGFloat, summary: CGFloat, actions: CGFloat, hasAlternatives: Bool = false,
+    init(available: CGFloat, summary: CGFloat, actions: CGFloat, content: CGFloat = 350,
          topClearance: CGFloat = 16) {
         expanded = max(0, available - topClearance)
-        collapsed = min(expanded, summary + 80 + (hasAlternatives ? 19 : 0))
-        normal = min(expanded, max(available * 0.74, collapsed + actions + 100))
+        collapsed = min(expanded, summary + min(170, content) + actions + 60)
+        normal = min(expanded, summary + content + actions + 60)
     }
 
     subscript(size: JourneyPanelSize) -> CGFloat {
@@ -711,28 +493,6 @@ private func lateDepartureTime(_ date: Date) -> String {
         return "um " + date.formatted(date: .omitted, time: .shortened)
     }
     return "am " + date.formatted(date: .numeric, time: .shortened)
-}
-
-
-/// Long failure explanations stay readable even at accessibility text sizes.
-private struct PlanningNoticeText: View {
-    let text: String
-    let maximumHeight: CGFloat
-    @State private var contentHeight: CGFloat = 20
-
-    var body: some View {
-        ScrollView {
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
-        }
-        .frame(height: min(contentHeight, maximumHeight))
-        .scrollBounceBehavior(.basedOnSize)
-        .accessibilityIdentifier("planningFailureReasons")
-    }
 }
 
 

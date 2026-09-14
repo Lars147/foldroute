@@ -24,7 +24,11 @@ export default defineConfig({
     { name: "chromium", use: { browserName: "chromium" } },
     {
       name: "webkit",
-      testMatch: "**/planner.spec.ts",
+      testMatch: [
+        "**/planner.spec.ts",
+        "**/*ux*.spec.ts",
+        "**/ux-planning.spec.ts",
+      ],
       use: { browserName: "webkit" },
     },
   ],

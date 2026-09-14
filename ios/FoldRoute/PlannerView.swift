@@ -16,7 +16,18 @@ struct PlannerView: View {
                 PlaceSearchContent(target: .destination, isDisabled: model.planningState.isLoading) { place in
                     Task { await model.planToDestination(place) }
                 }
-                .safeAreaInset(edge: .bottom) { planningStatus }
+                .safeAreaInset(edge: .bottom) {
+                    VStack(spacing: 0) {
+                        Button("Start, Zeit & Zwischenstopps") { showsAdjustments = true }
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .buttonStyle(.bordered)
+                            .padding(.horizontal, 16)
+                            .disabled(model.planningState.isLoading)
+                            .accessibilityIdentifier("prepareRoute")
+                        planningStatus
+                    }
+                    .background(.bar)
+                }
                 .navigationTitle("FoldRoute")
                 .navigationBarTitleDisplayMode(.inline)
             }
@@ -285,7 +296,7 @@ struct RouteAdjustmentView: View {
                 .padding(16)
                 .background(.bar)
             }
-            .navigationTitle("Route anpassen")
+            .navigationTitle("Start, Zeit & Zwischenstopps")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

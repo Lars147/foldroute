@@ -429,6 +429,17 @@ export function retainSelectedJourney(
     .slice(0, 3)
     .concat(comparison ? [comparison] : []);
 }
+
+/** Movement effort excludes folding, waiting and time spent at intermediate stops. */
+export function journeyEffort(journey: Journey) {
+  let cyclingSeconds = 0;
+  let walkingSeconds = 0;
+  for (const leg of journey.legs) {
+    if (leg.kind === "bike") cyclingSeconds += leg.end - leg.start;
+    if (leg.kind === "walk") walkingSeconds += leg.end - leg.start;
+  }
+  return { cyclingSeconds, walkingSeconds, transfers: journey.transfers };
+}
 export class PlannerError extends Error {
   constructor(
     public code: string,

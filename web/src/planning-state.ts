@@ -20,6 +20,8 @@ export interface PlanningState {
   restored: boolean;
   resultSettings?: RoutingSettings;
   calculationId?: string;
+  pendingRequest?: RouteRequest;
+  staleReason?: string;
 }
 export class PlanningSession {
   state: PlanningState = {
@@ -34,6 +36,7 @@ export class PlanningSession {
   private controller?: AbortController;
   private generation = 0;
   private explicitlySelectedID?: string;
+  private selectionHeld = false;
   constructor(
     private client: ApiClient,
     private change: (s: PlanningState) => void,
@@ -54,6 +57,7 @@ export class PlanningSession {
   }
   clear() {
     this.explicitlySelectedID = undefined;
+    this.selectionHeld = false;
     this.stop("");
     this.state = {
       journeys: [],
@@ -69,17 +73,18 @@ export class PlanningSession {
   invalidateForSettings() {
     this.stop("");
     this.explicitlySelectedID = undefined;
+    this.selectionHeld = false;
     this.state = {
       ...this.state,
-      journeys: [],
-      selected: undefined,
-      resultSettings: undefined,
-      restored: false,
-      queriedAt: 0,
-      issues: [],
+      staleReason: this.state.selected
+        ? "Diese Verbindung wurde mit den bisherigen Einstellungen berechnet."
+        : undefined,
       message: "Einstellungen geändert. Beim Verlassen wird neu berechnet.",
     };
     this.emit();
+  }
+  holdSelection() {
+    this.selectionHeld = true;
   }
   select(id: string) {
     const selected = this.state.journeys.find((j) => j.id === id);
@@ -89,9 +94,15 @@ export class PlanningSession {
       this.emit();
     }
   }
-  restore(journey: Journey, request: RouteRequest, queriedAt: number) {
+  restore(
+    journey: Journey,
+    request: RouteRequest,
+    queriedAt: number,
+    resultSettings: RoutingSettings,
+  ) {
     this.stop("");
     this.explicitlySelectedID = undefined;
+    this.selectionHeld = false;
     this.state = {
       journeys: [journey],
       selected: journey,
@@ -102,6 +113,23 @@ export class PlanningSession {
       message: "Gespeicherte Reise",
       issues: [],
       restored: true,
+      resultSettings: structuredClone(resultSettings),
+    };
+    this.emit();
+  }
+  restoreContext(context: PlanningState) {
+    this.stop("");
+    this.explicitlySelectedID = undefined;
+    this.selectionHeld = false;
+    this.state = {
+      ...structuredClone(context),
+      busy: false,
+      locating: false,
+      restored: true,
+      calculationId: undefined,
+      message: context.busy
+        ? "Bisherige Ergebnisse dieser Planung. Bei Bedarf erneut versuchen."
+        : context.message,
     };
     this.emit();
   }
@@ -117,6 +145,8 @@ export class PlanningSession {
   ): Promise<"location-error" | undefined> {
     this.stop("");
     this.explicitlySelectedID = undefined;
+    this.selectionHeld = false;
+    request = structuredClone(request);
     const calculationSettings = structuredClone(settings);
     const needsLocation =
       refreshLocation || request.destination.name === "Aktueller Standort";
@@ -127,6 +157,11 @@ export class PlanningSession {
     this.state = {
       ...previous,
       request: previous.selected ? previous.request : request,
+      pendingRequest: request,
+      staleReason: previous.selected
+        ? (previous.staleReason ??
+          "Diese Verbindung stammt aus der bisherigen Abfrage. Die Aktualisierung ist noch nicht abgeschlossen.")
+        : undefined,
       busy: true,
       locating: needsLocation,
       message: needsLocation
@@ -135,14 +170,15 @@ export class PlanningSession {
       issues: [],
     };
     this.emit();
-    let locating = needsLocation,
+    let locating = false,
       received = false;
     try {
       if (!navigator.onLine)
         throw new Error(
-          "Keine Internetverbindung. Du kannst deine gespeicherte Reise öffnen.",
+          "Keine Internetverbindung. Vorhandene Verbindungen bleiben verfügbar. Sobald du online bist, kannst du mit Aktualisieren erneut suchen.",
         );
       if (needsLocation) {
+        locating = true;
         const current = await locate(signal);
         request = {
           ...request,
@@ -162,6 +198,7 @@ export class PlanningSession {
       this.resolved?.(request, calculationSettings);
       this.state = {
         ...this.state,
+        pendingRequest: request,
         locating: false,
         message: "Verbindungen werden gesucht …",
       };
@@ -173,8 +210,25 @@ export class PlanningSession {
         this.client,
       )) {
         if (generation !== this.generation) return;
+        if (!update.journeys.length) {
+          this.state = {
+            ...this.state,
+            busy: update.status === "searching",
+            message:
+              update.status === "searching"
+                ? "Verbindungen optimieren …"
+                : update.status === "partial"
+                  ? "Suche teilweise abgeschlossen."
+                  : "",
+            issues: update.issues,
+          };
+          this.emit();
+          continue;
+        }
         const selected =
-          received && this.state.selected?.id === this.explicitlySelectedID
+          received &&
+          (this.selectionHeld ||
+            this.state.selected?.id === this.explicitlySelectedID)
             ? this.state.selected
             : undefined;
         let journeys = [...update.journeys];
@@ -206,6 +260,11 @@ export class PlanningSession {
         };
         this.emit();
       }
+      if (!received)
+        throw new Error(
+          this.state.issues.join(" ") ||
+            "Keine passende Route gefunden. Ändere Start, Ziel, Zeit oder Einstellungen.",
+        );
     } catch (error) {
       if (signal.aborted || generation !== this.generation) return;
       this.state = {
@@ -217,6 +276,13 @@ export class PlanningSession {
             : request,
         busy: false,
         locating: false,
+        pendingRequest: received ? undefined : request,
+        staleReason: received
+          ? undefined
+          : previous.selected
+            ? (previous.staleReason ??
+              "Die Aktualisierung ist nicht abgeschlossen. Diese Verbindung stammt aus der bisherigen Abfrage.")
+            : undefined,
         message: errorText(error),
       };
       this.emit();

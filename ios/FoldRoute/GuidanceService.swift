@@ -16,6 +16,10 @@ final class GuidanceService {
         _ = try? await notificationCenter.requestAuthorization(options: [.alert, .sound])
     }
 
+    func stopSpeaking() {
+        synthesizer.stopSpeaking(at: .immediate)
+    }
+
     func speak(_ text: String, settings: NavigationSettings) {
         guard settings.audioEnabled else { return }
         if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .word) }

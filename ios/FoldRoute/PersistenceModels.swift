@@ -212,23 +212,27 @@ struct NavigationProgress: Codable, Equatable {
 struct ActiveJourneySnapshot: Codable {
     let journey: Journey
     let progress: NavigationProgress?
+    let fallbackNotice: String?
 
-    init(journey: Journey, progress: NavigationProgress? = nil) {
+    init(journey: Journey, progress: NavigationProgress? = nil, fallbackNotice: String? = nil) {
         self.journey = journey
         self.progress = progress
+        self.fallbackNotice = fallbackNotice
     }
 
-    private enum CodingKeys: String, CodingKey { case journey, progress }
+    private enum CodingKeys: String, CodingKey { case journey, progress, fallbackNotice }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if container.contains(.journey) {
             journey = try container.decode(Journey.self, forKey: .journey)
             progress = try container.decodeIfPresent(NavigationProgress.self, forKey: .progress)
+            fallbackNotice = try container.decodeIfPresent(String.self, forKey: .fallbackNotice)
         } else {
             // Older app versions stored only the journey, without a started state.
             journey = try Journey(from: decoder)
             progress = nil
+            fallbackNotice = nil
         }
         try RouteStop.validate(journey.stops)
         guard journey.legs.allSatisfy({ leg in

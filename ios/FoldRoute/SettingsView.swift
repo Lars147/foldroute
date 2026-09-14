@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
     @State private var confirmDelete = false
     @State private var showLicense = false
 
@@ -93,7 +94,14 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(FoldRouteColor.alertCoral)
                 }
-                Button("Standort erneut anfragen") { model.requestLocation() }
+                if let message = model.location.status.message { Text(message).font(.footnote) }
+                if model.location.status == .denied || model.location.status == .disabled {
+                    Button("Geräteeinstellungen öffnen") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }
+                } else if model.location.status != .restricted {
+                    Button("Standort erneut anfragen") { model.requestLocation() }
+                }
             }
 
             Section("Lizenzen & Datenquellen") {
@@ -106,7 +114,7 @@ struct SettingsView: View {
             }
 
             Section {
-                Button("Einstellungen speichern") { model.saveSettings() }
+                Button("Fertig") { model.finishSettingsEditing() }
                 Button("Alle lokalen Daten löschen", role: .destructive) { confirmDelete = true }
             }
 

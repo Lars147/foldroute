@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ActiveNavigationView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
+    @State private var pendingCompletion: LegCompletionRequest?
     @State private var confirmStop = false
     @State private var showAlternative = false
     @State private var stripHeight: CGFloat = 0
@@ -35,7 +37,18 @@ struct ActiveNavigationView: View {
                 .ignoresSafeArea()
 
                 VStack(spacing: 12) {
-                    NavigationPhaseStrip(engine: engine)
+                    HStack(alignment: .top, spacing: 8) {
+                        NavigationPhaseStrip(engine: engine)
+                        Button { model.setAudioEnabled(!model.settings.audioEnabled) } label: {
+                            Image(systemName: model.settings.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                .frame(width: 44, height: 44)
+                                .background(FoldRouteColor.asphalt.opacity(0.96), in: Circle())
+                        }
+                        .foregroundStyle(.white)
+                        .accessibilityLabel(model.settings.audioEnabled ? "Ton ausschalten" : "Ton einschalten")
+                        .accessibilityValue(model.settings.audioEnabled ? "Ton an" : "Stumm")
+                        .accessibilityIdentifier("navigationAudio")
+                    }
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
@@ -55,6 +68,22 @@ struct ActiveNavigationView: View {
             }
         }
         .sheet(isPresented: $showAlternative) { alternativeSheet }
+        .confirmationDialog("Abschnitt beenden?", isPresented: Binding(
+            get: { pendingCompletion != nil },
+            set: { if !$0 { pendingCompletion = nil } }
+        ), titleVisibility: .visible, presenting: pendingCompletion) { request in
+            Button(request.title) {
+                guard model.navigation === request.engine else { return }
+                request.engine.completeLeg(expectedID: request.legID)
+                pendingCompletion = nil
+            }
+            Button("Abbrechen", role: .cancel) { pendingCompletion = nil }
+        } message: { request in
+            Text("\(request.title) bei \(request.destination)? Der nächste Abschnitt wird geöffnet.")
+        }
+        .onChange(of: engine.currentLeg?.id) { _, id in
+            if pendingCompletion?.legID != id { pendingCompletion = nil }
+        }
         .confirmationDialog("Navigation beenden?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Navigation beenden", role: .destructive) {
                 model.stopNavigationAndReplan()
@@ -74,6 +103,27 @@ struct ActiveNavigationView: View {
 
     private func instructionContent(_ engine: NavigationEngine) -> some View {
         VStack(alignment: .leading, spacing: 14) {
+            if let notice = model.fallbackNotice {
+                Label(notice, systemImage: "exclamationmark.triangle")
+                    .font(.footnote).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("navigationFallbackNotice")
+            }
+            if let message = model.location.status.message {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(message, systemImage: "location.slash")
+                        .font(.footnote).fixedSize(horizontal: false, vertical: true)
+                    if model.location.status == .denied || model.location.status == .disabled {
+                        Button("Geräteeinstellungen öffnen") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                        }
+                        .frame(minHeight: 44)
+                    } else if model.location.status != .restricted {
+                        Button(model.location.status == .notDetermined ? "Standort erlauben" : "Standort erneut anfragen") { model.requestLocation() }
+                            .frame(minHeight: 44)
+                    }
+                }
+                .accessibilityIdentifier("navigationLocationStatus")
+            }
             if let transit = engine.journey.remainingTransit(from: engine.currentLegIndex).first {
                 transitStatus(transit)
             }
@@ -130,19 +180,23 @@ struct ActiveNavigationView: View {
                     .font(.subheadline)
             }
             HStack(spacing: 10) {
-                Button {
-                    if engine.currentLeg?.kind == .stop { Task { await model.continueFromStop() } }
-                    else { engine.advance() }
-                } label: {
-                    Label(engine.currentLeg?.kind == .stop ? "Weiterfahren" : "Schritt fertig", systemImage: "checkmark")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.25)
-                        .frame(maxWidth: .infinity, minHeight: 48)
+                if let leg = engine.currentLeg {
+                    Button {
+                        if leg.kind == .stop { Task { await model.continueFromStop() } }
+                        else if leg.kind.requiresCompletionConfirmation {
+                            pendingCompletion = LegCompletionRequest(engine: engine, legID: leg.id,
+                                title: leg.kind.completionTitle, destination: leg.endPlace.name)
+                        } else { engine.completeLeg(expectedID: leg.id) }
+                    } label: {
+                        Text(leg.kind.completionTitle)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(leg.kind.requiresCompletionConfirmation ? .white : FoldRouteColor.signalYellow)
+                    .disabled(engine.isReplanning)
+                    .accessibilityIdentifier("completeNavigationLeg")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(FoldRouteColor.signalYellow)
-                .foregroundStyle(FoldRouteColor.asphalt)
-                .disabled(engine.isReplanning)
 
                 Button {
                     confirmStop = true
@@ -275,5 +329,34 @@ private struct NavigationPhaseStrip: View {
         .background(FoldRouteColor.asphalt.opacity(0.93), in: Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Abschnitt \(engine.currentLegIndex + 1) von \(engine.journey.legs.count): \(engine.currentLeg?.kind.title ?? "")")
+    }
+}
+
+private struct LegCompletionRequest {
+    let engine: NavigationEngine
+    let legID: UUID
+    let title: String
+    let destination: String
+}
+
+extension JourneyLegKind {
+    var requiresCompletionConfirmation: Bool {
+        switch self {
+        case .bike, .walk, .approach, .wait, .transit: true
+        case .fold, .unfold, .stop: false
+        }
+    }
+
+    var completionTitle: String {
+        switch self {
+        case .bike: "Radetappe beenden"
+        case .walk: "Fußweg beenden"
+        case .approach: "Anfahrt beenden"
+        case .wait: "Wartezeit beenden"
+        case .transit: "Ausgestiegen"
+        case .fold: "Rad gefaltet"
+        case .unfold: "Rad entfaltet"
+        case .stop: "Weiterfahren"
+        }
     }
 }

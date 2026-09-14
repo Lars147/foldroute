@@ -1,6 +1,39 @@
 import CoreLocation
 import Observation
 
+enum LocationStatus: Equatable {
+    case ready, notDetermined, denied, restricted, disabled, missing, stale, inaccurate, failed
+
+    var isUsable: Bool { self == .ready }
+    var message: String? {
+        switch self {
+        case .ready: nil
+        case .notDetermined: "Standortzugriff noch nicht erlaubt."
+        case .denied: "Standortzugriff abgelehnt. In den Einstellungen erlauben."
+        case .restricted: "Standortzugriff ist auf diesem Gerät eingeschränkt."
+        case .disabled: "Ortungsdienste sind systemweit ausgeschaltet. In den Geräteeinstellungen einschalten."
+        case .missing: "Standort fehlt. Entfernung und Position sind noch nicht verfügbar."
+        case .stale: "Standort veraltet. Letzte Position und Entfernung sind nicht aktuell."
+        case .inaccurate: "Standort zu ungenau. Position und Entfernung sind nur ungefähr."
+        case .failed: "Standort konnte nicht aktualisiert werden. Letzte Position und Entfernung sind nicht aktuell."
+        }
+    }
+
+    static func evaluate(authorization: CLAuthorizationStatus, servicesEnabled: Bool,
+                         location: CLLocation?, now: Date = Date()) -> LocationStatus {
+        if authorization == .restricted { return .restricted }
+        if !servicesEnabled { return .disabled }
+        if authorization == .notDetermined { return .notDetermined }
+        if authorization == .denied { return .denied }
+        guard authorization == .authorizedAlways || authorization == .authorizedWhenInUse else { return .restricted }
+        guard let location else { return .missing }
+        guard abs(now.timeIntervalSince(location.timestamp)) <= NavigationStartPolicy.maximumLocationAge else { return .stale }
+        guard location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= NavigationStartPolicy.maximumHorizontalAccuracy else { return .inaccurate }
+        return .ready
+    }
+}
+
 @MainActor
 @Observable
 final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate {
@@ -11,6 +44,9 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
     private(set) var accuracyAuthorization: CLAccuracyAuthorization
     private(set) var lastError: Error?
     var onLocation: ((CLLocation) -> Void)?
+    var onStatusChange: (() -> Void)?
+    private(set) var status: LocationStatus = .missing
+    private var servicesEnabled = true
     private var navigationRequested = false
 
     override init() {
@@ -21,6 +57,20 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
         manager.activityType = .fitness
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.distanceFilter = 10
+        refreshAuthorization()
+    }
+
+    func refreshStatus(now: Date = Date()) {
+        status = .evaluate(authorization: authorizationStatus, servicesEnabled: servicesEnabled,
+                           location: currentLocation, now: now)
+        if status == .ready, lastError != nil { status = .failed }
+    }
+
+    func refreshAuthorization() {
+        authorizationStatus = manager.authorizationStatus
+        accuracyAuthorization = manager.accuracyAuthorization
+        servicesEnabled = CLLocationManager.locationServicesEnabled()
+        refreshStatus()
     }
 
     var isAuthorized: Bool {
@@ -72,9 +122,9 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        authorizationStatus = manager.authorizationStatus
-        accuracyAuthorization = manager.accuracyAuthorization
-        guard isAuthorized else { return }
+        refreshAuthorization()
+        onStatusChange?()
+        guard isAuthorized, servicesEnabled else { return }
         if navigationRequested {
             beginNavigationUpdates()
         } else {
@@ -83,13 +133,17 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last, location.horizontalAccuracy >= 0 else { return }
+        guard let location = locations.last else { return }
         currentLocation = location
-        lastError = nil
+        if NavigationStartPolicy.isUsable(location) { lastError = nil }
+        refreshStatus()
         onLocation?(location)
+        onStatusChange?()
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         lastError = error
+        refreshStatus()
+        onStatusChange?()
     }
 }

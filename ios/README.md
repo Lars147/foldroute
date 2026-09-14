@@ -6,11 +6,12 @@ Alle Shell-Befehle und Projektpfade dieser Anleitung beziehen sich auf das **Rep
 
 ## Einrichten und starten
 
-Voraussetzungen: Xcode 26 oder neuer, iOS 18 oder neuer, Apple-Entwicklerteam für ein physisches Gerät.
+Voraussetzungen: ein Mac mit Xcode 26 oder neuer, iOS 18 oder neuer, Apple-Entwicklerteam für ein physisches Gerät.
 
-1. `ios/FoldRoute.xcodeproj` in Xcode öffnen.
-2. Für ein physisches iPhone im Target **FoldRoute** unter **Signing & Capabilities** eigenes Team und eine eigene eindeutige Bundle-ID wählen. Das Projekt enthält kein festes Entwicklerteam; `com.example.FoldRoute` und `com.example.FoldRouteTests` sind neutrale Platzhalter.
-3. iPhone oder kompatiblen Simulator auswählen und **Run** starten.
+1. Den [Quellcode als ZIP herunterladen](https://github.com/Lars147/foldroute/archive/refs/heads/main.zip) und entpacken. Alternativ das [öffentliche Repository](https://github.com/Lars147/foldroute) klonen.
+2. Im entpackten beziehungsweise geklonten Ordner `ios/FoldRoute.xcodeproj` in Xcode öffnen.
+3. Für ein physisches iPhone im Target **FoldRoute** unter **Signing & Capabilities** eigenes Team und eine eigene eindeutige Bundle-ID wählen. Das Projekt enthält kein festes Entwicklerteam; `com.example.FoldRoute` und `com.example.FoldRouteTests` sind neutrale Platzhalter.
+4. iPhone oder kompatiblen Simulator auswählen und **Run** starten.
 
 Kein API-Schlüssel und kein Backend nötig. Die App ist deutsch, metrisch und auf iPhone-Portrait optimiert. Eine fertige App-Store-Version steht noch nicht bereit.
 
@@ -18,7 +19,7 @@ Eine andere Bundle-ID installiert die App als separate Anwendung. Vorhandene lok
 
 ## Kartenansicht
 
-„Gesamte Route anzeigen“ unter dem Standort-Button passt die ausgewählte Strecke mit Start, Ziel und Zwischenstopps wieder in den freien Kartenbereich ein. Panelmodus und Scrollposition bleiben erhalten. Die Aktion benötigt keine neue Standortabfrage oder Routenberechnung und funktioniert auch bei gespeicherten Reisen. Die laufende Navigation behält ihre eigene Standort-Zentrierung.
+„Alle Routen anzeigen“ unter dem Standort-Button passt alle angebotenen Alternativen mit Start, Ziel und Zwischenstopps in den freien Kartenbereich ein; bei einer Verbindung heißt die Aktion „Gesamte Route anzeigen“. Panelmodus und Scrollposition bleiben erhalten. Die Aktion benötigt keine neue Standortabfrage oder Routenberechnung und funktioniert auch bei gespeicherten Reisen. Die laufende Navigation behält ihre eigene Standort-Zentrierung.
 
 ## Architektur
 
@@ -64,6 +65,8 @@ Zusätzlich Standortfreigabe und GPS-Ausfall, Hintergrundwechsel, Wiederaufnahme
 
 ## Daten und Grenzen
 
-Beim Planen gehen Start, Ziel und Zeitpunkt direkt an [Transitous](https://transitous.org/api/). MapKit verarbeitet Ortssuchen. Für erneut planbare Fahrten speichert FoldRoute Start und Ziel lokal, aber keine GPS-Spur. Attributionen sind in den Einstellungen sichtbar; Kartendaten stammen unter anderem von [OpenStreetMap-Mitwirkenden](https://www.openstreetmap.org/copyright).
+Beim Planen gehen Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen direkt an [Transitous](https://transitous.org/api/). MapKit verarbeitet Ortssuchen. Einstellungen, Favoriten, letzte Orte und erneut planbare Fahrten einschließlich ihrer Zwischenziele bleiben lokal; FoldRoute speichert keine GPS-Spur. Attributionen sind in den Einstellungen sichtbar; Kartendaten stammen unter anderem von [OpenStreetMap-Mitwirkenden](https://www.openstreetmap.org/copyright).
 
 Speicher- und Migrationsregeln stehen in der [Routingdokumentation](../documentation/routing.md#speicherung-und-kompatibilität-ios). Vor einer breiten Veröffentlichung die [Betriebs- und Datenquellenhinweise](../web/README.md#vor-öffentlicher-veröffentlichung) beachten; sie betreffen auch die iOS-Anfragen an Transitous.
+
+Die Kartenübersicht bleibt beim Wechsel zwischen Alternativen stehen. Nachgeladene Umwege erweitern sie bei Bedarf; entfallene Alternativen verkleinern sie nicht automatisch. Eigenes Verschieben oder Zoomen pausiert automatische Anpassungen bis zur Übersichtsaktion oder einer neuen erfolgreichen Berechnung. Auch der eingeblendete Fahrradvergleich gehört zur gemeinsamen Übersicht.

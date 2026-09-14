@@ -45,7 +45,7 @@ struct RootView: View {
         }
         .preferredColorScheme(nil)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { model.requestTransitRefresh() }
+            if phase == .active { model.becameActive() }
         }
     }
 }

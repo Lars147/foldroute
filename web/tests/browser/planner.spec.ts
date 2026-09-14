@@ -130,7 +130,7 @@ for (const [width, height] of [
     );
   });
 
-test("manual map gestures release location focus; button restores it and route change resets it", async ({
+test("manual map gestures release location focus; button restores it and route selection retains it", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 986 });
@@ -177,10 +177,9 @@ test("manual map gestures release location focus; button restores it and route c
   await page.locator("#map-location").click();
   await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
   await page.locator(".route-choice").last().click();
-  // Expanded details intentionally defer fitting the tiny remaining map area.
-  // Return to the overview to observe that the route change released focus.
+  // Switching alternatives retains the explicitly requested location view.
   await page.locator("#panel-size").click();
-  await expect.poll(() => locationCenterError(page)).toBeGreaterThan(5);
+  await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
 });
 
 for (const width of [320, 390, 768, 1479])
@@ -278,6 +277,7 @@ test("settings persist immediately and replan once on leaving", async ({
 }) => {
   await setup(page);
   await plan(page);
+  const priorChoices = await page.locator(".route-choice").count();
   let requests = 0,
     directRequests = 0;
   page.on("request", (r) => {
@@ -297,7 +297,7 @@ test("settings persist immediately and replan once on leaving", async ({
   await expect(cycling).toHaveAttribute("min", "1");
   await expect(cycling).toHaveAttribute("max", "60");
   await cycling.fill("17");
-  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
   expect(requests).toBe(0);
   expect(
     await page.evaluate(() =>
@@ -423,7 +423,7 @@ test("choice labels keep arrival times for both search modes and update dates wi
     };
     const view = new JourneyView(() => {});
     const texts = () =>
-      Array.from(document.querySelectorAll(".route-choice"), (b) =>
+      Array.from(document.querySelectorAll(".route-choice-time"), (b) =>
         b.textContent!.trim(),
       );
     view.render(state, 60);
@@ -486,13 +486,13 @@ test("better alternatives replace automatic selection", async ({ page }) => {
   await choose(page, "destination", "Ziel");
   await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
   await expectPlanningComplete(page);
-  await expect(page.locator(".route-choice")).toHaveText([
+  await expect(page.locator(".route-choice-time")).toHaveText([
     "10:53 · 53 min",
     "· 11:01 · 1 h 1 min",
   ]);
-  await expect(page.locator(".route-choice[aria-pressed=true]")).toHaveText(
-    "10:53 · 53 min",
-  );
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toHaveText("10:53 · 53 min");
   await expect(page.locator("#route-duration")).toContainText("53 min");
   await page.locator("#panel-summary").press("ArrowRight");
   await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
@@ -862,11 +862,12 @@ test("two-character search requests twelve results; prefill keeps cursor and mak
   await expect.poll(() => searches.length).toBe(2);
 });
 
-test("settings errors keep old offline snapshot but never restore invalidated options", async ({
+test("settings errors retain old results and their original offline snapshot", async ({
   page,
 }) => {
   await setup(page);
   await plan(page);
+  const priorChoices = await page.locator(".route-choice").count();
   await expect(page.locator("#storage-message")).toContainText("gespeichert");
   const original = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve) => {
@@ -885,16 +886,16 @@ test("settings errors keep old offline snapshot but never restore invalidated op
   );
   await page.locator("#tab-settings").click();
   await page.locator("#foldingDuration").fill("4.5");
-  await page.goBack();
+  await page.locator("#save-settings").click();
   await expect(page.locator("#status")).toContainText(
     "Anfrage nicht beantworten",
   );
-  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
   await page.locator("#refresh-route").click();
   await expect(page.locator("#status")).toContainText(
     "Anfrage nicht beantworten",
   );
-  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
   await page.locator("#close-route").click();
   await page.locator("#open-saved").click();
   await expect(page.locator("#saved-notice")).toBeVisible();
@@ -981,6 +982,7 @@ test("an expired fixed departure requires adjustment and sends no new plan reque
   await page.locator("#when").fill("2026-09-04T10:00");
   await page.locator("#calculate").click();
   await expectPlanningComplete(page);
+  const priorChoices = await page.locator(".route-choice").count();
   await page.clock.setFixedTime(new Date("2026-09-04T08:01:00Z"));
   let requests = 0;
   page.on("request", (r) => {
@@ -990,7 +992,7 @@ test("an expired fixed departure requires adjustment and sends no new plan reque
   await page.locator("#foldingDuration").fill("4");
   await page.locator("#tab-route").click();
   await expect(page.locator("#status")).toContainText("zukünftigen Zeitpunkt");
-  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
   expect(requests).toBe(0);
 });
 
@@ -1015,9 +1017,9 @@ test("long direct rides are labeled comparisons and suitable transit is preferre
   );
   await choose(page, "destination", "Ziel");
   await expectPlanningComplete(page);
-  await expect(page.locator(".route-choice[aria-pressed=true]")).toHaveText(
-    "10:53 · 53 min",
-  );
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toHaveText("10:53 · 53 min");
   await page.getByRole("button", { name: /Fahrradvergleich: 46 Min/ }).click();
   await expect(page.locator("#cycling-comparison")).toHaveText(
     "46 Min. Radfahrt · 16 Min. über deinem Radlimit",
@@ -1116,6 +1118,11 @@ test("link options and edits remain temporary, including Back from settings", as
     if (r.url().includes("directModes=BIKE")) calculations++;
   });
   await page.goBack();
+  await expect(page.locator("#foldingDuration")).toHaveValue("3");
+  expect(calculations).toBe(0);
+  await page.goForward();
+  await expect(page.locator("#foldingDuration")).toHaveValue("4");
+  await page.locator("#save-settings").click();
   await expectPlanningComplete(page);
   expect(calculations).toBe(1);
   expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("240");
@@ -2564,6 +2571,15 @@ for (const [width, height] of [
         details.hidden = size !== "expanded";
         details.inert = size !== "expanded";
       }, size);
+      // A full-height panel exposes the map without discarding the route or size.
+      const mapToggle = page.locator("#panel-map-toggle");
+      if (
+        (await mapToggle.isVisible()) &&
+        !(await page
+          .locator("#journey-panel")
+          .evaluate((p) => p.classList.contains("panel-map-only")))
+      )
+        await mapToggle.click();
       await page.locator("#map").focus();
       await page.keyboard.press("+");
       await page.keyboard.press("ArrowLeft");
@@ -2574,7 +2590,7 @@ for (const [width, height] of [
         .locator("#panel-content")
         .evaluate((e) => e.scrollTop);
       await page
-        .getByRole("button", { name: "Gesamte Route anzeigen", exact: true })
+        .getByRole("button", { name: /^(Gesamte Route|Alle Routen) anzeigen$/ })
         .click();
       await expectRouteFits(page);
       await expect(page.locator("#journey-panel")).toHaveAttribute(
@@ -2667,3 +2683,46 @@ test("route fit overrides a pending location response and works offline with sto
   await expectRouteFits(page);
   await expect(page.locator(".route-marker-stop")).toHaveText("1");
 });
+
+for (const width of [390, 1479]) {
+  for (const archived of [false, true]) {
+    test(`map background collapse preserves panel anchor at ${width}, archived=${archived}`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize({ width, height: 986 });
+      await setup(page);
+      await plan(page);
+      if (archived) {
+        await page.locator("#tab-history").click();
+        await page.locator(".history-open").first().click();
+      }
+      const panel = page.locator("#journey-panel");
+      const initial = (await panel.boundingBox())!;
+      const anchorError = async () => {
+        const current = (await panel.boundingBox())!;
+        const vertical =
+          width >= 900
+            ? current.y - initial.y
+            : current.y + current.height - initial.y - initial.height;
+        return Math.max(Math.abs(current.x - initial.x), Math.abs(vertical));
+      };
+      const clickBackground = () =>
+        page
+          .locator("#map")
+          .click({ position: { x: width >= 900 ? width - 140 : 20, y: 60 } });
+      await clickBackground();
+      await expect(panel).toHaveAttribute("data-size", "collapsed");
+      await expect.poll(anchorError).toBeLessThanOrEqual(1);
+      await page.locator("#panel-size").click();
+      await expect(panel).toHaveAttribute("data-size", "normal");
+      await expect.poll(anchorError).toBeLessThanOrEqual(1);
+      await page.locator("#panel-size").click();
+      await expect(panel).toHaveAttribute("data-size", "expanded");
+      await expect.poll(anchorError).toBeLessThanOrEqual(1);
+      await clickBackground();
+      await expect(panel).toHaveAttribute("data-size", "collapsed");
+      await expect.poll(anchorError).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: testInfo.outputPath("panel-anchor.png") });
+    });
+  }
+}
