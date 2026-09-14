@@ -471,9 +471,11 @@
     </div>
     <div id="toast" class="toast" role="status" hidden></div>
     <div id="update-banner" class="update-banner" role="status" hidden>
-      <span>Neue Version verfügbar.</span
-      ><button id="update-now">Aktualisieren</button
-      ><button id="update-later">Später</button>
+      <span>Neue Version verfügbar.</span>
+      <div class="update-actions">
+        <button id="update-later" type="button">Später</button>
+        <button id="update-now" type="button" class="primary">Aktualisieren</button>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

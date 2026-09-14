@@ -877,14 +877,21 @@ dialog form {
   box-shadow: 0 4px 25px #0002;
 }
 .update-banner {
-  display: flex;
-  align-items: center;
+  display: grid;
+  width: 360px;
   gap: 12px;
-  flex-wrap: wrap;
 }
-.update-banner button {
-  color: #ffd43b;
-  font-size: 0.75rem;
+.update-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9em), 1fr));
+  gap: 8px;
+}
+.update-actions button {
+  font-size: inherit;
+  min-height: 48px;
+}
+#update-later {
+  color: #b8c1c3;
 }
 .skip {
   position: fixed;
