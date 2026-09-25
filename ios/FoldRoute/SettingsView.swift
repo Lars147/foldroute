@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
+    @AppStorage("foldroute.screenAwake") private var keepScreenAwake = true
     @State private var confirmDelete = false
     @State private var showLicense = false
 
@@ -80,6 +81,13 @@ struct SettingsView: View {
                 Text("Verkehrsmittel")
             } footer: {
                 Text(transitModeFooter)
+            }
+
+            Section("Bildschirm") {
+                Toggle("Bildschirm während der Route eingeschaltet lassen", isOn: $keepScreenAwake)
+                Text("Gilt für die sichtbare Routenvorschau und Navigation. Verbraucht mehr Akku; manuelles Sperren bleibt möglich.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Hinweise") {

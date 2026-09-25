@@ -1,3 +1,4 @@
+import { ScreenAwake } from "./screen-awake";
 import { LiveLocation, fixPlace } from "./live-location";
 import { TimePicker, timeSummary } from "./time-picker";
 import { StopEditor } from "./stop-editor";
@@ -71,9 +72,12 @@ const api = new ApiClient(),
   store = new OfflineStore(),
   book = new PlaceBook(),
   dialog = el<HTMLDialogElement>("adjust-dialog");
+const screenAwakeKey = "foldroute.screenAwake";
+let keepScreenAwake = true;
 const storageKey = "foldroute.routing.v3";
 const legacyStorageKey = "foldroute.routing.v1";
 try {
+  keepScreenAwake = localStorage.getItem(screenAwakeKey) !== "false";
   const current = localStorage.getItem(storageKey),
     legacy = localStorage.getItem(legacyStorageKey);
   const value = migrateSettings(JSON.parse(current ?? legacy ?? "null"));
@@ -106,8 +110,16 @@ const routeMap = new RouteMap(
 const liveLocation = new LiveLocation((fix, quality) =>
   routeMap.updateLocation(fix, quality),
 );
+const screenAwake = new ScreenAwake();
 let pagePresent = true;
 function syncLiveLocation() {
+  screenAwake.setActive(
+    keepScreenAwake &&
+      pagePresent &&
+      view === "map" &&
+      !document.hidden &&
+      !dialog.open,
+  );
   liveLocation.setActive(
     pagePresent && view === "map" && !document.hidden && !dialog.open,
   );
@@ -1015,6 +1027,9 @@ el("confirm-delete-data").onclick = async () => {
     await localDatabase.clearAll();
     localStorage.removeItem(storageKey);
     localStorage.removeItem(legacyStorageKey);
+    localStorage.removeItem(screenAwakeKey);
+    keepScreenAwake = true;
+    el<HTMLInputElement>("keep-screen-awake").checked = true;
     saved = undefined;
     historyEntries = [];
     offlineEnabled = true;
@@ -1040,6 +1055,16 @@ el("confirm-delete-data").onclick = async () => {
       "Daten konnten nicht vollständig gelöscht werden. Bitte erneut versuchen.";
   } finally {
     button.disabled = false;
+  }
+};
+el<HTMLInputElement>("keep-screen-awake").checked = keepScreenAwake;
+el("keep-screen-awake").onchange = () => {
+  keepScreenAwake = el<HTMLInputElement>("keep-screen-awake").checked;
+  syncLiveLocation();
+  try {
+    localStorage.setItem(screenAwakeKey, String(keepScreenAwake));
+  } catch {
+    toast("Einstellung gilt nur für diese Sitzung.");
   }
 };
 el("offline-enabled").onchange = async () => {

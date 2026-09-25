@@ -958,6 +958,7 @@ final class AppModel {
         stopNavigation()
         do {
             try store.clearAll()
+            UserDefaults.standard.removeObject(forKey: "foldroute.screenAwake")
             planningGeneration += 1
             origin = nil
             destination = nil

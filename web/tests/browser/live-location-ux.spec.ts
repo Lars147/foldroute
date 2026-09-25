@@ -203,3 +203,95 @@ test("old fixes turn grey and recover; route overview beats pending centering", 
   await push(page, 48.17, 200);
   await expect(marker(page)).toHaveAttribute("data-quality", "inaccurate");
 });
+
+async function wakeProbe(page: Page, reject = false) {
+  await page.addInitScript((reject) => {
+    const probe = { requested: 0, released: 0 };
+    (window as any).wakeProbe = probe;
+    Object.defineProperty(navigator, "wakeLock", {
+      configurable: true,
+      value: {
+        request: async () => {
+          probe.requested++;
+          if (reject) throw new DOMException("Low power", "NotAllowedError");
+          const lock = new EventTarget();
+          return Object.assign(lock, {
+            release: async () => {
+              probe.released++;
+              lock.dispatchEvent(new Event("release"));
+            },
+          });
+        },
+      },
+    });
+  }, reject);
+}
+const wakeCounts = (page: Page) =>
+  page.evaluate(() => (window as any).wakeProbe);
+
+test("screen stays awake only on visible route and preference persists", async ({
+  page,
+}) => {
+  await wakeProbe(page);
+  await setup(page);
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 1, released: 0 });
+  await page.evaluate(() => (window as any).liveProbe.hide(true));
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 1, released: 1 });
+  await page.evaluate(() => (window as any).liveProbe.hide(false));
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 2, released: 1 });
+  await page.locator("#adjust-route").click();
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 2, released: 2 });
+  await page
+    .locator("#adjust-dialog")
+    .evaluate((dialog: HTMLDialogElement) => dialog.close());
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 3, released: 2 });
+  await page.locator("#tab-settings").click();
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 3, released: 3 });
+  const toggle = page.locator("#keep-screen-awake");
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await page.locator("#tab-route").click();
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 3, released: 3 });
+  await page.reload();
+  await expectPlanningComplete(page);
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 0, released: 0 });
+  await page.locator("#tab-settings").click();
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await page.locator("#tab-route").click();
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 1, released: 0 });
+  await page.locator("#close-route").click();
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 1, released: 1 });
+});
+
+test("screen lock denial does not interrupt planning", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await wakeProbe(page, true);
+  await setup(page);
+  await expect(page.locator(".route-choice").first()).toBeVisible();
+  await expect
+    .poll(() => wakeCounts(page))
+    .toEqual({ requested: 1, released: 0 });
+  expect(errors).toEqual([]);
+});

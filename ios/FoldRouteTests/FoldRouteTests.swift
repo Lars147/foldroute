@@ -8,6 +8,15 @@ import XCTest
 @testable import FoldRoute
 
 final class FoldRouteTests: XCTestCase, @unchecked Sendable {
+    func testScreenAwakeRequiresVisibleRouteAndPreference() {
+        XCTAssertTrue(ScreenAwakePolicy.enabled(preference: true, foreground: true, previewVisible: true, previewObscured: false, navigating: false))
+        XCTAssertTrue(ScreenAwakePolicy.enabled(preference: true, foreground: true, previewVisible: false, previewObscured: true, navigating: true))
+        XCTAssertFalse(ScreenAwakePolicy.enabled(preference: false, foreground: true, previewVisible: true, previewObscured: false, navigating: true))
+        XCTAssertFalse(ScreenAwakePolicy.enabled(preference: true, foreground: false, previewVisible: true, previewObscured: false, navigating: true))
+        XCTAssertFalse(ScreenAwakePolicy.enabled(preference: true, foreground: true, previewVisible: false, previewObscured: false, navigating: false))
+        XCTAssertFalse(ScreenAwakePolicy.enabled(preference: true, foreground: true, previewVisible: true, previewObscured: true, navigating: false))
+    }
+
     override func tearDown() {
         MockURLProtocol.handler = nil
         super.tearDown()
