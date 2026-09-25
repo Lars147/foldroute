@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-CYGwp9zY.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DuV7MS7A.css">
+    <script type="module" crossorigin src="./assets/index-jUAFmjmK.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-7JVD0Luh.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search">
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -30,7 +30,6 @@
           height="34"
           alt=""
         />FoldRoute</a
-      ><span id="connection" role="status" hidden>Offline</span
       ><button
         id="header-settings"
         class="icon-button"
@@ -38,6 +37,7 @@
         data-icon="settings"
       ></button>
     </header>
+    <span id="connection" role="status" hidden>Offline</span>
     <noscript><p>Für die Routenplanung wird JavaScript benötigt.</p></noscript>
     <main id="main">
       <section
@@ -141,16 +141,21 @@
           data-size="normal"
           aria-label="Routendetails"
         >
-          <div id="panel-handle" class="panel-handle"><span></span></div>
+          <div
+            id="panel-handle"
+            class="panel-handle"
+            role="slider"
+            tabindex="0"
+            aria-label="Größe der Routenübersicht"
+            aria-orientation="vertical"
+            aria-valuemin="0"
+            aria-valuemax="2"
+            aria-valuenow="1"
+            aria-valuetext="Normal"
+          >
+            <span></span>
+          </div>
           <div class="panel-tools">
-            <button
-              id="panel-size"
-              class="text-button"
-              aria-expanded="false"
-              aria-controls="panel-details"
-            >
-              Mehr Details
-            </button>
             <div class="panel-tool-actions">
               <button
                 id="panel-map-toggle"
@@ -178,17 +183,6 @@
                 data-icon="close"
               ></button>
             </div>
-          </div>
-          <div
-            id="panel-summary"
-            class="panel-summary"
-            tabindex="0"
-            aria-label="Verbindungen wechseln"
-          >
-            <p id="option-title" class="option-title">Deine Möglichkeiten</p>
-            <h2 id="route-arrival">Route finden.</h2>
-            <p id="route-duration">Rad und ÖPNV gemeinsam geplant.</p>
-            <p id="route-range"></p>
           </div>
           <div
             id="panel-content"
@@ -229,11 +223,6 @@
             <p id="map-error" class="map-error" role="status" hidden></p>
             <p id="cycling-comparison" class="notice" role="status" hidden></p>
             <div id="panel-details" class="panel-details" hidden inert>
-              <div
-                id="fold-line"
-                class="fold-line"
-                aria-label="Reiseabschnitte"
-              ></div>
               <div id="journey-detail"></div>
             </div>
           </div>
@@ -413,14 +402,25 @@
           <p id="adjust-location-help" class="message" hidden>
             <a href="hilfe.html#standort">Hilfe zum Standort</a>
           </p>
-          <label for="timing">Zeitpunkt</label
-          ><select id="timing">
-            <option value="now">Jetzt</option>
-            <option value="depart">Abfahrt um</option>
-            <option value="arrive">Ankunft bis</option></select
-          ><label id="date-label" for="when" hidden
-            >Datum und Uhrzeit<input id="when" type="datetime-local" step="60"
-          /></label>
+          <p>Zeitpunkt</p>
+          <button id="time-trigger" type="button" class="time-trigger">
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+            >
+              <rect x="3" y="5" width="18" height="16" rx="3" />
+              <path d="M7 2v6m10-6v6M3 11h18" /></svg
+            ><span id="time-summary"></span><span aria-hidden="true">›</span>
+          </button>
+          <input id="timing" type="hidden" value="now" /><input
+            id="when"
+            type="hidden"
+          />
           <p id="timezone" class="message"></p>
         </div>
         <div class="dialog-actions">
@@ -428,6 +428,80 @@
             Route berechnen</button
           ><button id="use-context" type="button" class="secondary">
             Start, Stopps und Zeit übernehmen
+          </button>
+        </div>
+      </form>
+      <form id="time-editor" hidden>
+        <div class="dialog-heading">
+          <h2 id="time-heading">Zeitpunkt</h2>
+          <button
+            id="time-cancel"
+            type="button"
+            aria-label="Zeitwahl schließen"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="time-editor-body">
+          <div
+            class="time-modes"
+            role="group"
+            aria-label="Abfahrt oder Ankunft"
+          >
+            <button id="time-depart" type="button">Abfahrt</button
+            ><button id="time-arrive" type="button">Ankunft</button>
+          </div>
+          <div class="time-month-navigation">
+            <button
+              id="time-previous"
+              type="button"
+              aria-label="Vorheriger Monat"
+            >
+              ‹
+            </button>
+            <h3 id="time-month" aria-live="polite"></h3>
+            <button id="time-next" type="button" aria-label="Nächster Monat">
+              ›
+            </button>
+          </div>
+          <div class="time-weekdays" aria-hidden="true">
+            <span>Mo</span><span>Di</span><span>Mi</span><span>Do</span
+            ><span>Fr</span><span>Sa</span><span>So</span>
+          </div>
+          <div
+            id="time-calendar"
+            role="grid"
+            aria-labelledby="time-month"
+          ></div>
+          <label for="time-clock">Uhrzeit</label>
+          <div class="time-clock-controls">
+            <button
+              id="time-minus"
+              type="button"
+              aria-label="Fünf Minuten früher"
+            >
+              −</button
+            ><input
+              id="time-clock"
+              type="text"
+              inputmode="numeric"
+              maxlength="5"
+              placeholder="HH:mm"
+              autocomplete="off"
+            /><button
+              id="time-plus"
+              type="button"
+              aria-label="Fünf Minuten später"
+            >
+              +</button
+            ><button id="time-now" type="button">Jetzt</button>
+          </div>
+          <p id="time-hint" class="message"></p>
+          <p id="time-error" role="status" class="message"></p>
+        </div>
+        <div class="dialog-actions">
+          <button id="time-apply" class="primary" type="submit">
+            Übernehmen
           </button>
         </div>
       </form>
