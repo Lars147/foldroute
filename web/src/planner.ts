@@ -1,3 +1,4 @@
+import { optimizeWalking } from "./walking-optimization";
 import { planViaRoutes } from "./via-planner";
 import {
   type Journey,
@@ -230,7 +231,7 @@ export interface SearchOptions {
   baseOnly?: boolean;
   budget?: RequestBudget;
 }
-export async function* planRoutes(
+async function* planRawRoutes(
   input: RouteRequest,
   settings: RoutingSettings,
   signal: AbortSignal,
@@ -445,4 +446,49 @@ export async function* planRoutes(
   signal.throwIfAborted();
   if (stopped && options.budget) options.budget.stopped = true;
   yield update(issues.length ? "partial" : "complete");
+}
+
+export async function* planRoutes(
+  input: RouteRequest,
+  settings: RoutingSettings,
+  signal: AbortSignal,
+  client = defaultClient,
+  options: SearchOptions = {},
+): AsyncGenerator<PlanningUpdate> {
+  if (options.raw || options.baseOnly) {
+    yield* planRawRoutes(input, settings, signal, client, options);
+    return;
+  }
+  const budget = options.budget ?? { take() {} };
+  let last: PlanningUpdate | undefined;
+  for await (const update of planRawRoutes(input, settings, signal, client, {
+    ...options,
+    budget,
+  })) {
+    last = update;
+    yield { ...update, status: "searching" };
+  }
+  if (!last) return;
+  for await (const update of optimizeWalking(
+    input.stops?.length ? [] : last.journeys,
+    input,
+    settings,
+    signal,
+    client,
+    budget,
+  )) {
+    last = {
+      journeys: selectJourneys(
+        update.journeys,
+        input.timing,
+        4,
+        settings.maxCyclingMinutes,
+        settings.showCyclingComparison,
+      ),
+      issues: [...new Set([...last.issues, ...update.issues])],
+      status: "searching",
+    };
+    yield last;
+  }
+  yield { ...last, status: last.issues.length ? "partial" : "complete" };
 }

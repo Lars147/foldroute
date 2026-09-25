@@ -263,15 +263,17 @@ extension Journey {
 
 actor WaypointRequestBudget {
     private var requests = 0
-    private let deadline = Date().addingTimeInterval(60)
+    private let deadline: Date
+    private let maximum: Int
+    init(maximum: Int = 64, seconds: TimeInterval = 60) { self.maximum = maximum; deadline = Date().addingTimeInterval(seconds) }
     func take() throws -> TimeInterval {
         let remaining = deadline.timeIntervalSinceNow
-        guard requests < 64, remaining > 0 else { throw RoutePlannerError.stopBudget }
+        guard requests < maximum, remaining > 0 else { throw RoutePlannerError.stopBudget }
         requests += 1
         return min(20, remaining)
     }
     func check() throws {
-        guard requests < 64, deadline > Date() else { throw RoutePlannerError.stopBudget }
+        guard requests < maximum, deadline > Date() else { throw RoutePlannerError.stopBudget }
     }
 }
 
@@ -302,7 +304,7 @@ enum ViaRoutePlanner {
         return result
     }
 
-    static func run(_ request: RouteRequest, settings: NavigationSettings, fetch: Fetch,
+    static func run(_ request: RouteRequest, settings: NavigationSettings, budget: WaypointRequestBudget = WaypointRequestBudget(), fetch: Fetch,
                     emit: @Sendable (JourneyOptionsUpdate) -> Void) async throws {
         try RouteStop.validate(request.stops)
         let places = [request.origin] + request.stops.map(\.place) + [request.destination]
@@ -311,7 +313,6 @@ enum ViaRoutePlanner {
         }
         let time = request.timing.date
         let backward = request.timing.isArrival
-        let budget = WaypointRequestBudget()
         var completed: [Journey] = [], issues: [RoutePlannerError] = []
         var stopped = false
         for baseOnly in settings.maxBikeTransfers > 0 ? [true, false] : [true] {
@@ -364,5 +365,147 @@ enum ViaRoutePlanner {
         let selected = JourneyOptionSelector.select(from: completed, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
         guard !selected.isEmpty else { throw issues.isEmpty ? RoutePlannerError.noRoute : .multiple(issues) }
         emit(JourneyOptionsUpdate(journeys: selected, status: issues.isEmpty ? .complete : .partial, issues: RoutePlannerError.unique(issues)))
+    }
+}
+
+extension Journey {
+    var walkingSeconds: TimeInterval {
+        legs.filter { $0.kind == .walk }.reduce(0) { $0 + $1.endTime.timeIntervalSince($1.startTime) }
+    }
+}
+
+struct WalkingBlock: Sendable {
+    let journey: Journey
+    let first: Int
+    let last: Int
+    let folded: Bool
+    let seconds: TimeInterval
+}
+
+enum WalkingRouteOptimizer {
+    static func blocks(_ journeys: [Journey]) -> [WalkingBlock] {
+        var blocks: [WalkingBlock] = []
+        for journey in journeys {
+            var folded = false, i = 0
+            while i < journey.legs.count {
+                let leg = journey.legs[i]
+                if leg.kind == .fold || leg.kind == .transit { folded = true }
+                if leg.kind == .unfold || leg.kind == .stop { folded = false }
+                if leg.kind != .walk { i += 1; continue }
+                let first = i
+                while i + 1 < journey.legs.count && journey.legs[i + 1].kind == .walk { i += 1 }
+                let seconds = journey.legs[first...i].reduce(0.0) { $0 + $1.endTime.timeIntervalSince($1.startTime) }
+                if seconds > 0 { blocks.append(WalkingBlock(journey: journey, first: first, last: i, folded: folded, seconds: seconds)) }
+                i += 1
+            }
+        }
+        return blocks.sorted {
+            if $0.seconds != $1.seconds { return $0.seconds > $1.seconds }
+            if $0.journey.id != $1.journey.id { return $0.journey.id < $1.journey.id }
+            return $0.first < $1.first
+        }
+    }
+
+    static func replacing(_ block: WalkingBlock, with ride: Journey, settings: NavigationSettings) -> Journey? {
+        let journey = block.journey, original = journey.legs
+        let from = original[block.first].startPlace, to = original[block.last].endPlace
+        let lower = block.first > 0 ? original[block.first - 1].endTime : journey.departure
+        let upper = block.last + 1 < original.count ? original[block.last + 1].startTime : journey.arrival
+        let unfold = block.folded ? settings.unfoldDuration : 0
+        let fold = block.folded ? settings.foldDuration : 0
+        let buffer: TimeInterval = block.folded ? 180 : 0
+        guard let first = ride.legs.first, let last = ride.legs.last,
+              ride.legs.contains(where: { $0.kind == .bike }),
+              ride.legs.allSatisfy({ $0.kind == .bike || $0.kind == .walk }),
+              ride.departure >= lower.addingTimeInterval(unfold),
+              ride.arrival.addingTimeInterval(fold + buffer) <= upper,
+              first.startPlace.coordinate.distance(to: from.coordinate) <= 30,
+              last.endPlace.coordinate.distance(to: to.coordinate) <= 30 else { return nil }
+        var replacement: [JourneyLeg] = []
+        if block.folded { replacement.append(.unfold(TransitionLeg(place: from, startTime: lower, endTime: lower.addingTimeInterval(unfold)))) }
+        replacement += ride.legs
+        if block.folded { replacement.append(.fold(TransitionLeg(place: to, startTime: ride.arrival, endTime: ride.arrival.addingTimeInterval(fold)))) }
+        let end = ride.arrival.addingTimeInterval(fold)
+        if block.last + 1 < original.count && end < upper { replacement.append(.wait(TransitionLeg(place: to, startTime: end, endTime: upper))) }
+        let legs = Array(original.prefix(block.first)) + replacement + Array(original.dropFirst(block.last + 1))
+        var cycling: TimeInterval = 0
+        for (i, leg) in legs.enumerated() {
+            guard leg.startTime.timeIntervalSince1970.isFinite, leg.endTime.timeIntervalSince1970.isFinite,
+                  leg.endTime >= leg.startTime else { return nil }
+            if i > 0 && (legs[i - 1].endTime > leg.startTime || legs[i - 1].endPlace.coordinate.distance(to: leg.startPlace.coordinate) > 30) { return nil }
+            if leg.kind == .transit || leg.kind == .stop { cycling = 0 }
+            if leg.kind == .bike || leg.kind == .approach { cycling += leg.endTime.timeIntervalSince(leg.startTime) }
+            if cycling > Double(settings.maxCyclingMinutes * 60) { return nil }
+        }
+        let result = Journey(id: "\(journey.id)|ride:\(block.first)-\(block.last):\(ride.id)", origin: journey.origin, destination: journey.destination,
+            waypoint: journey.waypoint, departure: legs[0].startTime, arrival: legs[legs.count - 1].endTime,
+            legs: legs, transfers: journey.transfers, isDirect: journey.isDirect, score: journey.score)
+        guard result.departure >= journey.departure, result.arrival <= journey.arrival,
+              result.walkingSeconds < journey.walkingSeconds, result.bikeTransferCount <= settings.maxBikeTransfers else { return nil }
+        return result
+    }
+
+    private struct Job: Sendable { var blocks: [WalkingBlock]; let request: RouteRequest }
+    private enum Event: Sendable { case deadline, routes(Int, [Journey]), failed(RoutePlannerError) }
+    static func run(_ journeys: [Journey], request: RouteRequest, settings: NavigationSettings,
+                    fetch: @escaping @Sendable (RouteRequest) async throws -> [Journey],
+                    emit: @Sendable ([Journey], [RoutePlannerError]) -> Void) async throws -> [Journey] {
+        let selected = JourneyOptionSelector.select(from: journeys.filter { !$0.isDirect }, timing: request.timing,
+            cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: false)
+        var jobs: [Job] = [], keys: [String: Int] = [:]
+        for block in blocks(Array(selected.prefix(3))) {
+            let lower = block.first > 0 ? block.journey.legs[block.first - 1].endTime : block.journey.departure
+            let from = block.journey.legs[block.first].startPlace, to = block.journey.legs[block.last].endPlace
+            let time = lower.addingTimeInterval(block.folded ? settings.unfoldDuration : 0)
+            let key = "\(from.transitStopID ?? "\(from.coordinate)")|\(to.transitStopID ?? "\(to.coordinate)")|\(time.timeIntervalSince1970)"
+            if let index = keys[key] { jobs[index].blocks.append(block) }
+            else if jobs.count < 6 {
+                keys[key] = jobs.count
+                jobs.append(Job(blocks: [block], request: RouteRequest(origin: from, destination: to, timing: .departAt(time))))
+            }
+        }
+        guard !jobs.isEmpty else { return journeys }
+        return try await withThrowingTaskGroup(of: Event.self) { group in
+            group.addTask { try await Task.sleep(for: .seconds(10)); return .deadline }
+            var next = 0, pending = 0
+            var latest = Dictionary(uniqueKeysWithValues: selected.map { ($0.id, $0) })
+            var result = journeys, issues: [RoutePlannerError] = []
+            func submit(_ index: Int) {
+                let part = jobs[index].request
+                group.addTask {
+                    do { return .routes(index, try await fetch(part)) }
+                    catch { try Task.checkCancellation(); return .failed(RoutePlannerError.classify(error)) }
+                }
+            }
+            while next < min(2, jobs.count) { submit(next); next += 1; pending += 1 }
+            defer { group.cancelAll() }
+            while let event = try await group.next() {
+                try Task.checkCancellation()
+                if case .deadline = event { break }
+                pending -= 1
+                switch event {
+                case .routes(let index, let rides):
+                    for original in jobs[index].blocks {
+                        guard let current = latest[original.journey.id],
+                              let first = current.legs.firstIndex(where: { $0.id == original.journey.legs[original.first].id }),
+                              let last = current.legs.firstIndex(where: { $0.id == original.journey.legs[original.last].id }) else { continue }
+                        let block = WalkingBlock(journey: current, first: first, last: last, folded: original.folded, seconds: original.seconds)
+                        let candidates = rides.compactMap { replacing(block, with: $0, settings: settings) }
+                        if let best = candidates.sorted(by: { JourneyOptionSelector.comesBefore($0, $1, timing: request.timing) }).first {
+                            latest[original.journey.id] = best
+                            result.append(best)
+                        }
+                    }
+                case .failed(let error):
+                    if error != .noRoute && error != .stopBudget { issues.append(error) }
+                    if error.stopsRequests { emit(result, RoutePlannerError.unique(issues)); return result }
+                case .deadline: break
+                }
+                emit(result, RoutePlannerError.unique(issues))
+                if next < jobs.count { submit(next); next += 1; pending += 1 }
+                if pending == 0 { break }
+            }
+            return result
+        }
     }
 }

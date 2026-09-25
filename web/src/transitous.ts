@@ -19,6 +19,7 @@ export const service = {
 };
 export type StreetMode = "BIKE" | "WALK";
 export interface Variant {
+  street?: boolean;
   direct?: boolean;
   pre: StreetMode;
   post: StreetMode;
@@ -48,8 +49,12 @@ export function makeURL(
         ? -settings.foldingDuration
         : settings.foldingDuration);
   const values: Record<string, string> = {
-    fromPlace: coord(request.origin),
-    toPlace: coord(request.destination),
+    fromPlace: variant.street
+      ? (request.origin.stopId ?? coord(request.origin))
+      : coord(request.origin),
+    toPlace: variant.street
+      ? (request.destination.stopId ?? coord(request.destination))
+      : coord(request.destination),
     time: new Date(time * 1000).toISOString().replace(".000Z", "Z"),
     arriveBy: String(request.timing === "arrive"),
     cyclingSpeed: (settings.cyclingSpeedKilometersPerHour / 3.6).toFixed(3),
@@ -61,7 +66,9 @@ export function makeURL(
     Object.assign(values, {
       transitModes: "",
       directModes: "BIKE",
-      maxDirectTime: "21600",
+      maxDirectTime: String(
+        variant.street ? settings.maxCyclingMinutes * 60 : 21600,
+      ),
     });
   else
     Object.assign(values, {
@@ -282,6 +289,17 @@ export function mapResponse(
       throw responseError();
     if (!item.legs.length || item.legs.some((l) => l.cancelled)) continue;
     try {
+      if (
+        variant.street &&
+        item.legs.some(
+          (l) =>
+            l.mode === "BIKE" &&
+            l.steps?.some((s) =>
+              ["STAIRS", "ELEVATOR"].includes(s.relativeDirection),
+            ),
+        )
+      )
+        continue;
       let legs = item.legs.map((l) => mapLeg(l, request));
       const first = legs.findIndex((l) => l.kind === "transit"),
         last = legs.findLastIndex((l) => l.kind === "transit");

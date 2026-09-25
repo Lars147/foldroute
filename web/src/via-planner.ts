@@ -1,3 +1,4 @@
+import { optimizeWalking } from "./walking-optimization";
 import {
   type Journey,
   type RouteRequest,
@@ -222,6 +223,36 @@ export async function* planViaRoutes(
     signal.throwIfAborted();
     if (stopped)
       issues.add("Die Suche mit Zwischenzielen wurde vorzeitig beendet.");
+    if (!stopped && !combined.aborted && !budget.stopped) {
+      try {
+        for await (const update of optimizeWalking(
+          completed,
+          fixed,
+          settings,
+          combined,
+          client,
+          budget,
+        )) {
+          completed = update.journeys;
+          update.issues.forEach((issue) => issues.add(issue));
+          yield {
+            journeys: selectJourneys(
+              completed,
+              request.timing,
+              4,
+              settings.maxCyclingMinutes,
+              settings.showCyclingComparison,
+            ),
+            status: "searching",
+            issues: [...issues],
+          };
+        }
+      } catch (error) {
+        signal.throwIfAborted();
+        if (!combined.aborted) throw error;
+        issues.add("Die Suche mit Zwischenzielen wurde vorzeitig beendet.");
+      }
+    }
     const journeys = selectJourneys(
       completed,
       request.timing,

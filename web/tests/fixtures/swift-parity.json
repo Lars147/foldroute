@@ -766,5 +766,64 @@
       "time" : 1788508800,
       "timing" : "arrive"
     }
+  ],
+  "walkingCases" : [
+    {
+      "accepted" : true,
+      "kinds" : [
+        "bike",
+        "wait",
+        "fold",
+        "transit"
+      ],
+      "name" : "access"
+    },
+    {
+      "accepted" : false,
+      "kinds" : [
+
+      ],
+      "name" : "early"
+    },
+    {
+      "accepted" : false,
+      "kinds" : [
+
+      ],
+      "name" : "late"
+    },
+    {
+      "accepted" : false,
+      "kinds" : [
+
+      ],
+      "name" : "limit"
+    },
+    {
+      "accepted" : true,
+      "kinds" : [
+        "transit",
+        "unfold",
+        "bike",
+        "fold",
+        "wait",
+        "transit"
+      ],
+      "name" : "transfer"
+    },
+    {
+      "accepted" : false,
+      "kinds" : [
+
+      ],
+      "name" : "buffer"
+    },
+    {
+      "accepted" : false,
+      "kinds" : [
+
+      ],
+      "name" : "noBikeTransfer"
+    }
   ]
 }

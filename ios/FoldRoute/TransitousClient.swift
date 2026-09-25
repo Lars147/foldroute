@@ -15,6 +15,8 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
     private let session: URLSession
     private let baseURL: URL
     private var waypointBudget: WaypointRequestBudget?
+    private var walkingBudget: WaypointRequestBudget?
+    private var optimizeFootpaths = true
     private var waypointBaseOnly = false
     private let userAgent: String
     private var preTransitMode: StreetMode = .bike
@@ -59,14 +61,55 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
     }
 
     func alternativeUpdates(_ request: RouteRequest, settings: NavigationSettings) -> AsyncThrowingStream<JourneyOptionsUpdate, Error> {
+        if !optimizeFootpaths { return unoptimizedUpdates(request, settings: settings) }
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var client = self
+                    if !request.stops.isEmpty { client.waypointBudget = WaypointRequestBudget() }
+                    var latest: JourneyOptionsUpdate?
+                    for try await update in client.unoptimizedUpdates(request, settings: settings) {
+                        latest = update
+                        var progress = update; progress.status = .searching
+                        continuation.yield(progress)
+                    }
+                    guard var final = latest else { continuation.finish(); return }
+                    if !final.issues.contains(where: \.stopsRequests) {
+                        let existingIssues = final.issues
+                        client.walkingBudget = WaypointRequestBudget(maximum: 6, seconds: 10)
+                        let streetClient = client
+                        let collector = WalkingIssueCollector()
+                        final.journeys = try await WalkingRouteOptimizer.run(final.journeys, request: request, settings: settings, fetch: { part in
+                            let batch = try await streetClient.fetchResult(kind: .directBike, request: part, settings: settings, requestedDate: part.timing.date).get()
+                            if batch.rateLimited || batch.allIssues.contains(where: \.stopsRequests) { throw batch.allIssues.first(where: \.stopsRequests) ?? RoutePlannerError.stopBudget }
+                            return batch.journeys
+                        }, emit: { journeys, issues in
+                            collector.set(issues)
+                            continuation.yield(JourneyOptionsUpdate(journeys: JourneyOptionSelector.select(from: journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison), status: .searching, issues: RoutePlannerError.unique(existingIssues + issues)))
+                        })
+                        final.issues = RoutePlannerError.unique(existingIssues + collector.issues)
+                    }
+                    try Task.checkCancellation()
+                    final.journeys = JourneyOptionSelector.select(from: final.journeys, timing: request.timing, cyclingLimit: settings.maxCyclingMinutes, showCyclingComparison: settings.showCyclingComparison)
+                    final.status = final.issues.isEmpty ? .complete : .partial
+                    continuation.yield(final)
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func unoptimizedUpdates(_ request: RouteRequest, settings: NavigationSettings) -> AsyncThrowingStream<JourneyOptionsUpdate, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     if !request.stops.isEmpty {
-                        try await ViaRoutePlanner.run(request, settings: settings, fetch: { part, baseOnly, budget in
+                        try await ViaRoutePlanner.run(request, settings: settings, budget: waypointBudget ?? WaypointRequestBudget(), fetch: { part, baseOnly, budget in
                             var client = self
                             client.waypointBudget = budget
                             client.waypointBaseOnly = baseOnly
+                            client.optimizeFootpaths = false
                             var options = settings
                             options.showCyclingComparison = true
                             var latest = JourneyOptionsUpdate(journeys: [], status: .complete)
@@ -360,7 +403,8 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
         )
         var urlRequest = URLRequest(url: url)
         urlRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        urlRequest.timeoutInterval = try await waypointBudget?.take() ?? 20
+        let streetTimeout = try await walkingBudget?.take() ?? 20
+        urlRequest.timeoutInterval = min(streetTimeout, try await waypointBudget?.take() ?? 20)
         if bypassCache { urlRequest.cachePolicy = .reloadIgnoringLocalCacheData }
 
         try Task.checkCancellation()
@@ -441,8 +485,8 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
         }
 
         var items = [
-            URLQueryItem(name: "fromPlace", value: coordinate(request.origin.coordinate)),
-            URLQueryItem(name: "toPlace", value: coordinate(request.destination.coordinate)),
+            URLQueryItem(name: "fromPlace", value: walkingBudget != nil ? request.origin.transitStopID ?? coordinate(request.origin.coordinate) : coordinate(request.origin.coordinate)),
+            URLQueryItem(name: "toPlace", value: walkingBudget != nil ? request.destination.transitStopID ?? coordinate(request.destination.coordinate) : coordinate(request.destination.coordinate)),
             URLQueryItem(name: "time", value: formatter.string(from: providerDate)),
             URLQueryItem(name: "arriveBy", value: request.timing.isArrival ? "true" : "false"),
             URLQueryItem(
@@ -478,7 +522,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
             items += [
                 URLQueryItem(name: "transitModes", value: ""),
                 URLQueryItem(name: "directModes", value: "BIKE"),
-                URLQueryItem(name: "maxDirectTime", value: "21600")
+                URLQueryItem(name: "maxDirectTime", value: walkingBudget != nil ? String(settings.maxCyclingMinutes * 60) : "21600")
             ]
         }
 
@@ -494,6 +538,7 @@ struct TransitousClient: JourneyPlanning, TransitRefreshing, @unchecked Sendable
         settings: NavigationSettings
     ) throws -> Journey? {
         guard !raw.legs.isEmpty else { return nil }
+        if walkingBudget != nil && raw.legs.contains(where: { $0.mode == "BIKE" && ($0.steps ?? []).contains(where: { ["STAIRS", "ELEVATOR"].contains($0.relativeDirection) }) }) { return nil }
         let mapped = try raw.legs.map { try mapLeg($0, request: request) }
 
         let normalized: [JourneyLeg]
@@ -894,6 +939,7 @@ enum JourneyOptionSelector {
             return lhs.arrival < rhs.arrival
         }
         if lhs.transfers != rhs.transfers { return lhs.transfers < rhs.transfers }
+        if lhs.walkingSeconds != rhs.walkingSeconds { return lhs.walkingSeconds < rhs.walkingSeconds }
         let leftRides = lhs.legs.filter { $0.kind == .bike || $0.kind == .approach }.count
         let rightRides = rhs.legs.filter { $0.kind == .bike || $0.kind == .approach }.count
         if leftRides != rightRides { return leftRides < rightRides }
@@ -1027,4 +1073,11 @@ private struct MOTISStep: Decodable, Sendable {
     let distance: Double
     let polyline: MOTISPolyline
     let streetName: String
+}
+
+private final class WalkingIssueCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: [RoutePlannerError] = []
+    var issues: [RoutePlannerError] { lock.lock(); defer { lock.unlock() }; return value }
+    func set(_ issues: [RoutePlannerError]) { lock.lock(); defer { lock.unlock() }; value = issues }
 }

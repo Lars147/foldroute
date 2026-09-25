@@ -220,6 +220,10 @@ export const kindColors: Record<LegKind, string> = {
 };
 export const bikeDistance = (j: Journey) =>
   j.legs.filter((l) => l.kind === "bike").reduce((s, l) => s + l.distance, 0);
+export const walkingSeconds = (j: Journey) =>
+  j.legs
+    .filter((l) => l.kind === "walk")
+    .reduce((s, l) => s + l.end - l.start, 0);
 export const walkingDistance = (j: Journey) =>
   j.legs.filter((l) => l.kind === "walk").reduce((s, l) => s + l.distance, 0);
 export function bikeBoardings(j: Journey): number[] {
@@ -262,6 +266,7 @@ export function compare(a: Journey, b: Journey, timing: Timing): number {
   return (
     (timing === "arrive" ? b.departure - a.departure : a.arrival - b.arrival) ||
     a.transfers - b.transfers ||
+    walkingSeconds(a) - walkingSeconds(b) ||
     a.legs.filter((l) => l.kind === "bike").length -
       b.legs.filter((l) => l.kind === "bike").length ||
     bikeDistance(a) - bikeDistance(b) ||
