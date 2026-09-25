@@ -34,6 +34,30 @@ enum LocationStatus: Equatable {
     }
 }
 
+enum LocationUpdateMode: Equatable {
+    case idle, preview, navigation
+    static func resolve(authorized: Bool, navigation: Bool, previewVisible: Bool, obscured: Bool) -> Self {
+        guard authorized else { return .idle }
+        if navigation { return .navigation }
+        return previewVisible && !obscured ? .preview : .idle
+    }
+}
+
+enum PreviewLocationQuality: Equatable {
+    case current, inaccurate, stale
+    var label: String {
+        switch self {
+        case .current: "Dein Standort"
+        case .inaccurate: "Standort ungenau"
+        case .stale: "Letzter Standort – nicht aktuell"
+        }
+    }
+    static func evaluate(_ location: CLLocation, now: Date = Date(), failed: Bool = false) -> Self {
+        if failed || abs(now.timeIntervalSince(location.timestamp)) > 60 { return .stale }
+        return location.horizontalAccuracy > 100 ? .inaccurate : .current
+    }
+}
+
 @MainActor
 @Observable
 final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate {
@@ -48,6 +72,47 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
     private(set) var status: LocationStatus = .missing
     private var servicesEnabled = true
     private var navigationRequested = false
+    var previewVisible = false { didSet { reconcileUpdates() } }
+    var previewObscured = false { didSet { reconcileUpdates() } }
+    private(set) var updateMode: LocationUpdateMode = .idle
+    private var freshnessTask: Task<Void, Never>?
+    private(set) var previewQuality: PreviewLocationQuality = .stale
+
+    var previewLocation: CLLocation? {
+        guard isAuthorized, servicesEnabled, let currentLocation,
+              currentLocation.horizontalAccuracy >= 0,
+              CLLocationCoordinate2DIsValid(currentLocation.coordinate) else { return nil }
+        return currentLocation
+    }
+
+    private func reconcileUpdates() {
+        let mode = LocationUpdateMode.resolve(authorized: isAuthorized && servicesEnabled,
+            navigation: navigationRequested, previewVisible: previewVisible, obscured: previewObscured)
+        guard mode != updateMode else { return }
+        updateMode = mode
+        freshnessTask?.cancel(); freshnessTask = nil
+        switch mode {
+        case .navigation: beginNavigationUpdates()
+        case .preview:
+            manager.allowsBackgroundLocationUpdates = false
+            manager.pausesLocationUpdatesAutomatically = true
+            manager.desiredAccuracy = kCLLocationAccuracyBest
+            manager.distanceFilter = 10
+            manager.startUpdatingLocation()
+            freshnessTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    self?.refreshStatus()
+                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                }
+            }
+        case .idle:
+            manager.stopUpdatingLocation()
+            manager.allowsBackgroundLocationUpdates = false
+            manager.pausesLocationUpdatesAutomatically = true
+            manager.desiredAccuracy = kCLLocationAccuracyBest
+            manager.distanceFilter = 10
+        }
+    }
 
     override init() {
         authorizationStatus = manager.authorizationStatus
@@ -61,6 +126,7 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
     }
 
     func refreshStatus(now: Date = Date()) {
+        if let currentLocation { previewQuality = .evaluate(currentLocation, now: now, failed: lastError != nil) }
         status = .evaluate(authorization: authorizationStatus, servicesEnabled: servicesEnabled,
                            location: currentLocation, now: now)
         if status == .ready, lastError != nil { status = .failed }
@@ -71,6 +137,7 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
         accuracyAuthorization = manager.accuracyAuthorization
         servicesEnabled = CLLocationManager.locationServicesEnabled()
         refreshStatus()
+        reconcileUpdates()
     }
 
     var isAuthorized: Bool {
@@ -88,7 +155,7 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
     func requestSingleUpdate() {
         if authorizationStatus == .notDetermined {
             requestAuthorization()
-        } else if isAuthorized {
+        } else if isAuthorized && updateMode == .idle {
             manager.requestLocation()
         }
     }
@@ -99,16 +166,12 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
             requestAuthorization()
             return
         }
-        beginNavigationUpdates()
+        reconcileUpdates()
     }
 
     func stopNavigation() {
         navigationRequested = false
-        manager.stopUpdatingLocation()
-        manager.allowsBackgroundLocationUpdates = false
-        manager.pausesLocationUpdatesAutomatically = true
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 10
+        reconcileUpdates()
     }
 
     private func beginNavigationUpdates() {
@@ -125,17 +188,18 @@ final class LocationService: NSObject, @preconcurrency CLLocationManagerDelegate
         refreshAuthorization()
         onStatusChange?()
         guard isAuthorized, servicesEnabled else { return }
-        if navigationRequested {
-            beginNavigationUpdates()
-        } else {
-            manager.requestLocation()
-        }
+        reconcileUpdates()
+        if updateMode == .idle { manager.requestLocation() }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
+        guard let location = locations.last,
+              location.horizontalAccuracy.isFinite, location.horizontalAccuracy >= 0,
+              location.timestamp.timeIntervalSince1970.isFinite,
+              CLLocationCoordinate2DIsValid(location.coordinate),
+              currentLocation == nil || location.timestamp >= currentLocation!.timestamp else { return }
         currentLocation = location
-        if NavigationStartPolicy.isUsable(location) { lastError = nil }
+        lastError = nil
         refreshStatus()
         onLocation?(location)
         onStatusChange?()

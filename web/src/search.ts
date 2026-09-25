@@ -1,3 +1,4 @@
+import { announceLocation } from "./live-location";
 import type { Place, Coordinate } from "./model";
 import { errorText } from "./model";
 import { ApiClient } from "./transitous";
@@ -14,6 +15,7 @@ function searchCenter(): Coordinate {
     : { latitude: 48.1372, longitude: 11.5756 };
 }
 export class PlaceSearch {
+  private static focusedSearch?: PlaceSearch;
   input: HTMLInputElement;
   list: HTMLElement;
   value?: Place;
@@ -25,6 +27,46 @@ export class PlaceSearch {
   private visible = false;
   private prefilling = false;
   private buttons: HTMLButtonElement[] = [];
+  private focusBack?: HTMLButtonElement;
+  private openingFocus = false;
+  private readonly resizeFocus = () => {
+    if (!matchMedia("(max-width: 899px)").matches) this.exitFocusMode();
+  };
+  private enterFocusMode() {
+    if (
+      this.focusBack ||
+      this.openingFocus ||
+      !matchMedia("(max-width: 899px)").matches
+    )
+      return;
+    PlaceSearch.focusedSearch?.exitFocusMode();
+    PlaceSearch.focusedSearch = this;
+    const back = node("button", "‹ Zurück", "search-focus-back");
+    back.type = "button";
+    back.onclick = () => {
+      this.cancel();
+      this.exitFocusMode();
+    };
+    this.focusBack = back;
+    window.addEventListener("resize", this.resizeFocus);
+    (this.input.closest("dialog") ?? document.body).append(back);
+    document.body.classList.add("search-focus-mode");
+    this.input.classList.add("search-focus-input");
+    this.list.classList.add("search-focus-results");
+    this.message.classList.add("search-focus-status");
+  }
+  private exitFocusMode() {
+    if (!this.focusBack) return;
+    window.removeEventListener("resize", this.resizeFocus);
+    this.focusBack.remove();
+    this.focusBack = undefined;
+    PlaceSearch.focusedSearch = undefined;
+    document.body.classList.remove("search-focus-mode");
+    this.input.classList.remove("search-focus-input");
+    this.list.classList.remove("search-focus-results");
+    this.message.classList.remove("search-focus-status");
+    this.input.blur();
+  }
   constructor(
     public id: string,
     private api: ApiClient,
@@ -32,6 +74,7 @@ export class PlaceSearch {
     private onSelect: (place: Place) => void,
     private book: PlaceBook,
     private onError: (message: string) => void,
+    private showCurrentLocation = true,
   ) {
     this.input = el(id);
     this.list = el(`${id}-options`);
@@ -41,12 +84,16 @@ export class PlaceSearch {
       if (this.visible) this.render();
     });
     this.input.addEventListener("focus", () => {
+      this.enterFocusMode();
       if (!this.prefilling && !this.value) this.activate();
     });
     this.input.addEventListener("input", () => this.search());
     this.input.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         this.cancel();
+        this.exitFocusMode();
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -75,8 +122,10 @@ export class PlaceSearch {
     });
     this.list.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        this.input.focus();
+        event.preventDefault();
+        event.stopPropagation();
         this.cancel();
+        this.exitFocusMode();
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         const index = this.buttons.findIndex((b) =>
@@ -100,7 +149,7 @@ export class PlaceSearch {
   }
   private search() {
     this.value = undefined;
-    this.cancel();
+    this.cancel(true);
     this.visible = true;
     const version = this.version,
       query = this.input.value.trim();
@@ -137,7 +186,8 @@ export class PlaceSearch {
       }
     }, 280);
   }
-  cancel() {
+  cancel(keepFocus = false) {
+    if (!keepFocus) this.exitFocusMode();
     this.version++;
     clearTimeout(this.timer);
     this.abort?.abort();
@@ -155,8 +205,12 @@ export class PlaceSearch {
     this.input.value = place?.name ?? "";
   }
   choose(place: Place) {
+    const wasFocused = !!this.focusBack;
     this.set(place);
-    this.input.focus({ preventScroll: true });
+    this.exitFocusMode();
+    this.openingFocus = true;
+    if (!wasFocused) this.input.focus({ preventScroll: true });
+    this.openingFocus = false;
     this.message.textContent = "";
     void this.book
       .change(place, "use")
@@ -168,7 +222,7 @@ export class PlaceSearch {
     this.onSelect(place);
   }
   private prefill(place: Place) {
-    this.cancel();
+    this.cancel(true);
     this.value = undefined;
     this.input.value = place.name + " ";
     this.prefilling = true;
@@ -181,7 +235,7 @@ export class PlaceSearch {
     this.message.textContent = "Namen ergänzen oder Suchen drücken.";
   }
   private async chooseLocation() {
-    this.cancel();
+    this.cancel(true);
     const version = this.version;
     this.abort = new AbortController();
     this.message.textContent = "Standort wird ermittelt …";
@@ -282,7 +336,7 @@ export class PlaceSearch {
           .toLocaleLowerCase("de")
           .includes(query),
     );
-    if (!query) this.row();
+    if (!query && this.showCurrentLocation) this.row();
     if (favorites.length) {
       this.heading("Favoriten");
       favorites.forEach((e) => this.row(e.place));
@@ -332,6 +386,7 @@ export function locate(signal?: AbortSignal): Promise<Place> {
       (position) => {
         signal?.removeEventListener("abort", abort);
         if (signal?.aborted) return;
+        announceLocation(position);
         lastLocation = {
           coordinate: {
             latitude: position.coords.latitude,

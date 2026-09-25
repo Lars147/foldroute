@@ -1,3 +1,5 @@
+import { LiveLocation, fixPlace } from "./live-location";
+import { TimePicker, timeSummary } from "./time-picker";
 import { StopEditor } from "./stop-editor";
 import "./style.css";
 import {
@@ -101,6 +103,35 @@ const routeMap = new RouteMap(
   (id) => session.select(id),
   () => journeyView.setSize("collapsed"),
 );
+const liveLocation = new LiveLocation((fix, quality) =>
+  routeMap.updateLocation(fix, quality),
+);
+let pagePresent = true;
+function syncLiveLocation() {
+  liveLocation.setActive(
+    pagePresent && view === "map" && !document.hidden && !dialog.open,
+  );
+}
+function cancelMapCenter() {
+  mapLocationRequest?.abort();
+  mapLocationRequest = undefined;
+  liveLocation.cancelCenter();
+  el<HTMLButtonElement>("map-location").disabled = false;
+}
+routeMap.onManualMove = cancelMapCenter;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) cancelMapCenter();
+  syncLiveLocation();
+});
+window.addEventListener("pagehide", () => {
+  pagePresent = false;
+  cancelMapCenter();
+  syncLiveLocation();
+});
+window.addEventListener("pageshow", () => {
+  pagePresent = true;
+  syncLiveLocation();
+});
 const journeyView = new JourneyView((id) => session.select(id));
 const session = new PlanningSession(api, renderPlanning, (request, options) => {
   openedHistoryId = undefined;
@@ -140,7 +171,7 @@ function beginPlanning() {
   persistKey = "";
   if (view === "map") writeHistory(true);
   else show("map");
-  el("panel-summary").focus({ preventScroll: true });
+  journeyView.focusSelection();
 }
 async function restoreLink(
   parsed: ParsedRouteLink,
@@ -188,7 +219,7 @@ async function restoreLink(
     settingsReplanPending = previousResult.settingsReplanPending;
     session.restoreContext(previousResult.state);
     show(next === "settings" || next === "history" ? next : "map", false);
-    if (view === "map") el("panel-summary").focus({ preventScroll: true });
+    if (view === "map") journeyView.focusSelection();
     writeHistory();
     return;
   }
@@ -196,10 +227,10 @@ async function restoreLink(
     request,
     navigator.onLine
       ? ""
-      : "Für diese Planung brauchst du Internet. Danach auf Aktualisieren tippen.",
+      : "Für diese Planung brauchst du Internet. Plane danach über „Route anpassen“ erneut.",
   );
   show(next === "settings" || next === "history" ? next : "map", false);
-  if (view === "map") el("panel-summary").focus({ preventScroll: true });
+  if (view === "map") journeyView.focusSelection();
   writeHistory();
   if (next === "settings") {
     settingsReplanPending = true;
@@ -235,6 +266,7 @@ function show(next: View, push = true) {
     el<HTMLButtonElement>("map-location").disabled = false;
   }
   view = next;
+  syncLiveLocation();
   document.body.dataset.view = next;
   el("search-view").hidden = next !== "search";
   el("map-view").hidden = next !== "map";
@@ -470,6 +502,7 @@ const destination = new PlaceSearch(
   },
   book,
   toast,
+  false,
 );
 function updateSearchEmpty() {
   el("search-empty").hidden =
@@ -553,7 +586,7 @@ function openAdjust(target?: Place) {
   if (useLocation && !draftOrigin.value)
     draftOrigin.input.value = "Aktueller Standort";
   draftDestination.set(target ?? request?.destination ?? destination.value);
-  el<HTMLSelectElement>("timing").value = timing;
+  el<HTMLInputElement>("timing").value = timing;
   el<HTMLInputElement>("when").value = localDate(
     new Date((timing === "now" ? Date.now() / 1000 + 3600 : time) * 1000),
   );
@@ -561,6 +594,8 @@ function openAdjust(target?: Place) {
   el("adjust-status").textContent = "";
   el("adjust-location-help").hidden = true;
   dialog.showModal();
+  cancelMapCenter();
+  syncLiveLocation();
   if (!draftOrigin.value) draftOrigin.activate();
   if (!draftDestination.value) draftDestination.activate();
   el<HTMLButtonElement>("update-now").disabled = true;
@@ -574,6 +609,7 @@ function closeAdjust() {
   el<HTMLButtonElement>("update-now").disabled = session.state.busy;
 }
 dialog.addEventListener("close", () => {
+  syncLiveLocation();
   cancelDraftLocation();
   draftOrigin.cancel();
   draftDestination.cancel();
@@ -629,11 +665,12 @@ el("swap").onclick = () => {
   useLocation = draftOrigin.value?.name === "Aktueller Standort";
 };
 function updateTiming() {
-  const hidden = el<HTMLSelectElement>("timing").value === "now";
-  el("date-label").hidden = hidden;
-  el<HTMLInputElement>("when").required = !hidden;
+  el("time-summary").textContent = timeSummary(
+    el<HTMLInputElement>("timing").value as Timing,
+    el<HTMLInputElement>("when").value,
+  );
 }
-el("timing").onchange = updateTiming;
+new TimePicker(updateTiming);
 el("timezone").textContent =
   "Alle Zeiten: " + Intl.DateTimeFormat().resolvedOptions().timeZone;
 function readContext(): boolean {
@@ -644,7 +681,7 @@ function readContext(): boolean {
     draftOrigin.input.focus();
     return false;
   }
-  const selectedTiming = el<HTMLSelectElement>("timing").value as Timing,
+  const selectedTiming = el<HTMLInputElement>("timing").value as Timing,
     date = new Date(el<HTMLInputElement>("when").value),
     seconds =
       selectedTiming === "now" ? Date.now() / 1000 : date.getTime() / 1000;
@@ -765,6 +802,7 @@ el("map-route").onclick = () => {
   mapLocationRequest = undefined;
   el<HTMLButtonElement>("map-location").disabled = false;
   el("map-location-error").hidden = true;
+  liveLocation.cancelCenter();
   routeMap.fitRoute();
 };
 el("map-location").onclick = async () => {
@@ -775,7 +813,8 @@ el("map-location").onclick = async () => {
   const button = el<HTMLButtonElement>("map-location");
   button.disabled = true;
   try {
-    routeMap.center(await locate(signal));
+    const fix = await liveLocation.center();
+    if (!signal.aborted) routeMap.center(fixPlace(fix));
   } catch (error) {
     if (!signal.aborted) {
       el("map-location-error-text").textContent = errorText(error);
@@ -1104,7 +1143,7 @@ function openSnapshot(
   if (view === "map") {
     if (push) writeHistory(true);
   } else show("map", push);
-  if (focus) el("panel-summary").focus({ preventScroll: true });
+  if (focus) journeyView.focusSelection();
 }
 function openSaved(focus = true) {
   if (saved) openSnapshot(saved, historyEntries[0]?.id, true, focus);
@@ -1124,8 +1163,16 @@ el("replan-saved").onclick = async () => {
   contextUI();
   await session.calculate(request, settings, false);
 };
+function updateConnectionHeight() {
+  document.documentElement.style.setProperty(
+    "--connection-height",
+    `${el("connection").getBoundingClientRect().height}px`,
+  );
+}
+new ResizeObserver(updateConnectionHeight).observe(el("connection"));
 function connectionChanged() {
   el("connection").hidden = navigator.onLine;
+  updateConnectionHeight();
   savedUI();
   el<HTMLButtonElement>("replan-saved").disabled =
     !navigator.onLine || session.state.busy;
@@ -1182,6 +1229,7 @@ setupPWA();
 
 let dialogScrollFrame: number | undefined;
 function keepDialogFieldVisible() {
+  if (document.body.classList.contains("search-focus-mode")) return;
   if (dialogScrollFrame !== undefined) cancelAnimationFrame(dialogScrollFrame);
   dialogScrollFrame = requestAnimationFrame(() => {
     dialogScrollFrame = undefined;
@@ -1220,6 +1268,14 @@ function keepDialogFieldVisible() {
 dialog.addEventListener("focusin", keepDialogFieldVisible);
 
 function visualViewportChanged() {
+  document.documentElement.style.setProperty(
+    "--visual-width",
+    `${window.visualViewport?.width ?? innerWidth}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--visual-left",
+    `${window.visualViewport?.offsetLeft ?? 0}px`,
+  );
   dialog.classList.toggle(
     "compact",
     (window.visualViewport?.height ?? innerHeight) < 500,

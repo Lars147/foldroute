@@ -1,6 +1,15 @@
+import { resizeOverview, toggleSelectedDetails } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 
 async function preview(page: Page) {
+  // Isolate the component: the application entrypoint would create a second
+  // JourneyView with competing resize/focus observers on these same elements.
+  await page.route("**/src/main.ts", (route) =>
+    route.fulfill({
+      contentType: "text/javascript",
+      body: 'import "/src/style.css"; import { icon } from "/src/ui.ts"; document.querySelectorAll("[data-icon]").forEach(element => element.append(icon(element.dataset.icon)));',
+    }),
+  );
   await page.route("https://tile.openstreetmap.org/**", (route) =>
     route.abort(),
   );
@@ -113,8 +122,7 @@ test("opening details is intentional and a better connection stays explicitly se
   expect(
     await page.locator("body").getAttribute("data-detail-opens"),
   ).toBeNull();
-  await page.locator("#panel-size").click();
-  await page.locator("#panel-size").click();
+  await toggleSelectedDetails(page);
   await expect(page.locator("body")).toHaveAttribute("data-detail-opens", "1");
   await page.locator('[data-journey="best"]').focus();
   await page.locator('[data-journey="best"]').press("Enter");
@@ -150,7 +158,7 @@ for (const viewport of [
       await expect(button).toBeInViewport();
       expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
-    for (const id of ["adjust-route", "refresh-route", "close-route"]) {
+    for (const id of ["adjust-route", "close-route"]) {
       await page.locator(`#${id}`).scrollIntoViewIfNeeded();
       await expect(page.locator(`#${id}`)).toBeInViewport();
     }
@@ -189,40 +197,41 @@ test("full-height panel can reveal the map without losing its route", async ({
 });
 
 for (const width of [320, 390, 1280]) {
-  test(`time header stays fixed while route content scrolls at ${width}`, async ({
+  test(`tools and actions stay fixed while route content scrolls at ${width}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await preview(page);
-    await page.locator("#panel-size").click();
+    await resizeOverview(page);
     const content = page.locator("#panel-content");
-    await page.locator("#issues").evaluate((e) => {
-      e.hidden = false;
-      e.textContent = "Hinweis zur Verbindung. ".repeat(100);
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      state.issues = ["Hinweis zur Verbindung. ".repeat(100)];
+      view.render(state, 30);
     });
     await expect
       .poll(() => content.evaluate((e) => e.scrollHeight > e.clientHeight))
       .toBe(true);
-    const header = await page.locator("#panel-summary").boundingBox();
+    const header = await page.locator(".panel-tools").boundingBox();
     const actions = await page.locator(".panel-actions").boundingBox();
     await content.evaluate((e) => (e.scrollTop = 80));
     await expect.poll(() => content.evaluate((e) => e.scrollTop)).toBe(80);
-    expect(await page.locator("#panel-summary").boundingBox()).toEqual(header);
+    expect(await page.locator(".panel-tools").boundingBox()).toEqual(header);
     expect(await page.locator(".panel-actions").boundingBox()).toEqual(actions);
-    await page.locator("#panel-summary").focus();
+    await page.locator(".route-choice[aria-pressed=true]").focus();
     await page.keyboard.press("ArrowRight");
     expect(await content.evaluate((e) => e.scrollTop)).toBe(80);
-    expect(await page.locator("#panel-summary").boundingBox()).toEqual(header);
+    expect(await page.locator(".panel-tools").boundingBox()).toEqual(header);
     await content.evaluate((e) => (e.scrollTop = e.scrollHeight));
-    expect(await page.locator("#panel-summary").boundingBox()).toEqual(header);
+    expect(await page.locator(".panel-tools").boundingBox()).toEqual(header);
     await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
     await page.screenshot({
-      path: test.info().outputPath("fixed-time-header.png"),
+      path: test.info().outputPath("fixed-tools.png"),
     });
   });
 }
 
-for (const width of [320, 390, 1280]) {
+for (const width of [320, 390]) {
   test(`dragging changes visible panel heights at ${width}`, async ({
     page,
     browserName,
@@ -289,6 +298,231 @@ for (const width of [320, 390, 1280]) {
     await page.mouse.up();
     expect(await panelHeight()).toBe(normal);
     expect(collapsed).toBeLessThan(normal);
-    await expect(page.locator("#panel-summary")).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
   });
 }
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 844, height: 360 },
+  { width: 1280, height: 900 },
+]) {
+  test(`route accordion keeps its header and toggles inline at ${viewport.width}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize(viewport);
+    await preview(page);
+    const panel = page.locator("#journey-panel");
+    const arrow = page.locator('[data-route-detail="best"]');
+    await arrow.scrollIntoViewIfNeeded();
+    const before = await arrow.boundingBox();
+    const height = (await panel.boundingBox())!.height;
+    await arrow.click();
+    await expect(arrow).toHaveAttribute("aria-expanded", "true");
+    await expect(arrow.locator("span")).toHaveCSS(
+      "transform",
+      "matrix(-1, 0, 0, -1, 0, 0)",
+    );
+    await expect(arrow).toBeFocused();
+    await expect(arrow).toBeInViewport({ ratio: 1 });
+    const arrowBounds = (await arrow.boundingBox())!;
+    const panelBounds = (await panel.boundingBox())!;
+    expect(arrowBounds.x + arrowBounds.width).toBeLessThanOrEqual(
+      panelBounds.x + panelBounds.width,
+    );
+    expect(
+      await page
+        .locator("#panel-content")
+        .evaluate((e) => e.scrollWidth <= e.clientWidth + 1),
+    ).toBe(true);
+    await expect(page.locator("#panel-details")).toBeVisible();
+    await expect(page.locator("#panel-summary, #fold-line")).toHaveCount(0);
+    await expect(
+      page.locator('[data-journey="best"] .route-outline'),
+    ).toBeHidden();
+    await expect(
+      page.locator("#panel-details .journey-distance"),
+    ).toContainText("km Rad");
+
+    expect(
+      await page
+        .locator("#panel-details")
+        .evaluate((e) =>
+          e.previousElementSibling
+            ?.querySelector("[data-journey]")
+            ?.getAttribute("data-journey"),
+        ),
+    ).toBe("best");
+    expect(Math.abs((await arrow.boundingBox())!.y - before!.y)).toBeLessThan(
+      2,
+    );
+    expect((await panel.boundingBox())!.height).toBe(height);
+    await expect(panel).toHaveAttribute("data-size", "normal");
+    await page.screenshot({ path: info.outputPath("accordion-open.png") });
+    await arrow.click();
+    await expect(arrow).toHaveAttribute("aria-expanded", "false");
+    await expect(arrow.locator("span")).toHaveCSS("transform", "none");
+    await expect(page.locator("#panel-details")).toBeHidden();
+    await expect(
+      page.locator('[data-journey="best"] .route-outline'),
+    ).toBeVisible();
+    await expect(page.locator('[data-journey="best"]')).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(arrow).toBeFocused();
+    await expect(page.locator("#panel-size, #back-to-choices")).toHaveCount(0);
+    expect(await page.locator("button button").count()).toBe(0);
+  });
+}
+
+test("accordion switches, preserves updated details and resets for selection or new planning", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await preview(page);
+  await page.locator('[data-route-detail="best"]').click();
+  await page.locator('[data-route-detail="selected"]').click();
+  await expect(
+    page.locator('.route-details-button[aria-expanded="true"]'),
+  ).toHaveCount(1);
+  await expect(page.locator('[data-route-detail="selected"]')).toBeFocused();
+  await page.evaluate(() => {
+    const { state, view } = (window as any).uxPreview;
+    state.journeys[1].legs[0].to.name = "Aktualisierter Bahnhof";
+    view.render(state, 30);
+  });
+  await expect(page.locator("#panel-details")).toContainText(
+    "Aktualisierter Bahnhof",
+  );
+  await page.locator("#panel-handle").press("End");
+  await page.locator("#panel-handle").press("Home");
+  await expect(page.locator('[data-route-detail="selected"]')).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await page.locator('[data-journey="best"]').click();
+  await expect(page.locator("#panel-details")).toBeHidden();
+  await page.locator('[data-route-detail="comparison"]').click();
+  await expect(page.locator("#panel-details")).toBeVisible();
+  await page.evaluate(() => {
+    const { state, view } = (window as any).uxPreview;
+    state.busy = true;
+    view.render(state, 30);
+  });
+  await expect(page.locator("#panel-details")).toBeHidden();
+});
+
+for (const width of [900, 1280, 1479]) {
+  test(`desktop sidebar fills available height at ${width}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 1200 });
+    await preview(page);
+    const panel = page.locator("#journey-panel");
+    const map = (await page.locator("#map-view").boundingBox())!;
+    const bounds = (await panel.boundingBox())!;
+    expect(bounds.width).toBe(420);
+    expect(bounds.x - map.x).toBe(20);
+    expect(bounds.y - map.y).toBe(20);
+    expect(map.height - bounds.height).toBe(40);
+    await expect(page.locator("#panel-handle")).toBeHidden();
+    await expect(page.locator(".route-choice").last()).toBeInViewport({
+      ratio: 1,
+    });
+    const actions = (await page.locator(".panel-actions").boundingBox())!;
+    expect(bounds.y + bounds.height - actions.y - actions.height).toBe(16);
+    await page.locator('[data-route-detail="best"]').click();
+    expect(await panel.boundingBox()).toEqual(bounds);
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      state.issues = ["Längerer Hinweis. ".repeat(500)];
+      view.render(state);
+    });
+    const content = page.locator("#panel-content");
+    await expect
+      .poll(() => content.evaluate((e) => e.scrollHeight > e.clientHeight))
+      .toBe(true);
+    await content.evaluate((e) => {
+      e.scrollTop = e.scrollHeight;
+    });
+    expect(await page.locator(".panel-actions").boundingBox()).toEqual(actions);
+    expect(await panel.boundingBox()).toEqual(bounds);
+    await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
+    await content.evaluate((e) => {
+      e.scrollTop = 0;
+    });
+    await page.screenshot({ path: info.outputPath("desktop-full-height.png") });
+  });
+}
+
+test("sidebar breakpoint preserves mobile size, selection and disclosure", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 899, height: 986 });
+  await preview(page);
+  await page.locator("#panel-handle").press("Home");
+  await page.locator('[data-route-detail="best"]').click();
+  await page.locator("#panel-handle").focus();
+  await page.setViewportSize({ width: 900, height: 986 });
+  await expect(page.locator("#panel-handle")).toBeHidden();
+  await expect(page.locator('[data-journey="best"]')).toBeFocused();
+  await expect(page.locator("#panel-details")).toBeVisible();
+  await page.evaluate(() => {
+    const { state, view } = (window as any).uxPreview;
+    view.setSize("expanded", true);
+    state.message = "Verbindungen optimieren …";
+    view.render(state);
+  });
+  await expect(page.locator("#status")).toBeVisible();
+  await page.setViewportSize({ width: 899, height: 986 });
+  await expect(page.locator("#panel-handle")).toBeVisible();
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-size",
+    "collapsed",
+  );
+  await expect(page.locator('[data-route-detail="best"]')).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await page.locator("#panel-handle").press("ArrowUp");
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-size",
+    "normal",
+  );
+});
+
+test("very short desktop sidebar keeps all actions reachable", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 280 });
+  await preview(page);
+  await page.addStyleTag({ content: ":root { font-size: 32px; }" });
+  const panel = page.locator("#journey-panel");
+  await expect(panel).toHaveClass(/panel-scroll-all/);
+  await panel.evaluate((e) => {
+    e.scrollTop = e.scrollHeight;
+  });
+  await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
+  await panel.evaluate((e) => {
+    e.scrollTop = 0;
+  });
+  await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
+});
+
+test("opening details preserves focus moved before the next frame", async ({
+  page,
+}) => {
+  await preview(page);
+  await page.evaluate(async () => {
+    document
+      .querySelector<HTMLButtonElement>('[data-route-detail="best"]')!
+      .click();
+    document.getElementById("adjust-route")!.focus();
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => resolve()),
+    );
+  });
+  await expect(page.locator("#adjust-route")).toBeFocused();
+  await expect(page.locator("#panel-details")).toBeVisible();
+});

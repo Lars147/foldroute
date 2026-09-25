@@ -45,7 +45,8 @@ const fixedPlace = (place: Place, name: string): Place => ({
 
 export function routeURL(base: string | URL, plan?: RouteLink): URL {
   const url = new URL(base);
-  for (const key of keys) url.searchParams.delete(key);
+  for (const key of [...keys, "departureLeadMinutes"])
+    url.searchParams.delete(key);
   if (!plan) return url;
   const { request, settings } = plan;
   const params = url.searchParams;

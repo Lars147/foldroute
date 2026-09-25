@@ -4,6 +4,7 @@ struct PlannerView: View {
     var openSettings: () -> Void = {}
     @Environment(AppModel.self) private var model
     @State private var showsAdjustments = false
+    @State private var searchFocused = false
     @State private var panel = JourneyPanelState()
 
     var body: some View {
@@ -13,20 +14,23 @@ struct PlannerView: View {
             } else if model.isPreviewReplan {
                 previewReplanning
             } else {
-                PlaceSearchContent(target: .destination, isDisabled: model.planningState.isLoading) { place in
+                PlaceSearchContent(target: .destination, showCurrentLocation: false, isDisabled: model.planningState.isLoading, onFocusChanged: { searchFocused = $0 }) { place in
                     Task { await model.planToDestination(place) }
                 }
+                .toolbar(searchFocused ? .hidden : .visible, for: .tabBar)
                 .safeAreaInset(edge: .bottom) {
-                    VStack(spacing: 0) {
-                        Button("Start, Zeit & Zwischenstopps") { showsAdjustments = true }
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .buttonStyle(.bordered)
-                            .padding(.horizontal, 16)
-                            .disabled(model.planningState.isLoading)
-                            .accessibilityIdentifier("prepareRoute")
-                        planningStatus
+                    if !searchFocused {
+                        VStack(spacing: 0) {
+                            Button("Start, Zeit & Zwischenstopps") { showsAdjustments = true }
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .buttonStyle(.bordered)
+                                .padding(.horizontal, 16)
+                                .disabled(model.planningState.isLoading)
+                                .accessibilityIdentifier("prepareRoute")
+                            planningStatus
+                        }
+                        .background(.bar)
                     }
-                    .background(.bar)
                 }
                 .navigationTitle("FoldRoute")
                 .navigationBarTitleDisplayMode(.inline)
@@ -142,6 +146,7 @@ struct RouteAdjustmentView: View {
     @State private var timing: TimingSelection
     @State private var date: Date
     @State private var stops: [RouteStop]
+    @State private var showsTimePicker = false
     @State private var showsStopSearch = false
     @State private var editingStopID: String?
     @State private var showsStartSearch = false
@@ -254,20 +259,17 @@ struct RouteAdjustmentView: View {
                     .textCase(nil)
                 }
                 Section("Zeit") {
-                    Picker("Zeit", selection: $timing) {
-                        ForEach(TimingSelection.allCases) { option in
-                            Text(option.title).tag(option)
+                    Button { showsTimePicker = true } label: {
+                        HStack {
+                            Image(systemName: "calendar")
+                            Text(timing == .now ? "Jetzt" : "\(date.formatted(date: .abbreviated, time: .omitted)), \(timing == .arrive ? "an" : "ab") \(date.formatted(date: .omitted, time: .shortened))")
+                            Spacer()
+                            Image(systemName: "chevron.right")
                         }
+                        .frame(minHeight: 44)
                     }
-                    .pickerStyle(.segmented)
-                    if timing != .now {
-                        DatePicker(
-                            timing == .depart ? "Abfahrt" : "Ankunft",
-                            selection: $date,
-                            in: Date()...,
-                            displayedComponents: [.date, .hourAndMinute]
-                        )
-                    }
+                    .foregroundStyle(.primary)
+                    .accessibilityIdentifier("timeSelection")
                 }
                 if let errorMessage {
                     Section {
@@ -314,6 +316,13 @@ struct RouteAdjustmentView: View {
                     errorMessage = nil
                 }
             }
+            .sheet(isPresented: $showsTimePicker) {
+                RouteTimePicker(timing: timing, date: date) { selection, selectedDate in
+                    timing = selection
+                    date = selectedDate
+                }
+                .presentationDetents([.large])
+            }
             .sheet(isPresented: $showsDestinationSearch) {
                 PlaceSearchView(target: .destination) {
                     destination = $0
@@ -344,6 +353,99 @@ struct RouteAdjustmentView: View {
             )
             isSubmitting = false
             if errorMessage == nil { dismiss() }
+        }
+    }
+}
+
+
+struct RouteTimePicker: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var timing: TimingSelection
+    @State private var date: Date
+    @State private var clock = Date()
+    let onApply: (TimingSelection, Date) -> Void
+
+    init(timing: TimingSelection, date: Date, onApply: @escaping (TimingSelection, Date) -> Void) {
+        _timing = State(initialValue: timing)
+        _date = State(initialValue: date)
+        self.onApply = onApply
+    }
+
+    private var selectedDate: Binding<Date> {
+        Binding(get: { timing == .now ? clock : date }, set: { value in
+            date = value
+            if timing == .now { timing = .depart }
+        })
+    }
+    private var mode: Binding<TimingSelection> {
+        Binding(get: { timing == .now ? .depart : timing }, set: { value in
+            if timing == .now { date = clock }
+            timing = value
+        })
+    }
+    private var valid: Bool { timing == .now || date >= clock }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Picker("Zeitmodus", selection: mode) {
+                        Text("Abfahrt").tag(TimingSelection.depart)
+                        Text("Ankunft").tag(TimingSelection.arrive)
+                    }
+                    .pickerStyle(.segmented)
+                    DatePicker("Datum", selection: selectedDate, in: Calendar.current.startOfDay(for: clock)..., displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .padding(.horizontal, -20)
+                    Text("Uhrzeit").font(.headline)
+                    DatePicker("Uhrzeit", selection: selectedDate, displayedComponents: .hourAndMinute)
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, -20)
+                    Button("Jetzt") { clock = Date(); timing = .now }
+                        .buttonStyle(.bordered)
+                        .frame(minHeight: 44)
+                        .accessibilityAddTraits(timing == .now ? [.isSelected] : [])
+                    Text(timing == .now ? "Der aktuelle Zeitpunkt wird bei der Berechnung bestimmt." : "Fester Zeitpunkt")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if !valid {
+                        Text("Bitte einen zukünftigen Zeitpunkt wählen.").accessibilityIdentifier("timeSelectionError")
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("Zeitpunkt")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(uiColor: .systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") { dismiss() }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button("Übernehmen") {
+                    clock = Date()
+                    guard timing == .now || date >= clock else { return }
+                    onApply(timing, timing == .now ? clock : date)
+                    dismiss()
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(FoldRouteColor.signalYellow, in: RoundedRectangle(cornerRadius: 14))
+                .foregroundStyle(FoldRouteColor.asphalt)
+                .disabled(!valid)
+                .padding(16)
+                .background(.bar)
+            }
+        }
+        .environment(\.locale, Locale(identifier: "de_DE"))
+        .task {
+            while !Task.isCancelled {
+                clock = Date()
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
         }
     }
 }

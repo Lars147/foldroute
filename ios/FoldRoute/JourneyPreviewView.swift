@@ -7,44 +7,84 @@ struct JourneyPreviewView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var panel: JourneyPanelState
     @State private var showsAdjustments = false
+    @State private var scrollRequest = UUID()
+    @State private var scrollTarget = "routeChoices"
     @State private var cameraPanelHeight: CGFloat = 0
-    @State private var contentHeight: CGFloat = 320
+    @State var disclosure = JourneyDisclosureState()
+    @State private var choiceHeights: [String: CGFloat] = [:]
+    @State private var noticesHeight: CGFloat = 0
     @State private var actionsHeight: CGFloat = 112
+    @State private var mapActionsHeight: CGFloat = 44
     @State private var headerHeight: CGFloat = 44
-    @State private var summaryHeight: CGFloat = 150
     @State private var choiceHeight: CGFloat = 64
-    @State private var lastHandleDrag = Date.distantPast
+    private var options: [Journey] {
+        model.journeyOptions.isEmpty ? model.journey.map { [$0] } ?? [] : model.journeyOptions
+    }
+    private var contentHeight: CGFloat {
+        let rows: CGFloat = options.reduce(CGFloat.zero) { total, option in
+            total + (choiceHeights[option.id] ?? 64)
+        }
+        let gaps = CGFloat(max(0, options.count - 1)) * 8
+        return rows + gaps + noticesHeight + 16
+    }
 
     var body: some View {
         if let journey = model.journey {
-            GeometryReader { geometry in
-                let available = max(0, geometry.size.height - 8)
-                let fixedHeight = headerHeight + (model.isReplanningAfterNavigation ? 0 : summaryHeight) + actionsHeight + 64
-                let fullHeight = dynamicTypeSize.isAccessibilitySize || available - 128 < fixedHeight + choiceHeight
-                let heights = JourneyPanelHeights(available: available, summary: headerHeight + (model.isReplanningAfterNavigation ? 0 : summaryHeight),
-                    actions: actionsHeight, content: contentHeight, topClearance: fullHeight ? 0 : 128)
-                let mapMode = fullHeight && panel.size == .collapsed
-                let coveredMap = fullHeight && !mapMode
-                let height = mapMode ? headerHeight + 32 : heights[fullHeight ? .expanded : panel.size]
-                let scrollAll = available < fixedHeight + choiceHeight
-                let mapPanelHeight = coveredMap || panel.size == .expanded
-                    ? min(cameraPanelHeight, available * 0.65) : cameraPanelHeight
-                ZStack(alignment: .bottom) {
-                    RouteMapView(
-                        journey: journey,
-                        alternativeJourneys: model.isReplanningAfterNavigation ? [] : model.journeyOptions,
-                        overviewID: model.previewOverviewID,
-                        planningPanelMode: "\(panel.size)-\(mapMode)",
-                        cameraInsets: MapCameraInsets(top: 64, leading: 24, bottom: mapPanelHeight + 16, trailing: 88),
-                        planningLocationInsets: MapCameraInsets(top: 64, leading: 24, bottom: mapPanelHeight + 16, trailing: 88),
-                        planningControlsTopY: geometry.frame(in: .global).minY + 12,
-                        onJourneySelected: { model.selectJourney(id: $0) },
-                        onBackgroundTapped: { changePanel(to: .collapsed, intentional: false) }
-                    )
-                    .ignoresSafeArea(edges: .top)
-                    .accessibilityHidden(coveredMap)
-                    .allowsHitTesting(!coveredMap)
+            preview(journey)
+                .onChange(of: model.journey?.id) { _, selected in
+                    disclosure.reconcile(selectedID: selected, availableIDs: options.map(\.id))
+                }
+                .onChange(of: options.map(\.id)) { _, ids in
+                    disclosure.reconcile(selectedID: model.journey?.id, availableIDs: ids)
+                    choiceHeights = choiceHeights.filter { ids.contains($0.key) }
+                }
+                .onChange(of: model.previewOverviewID) { _, _ in disclosure.close() }
+                .onChange(of: model.planningState.isLoading) { _, loading in
+                    if loading { disclosure.close() }
+                }
+                .onDisappear { disclosure.close(); model.location.previewObscured = false }
+                .onChange(of: showsAdjustments) { _, shown in model.location.previewObscured = shown }
+                .toolbar(.hidden, for: .navigationBar)
+                .sheet(isPresented: $showsAdjustments) { RouteAdjustmentView(model: model) }
+                .alert("Startpunkt zu weit entfernt", isPresented: distantStartBinding, presenting: distantStartDistance) { _ in
+                    Button("Route ab hier planen") { Task { await model.replanFromCurrentLocation() } }
+                    Button("Abbrechen", role: .cancel) { model.cancelNavigationPreparation() }
+                } message: { distance in
+                    Text("Der geplante Start liegt \(distance.formattedDistance) von deinem Standort entfernt.")
+                }
+        }
+    }
 
+    private func preview(_ journey: Journey) -> some View {
+        GeometryReader { geometry in
+            let available = max(0, geometry.size.height - 8)
+            let fixedHeight = headerHeight + actionsHeight + 64
+            let fullHeight = dynamicTypeSize.isAccessibilitySize || available - 128 < fixedHeight + choiceHeight
+            let heights = JourneyPanelHeights(available: available, summary: headerHeight,
+                actions: actionsHeight, content: contentHeight, topClearance: fullHeight ? 0 : 128)
+            let mapMode = fullHeight && panel.size == .collapsed
+            let coveredMap = fullHeight && !mapMode
+            let height = mapMode ? mapActionsHeight + 88 : heights[fullHeight ? .expanded : panel.size]
+            let scrollAll = available < fixedHeight + choiceHeight
+            let mapPanelHeight = coveredMap || panel.size == .expanded
+                ? min(cameraPanelHeight, available * 0.65) : cameraPanelHeight
+            ZStack(alignment: .bottom) {
+                RouteMapView(
+                    journey: journey,
+                    alternativeJourneys: model.isReplanningAfterNavigation ? [] : model.journeyOptions,
+                    overviewID: model.previewOverviewID,
+                    planningPanelMode: "\(panel.size)-\(mapMode)",
+                    cameraInsets: MapCameraInsets(top: 64, leading: 24, bottom: mapPanelHeight + 16, trailing: 88),
+                    planningLocationInsets: MapCameraInsets(top: 64, leading: 24, bottom: mapPanelHeight + 16, trailing: 88),
+                    planningControlsTopY: geometry.frame(in: .global).minY + 12,
+                    onJourneySelected: { model.selectJourney(id: $0) },
+                    onBackgroundTapped: { changePanel(to: .collapsed, intentional: false) }
+                )
+                .ignoresSafeArea(edges: .top)
+                .accessibilityHidden(coveredMap)
+                .allowsHitTesting(!coveredMap)
+
+                ScrollViewReader { proxy in
                     Group {
                         if scrollAll && !mapMode {
                             ScrollView {
@@ -58,25 +98,20 @@ struct JourneyPreviewView: View {
                             panelContents(journey, fullHeight: fullHeight, mapMode: mapMode, scrollAll: false)
                         }
                     }
-                    .padding(16)
-                    .frame(height: height)
-                    .background(FoldRouteColor.asphalt.opacity(fullHeight ? 1 : 0.97), in: RoundedRectangle(cornerRadius: 24))
-                    .foregroundStyle(.white)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
-                        if mapMode || (!fullHeight && panel.size != .expanded) { cameraPanelHeight = measured }
-                        else if cameraPanelHeight == 0 { cameraPanelHeight = min(measured, available * 0.65) }
+                    .onChange(of: scrollRequest) { _, _ in
+                        DispatchQueue.main.async { proxy.scrollTo(scrollTarget, anchor: .top) }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
                 }
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showsAdjustments) { RouteAdjustmentView(model: model) }
-            .alert("Startpunkt zu weit entfernt", isPresented: distantStartBinding, presenting: distantStartDistance) { _ in
-                Button("Route ab hier planen") { Task { await model.replanFromCurrentLocation() } }
-                Button("Abbrechen", role: .cancel) { model.cancelNavigationPreparation() }
-            } message: { distance in
-                Text("Der geplante Start liegt \(distance.formattedDistance) von deinem Standort entfernt.")
+                .padding(16)
+                .frame(height: height)
+                .background(FoldRouteColor.asphalt.opacity(fullHeight ? 1 : 0.97), in: RoundedRectangle(cornerRadius: 24))
+                .foregroundStyle(.white)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
+                    if mapMode || (!fullHeight && panel.size != .expanded) { cameraPanelHeight = measured }
+                    else if cameraPanelHeight == 0 { cameraPanelHeight = min(measured, available * 0.65) }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
             }
         }
     }
@@ -84,15 +119,9 @@ struct JourneyPreviewView: View {
     private func panelContents(_ journey: Journey, fullHeight: Bool, mapMode: Bool, scrollAll: Bool) -> some View {
         VStack(spacing: 12) {
             panelHeader(fullHeight: fullHeight)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if !mapMode { headerHeight = $0 } }
                 .fixedSize(horizontal: false, vertical: true)
             if !mapMode {
-                if !model.isReplanningAfterNavigation {
-                    reservedAlternativeContent(journey) { summary($0) }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { summaryHeight = $0 }
-                        .accessibilityIdentifier("journeyTimeHeader")
-                }
                 if scrollAll {
                     routeContents(journey)
                 } else {
@@ -106,6 +135,16 @@ struct JourneyPreviewView: View {
                 }
                 actions
                     .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Group {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(spacing: 8) { mapActions }
+                    } else {
+                        HStack(spacing: 12) { mapActions }
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { mapActionsHeight = $0 }
             }
         }
     }
@@ -115,11 +154,7 @@ struct JourneyPreviewView: View {
             if model.isReplanningAfterNavigation {
                 Text("Neue Routen nach \(model.destination?.name ?? journey.destination.name)").font(.headline)
             } else {
-                choices
-                if panel.size == .expanded {
-                    FoldLine(legs: journey.legs)
-                    ForEach(journey.legs) { JourneyLegRow(leg: $0) }
-                }
+                choices.id("routeChoices")
             }
             reservedAlternativeContent(journey) { option in
                 VStack(alignment: .leading, spacing: 16) {
@@ -129,9 +164,10 @@ struct JourneyPreviewView: View {
                     planningNotices(option)
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { noticesHeight = $0 }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+
     }
 
     private func reservedAlternativeContent<Content: View>(_ selected: Journey,
@@ -145,110 +181,140 @@ struct JourneyPreviewView: View {
     }
 
     private func panelHeader(fullHeight: Bool) -> some View {
-        HStack(alignment: .top) {
-            if fullHeight {
-                Button { changePanel(to: panel.size == .collapsed ? .normal : .collapsed) } label: {
-                    if dynamicTypeSize.isAccessibilitySize {
-                        Image(systemName: panel.size == .collapsed ? "list.bullet.rectangle" : "map")
-                            .font(.system(size: 20, weight: .semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    } else {
-                        Text(panel.size == .collapsed ? "Reise anzeigen" : "Karte anzeigen")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(panel.size == .collapsed ? "Reise anzeigen" : "Karte anzeigen")
-                .accessibilityIdentifier("toggleJourneyMap")
-            }
-            if !fullHeight || panel.size != .collapsed {
-                Button {
-                    guard Date().timeIntervalSince(lastHandleDrag) > 0.35 else { return }
-                    changePanel(to: panel.size == .expanded ? .normal : .expanded)
-                } label: {
-                    if fullHeight {
-                        Image(systemName: "list.bullet.rectangle")
-                            .font(.system(size: 20, weight: .semibold))
-                            .frame(width: 44, height: 44)
-                    } else {
-                        Label(panel.size == .expanded ? "Weniger Details" : "Mehr Details", systemImage: "chevron.up.chevron.down")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(panel.size == .expanded ? "Weniger Details" : "Mehr Details")
-                .accessibilityIdentifier("journeyPanelHandle")
+        VStack(spacing: 0) {
+            Capsule().fill(.white.opacity(0.4)).frame(width: 38, height: 4)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 20).onEnded { value in
+                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                    resizePanel(growing: value.translation.height < 0)
+                })
+                .accessibilityElement()
+                .accessibilityLabel("Größe der Routenübersicht")
                 .accessibilityValue(panel.size.title)
+                .accessibilityIdentifier("journeyPanelHandle")
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: resizePanel(growing: true)
+                    case .decrement: resizePanel(growing: false)
+                    @unknown default: break
+                    }
+                }
                 .accessibilityAction(named: "Minimieren") { changePanel(to: .collapsed) }
                 .accessibilityAction(named: "Maximieren") { changePanel(to: .expanded) }
-                .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { value in
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                    lastHandleDrag = Date()
-                    changePanel(to: value.translation.height < 0 ? .expanded : .collapsed)
-                })
+            if fullHeight && panel.size != .collapsed {
+                HStack(alignment: .top) {
+                    Button { changePanel(to: panel.size == .collapsed ? .normal : .collapsed) } label: {
+                        if dynamicTypeSize.isAccessibilitySize {
+                            Image(systemName: panel.size == .collapsed ? "list.bullet.rectangle" : "map")
+                                .font(.system(size: 20, weight: .semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        } else {
+                            Text(panel.size == .collapsed ? "Reise anzeigen" : "Karte anzeigen")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(panel.size == .collapsed ? "Reise anzeigen" : "Karte anzeigen")
+                    .accessibilityIdentifier("toggleJourneyMap")
+                }
             }
-            Button { model.discardRoute() } label: {
-                Image(systemName: "xmark").font(.system(size: 20, weight: .semibold)).frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Route schließen")
         }
     }
 
-    private func summary(_ journey: Journey) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(optionTitle(journey)).font(.caption.weight(.semibold)).foregroundStyle(FoldRouteColor.signalYellow)
-            JourneyTimeSummary(journey: journey)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .simultaneousGesture(DragGesture(minimumDistance: 40).onEnded { value in
-            guard abs(value.translation.width) > abs(value.translation.height),
-                  let index = model.journeyOptions.firstIndex(where: { $0.id == journey.id }),
-                  !model.journeyOptions.isEmpty else { return }
-            let count = model.journeyOptions.count
-            let next = (index + (value.translation.width < 0 ? 1 : count - 1)) % count
-            model.selectJourney(id: model.journeyOptions[next].id)
-        })
+    private func resizePanel(growing: Bool) {
+        changePanel(to: growing ? (panel.size == .collapsed ? .normal : .expanded)
+            : (panel.size == .expanded ? .normal : .collapsed))
     }
 
     private var choices: some View {
-        let options = model.journeyOptions.isEmpty ? model.journey.map { [$0] } ?? [] : model.journeyOptions
-        let differentDays = Set(options.map { Calendar.current.startOfDay(for: $0.arrival) }).count > 1
         return VStack(spacing: 8) {
             ForEach(options) { option in
                 let comparison = CyclingComparison.excess(option, limit: model.resultCyclingLimit) > 0
                 let selected = option.id == model.journey?.id
-                Button { model.selectJourney(id: option.id) } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            if comparison { Image(systemName: "bicycle").accessibilityHidden(true) }
-                            Text("Ankunft \(option.arrival.formatted(date: differentDays ? .abbreviated : .omitted, time: .shortened)) · \(option.duration.formattedDuration)")
-                                .font(.subheadline.weight(.semibold))
+                let open = disclosure.openedID == option.id
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        Button {
+                            disclosure.reconcile(selectedID: option.id, availableIDs: options.map(\.id))
+                            model.selectJourney(id: option.id)
+                        } label: {
+                            choiceCopy(option, comparison: comparison, showOutline: !open)
+                                .overlay(alignment: .topLeading) {
+                                    // Measure the closed card independently of visible disclosure.
+                                    choiceCopy(option, comparison: comparison, showOutline: true)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .hidden().accessibilityHidden(true).allowsHitTesting(false)
+                                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
+                                            choiceHeights[option.id] = measured
+                                            if option.id == options.first?.id { choiceHeight = measured }
+                                        }
+                                }
                         }
-                        Text(JourneyEffort(option).label).font(.caption)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(optionTitle(option)). Abfahrt \(option.departure.formatted(date: .abbreviated, time: .shortened)), Ankunft \(option.arrival.formatted(date: .abbreviated, time: .shortened)), Gesamtdauer \(option.duration.formattedDuration). \(JourneyEffort(option).label). \(option.routeOutline)")
+                        .accessibilityAddTraits(selected ? [.isSelected] : [])
+                        .accessibilityIdentifier("journeyChoice-\(option.id)")
+                        Button {
+                            let previouslyOpen = disclosure.openedID
+                            disclosure.toggle(option.id)
+                            model.selectJourney(id: option.id)
+                            model.holdSelectedJourney()
+                            if let previouslyOpen, previouslyOpen != option.id {
+                                scrollTarget = "routeChoice-" + option.id
+                                scrollRequest = UUID()
+                            }
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .rotationEffect(.degrees(open ? 180 : 0))
+                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: open)
+                                .frame(width: 44, height: 44)
+                                .frame(maxHeight: .infinity)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .overlay(alignment: .leading) { Rectangle().fill(.primary.opacity(0.4)).frame(width: 1) }
+                        .accessibilityLabel("Reiseabschnitte \(open ? "schließen" : "öffnen"): \(option.arrival.formatted(date: .omitted, time: .shortened)), \(option.routeOutline)")
+                        .accessibilityValue(open ? "Geöffnet" : "Geschlossen")
+                        .accessibilityIdentifier("journeyDetails-" + option.id)
                     }
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
                     .background(selected ? FoldRouteColor.signalYellow : .white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                     .foregroundStyle(selected ? FoldRouteColor.asphalt : .white)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(optionTitle(option)). Ankunft \(option.arrival.formatted(date: .abbreviated, time: .shortened)), Gesamtdauer \(option.duration.formattedDuration). \(JourneyEffort(option).label)")
-                .accessibilityAddTraits(selected ? [.isSelected] : [])
-                .accessibilityIdentifier("journeyChoice-\(option.id)")
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
-                    if option.id == options.first?.id { choiceHeight = measured }
+                    .id("routeChoice-" + option.id)
+                    if open {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("\((option.bikeDistance / 1000).formatted(.number.precision(.fractionLength(0...1)))) km Rad")
+                                .font(.caption).foregroundStyle(.secondary)
+                            ForEach(option.legs) { JourneyLegRow(leg: $0) }
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.white.opacity(0.03))
+                        .accessibilityIdentifier("journeyExpandedDetails-" + option.id)
+                    }
                 }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Verbindung auswählen")
+    }
+
+    private func choiceCopy(_ option: Journey, comparison: Bool, showOutline: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if comparison { Image(systemName: "bicycle").accessibilityHidden(true) }
+                Text("\(journeyTimeRange(option)) · \(option.duration.formattedDuration)")
+                    .font(.subheadline.weight(.semibold))
+            }
+            if showOutline { Text(option.routeOutline).font(.caption.weight(.semibold)) }
+            Text(JourneyEffort(option).label).font(.caption)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -311,24 +377,36 @@ struct JourneyPreviewView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { actionsHeight = $0 }
     }
 
-    @ViewBuilder
-    private var planningActions: some View {
-        Button {
-            if model.isReplanningAfterNavigation { model.retryPlanningAfterNavigation() }
-            else if model.isPreviewReplan { model.retryPreviewPlanning() }
-            else { model.refreshPlannedRoutes() }
-        } label: {
-            Text(model.isPreviewReplan || model.isReplanningAfterNavigation ? "Wiederholen" : "Aktualisieren")
-                .fixedSize(horizontal: false, vertical: true)
+    private var closeAction: some View {
+        Button { model.discardRoute() } label: {
+            Text("Schließen").fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .disabled(model.planningRequestsPaused || model.planningState.isLoading || model.navigationStartState.isLoading)
-        .accessibilityIdentifier("refreshPlannedRoutes")
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Route schließen")
+    }
+
+    @ViewBuilder
+    private var mapActions: some View {
+        Button { changePanel(to: .normal) } label: {
+            Text("Reise anzeigen").fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .accessibilityIdentifier("toggleJourneyMap")
+        closeAction
+    }
+
+    @ViewBuilder
+    private var planningActions: some View {
         Button { showsAdjustments = true } label: {
             Text("Route anpassen").fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-            .disabled(model.planningState.isLoading || model.navigationStartState.isLoading)
+        .buttonStyle(.borderedProminent)
+        .tint(FoldRouteColor.signalYellow)
+        .foregroundStyle(FoldRouteColor.asphalt)
+        .disabled(model.planningState.isLoading || model.navigationStartState.isLoading)
+        closeAction
     }
 
     private func optionTitle(_ journey: Journey) -> String {
@@ -378,44 +456,7 @@ struct JourneyEffort: Equatable {
     var label: String { "\(cyclingMinutes) min Rad · \(walkingMinutes) min Fuß · \(transfers) \(transfers == 1 ? "Umstieg" : "Umstiege")" }
 }
 
-private struct FoldLine: View {
-    let legs: [JourneyLeg]
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(legs.enumerated()), id: \.element.id) { index, leg in
-                HStack(spacing: 0) {
-                    if index > 0 {
-                        Rectangle()
-                            .fill(leg.kind.color.opacity(0.72))
-                            .frame(height: 3)
-                    }
-                    Image(systemName: leg.kind.symbol)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(FoldRouteColor.asphalt)
-                        .frame(width: 28, height: 28)
-                        .background(leg.kind.color, in: leg.kind == .fold || leg.kind == .unfold ? AnyShape(DiamondShape()) : AnyShape(Circle()))
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(legs.map(\.kind.title).joined(separator: ", "))
-    }
-}
-
-private struct DiamondShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        Path { path in
-            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-            path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
-            path.closeSubpath()
-        }
-    }
-}
-
-private struct JourneyLegRow: View {
+struct JourneyLegRow: View {
     let leg: JourneyLeg
 
     var body: some View {
@@ -534,48 +575,29 @@ private func lateDepartureTime(_ date: Date) -> String {
 }
 
 
-struct JourneyTimeSummary: View {
-    let journey: Journey
-    @ScaledMetric(relativeTo: .title) private var timeSize = 32.0
+func journeyTimeRange(_ journey: Journey, calendar: Calendar = .current, now: Date = Date()) -> String {
+    let departure = journey.departure.formatted(date: .omitted, time: .shortened)
+    let arrival = journey.arrival.formatted(date: .omitted, time: .shortened)
+    if !calendar.isDate(journey.departure, inSameDayAs: journey.arrival) {
+        return "\(journey.departure.formatted(date: .abbreviated, time: .omitted)) \(departure) → \(journey.arrival.formatted(date: .abbreviated, time: .omitted)) \(arrival)"
+    }
+    let day = calendar.isDate(journey.departure, inSameDayAs: now) ? "" : "\(journey.departure.formatted(date: .abbreviated, time: .omitted)) · "
+    return "\(day)\(departure) → \(arrival)"
+}
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 12) {
-                    timeBlock("Abfahrt", date: journey.departure)
-                    Image(systemName: "arrow.right")
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    timeBlock("Ankunft", date: journey.arrival)
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    timeBlock("Abfahrt", date: journey.departure)
-                    timeBlock("Ankunft", date: journey.arrival)
-                }
-            }
-            Text(journey.duration.formattedDuration)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.68))
-                .accessibilityLabel("Gesamtdauer \(journey.duration.formattedDuration)")
-        }
-        .accessibilityElement(children: .contain)
+/// Disclosure is independent of panel size and never changes route selection itself.
+struct JourneyDisclosureState: Equatable {
+    private(set) var openedID: String?
+
+    mutating func toggle(_ id: String) {
+        openedID = openedID == id ? nil : id
     }
 
-    private func timeBlock(_ title: String, date: Date) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.68))
-            Text(date, format: .dateTime.hour().minute())
-                .font(.system(size: timeSize, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-            if !Calendar.current.isDateInToday(date) {
-                Text(date, format: .dateTime.day().month().year())
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.68))
-            }
+    mutating func close() { openedID = nil }
+
+    mutating func reconcile(selectedID: String?, availableIDs: [String]) {
+        if openedID != selectedID || !availableIDs.contains(where: { $0 == openedID }) {
+            close()
         }
-        .fixedSize(horizontal: true, vertical: true)
-        .accessibilityElement(children: .combine)
     }
 }

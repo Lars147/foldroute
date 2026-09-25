@@ -70,3 +70,9 @@ Beim Planen gehen Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Ei
 Speicher- und Migrationsregeln stehen in der [Routingdokumentation](../documentation/routing.md#speicherung-und-kompatibilität-ios). Vor einer breiten Veröffentlichung die [Betriebs- und Datenquellenhinweise](../web/README.md#vor-öffentlicher-veröffentlichung) beachten; sie betreffen auch die iOS-Anfragen an Transitous.
 
 Die Kartenübersicht bleibt beim Wechsel zwischen Alternativen stehen. Nachgeladene Umwege erweitern sie bei Bedarf; entfallene Alternativen verkleinern sie nicht automatisch. Eigenes Verschieben oder Zoomen pausiert automatische Anpassungen bis zur Übersichtsaktion oder einer neuen erfolgreichen Berechnung. Auch der eingeblendete Fahrradvergleich gehört zur gemeinsamen Übersicht.
+
+### Live-Standort in der Routenvorschau
+
+Die sichtbare Routenvorschau aktualisiert bei vorhandener Freigabe den blauen Standortpunkt und einen maßstabsgetreuen Genauigkeitskreis. Über 100 Meter wird die Position als ungenau bezeichnet; über 60 Sekunden alte Messungen oder Ortungsfehler zeigen den letzten Punkt grau. Der geplante Start und der Kartenausschnitt bleiben fest. Der Standortbutton zentriert einmalig, ohne anschließendes Mitführen.
+
+Die Vorschauortung pausiert bei Tabwechsel, Routenbearbeitung und im Hintergrund. Aktive Navigation hat Vorrang und behält ihre bisherige Hintergrundortung und Kameraführung. Es werden keine GPS-Spuren gespeichert. Bewegung, Berechtigungswechsel und Bildschirmsperre müssen zusätzlich auf einem echten iPhone geprüft werden; Builds und simulierte Positionsfolgen ersetzen diesen Feldtest nicht.

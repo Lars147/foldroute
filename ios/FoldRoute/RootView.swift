@@ -44,8 +44,18 @@ struct RootView: View {
             }
         }
         .preferredColorScheme(nil)
+        .onAppear { syncPreviewLocation() }
+        .onChange(of: selectedTab) { _, _ in syncPreviewLocation() }
+        .onChange(of: model.journey != nil || model.isPreviewReplan) { _, _ in syncPreviewLocation() }
+        .onChange(of: model.navigation != nil) { _, _ in syncPreviewLocation() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.becameActive() }
+            syncPreviewLocation()
         }
     }
+    private func syncPreviewLocation() {
+        model.location.previewVisible = scenePhase == .active && selectedTab == .route
+            && model.navigation == nil && (model.journey != nil || model.isPreviewReplan)
+    }
+
 }

@@ -2424,7 +2424,7 @@ extension FoldRouteTests {
             XCTAssertEqual(queryValue("maxPostTransitTime", in: request), queryValue("postTransitModes", in: request) == "WALK" ? "420" : "3600")
         }
         XCTAssertEqual(options.count, 1, "Same concrete train must not fill multiple cards")
-        XCTAssertEqual(options.first?.legs.map(\.kind), [.walk, .fold, .transit, .unfold, .walk])
+        XCTAssertEqual(options.first?.legs.map(\.kind), [.bike, .fold, .transit, .unfold, .bike])
         XCTAssertEqual(options.first?.arrival, date("2026-09-04T08:53:00Z"))
     }
 
@@ -2499,7 +2499,7 @@ extension FoldRouteTests {
         XCTAssertEqual(stored.value.maxWalkingMinutes, 15)
     }
 
-    func testShortWalkBeatsChasingSameTrainButFasterBikeStillWins() throws {
+    func testLessWalkingWinsSameArrivalButEarlierArrivalStillWins() throws {
         func route(id: String, bike: Bool, arrivalOffset: Double = 0, tripID: String = "S8-day1") -> Journey {
             let origin = Place(name: "Hbf", coordinate: Coordinate(latitude: 48.14, longitude: 11.56))
             let station = Place(name: bike ? "Stachus" : "Hbf", coordinate: Coordinate(latitude: 48.14, longitude: bike ? 11.57 : 11.56))
@@ -2521,7 +2521,7 @@ extension FoldRouteTests {
         }
         let walk = route(id: "walk", bike: false)
         let bike = route(id: "bike", bike: true)
-        XCTAssertEqual(JourneyOptionSelector.select(from: [bike, walk], timing: .leaveNow).map(\.id), ["walk"])
+        XCTAssertEqual(JourneyOptionSelector.select(from: [bike, walk], timing: .leaveNow).map(\.id), ["bike"])
         let faster = route(id: "faster-bike", bike: true, arrivalOffset: -60, tripID: "S8-earlier")
         XCTAssertEqual(JourneyOptionSelector.select(from: [walk, faster], timing: .leaveNow).first?.id, "faster-bike")
         let nextDay = walk.replacingLegs(walk.legs.map { leg in
@@ -3103,7 +3103,7 @@ extension FoldRouteTests {
             XCTFail("Expected a fixed request timestamp", file: file, line: line)
             return
         }
-        XCTAssertLessThan(abs(captured.timeIntervalSinceNow), 10, file: file, line: line)
+        XCTAssertLessThan(abs(captured.timeIntervalSinceNow - 120), 10, file: file, line: line)
     }
 
     func testLateDepartureThresholdAndArrivalExemption() {
@@ -4490,6 +4490,49 @@ extension FoldRouteTests {
 
 extension FoldRouteTests {
     @MainActor
+    func testTimePickerLayoutAttachments() async throws {
+        for (name, size, type) in [
+            ("portrait", CGSize(width: 390, height: 844), DynamicTypeSize.large),
+            ("narrow", CGSize(width: 320, height: 568), DynamicTypeSize.large),
+            ("large-text", CGSize(width: 390, height: 844), DynamicTypeSize.accessibility5)
+        ] {
+            let root = RouteTimePicker(timing: .now, date: Date()) { _, _ in }
+                .dynamicTypeSize(type)
+            let host = UIHostingController(rootView: root)
+            let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+            window.rootViewController = host
+            window.isHidden = false
+            host.view.frame = window.bounds
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(400))
+            let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "time-picker-" + name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            XCTAssertEqual(image.size.width, size.width)
+            func scrollViews(in view: UIView) -> [UIScrollView] {
+                (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+            }
+            if let scroll = scrollViews(in: host.view).first(where: { $0.contentSize.height > $0.bounds.height }) {
+                XCTAssertLessThanOrEqual(scroll.contentSize.width, size.width + 1)
+                scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentSize.height - scroll.bounds.height), animated: false)
+                try await Task.sleep(for: .milliseconds(150))
+                let bottom = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                    host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                }
+                let bottomAttachment = XCTAttachment(image: bottom)
+                bottomAttachment.name = "time-picker-" + name + "-bottom"
+                bottomAttachment.lifetime = .keepAlways
+                add(bottomAttachment)
+            }
+            window.isHidden = true
+        }
+    }
+
+    @MainActor
     func testPreviewLayoutAttachmentsForPortraitLandscapeAndLargeText() async throws {
         let (model, _) = try settingsModel(planner: UnusedJourneyPlanner())
         model.journeyOptions = (0..<4).map { index in
@@ -4507,7 +4550,9 @@ extension FoldRouteTests {
             var panel = JourneyPanelState()
             if name == "map-mode" { panel.set(.collapsed) }
             if name == "portrait-details" { panel.set(.expanded) }
-            let root = JourneyPreviewView(panel: .constant(panel))
+            var disclosure = JourneyDisclosureState()
+            if name == "portrait-details" { disclosure.toggle("option-0") }
+            let root = JourneyPreviewView(panel: .constant(panel), disclosure: disclosure)
                 .environment(model).dynamicTypeSize(type)
             let host = UIHostingController(rootView: root)
             let window = UIWindow(frame: CGRect(origin: .zero, size: size))
@@ -4637,5 +4682,104 @@ extension FoldRouteTests {
         XCTAssertNil(state.envelope)
         XCTAssertTrue(state.include([west, east]))
         XCTAssertFalse(try XCTUnwrap(state.envelope).contains(MKMapPoint(distant.clCoordinate)))
+    }
+}
+
+
+extension FoldRouteTests {
+    @MainActor
+    func testNowUsesCurrentTimeAndIgnoresObsoleteDepartureLead() async throws {
+        let settings = try JSONDecoder().decode(NavigationSettings.self, from: Data("{\"maxCyclingMinutes\":17,\"departureLeadMinutes\":15}".utf8))
+        XCTAssertEqual(settings.maxCyclingMinutes, 17)
+        let encoded = try JSONEncoder().encode(settings)
+        XCTAssertEqual(try JSONDecoder().decode(NavigationSettings.self, from: encoded), settings)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("departureLeadMinutes"))
+        let stored = StoredSettings(settings: settings)
+        XCTAssertEqual(stored.value, settings)
+        let planner = RecordingJourneyPlanner()
+        let (model, _) = try settingsModel(planner: planner)
+        model.settings = settings
+        for _ in 0..<2 {
+            let before = Date()
+            await model.planRoute()
+            let after = Date()
+            let requests = await planner.recordedRequests()
+            guard case .departAt(let time) = try XCTUnwrap(requests.last).timing else { return XCTFail("Expected resolved departure") }
+            XCTAssertGreaterThanOrEqual(time, before)
+            XCTAssertLessThanOrEqual(time, after)
+            XCTAssertEqual(model.previewTiming, requests.last?.timing)
+        }
+    }
+}
+
+
+extension FoldRouteTests {
+    func testJourneyDisclosureTracksSelectionAndAvailableOptions() {
+        var disclosure = JourneyDisclosureState()
+        disclosure.toggle("first")
+        XCTAssertEqual(disclosure.openedID, "first")
+        disclosure.reconcile(selectedID: "first", availableIDs: ["first", "second"])
+        XCTAssertEqual(disclosure.openedID, "first")
+        disclosure.toggle("first")
+        XCTAssertNil(disclosure.openedID)
+        disclosure.toggle("first")
+        disclosure.toggle("second")
+        XCTAssertEqual(disclosure.openedID, "second")
+        disclosure.reconcile(selectedID: "first", availableIDs: ["first", "second"])
+        XCTAssertNil(disclosure.openedID)
+        disclosure.toggle("second")
+        disclosure.reconcile(selectedID: "second", availableIDs: ["first"])
+        XCTAssertNil(disclosure.openedID)
+        disclosure.toggle("first")
+        disclosure.close()
+        XCTAssertNil(disclosure.openedID)
+    }
+}
+
+extension FoldRouteTests {
+    func testRouteCardTimeRangeDistinguishesDatesAndMidnight() throws {
+        let calendar = Calendar.current
+        func date(_ day: Int, _ hour: Int, _ minute: Int) throws -> Date {
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour, minute: minute)))
+        }
+        let today = try date(22, 12, 0)
+        let original = makeJourney()
+        func range(_ day: Int, _ arrivalDay: Int) throws -> String {
+            let journey = Journey(id: "time-range", origin: original.origin, destination: original.destination,
+                departure: try date(day, 22, 31), arrival: try date(arrivalDay, arrivalDay == day ? 23 : 0, 35),
+                legs: [], transfers: 0, isDirect: true, score: 0)
+            return journeyTimeRange(journey, calendar: calendar, now: today)
+        }
+        let departureTime = try date(22, 22, 31).formatted(date: .omitted, time: .shortened)
+        let arrivalTime = try date(22, 23, 35).formatted(date: .omitted, time: .shortened)
+        XCTAssertEqual(try range(22, 22), "\(departureTime) → \(arrivalTime)")
+        let tomorrow = try date(23, 0, 35).formatted(date: .abbreviated, time: .omitted)
+        XCTAssertTrue(try range(23, 23).hasPrefix(tomorrow + " · "))
+        XCTAssertTrue(try range(22, 23).contains(tomorrow))
+        XCTAssertTrue(try range(22, 23).hasPrefix(today.formatted(date: .abbreviated, time: .omitted)))
+    }
+}
+
+extension FoldRouteTests {
+    func testPreviewLocationUpdatesRespectVisibilityAndNavigationPriority() {
+        XCTAssertEqual(LocationUpdateMode.resolve(authorized: true, navigation: false, previewVisible: true, obscured: false), .preview)
+        XCTAssertEqual(LocationUpdateMode.resolve(authorized: false, navigation: false, previewVisible: true, obscured: false), .idle)
+        XCTAssertEqual(LocationUpdateMode.resolve(authorized: true, navigation: false, previewVisible: false, obscured: false), .idle)
+        XCTAssertEqual(LocationUpdateMode.resolve(authorized: true, navigation: false, previewVisible: true, obscured: true), .idle)
+        XCTAssertEqual(LocationUpdateMode.resolve(authorized: true, navigation: true, previewVisible: false, obscured: true), .navigation)
+        XCTAssertEqual(LocationUpdateMode.resolve(authorized: false, navigation: true, previewVisible: true, obscured: false), .idle)
+    }
+
+    func testPreviewLocationAccuracyAndAgeRemainSeparate() {
+        let now = Date()
+        func fix(_ accuracy: Double, age: Double = 0) -> CLLocation {
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: 48.13, longitude: 11.57), altitude: 0,
+                horizontalAccuracy: accuracy, verticalAccuracy: 0, timestamp: now.addingTimeInterval(-age))
+        }
+        XCTAssertEqual(PreviewLocationQuality.evaluate(fix(10), now: now), .current)
+        XCTAssertEqual(PreviewLocationQuality.evaluate(fix(100), now: now), .current)
+        XCTAssertEqual(PreviewLocationQuality.evaluate(fix(200), now: now), .inaccurate)
+        XCTAssertEqual(PreviewLocationQuality.evaluate(fix(10, age: 61), now: now), .stale)
+        XCTAssertEqual(PreviewLocationQuality.evaluate(fix(10), now: now, failed: true), .stale)
     }
 }

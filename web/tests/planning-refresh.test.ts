@@ -249,3 +249,44 @@ describe("reading a progressive result", () => {
       expect(session.state.selected?.id).toBe("better");
     });
 });
+
+it("resolves current time after location once per calculation without lead", async () => {
+  const session = sessionWithArchive();
+  let now = 100_000;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  vi.mocked(locate).mockImplementation(async () => {
+    now += 30_000;
+    return origin;
+  });
+  const queries: RouteRequest[] = [];
+  vi.mocked(planRoutes).mockImplementation(async function* (query) {
+    queries.push(structuredClone(query));
+    yield { journeys: [journey("first")], status: "searching", issues: [] };
+    now += 10_000;
+    yield {
+      journeys: [journey("optimized")],
+      status: "complete",
+      issues: [],
+    };
+  });
+  const settings = { ...defaults };
+  await session.calculate(
+    {
+      ...request,
+      timing: "now",
+      stops: [{ id: "via", place: origin, stayMinutes: 3 }],
+    },
+    settings,
+    true,
+  );
+  expect(queries[0].time).toBe(130);
+  expect(queries[0].stops).toHaveLength(1);
+  expect(session.state.request?.time).toBe(130);
+  await session.calculate({ ...request, timing: "now" }, settings, false);
+  expect(queries[1].time).toBe(140);
+  for (const timing of ["depart", "arrive"] as const) {
+    await session.calculate({ ...request, timing }, settings, false);
+    expect(queries.at(-1)?.time).toBe(request.time);
+  }
+  vi.restoreAllMocks();
+});

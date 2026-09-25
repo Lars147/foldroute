@@ -142,16 +142,37 @@ export function validLegacySettings(
     ) && validStoredSettings({ ...v, foldingDuration: 180 })
   );
 }
+function routingSettingsFields(
+  value:
+    | StoredRoutingSettings
+    | Omit<LegacyRoutingSettings, "foldDuration" | "unfoldDuration">,
+) {
+  const {
+    cyclingSpeedKilometersPerHour,
+    maxCyclingMinutes,
+    maxWalkingMinutes,
+    maxBikeTransfers,
+    excludedTransitModes,
+  } = value;
+  return {
+    cyclingSpeedKilometersPerHour,
+    maxCyclingMinutes,
+    maxWalkingMinutes,
+    maxBikeTransfers,
+    excludedTransitModes,
+  };
+}
 export function migrateSettings(value: unknown): RoutingSettings | undefined {
   if (validStoredSettings(value))
     return {
-      ...value,
+      ...routingSettingsFields(value),
+      foldingDuration: value.foldingDuration,
       showCyclingComparison: value.showCyclingComparison ?? true,
     };
   if (!validLegacySettings(value)) return undefined;
   const { foldDuration, unfoldDuration, ...rest } = value;
   return {
-    ...rest,
+    ...routingSettingsFields(rest),
     showCyclingComparison: rest.showCyclingComparison ?? true,
     foldingDuration: Math.max(60, foldDuration, unfoldDuration),
   };
@@ -469,4 +490,17 @@ export function errorText(error: unknown): string {
   return error instanceof Error
     ? error.message
     : "Die Suche konnte nicht abgeschlossen werden.";
+}
+
+export function journeyOutline(journey: Journey): string {
+  return journey.legs
+    .filter((leg) => !["fold", "unfold", "wait"].includes(leg.kind))
+    .map((leg) =>
+      leg.kind === "transit"
+        ? leg.line || "ÖPNV"
+        : leg.kind === "stop"
+          ? `Stopp: ${leg.from.name}`
+          : kindNames[leg.kind],
+    )
+    .join(" → ");
 }

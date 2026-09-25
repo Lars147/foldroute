@@ -1,3 +1,8 @@
+import {
+  locationLabel,
+  type LocationFix,
+  type LocationQuality,
+} from "./live-location";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Journey, Place } from "./model";
@@ -18,6 +23,11 @@ export class RouteMap {
   private signature = "";
   private online = true;
   private locationFocus?: Place;
+  private liveFix?: LocationFix;
+  private liveQuality?: LocationQuality;
+  private livePoint?: L.Marker;
+  private accuracyCircle?: L.Circle;
+  onManualMove?: () => void;
   private adjustingCamera = false;
   private markerHalfWidth = 22;
   private zooming = false;
@@ -54,6 +64,7 @@ export class RouteMap {
       });
       this.map.on("movestart zoomstart", () => {
         if (!this.adjustingCamera) {
+          this.onManualMove?.();
           this.locationFocus = undefined;
           this.manualCamera = true;
         }
@@ -73,6 +84,7 @@ export class RouteMap {
         if (this.online) el("map-error").hidden = true;
       });
     }
+    this.updateLocation(this.liveFix, this.liveQuality);
     el("map-route").hidden = !selected;
     if (!selected) this.pendingRouteFit = false;
     this.online = online;
@@ -338,7 +350,10 @@ export class RouteMap {
         : [Math.max(28, markerPadding), 35],
       paddingBottomRight: desktop
         ? [Math.max(65, markerPadding), 40]
-        : [Math.max(45, markerPadding), Math.max(panel.height, this.reservedPanelHeight) + 45],
+        : [
+            Math.max(45, markerPadding),
+            Math.max(panel.height, this.reservedPanelHeight) + 45,
+          ],
       maxZoom: 15,
       animate: false,
     });
@@ -355,6 +370,56 @@ export class RouteMap {
     this.adjustingCamera = true;
     this.map!.fitBounds(bounds, options);
     this.adjustingCamera = false;
+  }
+  updateLocation(fix?: LocationFix, state?: LocationQuality) {
+    this.liveFix = fix;
+    this.liveQuality = state;
+    if (!this.map) return;
+    if (!fix || !state) {
+      this.livePoint?.remove();
+      this.accuracyCircle?.remove();
+      this.livePoint = undefined;
+      this.accuracyCircle = undefined;
+      return;
+    }
+    const point: L.LatLngExpression = [fix.latitude, fix.longitude];
+    const label = locationLabel(state);
+    const color = state === "stale" ? "#737d83" : "#3478f6";
+    if (!this.accuracyCircle)
+      this.accuracyCircle = L.circle(point, {
+        radius: fix.accuracy,
+        className: "live-location-accuracy",
+        interactive: false,
+        weight: 1,
+        fillOpacity: 0.12,
+      }).addTo(this.map);
+    this.accuracyCircle
+      .setLatLng(point)
+      .setRadius(fix.accuracy)
+      .setStyle({ color, fillColor: color });
+    if (!this.livePoint) {
+      this.livePoint = L.marker(point, {
+        zIndexOffset: 1000,
+        icon: L.divIcon({
+          className: "live-location-marker",
+          html: '<span class="live-location-dot"></span>',
+          iconSize: [18, 18],
+          iconAnchor: [9, 9],
+        }),
+      }).addTo(this.map);
+      this.livePoint.bindTooltip(label);
+    }
+    this.livePoint.setLatLng(point).setTooltipContent(label);
+    const marker = this.livePoint.getElement();
+    if (marker) {
+      marker.dataset.quality = state;
+      marker.style.setProperty("--location-color", color);
+      marker.setAttribute(
+        "aria-label",
+        `${label}, Genauigkeit etwa ${Math.round(fix.accuracy)} Meter`,
+      );
+      marker.title = `${label} · etwa ${Math.round(fix.accuracy)} m`;
+    }
   }
   center(place: Place) {
     this.pendingRouteFit = false;

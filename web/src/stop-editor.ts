@@ -102,7 +102,9 @@ export class StopEditor {
       this.order[pos],
     ];
     this.layout();
-    this.rows[i].search.input.focus();
+    const row = this.rows[i];
+    const action = delta < 0 ? row.up : row.down;
+    (action.disabled ? row.remove : action).focus();
   }
   private layout() {
     this.rows.forEach((r, i) => {

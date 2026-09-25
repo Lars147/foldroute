@@ -129,7 +129,12 @@ struct RouteMapView: View {
     @Namespace private var mapScopeID
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var centersPlanningLocation = false
+    @State private var centersPlanningLocation = false {
+        didSet { if !centersPlanningLocation { pendingPlanningCenter = false; planningLocationAnchor = nil } }
+    }
+    @State private var pendingPlanningCenter = false
+    @State private var planningLocationAnchor: Coordinate?
+    @State private var planningCenterError: String?
     @State private var overview = PlanningOverviewState()
     @State private var overviewInsets: MapCameraInsets?
     @State private var overviewLayout = ""
@@ -150,7 +155,23 @@ struct RouteMapView: View {
         GeometryReader { geometry in
             MapReader { proxy in
                 Map(position: $position, scope: mapScopeID) {
-                    UserAnnotation()
+                    if navigationCamera != nil {
+                        UserAnnotation()
+                    } else if let location = model.location.previewLocation {
+                        let stale = model.location.previewQuality == .stale
+                        let label = model.location.previewQuality.label
+                        MapCircle(center: location.coordinate, radius: location.horizontalAccuracy)
+                            .foregroundStyle((stale ? Color.gray : Color.blue).opacity(0.12))
+                            .stroke((stale ? Color.gray : Color.blue).opacity(0.6), lineWidth: 1)
+                        Annotation(label, coordinate: location.coordinate) {
+                            Circle().fill(stale ? Color.gray : Color.blue)
+                                .frame(width: 16, height: 16)
+                                .overlay(Circle().stroke(.white, lineWidth: 3))
+                                .shadow(radius: 2)
+                                .accessibilityLabel("\(label), Genauigkeit etwa \(location.horizontalAccuracy.formatted(.number.precision(.fractionLength(0)))) Meter")
+                                .accessibilityIdentifier("liveLocationMarker")
+                        }
+                    }
 
                     if let journey {
                         ForEach(backgroundJourneys) { alternative in
@@ -219,7 +240,6 @@ struct RouteMapView: View {
                 .mapControls {
                     if onBackgroundTapped == nil && navigationCamera == nil && journey == nil {
                         MapCompass()
-                        MapUserLocationButton()
                     }
                 }
                 .onChange(of: journey?.id) { _, _ in
@@ -232,10 +252,33 @@ struct RouteMapView: View {
                     updateCamera(viewportSize: geometry.size, animated: false)
                 }
                 .onChange(of: model.location.currentLocation) { _, _ in
-                    if navigationCamera == nil, centersPlanningLocation {
+                    if navigationCamera == nil, pendingPlanningCenter,
+                       let location = model.location.previewLocation,
+                       PreviewLocationQuality.evaluate(location) != .stale {
+                        planningLocationAnchor = Coordinate(location.coordinate)
+                        pendingPlanningCenter = false
                         updateCamera(viewportSize: geometry.size, animated: true)
                     }
                 }
+                .task(id: "\(pendingPlanningCenter)-\(model.location.isAuthorized)") {
+                    guard pendingPlanningCenter, model.location.isAuthorized else { return }
+                    do { try await Task.sleep(for: .seconds(12)) } catch { return }
+                    guard pendingPlanningCenter else { return }
+                    pendingPlanningCenter = false
+                    planningCenterError = model.location.status.message ?? "Standortabfrage dauert zu lange. Bitte erneut versuchen."
+                }
+                .onChange(of: model.location.status) { _, status in
+                    if pendingPlanningCenter, [.denied, .restricted, .disabled, .failed].contains(status) {
+                        pendingPlanningCenter = false
+                        planningCenterError = status.message
+                    }
+                }
+                .onChange(of: model.location.previewVisible && !model.location.previewObscured) { _, visible in
+                    if !visible { pendingPlanningCenter = false }
+                }
+                .alert("Standort nicht verfügbar", isPresented: Binding(get: { planningCenterError != nil }, set: { if !$0 { planningCenterError = nil } })) {
+                    Button("OK", role: .cancel) { planningCenterError = nil }
+                } message: { Text(planningCenterError ?? "") }
                 .onChange(of: overviewCoordinates) { _, _ in
                     updateCamera(viewportSize: geometry.size, animated: true)
                 }
@@ -325,13 +368,25 @@ struct RouteMapView: View {
                         }
                         .padding(.trailing, 16)
                         .padding(.top, max(geometry.safeAreaInsets.top, cameraInsets.top) + 8)
-                    } else if onBackgroundTapped != nil || journey != nil {
+                    } else {
                         VStack(alignment: .trailing, spacing: 12) {
                             VStack(spacing: 8) {
                                 Button {
                                     centersPlanningLocation = true
-                                    model.location.requestSingleUpdate()
-                                    updateCamera(viewportSize: geometry.size, animated: true)
+                                    planningCenterError = nil
+                                    if let location = model.location.previewLocation,
+                                       PreviewLocationQuality.evaluate(location, failed: model.location.lastError != nil) != .stale {
+                                        planningLocationAnchor = Coordinate(location.coordinate)
+                                        pendingPlanningCenter = false
+                                        updateCamera(viewportSize: geometry.size, animated: true)
+                                    } else if !model.location.isAuthorized && model.location.authorizationStatus != .notDetermined {
+                                        centersPlanningLocation = false
+                                        planningCenterError = model.location.status.message
+                                    } else {
+                                        planningLocationAnchor = nil
+                                        pendingPlanningCenter = true
+                                        model.location.requestSingleUpdate()
+                                    }
                                 } label: {
                                     Image(systemName: centersPlanningLocation ? "location.fill" : "location")
                                         .font(.system(size: 20, weight: .semibold))
@@ -383,11 +438,9 @@ struct RouteMapView: View {
             return
         }
         if centersPlanningLocation {
-            guard let location = model.location.currentLocation,
-                  location.horizontalAccuracy >= 0,
-                  CLLocationCoordinate2DIsValid(location.coordinate),
+            guard let anchor = planningLocationAnchor,
                   let rect = RouteCameraFitter.mapRect(
-                    coordinates: [Coordinate(location.coordinate)],
+                    coordinates: [anchor],
                     viewportSize: viewportSize,
                     insets: planningLocationInsets ?? cameraInsets,
                     minimumContentDimension: 400

@@ -120,3 +120,23 @@ describe("planning links", () => {
     expect(readRouteURL(empty)).toEqual({ kind: "none" });
   });
 });
+
+it("ignores old departure lead and removes it from shared and cleared links", () => {
+  for (const lead of ["0", "2", "15", "obsolete"]) {
+    const url = routeURL(
+      "https://example.org/plan/?utm_source=test#main",
+      plan,
+    );
+    url.searchParams.set("departureLeadMinutes", lead);
+    const parsed = readRouteURL(url);
+    expect(parsed.kind).toBe("plan");
+    if (parsed.kind !== "plan") throw new Error("Expected valid old link");
+    expect(parsed.plan.settings).toEqual(plan.settings);
+    expect(
+      routeURL(url, parsed.plan).searchParams.has("departureLeadMinutes"),
+    ).toBe(false);
+    expect(routeURL(url).href).toBe(
+      "https://example.org/plan/?utm_source=test#main",
+    );
+  }
+});

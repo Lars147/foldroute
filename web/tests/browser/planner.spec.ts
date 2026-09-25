@@ -1,3 +1,4 @@
+import { resizeOverview, toggleSelectedDetails } from "./assertions";
 import { expectPlanningComplete } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import { defaults, type Journey } from "../../src/model";
@@ -19,6 +20,21 @@ async function setup(page: Page, geolocation = true) {
       .context()
       .setGeolocation({ latitude: 48.132, longitude: 11.5756 });
   }
+  // Browser geolocation timestamps follow the host clock; routing tests freeze page time.
+  await page.addInitScript(() => {
+    const geo = navigator.geolocation;
+    const single = geo.getCurrentPosition.bind(geo),
+      watch = geo.watchPosition.bind(geo);
+    const stamped = (success: PositionCallback) => (p: GeolocationPosition) =>
+      success({
+        coords: p.coords,
+        timestamp: Date.now(),
+      } as GeolocationPosition);
+    geo.getCurrentPosition = (success, error, options) =>
+      single(stamped(success), error, options);
+    geo.watchPosition = (success, error, options) =>
+      watch(stamped(success), error, options);
+  });
   await page.route("https://tile.openstreetmap.org/**", (r) => r.abort());
   await page.route("**/api/v1/geocode?*", (r) =>
     r.fulfill({ headers: cors, json: places }),
@@ -50,7 +66,9 @@ async function choose(page: Page, id: string, name: string) {
 }
 async function plan(page: Page) {
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await expectPlanningComplete(page);
 }
 // The mocked GPS position equals the route origin, so its existing marker
@@ -93,6 +111,12 @@ for (const [width, height] of [
       Object.defineProperty(navigator, "geolocation", {
         configurable: true,
         value: {
+          watchPosition: navigator.geolocation.watchPosition.bind(
+            navigator.geolocation,
+          ),
+          clearWatch: navigator.geolocation.clearWatch.bind(
+            navigator.geolocation,
+          ),
           getCurrentPosition: (success: (value: unknown) => void) => {
             const root = document.documentElement;
             root.dataset.locationCalls = String(
@@ -108,10 +132,10 @@ for (const [width, height] of [
     await page.locator("#map-location").click({ position: { x: 24, y: 4 } });
     await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
     for (const size of ["expanded", "normal", "expanded"]) {
-      await page.locator("#panel-size").click();
+      await resizeOverview(page);
       await expect(page.locator("#journey-panel")).toHaveAttribute(
         "data-size",
-        size,
+        width >= 900 ? "normal" : size,
       );
       if (await page.locator("#map-location").evaluate((e) => e.inert))
         await page.locator("#panel-map-toggle").click();
@@ -130,7 +154,7 @@ for (const [width, height] of [
     await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
     await expect(page.locator("html")).toHaveAttribute(
       "data-location-calls",
-      "1",
+      "0",
     );
   });
 
@@ -164,25 +188,25 @@ test("manual map gestures release location focus; button restores it and route s
   // Content-sized panels change route fitting after gestures. A retained
   // location focus would center within 2px, regardless of the panel height.
   await expect.poll(() => locationCenterError(page)).toBeGreaterThan(5);
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await page.waitForTimeout(300);
   // Route fitting may move the marker again during the panel transition;
   // only continued location centering (within 2px) would be a regression.
   await expect.poll(() => locationCenterError(page)).toBeGreaterThan(5);
   await page.locator("#map-location").click();
   await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
   await page.locator(".leaflet-control-zoom-in").click();
   await page.waitForTimeout(300);
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await page.waitForTimeout(300);
   await expect.poll(() => locationCenterError(page)).toBeGreaterThan(5);
   await page.locator("#map-location").click();
   await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
   await page.locator(".route-choice").last().click();
   // Switching alternatives retains the explicitly requested location view.
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
 });
 
@@ -202,10 +226,10 @@ for (const width of [320, 390, 768, 1479])
     );
     const normalHeight = (await page.locator("#journey-panel").boundingBox())!
       .height;
-    await page.locator("#panel-size").click();
+    await resizeOverview(page);
     await expect(page.locator("#journey-panel")).toHaveAttribute(
       "data-size",
-      "expanded",
+      width >= 900 ? "normal" : "expanded",
     );
     await expect(page.locator("#journey-detail")).toContainText("Rad");
     if (width < 900) {
@@ -220,7 +244,7 @@ for (const width of [320, 390, 768, 1479])
       path: `test-results/app-${width}.png`,
       fullPage: true,
     });
-    await page.locator("#panel-size").click();
+    await resizeOverview(page);
     await expect(page.locator("#journey-panel")).toHaveAttribute(
       "data-size",
       "normal",
@@ -242,7 +266,9 @@ test("destination selection calculates automatically, never on opening or typing
   await page.locator("#destination").press("ArrowDown");
   await page.locator("#destination").press("ArrowDown");
   await page.locator("#destination").press("Enter");
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   expect(requests).toBeGreaterThan(0);
 });
 test("location denial keeps destination and allows a manual start", async ({
@@ -262,7 +288,9 @@ test("location denial keeps destination and allows a manual start", async ({
   await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
   await choose(page, "origin", "Start");
   await page.locator("#calculate").click();
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
 });
 test("adjustments are drafts and cancellation preserves results", async ({
   page,
@@ -272,7 +300,9 @@ test("adjustments are drafts and cancellation preserves results", async ({
   await page.locator("#adjust-route").click();
   await page.locator("#origin").fill("Other");
   await page.locator("#cancel-adjust").click();
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
 });
@@ -343,6 +373,7 @@ test("throttling stops further requests; manual retry observes the pause", async
 test("cancel retains progressive results and ignores delayed responses", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await page.route("**/api/v6/plan?*", async (r) => {
     if (new URL(r.request().url()).searchParams.get("directModes") === "BIKE")
@@ -353,11 +384,18 @@ test("cancel retains progressive results and ignores delayed responses", async (
     }
   });
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
+  await expect(page.locator("#adjust-route")).toBeHidden();
+  await expect(page.locator(".panel-actions #close-route")).toBeVisible();
   await page.locator("#cancel").click();
+  await expect(page.locator("#adjust-route")).toBeVisible();
   await expect(page.locator("#status")).toContainText("abgebrochen");
   await page.waitForTimeout(1700);
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await expect(page.locator("#status")).toContainText("abgebrochen");
 });
 test("choice labels keep arrival times for both search modes and update dates without changing IDs", async ({
@@ -456,15 +494,15 @@ test("choice labels keep arrival times for both search modes and update dates wi
     };
   });
   expect(labels.departure).toEqual([
-    "23:50 · 55 min",
-    "23:55 · 45 min",
-    "· 23:59 · 1 h 20 min",
+    "22:55 → 23:50 · 55 min",
+    "23:10 → 23:55 · 45 min",
+    "· 22:39 → 23:59 · 1 h 20 min",
   ]);
   expect(labels.arrival).toEqual(labels.departure);
   expect(labels.updated).toEqual([
-    "4. Sept. 23:50 · 55 min",
-    "5. Sept. 00:05 · 55 min",
-    "· 4. Sept. 23:59 · 1 h 20 min",
+    "22:55 → 23:50 · 55 min",
+    "4. Sept. 23:10 → 5. Sept. 00:05 · 55 min",
+    "· 22:39 → 23:59 · 1 h 20 min",
   ]);
   expect(labels.selected).toBe("two");
   expect(labels.focused).toBe("two");
@@ -488,18 +526,24 @@ test("better alternatives replace automatic selection", async ({ page }) => {
     }
   });
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("1 h 1 min");
   await expectPlanningComplete(page);
   await expect(page.locator(".route-choice-time")).toHaveText([
-    "10:53 · 53 min",
-    "· 11:01 · 1 h 1 min",
+    "10:00 → 10:53 · 53 min",
+    "· 10:00 → 11:01 · 1 h 1 min",
   ]);
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
-  ).toHaveText("10:53 · 53 min");
-  await expect(page.locator("#route-duration")).toContainText("53 min");
-  await page.locator("#panel-summary").press("ArrowRight");
-  await expect(page.locator("#route-duration")).toContainText("1 h 1 min");
+  ).toHaveText("10:00 → 10:53 · 53 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("53 min");
+  await page.locator(".route-choice[aria-pressed=true]").press("ArrowRight");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("1 h 1 min");
 });
 test("failed refresh preserves selected journey", async ({ page }) => {
   await setup(page);
@@ -509,7 +553,9 @@ test("failed refresh preserves selected journey", async ({ page }) => {
   );
   await page.locator("#refresh-route").click();
   await expect(page.locator("#status")).toContainText("nicht verfügbar");
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
 });
 test("dark appearance, large text and reduced motion remain usable", async ({
   page,
@@ -518,18 +564,14 @@ test("dark appearance, large text and reduced motion remain usable", async ({
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   await setup(page);
   await plan(page);
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await page.addStyleTag({ content: ":root {font-size: 24px !important;}" });
+  const card = page.locator(".route-choice[aria-pressed=true]");
+  await expect(card).toContainText("→");
   expect(
-    await page.locator("#route-arrival").evaluate((element) => {
-      const groups = [...element.querySelectorAll(".route-time")].map((group) =>
-        group.getBoundingClientRect(),
-      );
-      return (
-        groups[0].bottom <= groups[1].top ||
-        groups[0].right + 8 <= groups[1].left
-      );
-    }),
+    await card.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth + 1,
+    ),
   ).toBe(true);
   await expect(page.locator("#adjust-route")).toBeVisible();
   await page.locator("#adjust-route").click();
@@ -548,10 +590,13 @@ test("adjustment actions remain reachable in a short keyboard viewport", async (
   await setup(page);
   await page.locator("#search-adjust").click();
   await page.locator("#origin").focus();
+  await expect(page.locator("#calculate")).toBeHidden();
+  await page.locator(".search-focus-back").click();
   await expect(page.locator("#calculate")).toBeInViewport({ ratio: 1 });
-  await page.locator("#timing").selectOption("depart");
-  await page.locator("#when").scrollIntoViewIfNeeded();
-  await expect(page.locator("#when")).toBeInViewport();
+  await page.locator("#time-trigger").click();
+  await page.locator("#time-clock").scrollIntoViewIfNeeded();
+  await expect(page.locator("#time-clock")).toBeInViewport();
+  await page.locator("#time-apply").click();
   await expect(page.locator("#use-context")).toBeInViewport({ ratio: 1 });
 });
 
@@ -592,6 +637,17 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
               .getBoundingClientRect();
             const input = field.getBoundingClientRect();
             const label = field.labels![0].getBoundingClientRect();
+            if (field.classList.contains("search-focus-input")) {
+              const viewport = window.visualViewport!;
+              const results = document
+                .getElementById(`${id}-options`)!
+                .getBoundingClientRect();
+              return (
+                input.top >= viewport.offsetTop &&
+                input.bottom <= viewport.offsetTop + viewport.height &&
+                results.bottom <= viewport.offsetTop + viewport.height
+              );
+            }
             return (
               Math.min(input.top, withLabel ? label.top : input.top) >=
                 bounds.top - 1 && input.bottom <= bounds.bottom + 1
@@ -611,12 +667,16 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
       .evaluate((input: HTMLInputElement) => input.selectionStart),
   ).toBe(1);
 
+  await page.locator(".search-focus-back").click();
   await page.locator("#origin").focus();
   await expectFieldInside("origin");
-  await page.locator("#timing").selectOption("depart");
-  await page.locator("#when").focus();
-  await expectFieldInside("when");
+  await page.locator(".search-focus-back").click();
+  await page.locator("#time-trigger").click();
+  await page.locator("#time-clock").scrollIntoViewIfNeeded();
+  await expect(page.locator("#time-clock")).toBeInViewport();
+  await page.locator("#time-cancel").click();
   await choose(page, "adjust-destination", "Ziel");
+  await page.locator("#adjust-destination").focus();
   await expectFieldInside("adjust-destination");
   await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
 
@@ -625,6 +685,7 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
     window.visualViewport!.dispatchEvent(new Event("resize")),
   );
   await expectFieldInside("adjust-destination", false);
+  await page.locator(".search-focus-back").click();
   const actionsVisible = await page.evaluate(() => {
     const actions = document
       .querySelector(".dialog-actions")!
@@ -715,23 +776,48 @@ test("map location help persists and clears on retry; manual origin clears dialo
 }) => {
   await setup(page);
   await plan(page);
+  await page.locator("#tab-settings").click();
   await page.evaluate(() => {
     let calls = 0;
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: {
+        query: async () => ({ state: "prompt", onchange: null }),
+      },
+    });
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: {
-        getCurrentPosition: (
-          success: (value: unknown) => void,
-          fail: (error: unknown) => void,
-        ) => {
-          calls++;
-          if (calls === 2)
-            success({ coords: { latitude: 48.132, longitude: 11.5756 } });
-          else fail({ code: 1, message: "User denied Geolocation" });
+        watchPosition(success: PositionCallback, fail: PositionErrorCallback) {
+          const id = ++calls;
+          queueMicrotask(() => {
+            if (id === 2)
+              success({
+                coords: { latitude: 48.132, longitude: 11.5756, accuracy: 10 },
+                timestamp: Date.now(),
+              } as GeolocationPosition);
+            else
+              fail({
+                code: 1,
+                message: "User denied Geolocation",
+              } as GeolocationPositionError);
+          });
+          return id;
+        },
+        clearWatch() {},
+        getCurrentPosition(
+          _success: PositionCallback,
+          fail: PositionErrorCallback,
+        ) {
+          fail({
+            code: 1,
+            message: "User denied Geolocation",
+          } as GeolocationPositionError);
         },
       },
     });
   });
+  await page.locator("#tab-route").click();
   await page.locator("#map-location").click();
   await expect(page.locator("#map-location-error")).toBeVisible();
   await expect(page.locator("#map-location-error a")).toHaveAttribute(
@@ -903,7 +989,9 @@ test("settings errors retain old results and their original offline snapshot", a
   await page.locator("#close-route").click();
   await page.locator("#open-saved").click();
   await expect(page.locator("#saved-notice")).toBeVisible();
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await page.locator("#tab-settings").click();
   await expect(page.locator("#foldingDuration")).toHaveValue("3");
   expect(
@@ -938,7 +1026,7 @@ test("clearing local data requires confirmation and removes all app records", as
   await expect(page.locator("#open-saved")).toBeHidden();
   await page.reload();
   await expect(page.locator("#destination-options .place-select")).toHaveCount(
-    1,
+    0,
   );
   await expect(page.locator("#open-saved")).toBeHidden();
   await page.locator("#tab-settings").click();
@@ -982,8 +1070,9 @@ test("an expired fixed departure requires adjustment and sends no new plan reque
   await setup(page);
   await plan(page);
   await page.locator("#adjust-route").click();
-  await page.locator("#timing").selectOption("depart");
-  await page.locator("#when").fill("2026-09-04T10:00");
+  await page.locator("#time-trigger").click();
+  await page.locator("#time-clock").fill("10:00");
+  await page.locator("#time-apply").click();
   await page.locator("#calculate").click();
   await expectPlanningComplete(page);
   const priorChoices = await page.locator(".route-choice").count();
@@ -1023,17 +1112,19 @@ test("long direct rides are labeled comparisons and suitable transit is preferre
   await expectPlanningComplete(page);
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
-  ).toHaveText("10:53 · 53 min");
+  ).toHaveText("10:00 → 10:53 · 53 min");
   await page.getByRole("button", { name: /Fahrradvergleich: 46 Min/ }).click();
   await expect(page.locator("#cycling-comparison")).toHaveText(
     "46 Min. Radfahrt · 16 Min. über deinem Radlimit",
   );
-  await page.locator("#panel-size").click();
-  await page.locator("#panel-size").click();
-  await expect(page.locator("#option-title")).toContainText(
-    "16 Min. über deinem Radlimit",
-  );
-  await expect(page.locator("#option-title")).toBeInViewport();
+  await resizeOverview(page);
+  await resizeOverview(page);
+  await expect(
+    page.locator(".route-choice[aria-pressed=true]"),
+  ).toHaveAccessibleName(/16 Min. über deinem Radlimit/);
+  await expect(
+    page.locator(".route-choice[aria-pressed=true]"),
+  ).toBeInViewport();
 });
 
 test("transit renders before a pending comparison and an explicit comparison stays selected", async ({
@@ -1057,12 +1148,16 @@ test("transit renders before a pending comparison and an explicit comparison sta
     });
   });
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#route-duration")).toContainText("53 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("53 min");
   await expect(page.locator("#status")).toHaveText("Verbindungen optimieren …");
   release();
   await expectPlanningComplete(page);
   await page.getByRole("button", { name: /Fahrradvergleich:/ }).click();
-  await expect(page.locator("#option-title")).toContainText("Fahrradvergleich");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true]"),
+  ).toHaveAccessibleName(/Fahrradvergleich/);
 });
 
 // Planning links carry the request, independently of the selected result.
@@ -1215,7 +1310,7 @@ test("copy planning link provides a selectable fallback when clipboard is denied
       }),
   );
   await plan(page);
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await page.locator("#share-plan").click();
   await expect(page.locator("#plan-link-value")).toBeVisible();
   await expect(page.locator("#plan-link-value")).toHaveValue(page.url());
@@ -1256,11 +1351,11 @@ test("abandoned location lookup cannot publish placeholder coordinates or rewrit
   expect(new URL(page.url()).searchParams.has("v")).toBe(false);
 });
 
-test("copy succeeds and planning details fit a narrow mobile viewport", async ({
+test("copy succeeds and planning details fit the desktop sidebar", async ({
   page,
 }) => {
   await setup(page);
-  await page.setViewportSize({ width: 320, height: 844 });
+  await page.setViewportSize({ width: 900, height: 844 });
   await page.evaluate(
     () =>
       Object.defineProperty(navigator, "share", {
@@ -1276,7 +1371,7 @@ test("copy succeeds and planning details fit a narrow mobile viewport", async ({
       }),
   );
   await plan(page);
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await page.locator("#share-plan").click();
   await expect(page.locator("#toast")).toHaveText("Planungslink kopiert.");
   await expect(page.locator("html")).toHaveAttribute(
@@ -1285,8 +1380,8 @@ test("copy succeeds and planning details fit a narrow mobile viewport", async ({
   );
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(320);
-  await page.screenshot({ path: "test-results/planning-link-mobile.png" });
+  ).toBeLessThanOrEqual(900);
+  await page.screenshot({ path: "test-results/planning-link-desktop.png" });
 });
 
 for (const mode of ["depart", "arrive"] as const)
@@ -1347,12 +1442,12 @@ test("three regular routes keep their places and comparison is an optional fourt
     page.locator(".route-choice").last().locator(".icon svg"),
   ).toHaveCount(1);
   await page.locator(".route-choice").last().click();
-  await expect(page.locator("#panel-summary")).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
   await expect(page.locator(".route-choice").last()).toBeInViewport({
     ratio: 1,
   });
   await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
@@ -1577,10 +1672,12 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
     .fill("10");
   await page.locator("#calculate").click();
   await expectPlanningComplete(page);
-  await expect(page.locator("#route-duration")).toContainText("50 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("50 min");
   expect(new URL(page.url()).searchParams.get("v")).toBe("2");
   expect(new URL(page.url()).searchParams.get("via1Stay")).toBe("10");
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await expect(page.locator("#journey-detail")).toContainText(
     "Geplanter Aufenthalt: 10 min",
   );
@@ -1590,14 +1687,16 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
     )
     .toBe(true);
   await page.reload();
-  await expect(page.locator("#route-duration")).toContainText("50 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("50 min");
   await page.locator("#adjust-route").click();
   await expect(page.locator("#via-0")).toHaveValue("Café");
   await expect(
     page.locator("#via-fields > div:not([hidden]) input[type=number]"),
   ).toHaveValue("10");
   await page.locator("#cancel-adjust").click();
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await expect
     .poll(
       async () => (await page.locator("#journey-panel").boundingBox())!.height,
@@ -1634,11 +1733,13 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   );
   await page.goto("/");
   await expect(page.locator("#saved-notice")).toBeVisible();
-  await expect(page.locator("#route-duration")).toContainText("50 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("50 min");
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-open").first()).toContainText("Café");
   await page.locator(".history-open").first().click();
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   await expect(page.locator("#journey-detail")).toContainText(
     "Geplanter Aufenthalt: 10 min",
   );
@@ -1811,9 +1912,9 @@ for (const width of [320, 390, 430, 1479]) {
     await page.setViewportSize({ width, height: 844 });
     await plan(page);
     await expect(page.locator("#panel-details")).toBeHidden();
-    await expect(page.locator("#panel-size")).toHaveAttribute(
-      "aria-expanded",
-      "false",
+    await expect(page.locator("#panel-handle")).toHaveAttribute(
+      "aria-valuetext",
+      "Normal",
     );
     await expect(page.locator(".route-choice").first()).toBeInViewport({
       ratio: 1,
@@ -1831,7 +1932,10 @@ for (const width of [320, 390, 430, 1479]) {
             .querySelector(".app-tabs")!
             .getBoundingClientRect();
           return (
-            ["adjust-route", "refresh-route"].every((id) => {
+            [
+              "adjust-route",
+              innerWidth < 900 ? "close-route" : "refresh-route",
+            ].every((id) => {
               const box = document.getElementById(id)!.getBoundingClientRect();
               return (
                 box.top >= bounds.top &&
@@ -1847,19 +1951,23 @@ for (const width of [320, 390, 430, 1479]) {
     await page.screenshot({
       path: `test-results/route-overview-${width}-${test.info().project.name}.png`,
     });
-    await page.locator("#panel-size").click();
+    await toggleSelectedDetails(page);
     await expect(page.locator("#panel-details")).toBeVisible();
     await page.locator("#panel-content").evaluate((e) => {
       e.scrollTop = e.scrollHeight;
     });
     await checkActions();
-    await page.locator("#panel-size").click();
+    await toggleSelectedDetails(page);
     await expect(page.locator("#panel-details")).toBeHidden();
-    await expect(page.locator("#share-plan")).toBeVisible();
-    await expect(page.locator("#panel-content")).toHaveJSProperty(
-      "scrollTop",
-      0,
-    );
+    await expect(page.locator("#share-plan")).toBeVisible({
+      visible: (page.viewportSize()?.width ?? 1280) >= 900,
+    });
+    await expect(
+      page.locator(".route-choice-row.selected .route-details-button"),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      page.locator(".route-choice-row.selected .route-details-button"),
+    ).toBeFocused();
     await checkActions();
   });
 }
@@ -1895,14 +2003,14 @@ test("small route panels retain archive actions through the measured scroll fall
     await scroller.evaluate((e) => (e.scrollTop = e.scrollHeight));
     await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
     await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
-    await expect(page.locator("#refresh-route")).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
     if (all)
       await expect(page.locator("#panel-content")).toHaveCSS(
         "overflow-y",
         "visible",
       );
     else
-      await expect(page.locator("#panel-summary")).toBeInViewport({ ratio: 1 });
+      await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
     await scroller.evaluate((e) => (e.scrollTop = 0));
     await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
   }
@@ -1930,29 +2038,27 @@ test("route panel minimizes by dragging and restores an accessible overview", as
     "data-size",
     "collapsed",
   );
-  await expect(page.locator("#panel-size")).toHaveText("Übersicht öffnen");
+  await expect(page.locator("#panel-handle")).toHaveAttribute(
+    "aria-valuetext",
+    "Minimiert",
+  );
   await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
-  await page.locator("#panel-size").press("Enter");
+  await page.locator("#panel-handle").press("ArrowUp");
   await expect(page.locator("#journey-panel")).toHaveAttribute(
     "data-size",
     "normal",
   );
   await expect(page.locator("#panel-details")).toHaveJSProperty("inert", true);
-  await page.locator("#panel-size").press("Enter");
+  await page.locator("#panel-handle").press("End");
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-size",
+    "expanded",
+  );
+  await expect(page.locator("#panel-details")).toHaveJSProperty("inert", true);
+  await toggleSelectedDetails(page);
   await expect(page.locator("#panel-details")).toHaveJSProperty("inert", false);
-  await expect(page.locator("#panel-size")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  await page.locator("#panel-content").evaluate((e) => {
-    e.scrollTop = e.scrollHeight;
-  });
-  await page.locator("#panel-size").press("Enter");
-  await expect(page.locator("#panel-size")).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
-  await expect(page.locator("#panel-content")).toHaveJSProperty("scrollTop", 0);
+  await page.locator("#panel-handle").press("ArrowDown");
+  await expect(page.locator("#panel-details")).toHaveJSProperty("inert", false);
 });
 
 for (const outcome of ["complete", "cancel", "error"] as const) {
@@ -1996,9 +2102,9 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
       "aria-live",
       "polite",
     );
-    await page.locator("#panel-size").click();
+    await resizeOverview(page);
     await expect.poll(animation).toBe("route-loading");
-    await page.locator("#panel-size").click();
+    await resizeOverview(page);
     const handle = (await page.locator("#panel-handle").boundingBox())!;
     await page.mouse.move(
       handle.x + handle.width / 2,
@@ -2035,11 +2141,11 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
         .locator("#status")
         .evaluate((e) => getComputedStyle(e, "::before").content),
     ).toBe("none");
-    await page.locator("#panel-size").click();
+    await resizeOverview(page);
     if (outcome === "complete") {
       for (let i = 0; i < 3; i++) {
         await expectPlanningComplete(page);
-        await page.locator("#panel-size").click();
+        await resizeOverview(page);
       }
     } else {
       await expect(page.locator("#status")).toContainText(
@@ -2478,11 +2584,11 @@ for (const outcome of ["success", "cancel", "error"] as const) {
   });
 }
 
-test("share remains beside close and manual copying works in every panel size", async ({
+test("desktop share remains beside close and manual copying works", async ({
   page,
 }) => {
   await setup(page);
-  await page.setViewportSize({ width: 320, height: 844 });
+  await page.setViewportSize({ width: 1280, height: 844 });
   await plan(page);
   await page.evaluate(() => {
     Object.defineProperty(navigator, "share", {
@@ -2495,13 +2601,7 @@ test("share remains beside close and manual copying works in every panel size", 
     });
     document.documentElement.style.fontSize = "24px";
   });
-  for (const size of ["normal", "expanded", "collapsed"]) {
-    await page.evaluate((size) => {
-      document.getElementById("journey-panel")!.dataset.size = size;
-      const details = document.getElementById("panel-details")!;
-      details.hidden = size !== "expanded";
-      details.inert = size !== "expanded";
-    }, size);
+  {
     await page.locator("#share-plan").focus();
     await page.keyboard.press("Enter");
     await expect(page.locator("#plan-link-value")).toBeVisible();
@@ -2516,7 +2616,7 @@ test("share remains beside close and manual copying works in every panel size", 
     await expect(page.locator("#share-plan")).toBeInViewport({ ratio: 1 });
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
-    ).toBeLessThanOrEqual(320);
+    ).toBeLessThanOrEqual(1280);
   }
   await page.screenshot({
     path: `test-results/share-panel-${test.info().project.name}.png`,
@@ -2654,6 +2754,18 @@ test("route fit overrides a pending location response and works offline with sto
   page,
   context,
 }) => {
+  await page.addInitScript(() => {
+    let next = 0;
+    navigator.geolocation.watchPosition = (success) => {
+      (window as any).finishMapLocation = () =>
+        success({
+          coords: { latitude: 52.52, longitude: 13.405, accuracy: 10 },
+          timestamp: Date.now(),
+        } as GeolocationPosition);
+      return ++next;
+    };
+    navigator.geolocation.clearWatch = () => {};
+  });
   await setupVia(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator("#search-adjust").click();
@@ -2663,14 +2775,6 @@ test("route fit overrides a pending location response and works offline with sto
   await choose(page, "via-0", "Café");
   await page.locator("#calculate").click();
   await expectPlanningComplete(page);
-  await page.evaluate(() => {
-    navigator.geolocation.getCurrentPosition = (success) => {
-      (window as any).finishMapLocation = () =>
-        success({
-          coords: { latitude: 52.52, longitude: 13.405 },
-        } as GeolocationPosition);
-    };
-  });
   await page.locator("#map-location").click();
   await expect(page.locator("#map-location")).toBeDisabled();
   await page.locator("#map-route").click();
@@ -2715,13 +2819,25 @@ for (const width of [390, 1479]) {
         page
           .locator("#map")
           .click({ position: { x: width >= 900 ? width - 140 : 20, y: 60 } });
+      if (width >= 900) {
+        await toggleSelectedDetails(page);
+        await clickBackground();
+        await expect(panel).toHaveAttribute("data-size", "normal");
+        expect(await panel.boundingBox()).toEqual(initial);
+        await expect(page.locator("#panel-details")).toBeVisible();
+        await expect(page.locator("#panel-handle")).toBeHidden();
+        await page.screenshot({
+          path: testInfo.outputPath("desktop-sidebar.png"),
+        });
+        return;
+      }
       await clickBackground();
       await expect(panel).toHaveAttribute("data-size", "collapsed");
       await expect.poll(anchorError).toBeLessThanOrEqual(1);
-      await page.locator("#panel-size").click();
+      await resizeOverview(page);
       await expect(panel).toHaveAttribute("data-size", "normal");
       await expect.poll(anchorError).toBeLessThanOrEqual(1);
-      await page.locator("#panel-size").click();
+      await resizeOverview(page);
       await expect(panel).toHaveAttribute("data-size", "expanded");
       await expect.poll(anchorError).toBeLessThanOrEqual(1);
       await clickBackground();
@@ -2730,4 +2846,36 @@ for (const width of [390, 1479]) {
       await page.screenshot({ path: testInfo.outputPath("panel-anchor.png") });
     });
   }
+}
+
+for (const width of [320, 390, 430]) {
+  test(`mobile footer closes and replans without a top toolbar at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page);
+    await plan(page);
+    await expectPlanningComplete(page);
+    await expect(page.locator("#share-plan")).toBeHidden();
+    await expect(page.locator("#refresh-route")).toBeHidden();
+    await expect(page.locator(".panel-actions #close-route")).toHaveText(
+      "Schließen",
+    );
+    await expect(page.locator(".panel-tools")).toBeHidden();
+    await page.locator("#adjust-route").click();
+    const request = page.waitForRequest("**/api/v6/plan?*");
+    await page.locator("#calculate").click();
+    await request;
+    await expectPlanningComplete(page);
+    await page.setViewportSize({ width: 900, height: 844 });
+    await expect(page.locator(".panel-tools #close-route")).toBeVisible();
+    await expect(page.locator("#refresh-route")).toBeVisible();
+    await page.locator("#share-plan").focus();
+    await page.setViewportSize({ width, height: 844 });
+    await expect(page.locator("#close-route")).toBeFocused();
+    await page.locator("#close-route").click();
+    await expect(page.locator("#destination")).toBeVisible();
+    await expect(page.locator("#destination")).toBeFocused();
+    await expect(page.locator("#map-view")).toBeHidden();
+  });
 }

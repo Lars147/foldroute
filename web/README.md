@@ -115,3 +115,9 @@ Installation funktioniert auf HTTPS oder lokal auf `localhost`/`127.0.0.1`. Ein 
 Vor Veröffentlichung auf einem echten iPhone prüfen: Installation und Icon, eigenständiges Fenster, Safe Areas, Tastatur bei Ortssuche und Anpassung, Offline-Neustart sowie Updateübernahme. Automatisierte Chromium- und WebKit-Tests decken diese Geräteeigenschaften nicht vollständig ab.
 
 Die Kartenübersicht bleibt beim Wechsel zwischen Alternativen stehen. Nachgeladene Umwege erweitern sie bei Bedarf; entfallene Alternativen verkleinern sie nicht automatisch. Eigenes Verschieben oder Zoomen pausiert automatische Anpassungen bis zur Übersichtsaktion oder einer neuen erfolgreichen Berechnung. Auch der eingeblendete Fahrradvergleich gehört zur gemeinsamen Übersicht.
+
+### Live-Standort auf der Routenkarte
+
+Bei vorhandener Standortfreigabe aktualisiert die sichtbare Routenkarte im Vordergrund einen separaten blauen Standortpunkt. Der transparente Kreis zeigt den gemeldeten Genauigkeitsradius in Metern. Über 100 Meter gilt die Messung als ungenau; nach 60 Sekunden ohne frische Messung oder bei einem Ortungsfehler erscheint der letzte Punkt grau. Der geplante Start bleibt fest. Standortupdates verändern weder Route noch Kartenausschnitt; der Standortbutton zentriert einmalig.
+
+Beim Wechsel zu Einstellungen/Fahrten, Öffnen der Routenbearbeitung und Verlassen der App pausiert die Ortung. Ohne Freigabe wird sie erst durch eine ausdrückliche Standortaktion angefragt. Unterstützt der Browser keine Berechtigungsabfrage, ist auch nach Rückkehr eine solche Aktion nötig. Die Position bleibt ausschließlich im Arbeitsspeicher; es entsteht keine GPS-Spur und keine zusätzliche Routinganfrage. Aktive Navigation ist weiterhin nur im iPhone-Prototyp vorhanden.

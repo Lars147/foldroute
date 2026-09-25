@@ -208,7 +208,9 @@ struct PlaceSearchView: View {
 
 struct PlaceSearchContent: View {
     let target: SearchTarget
+    var showCurrentLocation = true
     var isDisabled = false
+    var onFocusChanged: (Bool) -> Void = { _ in }
     let onSelect: (Place) -> Void
 
     @Environment(AppModel.self) private var model
@@ -233,6 +235,11 @@ struct PlaceSearchContent: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            if isFocused {
+                Button("Zurück") { isFocused = false }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, 20)
+            }
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
@@ -282,7 +289,8 @@ struct PlaceSearchContent: View {
         .task(id: search.requestID) {
             await search.search(near: PlaceSearchModel.searchCenter(location: model.location.currentLocation))
         }
-        .onDisappear { search.cancel() }
+        .onChange(of: isFocused) { _, focused in onFocusChanged(focused) }
+        .onDisappear { search.cancel(); onFocusChanged(false) }
         .task(id: isLocating) {
             guard isLocating else { return }
             let place = await model.currentPlaceForSelection()
@@ -301,30 +309,32 @@ struct PlaceSearchContent: View {
     private var searchResults: some View {
         if search.searchTerm.isEmpty {
             List {
-                Button {
-                    locationError = nil
-                    isLocating = true
-                } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: "location.fill")
-                            .foregroundStyle(FoldRouteColor.asphalt)
-                            .frame(width: 34, height: 34)
-                            .background(FoldRouteColor.routeCyan, in: Circle())
-                        Text(isLocating ? "Standort wird ermittelt …" : "Aktueller Standort")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        if isLocating { ProgressView() }
+                if showCurrentLocation {
+                    Button {
+                        locationError = nil
+                        isLocating = true
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "location.fill")
+                                .foregroundStyle(FoldRouteColor.asphalt)
+                                .frame(width: 34, height: 34)
+                                .background(FoldRouteColor.routeCyan, in: Circle())
+                            Text(isLocating ? "Standort wird ermittelt …" : "Aktueller Standort")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if isLocating { ProgressView() }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Aktueller Standort")
-                if let locationError {
-                    Text(locationError)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Aktueller Standort")
+                    if let locationError {
+                        Text(locationError)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 if !favorites.isEmpty {
                     Section("Favoriten") {

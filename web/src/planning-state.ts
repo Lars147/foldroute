@@ -175,7 +175,7 @@ export class PlanningSession {
     try {
       if (!navigator.onLine)
         throw new Error(
-          "Keine Internetverbindung. Vorhandene Verbindungen bleiben verfügbar. Sobald du online bist, kannst du mit Aktualisieren erneut suchen.",
+          "Keine Internetverbindung. Vorhandene Verbindungen bleiben verfügbar. Sobald du online bist, kannst du über „Route anpassen“ erneut suchen.",
         );
       if (needsLocation) {
         locating = true;
@@ -194,7 +194,10 @@ export class PlanningSession {
       const queriedAt = Date.now() / 1000;
       const calculationId = crypto.randomUUID();
       if (request.timing === "now")
-        request = { ...request, time: Math.floor(queriedAt) };
+        request = {
+          ...request,
+          time: Math.floor(queriedAt),
+        };
       this.resolved?.(request, calculationSettings);
       this.state = {
         ...this.state,

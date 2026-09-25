@@ -1,3 +1,4 @@
+import { resizeOverview } from "./assertions";
 import { expect, test, type Page } from "@playwright/test";
 import { defaults } from "../../src/model";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
@@ -114,7 +115,9 @@ test("settings exit respects History and attempts once while preserving the old 
   expect(directRequests).toBe(1);
   await expect(page.locator("#tab-history")).toBeFocused();
   await page.locator("#tab-route").click();
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await expect(page.locator("#stale-notice")).toBeVisible();
   expect(directRequests).toBe(1);
   expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("240");
@@ -144,10 +147,12 @@ test("offline settings keep the previous result and reconnect never starts plann
     "Keine Internetverbindung",
   );
   await page.locator("#tab-route").click();
-  await expect(page.locator("#route-duration")).toContainText("32 min");
-  await expect(page.locator("#option-title")).not.toContainText(
-    "über deinem Radlimit",
-  );
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true]"),
+  ).not.toHaveAccessibleName(/über deinem Radlimit/);
   await expect(page.locator("#stale-notice")).toBeVisible();
   expect(await snapshot(page)).toEqual(before);
   await page.context().setOffline(false);
@@ -207,7 +212,8 @@ test("entry focus and archive timestamps remain stable without background focus 
 }) => {
   await setup(page);
   await plan(page);
-  await expect(page.locator("#panel-summary")).toBeFocused();
+  // Desktop empty-state focus stays on content when results arrive.
+  await expect(page.locator("#panel-content")).toBeFocused();
   await page.locator("#close-route").click();
   await expect(page.locator("#destination")).toBeFocused();
   await page.locator("#tab-history").click();
@@ -215,7 +221,7 @@ test("entry focus and archive timestamps remain stable without background focus 
   const savedTime = await timestamp.getAttribute("datetime");
   await expect(timestamp).toContainText("Zuletzt geplant: 4. Sept., 10:00");
   await page.locator(".history-open").first().click();
-  await expect(page.locator("#panel-summary")).toBeFocused();
+  await expect(page.locator(".route-choice[aria-pressed=true]")).toBeFocused();
   await page.locator("#tab-history").focus();
   await page.locator("#tab-history").press("Enter");
   await expect(timestamp).toHaveAttribute("datetime", savedTime!);
@@ -248,7 +254,9 @@ test("offline Back and Forward restore the matching old result with the edited r
   await expect(page.locator("#history-view")).toBeVisible();
   await page.goForward();
   await expect(page.locator("#map-view")).toBeVisible();
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await expect(page.locator("#stale-notice")).toBeVisible();
   await expect(page.locator("#cycling-comparison")).toBeHidden();
   await expect(page.locator("#status")).toContainText(
@@ -277,6 +285,7 @@ test("offline Back and Forward restore the matching old result with the edited r
 test("details opened before the first result hold that result as better options arrive", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   let releaseFirst!: () => void, releaseOther!: () => void;
   const first = new Promise<void>((resolve) => {
@@ -298,19 +307,25 @@ test("details opened before the first result hold that result as better options 
     });
   });
   await choose(page, "destination", "Ziel");
-  await page.locator("#panel-size").click();
+  await resizeOverview(page);
   releaseFirst();
-  await expect(page.locator("#route-duration")).toContainText("1 h");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("1 h");
   releaseOther();
   await expectPlanningComplete(page);
-  await expect(page.locator("#route-duration")).toContainText("1 h");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("1 h");
   await expect(page.locator("#better-connection")).toHaveCount(0);
   await page
     .locator(".route-choice")
     .filter({ hasText: "53 min" })
     .first()
     .click();
-  await expect(page.locator("#route-duration")).toContainText("53 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("53 min");
 });
 
 test("editing settings does not mark the original plan cache stale", async ({
@@ -332,7 +347,9 @@ test("editing settings does not mark the original plan cache stale", async ({
   await expect(page.locator("#stale-notice")).toHaveJSProperty("hidden", true);
   await page.goBack();
   await expect(page.locator("#map-view")).toBeVisible();
-  await expect(page.locator("#route-duration")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await expect(page.locator("#stale-notice")).toBeHidden();
   expect(requests).toBe(0);
 });

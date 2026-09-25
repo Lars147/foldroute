@@ -817,3 +817,16 @@ enum CyclingComparison {
         return "\(minutes) Min. \(journey.stops.isEmpty ? "Radfahrt" : "längste Radetappe") · \(Int(ceil(over / 60))) Min. über deinem Radlimit"
     }
 }
+
+extension Journey {
+    var routeOutline: String {
+        legs.compactMap { leg -> String? in
+            switch leg {
+            case .fold, .unfold, .wait: nil
+            case .transit(let transit): transit.line.isEmpty ? "ÖPNV" : transit.line
+            case .stop(let stop): "Stopp: \(stop.place.name)"
+            default: leg.kind.title
+            }
+        }.joined(separator: " → ")
+    }
+}
