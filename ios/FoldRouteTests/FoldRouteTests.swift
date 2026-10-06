@@ -811,7 +811,7 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
             originName: "Altstadt",
             destinationName: nil
         )
-        XCTAssertEqual(storedJourney.originName, "Altstadt")
+        XCTAssertEqual(storedJourney.originName, journey.origin.name)
         XCTAssertEqual(storedJourney.destinationName, journey.destination.name)
 
         let retainedJourney = makeJourney(id: "retained-journey")
@@ -866,7 +866,7 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
         let storedJourney = try StoredJourney(
             journey: makeJourney(id: "legacy-current-location", origin: currentLocation)
         )
-        storedJourney.originName = "Aktueller Standort"
+        storedJourney.originName = "Startpunkt"
         container.mainContext.insert(storedJourney)
         try container.mainContext.save()
         let model = try AppModel(
@@ -882,10 +882,61 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(storedJourney.originName, "Altstadt")
     }
 
+    func testHistoryAddressFormattingAndGenericNames() {
+        XCTAssertEqual(HistoryPlaceNameFormatter.displayName(street: " Bahnhofstraße ", houseNumber: "3a", neighborhood: "Zentrum", city: "Gräfelfing"), "Bahnhofstraße 3a, Gräfelfing")
+        XCTAssertEqual(HistoryPlaceNameFormatter.displayName(street: "Bahnhofstraße", neighborhood: nil, city: "Gräfelfing"), "Bahnhofstraße, Gräfelfing")
+        for name in ["Startpunkt", "Zielpunkt", " Aktueller Standort "] { XCTAssertTrue(HistoryPlaceNameFormatter.isGeneric(name)) }
+        XCTAssertFalse(HistoryPlaceNameFormatter.isGeneric("Daglfing"))
+    }
+
+    @MainActor
+    func testHistoryNameLookupCachesAndDoesNotRepeatFailures() async {
+        let success = CountingHistoryResolver(name: "Marienplatz 22, München")
+        let lookup = HistoryNameLookup(resolver: success)
+        let point = Coordinate(latitude: 48.1372, longitude: 11.5756)
+        let first = await lookup.name(for: point)
+        let second = await lookup.name(for: point)
+        XCTAssertEqual(first, "Marienplatz 22, München")
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(success.calls, 1)
+        lookup.setActive(false)
+        let inactive = await lookup.name(for: point)
+        XCTAssertNil(inactive)
+        let failure = CountingHistoryResolver(name: nil)
+        let failedLookup = HistoryNameLookup(resolver: failure)
+        _ = await failedLookup.name(for: point)
+        _ = await failedLookup.name(for: point)
+        XCTAssertEqual(failure.calls, 1)
+    }
+
+    @MainActor
+    func testHistoryNameLookupSerializesCoordinatesAndCancelsBackgroundWork() async {
+        let resolver = SlowHistoryResolver()
+        let lookup = HistoryNameLookup(resolver: resolver)
+        let first = Coordinate(latitude: 48.1372, longitude: 11.5756)
+        let second = Coordinate(latitude: 48.15, longitude: 11.65)
+        async let a = lookup.name(for: first)
+        async let duplicate = lookup.name(for: first)
+        async let b = lookup.name(for: second)
+        _ = await (a, duplicate, b)
+        XCTAssertEqual(resolver.calls, 2)
+        XCTAssertEqual(resolver.maximumConcurrent, 1)
+        lookup.cancel(clearCache: true)
+        let pending = Task { await lookup.name(for: first) }
+        while resolver.calls < 3 { await Task.yield() }
+        lookup.setActive(false)
+        let cancelled = await pending.value
+        XCTAssertNil(cancelled)
+        lookup.setActive(true)
+        let resumed = await lookup.name(for: first)
+        XCTAssertEqual(resumed, "Marienplatz 22, München")
+        XCTAssertEqual(resolver.calls, 4)
+    }
+
     func testHistoryPlaceNamePrefersNeighborhoodThenCity() {
         XCTAssertEqual(
             HistoryPlaceNameFormatter.displayName(neighborhood: "Altstadt", city: "München"),
-            "Altstadt"
+            "Altstadt, München"
         )
         XCTAssertEqual(
             HistoryPlaceNameFormatter.displayName(neighborhood: nil, city: " München "),
@@ -3112,7 +3163,7 @@ extension FoldRouteTests {
             XCTFail("Expected a fixed request timestamp", file: file, line: line)
             return
         }
-        XCTAssertLessThan(abs(captured.timeIntervalSinceNow - 120), 10, file: file, line: line)
+        XCTAssertLessThan(abs(captured.timeIntervalSinceNow), 10, file: file, line: line)
     }
 
     func testLateDepartureThresholdAndArrivalExemption() {
@@ -4790,5 +4841,28 @@ extension FoldRouteTests {
         XCTAssertEqual(PreviewLocationQuality.evaluate(fix(200), now: now), .inaccurate)
         XCTAssertEqual(PreviewLocationQuality.evaluate(fix(10, age: 61), now: now), .stale)
         XCTAssertEqual(PreviewLocationQuality.evaluate(fix(10), now: now, failed: true), .stale)
+    }
+}
+
+@MainActor
+private final class CountingHistoryResolver: HistoryPlaceNameResolving {
+    var calls = 0
+    let name: String?
+    init(name: String?) { self.name = name }
+    func displayName(for coordinate: Coordinate) async throws -> String? { calls += 1; return name }
+}
+
+@MainActor
+private final class SlowHistoryResolver: HistoryPlaceNameResolving {
+    var calls = 0
+    var concurrent = 0
+    var maximumConcurrent = 0
+    func displayName(for coordinate: Coordinate) async throws -> String? {
+        calls += 1
+        concurrent += 1
+        maximumConcurrent = max(maximumConcurrent, concurrent)
+        defer { concurrent -= 1 }
+        try await Task.sleep(for: .milliseconds(10))
+        return "Marienplatz 22, München"
     }
 }

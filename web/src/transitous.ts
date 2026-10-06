@@ -1,3 +1,4 @@
+import { reverseAddress } from "./history-names";
 import {
   type Place,
   type Leg,
@@ -518,6 +519,18 @@ export class ApiClient {
       first.stop = error instanceof PlannerError && error.stops;
       return first;
     }
+  }
+  async reversePlace(
+    coordinate: Coordinate,
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    const url = new URL(`${service.api}/v1/reverse-geocode`);
+    url.search = new URLSearchParams({
+      place: `${coordinate.latitude},${coordinate.longitude}`,
+      type: "ADDRESS",
+      numResults: "3",
+    }).toString();
+    return reverseAddress(await this.json(url, signal), coordinate);
   }
   async searchPlaces(
     query: string,

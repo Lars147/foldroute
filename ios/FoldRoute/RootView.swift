@@ -65,6 +65,7 @@ struct RootView: View {
         }
     }
     private func syncRouteActivity() {
+        model.setHistoryNamesActive(scenePhase == .active)
         model.location.previewVisible = scenePhase == .active && selectedTab == .route
             && model.navigation == nil && (model.journey != nil || model.isPreviewReplan)
         UIApplication.shared.isIdleTimerDisabled = ScreenAwakePolicy.enabled(

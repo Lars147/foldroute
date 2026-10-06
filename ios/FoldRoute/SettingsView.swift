@@ -116,7 +116,7 @@ struct SettingsView: View {
                 Button("FoldRoute · MIT-Lizenz") { showLicense = true }
                 Link("Transitous und Fahrplandaten", destination: URL(string: "https://transitous.org/sources/")!)
                 Link("© OpenStreetMap-Mitwirkende", destination: URL(string: "https://www.openstreetmap.org/copyright")!)
-                Text("Beim Planen werden Start, Ziel und Zeitpunkt an Transitous übertragen. GPS-Verläufe speichert FoldRoute nicht.")
+                Text("Beim Planen werden Start, Ziel und Zeitpunkt an Transitous übertragen. Für Adressen im Fahrtenverlauf werden gespeicherte Start- und Zielkoordinaten über Apple aufgelöst. Die Namen bleiben lokal gespeichert. GPS-Verläufe speichert FoldRoute nicht.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

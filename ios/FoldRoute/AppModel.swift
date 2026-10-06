@@ -51,14 +51,20 @@ enum NavigationStartState: Equatable {
 }
 
 enum HistoryPlaceNameFormatter {
-    static func displayName(neighborhood: String?, city: String?) -> String? {
-        let neighborhood = normalized(neighborhood)
-        let city = normalized(city)
-        if let neighborhood,
-           neighborhood.localizedCaseInsensitiveCompare(city ?? "") != .orderedSame {
-            return neighborhood
+    static func isGeneric(_ name: String) -> Bool {
+        ["aktueller standort", "startpunkt", "zielpunkt"].contains(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
+    static func displayName(street: String? = nil, houseNumber: String? = nil,
+                            neighborhood: String?, city: String?) -> String? {
+        let street = normalized(street), city = normalized(city)
+        let address = street.map { [$0, normalized(houseNumber)].compactMap { $0 }.joined(separator: " ") }
+            ?? normalized(neighborhood)
+        let parts = [address, city].compactMap { $0 }
+        let unique = parts.reduce(into: [String]()) { result, part in
+            if !result.contains(where: { $0.localizedCaseInsensitiveCompare(part) == .orderedSame }) { result.append(part) }
         }
-        return city
+        return unique.isEmpty ? nil : unique.joined(separator: ", ")
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -84,22 +90,94 @@ struct MapKitHistoryPlaceNameResolver: HistoryPlaceNameResolving {
         if #available(iOS 26.0, *) {
             guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
             request.preferredLocale = Locale(identifier: "de_DE")
-            guard let mapItem = try await request.mapItems.first else { return nil }
-            return HistoryPlaceNameFormatter.displayName(
-                neighborhood: mapItem.placemark.subLocality,
-                city: mapItem.addressRepresentations?.cityName
-                    ?? mapItem.placemark.locality
-            )
+            let timeout = Task { @MainActor in
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                request.cancel()
+            }
+            defer { timeout.cancel() }
+            let cancel: @MainActor @Sendable () -> Void = { request.cancel() }
+            let items = try await withTaskCancellationHandler {
+                try await request.mapItems
+            } onCancel: {
+                Task { await cancel() }
+            }
+            try Task.checkCancellation()
+            guard let item = items.first else { return nil }
+            return Self.name(item.placemark, location: location, city: item.addressRepresentations?.cityName)
         }
 
-        let placemark = try await CLGeocoder().reverseGeocodeLocation(
-            location,
-            preferredLocale: Locale(identifier: "de_DE")
-        ).first
+        let geocoder = CLGeocoder()
+        let timeout = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            geocoder.cancelGeocode()
+        }
+        defer { timeout.cancel() }
+        let cancel: @MainActor @Sendable () -> Void = { geocoder.cancelGeocode() }
+        let placemarks = try await withTaskCancellationHandler {
+            try await geocoder.reverseGeocodeLocation(location, preferredLocale: Locale(identifier: "de_DE"))
+        } onCancel: {
+            Task { await cancel() }
+        }
+        try Task.checkCancellation()
+        guard let placemark = placemarks.first else { return nil }
+        return Self.name(placemark, location: location)
+    }
+
+    private static func name(_ placemark: CLPlacemark, location: CLLocation, city: String? = nil) -> String? {
+        let nearby = placemark.location.map { $0.distance(from: location) <= 100 } ?? false
         return HistoryPlaceNameFormatter.displayName(
-            neighborhood: placemark?.subLocality,
-            city: placemark?.locality
-        )
+            street: nearby ? placemark.thoroughfare : nil,
+            houseNumber: nearby ? placemark.subThoroughfare : nil,
+            neighborhood: placemark.subLocality, city: city ?? placemark.locality)
+
+    }
+}
+
+@MainActor
+final class HistoryNameLookup {
+    private let resolver: any HistoryPlaceNameResolving
+    private var cache: [Coordinate: String] = [:]
+    private var retryAt: [Coordinate: Date] = [:]
+    private var tasks: [Coordinate: Task<String?, Never>] = [:]
+    private var tail: Task<String?, Never>?
+    private var active = true
+    private(set) var generation = 0
+
+    init(resolver: any HistoryPlaceNameResolving) { self.resolver = resolver }
+
+    func setActive(_ active: Bool) {
+        guard self.active != active else { return }
+        self.active = active
+        if !active { cancel() }
+    }
+
+    func cancel(clearCache: Bool = false) {
+        generation += 1
+        tasks.values.forEach { $0.cancel() }
+        tasks.removeAll()
+        // Keep the tail until cancellation completes, so no requests overlap.
+        if clearCache { cache.removeAll(); retryAt.removeAll() }
+    }
+
+    func name(for coordinate: Coordinate) async -> String? {
+        guard active, !Task.isCancelled else { return nil }
+        if let cached = cache[coordinate] { return cached }
+        if let task = tasks[coordinate] { return await task.value }
+        if let retry = retryAt[coordinate], retry > Date() { return nil }
+        let previous = tail, generation = generation
+        let task = Task { @MainActor [resolver] () -> String? in
+            _ = await previous?.value
+            guard !Task.isCancelled else { return nil }
+            return try? await resolver.displayName(for: coordinate)
+        }
+        tasks[coordinate] = task
+        tail = task
+        let name = await task.value
+        guard self.generation == generation, active else { return nil }
+        tasks[coordinate] = nil
+        if let name, !name.isEmpty { cache[coordinate] = name }
+        else { retryAt[coordinate] = Date().addingTimeInterval(300) }
+        return name
     }
 }
 
@@ -109,7 +187,7 @@ final class AppModel {
     private let planner: any JourneyPlanning
     private let store: any JourneyStore
     private let transitRefresher: any TransitRefreshing
-    private let historyPlaceNameResolver: any HistoryPlaceNameResolving
+    private let historyNameLookup: HistoryNameLookup
     private let planningLocationProvider: (@MainActor () async -> CLLocation?)?
     let location: LocationService
     let guidance: GuidanceService
@@ -243,7 +321,7 @@ final class AppModel {
         self.transitRefresher = transitRefresher ?? (planner as? any TransitRefreshing) ?? UnavailableTransitRefresher()
         self.location = location
         self.guidance = guidance
-        self.historyPlaceNameResolver = historyPlaceNameResolver
+        self.historyNameLookup = HistoryNameLookup(resolver: historyPlaceNameResolver)
         self.planningLocationProvider = planningLocationProvider
         settings = try store.loadSettings()
         location.onLocation = { [weak self] location in
@@ -579,24 +657,33 @@ final class AppModel {
     }
 
     func deleteHistoryEntry(id: String) throws {
+        historyNameLookup.cancel(clearCache: true)
         try store.deleteJourney(id: id)
     }
 
+    func setHistoryNamesActive(_ active: Bool) { historyNameLookup.setActive(active) }
+
     func refreshHistoryPlaceNames(_ journeys: [StoredJourney]) async {
+        let generation = historyNameLookup.generation
         for journey in journeys {
+            guard generation == historyNameLookup.generation, !Task.isCancelled else { return }
+            let id = journey.id
+            let origin = journey.originPlace, destination = journey.destinationPlace
+            let oldOriginName = journey.originName, oldDestinationName = journey.destinationName
             let originName = await resolvedLegacyHistoryName(
-                currentName: journey.originName,
-                place: journey.originPlace
+                currentName: oldOriginName,
+                place: origin
             )
             let destinationName = await resolvedLegacyHistoryName(
-                currentName: journey.destinationName,
-                place: journey.destinationPlace
+                currentName: oldDestinationName,
+                place: destination
             )
+            guard generation == historyNameLookup.generation, !Task.isCancelled else { return }
             guard originName != nil || destinationName != nil else { continue }
 
             do {
                 try store.updateJourneyNames(
-                    id: journey.id,
+                    id: id,
                     originName: originName,
                     destinationName: destinationName
                 )
@@ -954,6 +1041,7 @@ final class AppModel {
     }
 
     func clearLocalData() {
+        historyNameLookup.cancel(clearCache: true)
         cancelPreviewReplanning()
         stopNavigation()
         do {
@@ -1410,8 +1498,10 @@ final class AppModel {
     }
 
     private func resolveHistoryPlaceNames(for journey: Journey) async {
+        let generation = historyNameLookup.generation
         let originName = await resolvedHistoryName(for: journey.origin)
         let destinationName = await resolvedHistoryName(for: journey.destination)
+        guard generation == historyNameLookup.generation, !Task.isCancelled else { return }
         guard originName != nil || destinationName != nil else { return }
 
         do {
@@ -1426,16 +1516,16 @@ final class AppModel {
     }
 
     private func resolvedHistoryName(for place: Place) async -> String? {
-        guard place.name == "Aktueller Standort" else { return nil }
-        return try? await historyPlaceNameResolver.displayName(for: place.coordinate)
+        guard HistoryPlaceNameFormatter.isGeneric(place.name) else { return nil }
+        return await historyNameLookup.name(for: place.coordinate)
     }
 
     private func resolvedLegacyHistoryName(
         currentName: String,
         place: Place?
     ) async -> String? {
-        guard currentName == "Aktueller Standort", let place else { return nil }
-        return await resolvedHistoryName(for: place) ?? "Startpunkt"
+        guard HistoryPlaceNameFormatter.isGeneric(currentName), let place else { return nil }
+        return await historyNameLookup.name(for: place.coordinate)
     }
 }
 

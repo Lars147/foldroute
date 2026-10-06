@@ -1,3 +1,5 @@
+import { HistoryNameQueue } from "./history-names";
+import { historySnapshot } from "./offline";
 import { ScreenAwake } from "./screen-awake";
 import { LiveLocation, fixPlace } from "./live-location";
 import { TimePicker, timeSummary } from "./time-picker";
@@ -110,9 +112,26 @@ const routeMap = new RouteMap(
 const liveLocation = new LiveLocation((fix, quality) =>
   routeMap.updateLocation(fix, quality),
 );
+const historyAddressApi = new ApiClient();
+const historyNames = new HistoryNameQueue(
+  (coordinate, signal) => historyAddressApi.reversePlace(coordinate, signal),
+  async (entry, names) => {
+    const generation = storageGeneration;
+    if (await store.updateNames(entry, names)) {
+      if (generation === storageGeneration) await reloadHistory();
+    }
+  },
+);
+function syncHistoryNames() {
+  historyNames.setActive(
+    pagePresent && !document.hidden && navigator.onLine && offlineEnabled,
+  );
+  if (view === "history") historyNames.enqueue(historyEntries);
+}
 const screenAwake = new ScreenAwake();
 let pagePresent = true;
 function syncLiveLocation() {
+  syncHistoryNames();
   screenAwake.setActive(
     keepScreenAwake &&
       pagePresent &&
@@ -350,7 +369,7 @@ function historyUI() {
     : "Speicherung ausgeschaltet. Aktiviere sie in den Einstellungen, um deine nächsten Planungen zu behalten.";
   el<HTMLButtonElement>("delete-saved").disabled = !historyEntries.length;
   for (const entry of historyEntries) {
-    const { journey, request } = entry.snapshot;
+    const { journey, request } = historySnapshot(entry);
     const row = node("li", "", "history-row");
     const open = node("button", "", "history-open");
     open.type = "button";
@@ -401,9 +420,11 @@ async function reloadHistory() {
   historyEntries = result.entries;
   saved = result.snapshot;
   savedUI();
+  if (view === "history") historyNames.enqueue(historyEntries);
 }
 async function deleteHistoryEntry(id: string) {
   storageGeneration++;
+  historyNames.clear();
   const entry = historyEntries.find((item) => item.id === id);
   const request = activePlan?.request ?? session.state.request;
   if (entry && request && sameHistoryRoute(entry.snapshot.request, request))
@@ -438,6 +459,9 @@ async function persist(snapshot: SavedJourney, id: string) {
     if (await store.save(snapshot, id)) {
       if (offlineEnabled && generation === storageGeneration) {
         await reloadHistory();
+        historyNames.enqueue(
+          historyEntries.filter((entry) => entry.calculationId === id),
+        );
         el("storage-message").textContent =
           "Letzte Reise auf diesem Gerät gespeichert.";
       }
@@ -1011,6 +1035,7 @@ el("confirm-delete-data").onclick = async () => {
   const button = el<HTMLButtonElement>("confirm-delete-data");
   button.disabled = true;
   storageGeneration++;
+  historyNames.clear();
   settingsReplanPending = false;
   session.clear();
   destination.cancel();
@@ -1074,6 +1099,8 @@ el("offline-enabled").onchange = async () => {
   const generation = ++storageGeneration;
   checkbox.disabled = true;
   offlineEnabled = enabled;
+  if (!enabled) historyNames.clear();
+  syncHistoryNames();
   try {
     await store.setEnabled(enabled);
     if (generation !== storageGeneration) return;
@@ -1093,6 +1120,7 @@ el("offline-enabled").onchange = async () => {
   } catch {
     if (generation !== storageGeneration) return;
     offlineEnabled = previous;
+    syncHistoryNames();
     savedUI();
     el("storage-message").textContent =
       "Offline-Einstellung konnte nicht gespeichert werden. Bitte erneut versuchen.";
@@ -1113,6 +1141,7 @@ el("confirm-delete-history").onclick = async () => {
   const button = el<HTMLButtonElement>("confirm-delete-history");
   button.disabled = true;
   storageGeneration++;
+  historyNames.clear();
   suppressCurrentSave();
   try {
     await store.clear();
@@ -1133,6 +1162,8 @@ function openSnapshot(
   focus = true,
   planId?: string,
 ) {
+  const entry = historyEntries.find((entry) => entry.id === id);
+  if (entry) snapshot = historySnapshot(entry);
   settingsReplanPending = false;
   openedHistoryId = id;
   activePlan = {
@@ -1196,6 +1227,7 @@ function updateConnectionHeight() {
 }
 new ResizeObserver(updateConnectionHeight).observe(el("connection"));
 function connectionChanged() {
+  syncHistoryNames();
   el("connection").hidden = navigator.onLine;
   updateConnectionHeight();
   savedUI();

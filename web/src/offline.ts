@@ -1,4 +1,9 @@
 import {
+  coordinateKey,
+  genericHistoryName,
+  type HistoryNames,
+} from "./history-names";
+import {
   validStoredSettings,
   validStops,
   validLegacySettings,
@@ -105,6 +110,7 @@ export function validSnapshot(value: unknown): value is SavedJourney {
   );
 }
 export interface HistoryEntry {
+  placeNames?: HistoryNames;
   id: string;
   calculationId?: string;
   snapshot: SavedJourney;
@@ -171,6 +177,17 @@ export function readHistory(
         !validSnapshot(entry.snapshot)
       )
         return false;
+      if (entry.placeNames !== undefined) {
+        if (!object(entry.placeNames)) delete entry.placeNames;
+        else
+          for (const side of ["origin", "destination"]) {
+            if (
+              typeof entry.placeNames[side] !== "string" ||
+              !entry.placeNames[side].trim()
+            )
+              delete entry.placeNames[side];
+          }
+      }
       ids.add(entry.id);
       return true;
     },
@@ -204,8 +221,20 @@ export function retainHistory(
   );
   if (previous && previous.snapshot.savedAt > entry.snapshot.savedAt)
     return entries;
+  const placeNames: HistoryNames = { ...entry.placeNames };
+  for (const side of ["origin", "destination"] as const) {
+    if (
+      !placeNames[side] &&
+      previous?.placeNames?.[side] &&
+      coordinateKey(previous.snapshot.request[side]) ===
+        coordinateKey(entry.snapshot.request[side]) &&
+      genericHistoryName(entry.snapshot.request[side].name)
+    )
+      placeNames[side] = previous.placeNames[side];
+  }
   const updated = {
     ...entry,
+    ...(Object.keys(placeNames).length ? { placeNames } : {}),
     id: previous?.id ?? entry.id,
     calculationId: entry.calculationId ?? entry.id,
   };
@@ -323,6 +352,35 @@ export class OfflineStore {
     });
     return saved;
   }
+  async updateNames(
+    expected: HistoryEntry,
+    names: HistoryNames,
+  ): Promise<boolean> {
+    let changed = false;
+    await this.transaction((state) => {
+      const entry = state.entries.find((e) => e.id === expected.id);
+      if (
+        !state.enabled ||
+        !entry ||
+        entry.calculationId !== expected.calculationId ||
+        entry.snapshot.savedAt !== expected.snapshot.savedAt ||
+        JSON.stringify(entry.snapshot.request) !==
+          JSON.stringify(expected.snapshot.request)
+      )
+        return;
+      for (const side of ["origin", "destination"] as const) {
+        if (
+          names[side] &&
+          genericHistoryName(entry.snapshot.request[side].name) &&
+          !entry.placeNames?.[side]
+        ) {
+          entry.placeNames = { ...entry.placeNames, [side]: names[side] };
+          changed = true;
+        }
+      }
+    });
+    return changed;
+  }
   async setEnabled(enabled: boolean): Promise<void> {
     this.generation++;
     await this.transaction((state) => {
@@ -343,4 +401,25 @@ export class OfflineStore {
       state.entries = state.entries.filter((entry) => entry.id !== id);
     });
   }
+}
+
+export function historySnapshot(entry: HistoryEntry): SavedJourney {
+  const snapshot = structuredClone(entry.snapshot);
+  for (const side of ["origin", "destination"] as const) {
+    const name = entry.placeNames?.[side];
+    const original = entry.snapshot.request[side];
+    if (!name || !genericHistoryName(original.name)) continue;
+    for (const place of [
+      snapshot.request[side],
+      snapshot.journey[side],
+      ...snapshot.journey.legs.flatMap((l) => [l.from, l.to]),
+    ]) {
+      if (
+        genericHistoryName(place.name) &&
+        coordinateKey(place) === coordinateKey(original)
+      )
+        place.name = name;
+    }
+  }
+  return snapshot;
 }

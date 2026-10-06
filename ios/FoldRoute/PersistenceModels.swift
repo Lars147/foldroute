@@ -419,8 +419,8 @@ final class SwiftDataJourneyStore: JourneyStore {
             predicate: #Predicate { $0.id == journeyID }
         )
         guard let journey = try context.fetch(descriptor).first else { return }
-        if let originName { journey.originName = originName }
-        if let destinationName { journey.destinationName = destinationName }
+        if let originName, HistoryPlaceNameFormatter.isGeneric(journey.originName) { journey.originName = originName }
+        if let destinationName, HistoryPlaceNameFormatter.isGeneric(journey.destinationName) { journey.destinationName = destinationName }
         try context.save()
     }
 

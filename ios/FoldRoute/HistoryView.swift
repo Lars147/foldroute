@@ -2,6 +2,7 @@ import SwiftData
 import SwiftUI
 
 struct HistoryView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppModel.self) private var model
     @Query(sort: \StoredJourney.completedAt, order: .reverse) private var journeys: [StoredJourney]
     @State private var errorMessage: String?
@@ -52,7 +53,9 @@ struct HistoryView: View {
         } message: {
             Text(errorMessage ?? "Unbekannter Fehler")
         }
-        .task {
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            model.setHistoryNamesActive(true)
             await model.refreshHistoryPlaceNames(journeys)
         }
     }
@@ -84,7 +87,7 @@ struct HistoryView: View {
             Text("\(journey.originName) → \(journey.destinationName)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Text(journey.completedAt, format: .dateTime.day().month().year().hour().minute())
                 Spacer()

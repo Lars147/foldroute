@@ -13,6 +13,9 @@ const places = [
   { name: "Ziel", lat: 48.175, lon: 11.6 },
 ];
 async function setup(page: Page, geolocation = true) {
+  await page.route("**/api/v1/reverse-geocode?*", (route) =>
+    route.fulfill({ json: [], headers: cors }),
+  );
   await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
   if (geolocation) {
     await page.context().grantPermissions(["geolocation"]);
@@ -2879,3 +2882,34 @@ for (const width of [320, 390, 430]) {
     await expect(page.locator("#map-view")).toBeHidden();
   });
 }
+
+test("new GPS planning enriches history without renaming the active origin", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route("**/api/v1/reverse-geocode?*", (route) =>
+    route.fulfill({
+      headers: cors,
+      json: [
+        {
+          type: "ADDRESS",
+          lat: 48.132,
+          lon: 11.5756,
+          street: "Marienplatz",
+          houseNumber: "22",
+          areas: [{ name: "München", default: true }],
+        },
+      ],
+    }),
+  );
+  await plan(page);
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
+  await page
+    .locator("#adjust-dialog")
+    .evaluate((dialog: HTMLDialogElement) => dialog.close());
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-open").first()).toContainText(
+    "Marienplatz 22, München",
+  );
+});
