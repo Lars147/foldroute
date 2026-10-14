@@ -245,37 +245,55 @@ export function applyTransit(
       transitStatus: { updatedAt: u.updatedAt, cancelled: u.cancelled },
     });
   });
+  const boardingSchedule = (i: number) => {
+    const boarding = copy.legs.findIndex(
+      (leg, n) => n > i && leg.kind === "transit",
+    );
+    const activities = boarding < 0 ? [] : journey.legs.slice(i + 1, boarding);
+    return {
+      departure: boarding < 0 ? undefined : copy.legs[boarding].start,
+      work: activities.reduce(
+        (seconds, leg) =>
+          seconds +
+          (leg.kind === "wait" ? 0 : Math.max(0, leg.end - leg.start)),
+        0,
+      ),
+      buffer: boardings.includes(boarding) ? 180 : 0,
+    };
+  };
+  const waitEnd = (i: number, earliest: number) => {
+    const { departure, work, buffer } = boardingSchedule(i);
+    // A final wait includes the boarding buffer. Earlier waits must leave
+    // enough time for folding/movement and that final buffer.
+    return Math.max(
+      earliest,
+      departure === undefined
+        ? journey.legs[i].end
+        : departure - work - (work > 0 ? buffer : 0),
+    );
+  };
+  const current = copy.legs[index];
+  if (current?.kind === "wait") current.end = waitEnd(index, current.start);
   for (let i = index + 1; i < copy.legs.length; i++) {
     const leg = copy.legs[i],
       previousEnd = copy.legs[i - 1].end,
       duration = leg.end - leg.start;
     if (leg.kind === "transit") continue;
-    const boarding = copy.legs.findIndex(
-      (l, n) => n > i && l.kind === "transit",
-    );
-    const departure = boarding < 0 ? previousEnd : copy.legs[boarding].start;
     leg.start = previousEnd;
-    if (leg.kind === "wait") leg.end = Math.max(previousEnd, departure);
+    if (leg.kind === "wait") leg.end = waitEnd(i, previousEnd);
     else if (leg.kind === "stop")
       leg.end = Math.max(
         leg.end,
         previousEnd + (leg.stop?.stayMinutes ?? 0) * 60,
       );
     else if (leg.kind === "fold") {
+      const { departure, work, buffer } = boardingSchedule(i);
       leg.start = Math.max(
         previousEnd,
-        departure - duration - (boardings.includes(boarding) ? 180 : 0),
+        (departure ?? previousEnd) - duration - work - buffer,
       );
       leg.end = leg.start + duration;
     } else leg.end = previousEnd + duration;
-  }
-  const current = copy.legs[index];
-  if (current?.kind === "wait") {
-    const next = copy.legs.findIndex(
-      (l, i) => i > index && l.kind === "transit",
-    );
-    if (boardings.includes(next))
-      current.end = Math.max(current.start, copy.legs[next].start);
   }
   copy.departure = copy.legs[0].start;
   copy.arrival = copy.legs.at(-1)!.end;

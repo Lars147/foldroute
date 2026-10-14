@@ -14,7 +14,13 @@ import {
   transitRetryDelay,
 } from "../src/transit-refresh";
 import { validNavigationSnapshot } from "../src/navigation-store";
-import { defaults, type Journey, type Leg, type Place } from "../src/model";
+import {
+  defaults,
+  transition,
+  type Journey,
+  type Leg,
+  type Place,
+} from "../src/model";
 import { NavigationSession } from "../src/navigation-session";
 import type { NavigationStore } from "../src/navigation-store";
 import { ApiClient } from "../src/transitous";
@@ -335,42 +341,53 @@ it("rejects an alternative that becomes unreachable while the planner is respond
   await session.stop();
 });
 
-it("selects a reachable planner result instead of the fastest missed connection", async () => {
-  const api = new ApiClient();
-  vi.spyOn(api, "batch").mockImplementation(
-    async (_request, _settings, variant) => ({
-      journeys: variant.direct
-        ? []
-        : [
-            { ...connection(now + 200), id: "missed" },
-            { ...connection(now + 900), id: "reachable" },
-          ],
-      issues: [],
-      stop: false,
-      rejected: false,
-    }),
-  );
-  const session = new NavigationSession({
-    changed: vi.fn(),
-    locate: async () => fix(),
-    storageEnabled: () => false,
-    api,
-    store: {
-      clear: vi.fn().mockResolvedValue(undefined),
-    } as unknown as NavigationStore,
-    refresher: {
-      refresh: async () => new Map(),
-    } as unknown as TransitRefresher,
-  });
-  await session.start(journey(), request, { ...defaults, maxBikeTransfers: 0 });
-  session.disruption = { id: "missed", message: "Anschluss gefährdet" };
-  await session.proposeAlternative();
-  expect(session.alternative?.journey.id).toBe("reachable");
-  await session.acceptAlternative();
-  await session.refresh();
-  expect(session.disruption).toBeUndefined();
-  await session.stop();
-});
+it.each(["proposal", "reroute"])(
+  "selects a reachable planner result during %s",
+  async (action) => {
+    const api = new ApiClient();
+    vi.spyOn(api, "batch").mockImplementation(
+      async (_request, _settings, variant) => ({
+        journeys: variant.direct
+          ? []
+          : [
+              { ...connection(now + 200), id: "missed" },
+              { ...connection(now + 900), id: "reachable" },
+            ],
+        issues: [],
+        stop: false,
+        rejected: false,
+      }),
+    );
+    const session = new NavigationSession({
+      changed: vi.fn(),
+      locate: async () => fix(),
+      storageEnabled: () => false,
+      api,
+      store: {
+        clear: vi.fn().mockResolvedValue(undefined),
+      } as unknown as NavigationStore,
+      refresher: {
+        refresh: async () => new Map(),
+      } as unknown as TransitRefresher,
+    });
+    await session.start(journey(), request, {
+      ...defaults,
+      maxBikeTransfers: 0,
+    });
+    if (action === "proposal") {
+      session.disruption = { id: "missed", message: "Anschluss gefährdet" };
+      await session.proposeAlternative();
+      expect(session.alternative?.journey.id).toBe("reachable");
+      await session.acceptAlternative();
+    } else {
+      await session.reroute();
+      expect(session.engine?.journey.id).toBe("reachable");
+    }
+    await session.refresh();
+    expect(session.disruption).toBeUndefined();
+    await session.stop();
+  },
+);
 
 it("rechecks reachability on acceptance even before the proposal expires", async () => {
   const plan = vi
@@ -701,5 +718,245 @@ it("starts through the real planner after a delayed transit check invalidates th
   expect(batch.mock.calls[0][0].time).toBe(now + 5);
   expect(session.engine?.phase).toBe("active");
   expect(session.engine?.journey.legs[0].kind).toBe("bike");
+  await session.stop();
+});
+
+it.each([
+  [721, 2, 1],
+  [-721, -2, -1],
+  [1080, 10, 10],
+  [0, 180, -180],
+])("normalizes heading delta from %s to %s", (from, to, expected) =>
+  expect(headingDelta(from, to)).toBe(expected),
+);
+
+it("retains a turn throughout the last 25 meters of its approach", () => {
+  const engine = new NavigationEngine(journey());
+  engine.update(fix(place(11.00175)), now * 1000);
+  expect(engine.distanceToNext).toBeLessThan(25);
+  expect(engine.instruction).toBe("Links abbiegen auf Zweite Straße");
+  engine.update(fix(b, 1), (now + 1) * 1000);
+  expect(engine.maneuver).toBeUndefined();
+});
+
+it("shows a turn less than 25 meters from the starting point", () => {
+  const corner = place(11.0001);
+  const leg = bike();
+  leg.maneuvers![0].coordinates = [a, corner];
+  leg.maneuvers![1].coordinates = [corner, c];
+  const engine = new NavigationEngine(journey([leg]));
+  expect(engine.instruction).toBe("Links abbiegen auf Zweite Straße");
+  expect(engine.distanceToNext).toBeGreaterThan(0);
+  expect(engine.distanceToNext).toBeLessThan(25);
+});
+
+it.each([0, 1])(
+  "keeps waiting ahead of folding when current section is %s",
+  (index) => {
+    const route = journey([
+      { ...bike(), end: now + 360 },
+      transition("wait", c, now + 360, now + 360),
+      transition("fold", c, now + 360, now + 540),
+      { ...train(), start: now + 540 },
+    ]);
+    expect(applyTransit(route, index, new Map()).legs).toEqual(route.legs);
+    const delayed = applyTransit(
+      route,
+      index,
+      new Map([
+        [
+          route.legs[3].navigationId!,
+          {
+            kind: "updated",
+            update: {
+              departure: now + 660,
+              arrival: now + 1020,
+              realtime: true,
+              cancelled: false,
+              updatedAt: now,
+            },
+          },
+        ],
+      ]),
+    );
+    expect(delayed.legs[1].end).toBe(now + 480);
+    expect(delayed.legs[2]).toMatchObject({ start: now + 480, end: now + 660 });
+    expect(transitDisruption(delayed, index, now)).toBeUndefined();
+  },
+);
+
+it("reserves folding and boarding time after a current transfer wait", () => {
+  const route = journey([
+    { ...train(), start: now - 600, end: now },
+    { ...bike(), from: c, to: c },
+    transition("wait", c, now + 180, now + 180),
+    transition("fold", c, now + 180, now + 360),
+    transition("wait", c, now + 360, now + 540),
+    { ...train(), start: now + 540 },
+  ]);
+  const updated = applyTransit(route, 2, new Map());
+  expect(updated.legs).toEqual(route.legs);
+  expect(transitDisruption(updated, 2, now + 180)).toBeUndefined();
+});
+
+it("reserves movement between folding and boarding when scheduling waits", () => {
+  const route = journey([
+    { ...bike(), end: now + 300 },
+    transition("wait", c, now + 300, now + 300),
+    transition("fold", c, now + 300, now + 480),
+    {
+      ...bike(),
+      kind: "walk" as const,
+      from: c,
+      start: now + 480,
+      end: now + 540,
+    },
+    { ...train(), start: now + 540 },
+  ]);
+  expect(applyTransit(route, 0, new Map()).legs).toEqual(route.legs);
+});
+
+it.each(["startup", "reroute", "stop"])(
+  "rejects a route that expires during automatic %s",
+  async (action) => {
+    const plan = vi.fn(async () => {
+      vi.setSystemTime((now + 50) * 1000);
+      return connection(now + 400);
+    });
+    const { session } = sessionHarness(plan);
+    if (action === "startup") {
+      await expect(
+        session.start(journey(), request, defaults, undefined, true),
+      ).rejects.toThrow("Keine aktuell erreichbare Verbindung");
+      expect(session.engine).toBeUndefined();
+    } else {
+      const initial =
+        action === "stop"
+          ? journey([
+              {
+                ...transition("stop", a, now - 10, now),
+                stop: { id: "stop", place: a, stayMinutes: 0 },
+              },
+              {
+                ...train(),
+                transitStatus: { failure: "unavailable" as const },
+              },
+            ])
+          : journey();
+      await session.start(initial, request, defaults);
+      const engine = session.engine;
+      if (action === "stop") await session.continueStop();
+      else await session.reroute();
+      expect(session.engine).toBe(engine);
+      expect(session.retryAvailable).toBe(true);
+      expect(session.message).toContain("Keine aktuell erreichbare Verbindung");
+    }
+    await session.stop();
+  },
+);
+
+it("requires confirmation when a saved section expires during transit refresh", async () => {
+  const route = journey([transition("wait", a, now - 10, now + 1), bike()]);
+  const session = new NavigationSession({
+    changed: vi.fn(),
+    locate: async () => fix(),
+    storageEnabled: () => false,
+    api: new ApiClient(),
+    store: { clear: vi.fn() } as unknown as NavigationStore,
+    refresher: {
+      refresh: async () => {
+        vi.setSystemTime((now + 2) * 1000);
+        return new Map();
+      },
+    } as unknown as TransitRefresher,
+  });
+  await session.start(route, request, defaults, {
+    version: 1,
+    savedAt: now - 10,
+    journey: route,
+    request,
+    settings: defaults,
+    progress: { legIndex: 0, maneuverIndex: 0, meters: 0, confirmedStops: [] },
+  });
+  expect(session.resumeNeedsConfirmation).toBe(true);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(session.engine?.progress.legIndex).toBe(0);
+  await session.stop();
+});
+
+it("clears resume confirmation when continuing an expired stop", async () => {
+  const route = journey([
+    {
+      ...transition("stop", a, now - 10, now - 1),
+      stop: { id: "stop", place: a, stayMinutes: 0 },
+    },
+    transition("unfold", a, now, now + 1),
+    bike(),
+  ]);
+  const { session } = sessionHarness();
+  await session.start(route, request, defaults, {
+    version: 1,
+    savedAt: now - 10,
+    journey: route,
+    request,
+    settings: defaults,
+    progress: { legIndex: 0, maneuverIndex: 0, meters: 0, confirmedStops: [] },
+  });
+  expect(session.resumeNeedsConfirmation).toBe(true);
+  await session.continueStop();
+  expect(session.resumeNeedsConfirmation).toBe(false);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(session.engine?.leg.kind).toBe("bike");
+  await session.stop();
+});
+
+it("checkpoints distance without saving every location update and flushes on hide", async () => {
+  const { session, store } = sessionHarness();
+  await session.start(
+    journey([{ ...bike(), maneuvers: undefined }]),
+    request,
+    defaults,
+  );
+  session.updateLocation(fix(place(11.001), 1), "current");
+  const writes = store.save.mock.calls.length;
+  expect(store.save.mock.lastCall![0].progress.meters).toBeGreaterThan(50);
+  session.updateLocation(fix(place(11.00105), 2), "current");
+  expect(store.save).toHaveBeenCalledTimes(writes);
+  session.setForeground(false);
+  expect(store.save).toHaveBeenCalledTimes(writes + 1);
+  expect(store.save.mock.lastCall![0].progress.meters).toBe(
+    session.engine!.progress.meters,
+  );
+  await session.stop();
+});
+
+it("restores a loop from its latest distance instead of a previously traversed segment", async () => {
+  const coordinates = [a, b, c, a, b];
+  const route = journey([
+    {
+      ...bike(),
+      to: b,
+      coordinates,
+      maneuvers: undefined,
+      distance: projectPath(a, coordinates).length,
+      end: now + 900,
+    },
+  ]);
+  const { session, store } = sessionHarness();
+  await session.start(route, request, defaults);
+  for (const [point, seconds] of [
+    [b, 10],
+    [c, 30],
+    [a, 60],
+  ] as const) {
+    vi.setSystemTime((now + seconds) * 1000);
+    session.updateLocation(fix(point, seconds), "current");
+  }
+  session.setForeground(false);
+  const snapshot = store.save.mock.lastCall![0];
+  expect(snapshot.progress.meters).toBeGreaterThan(600);
+  const restored = new NavigationEngine(snapshot.journey, snapshot.progress);
+  restored.update(fix(a, 61), (now + 61) * 1000);
+  expect(restored.progress.meters).toBeGreaterThan(600);
   await session.stop();
 });
