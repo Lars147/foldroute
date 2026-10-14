@@ -12,7 +12,8 @@
     "test:parity": "sh scripts/parity.sh"
   },
   "dependencies": {
-    "leaflet": "1.9.4"
+    "leaflet": "1.9.4",
+    "ol": "10.11.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

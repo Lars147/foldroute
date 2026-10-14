@@ -101,6 +101,35 @@ async function collect(
   return updates;
 }
 describe("free intermediate stops", () => {
+  it("keeps immediate departure valid while time advances between sections", async () => {
+    let clock = Date.now();
+    const clockSpy = vi.spyOn(Date, "now").mockImplementation(() => clock++);
+    const client = new Client((r, v) => {
+      clock += 5000;
+      return v.direct ? [ride(r)] : [];
+    });
+    try {
+      const updates = await collect(
+        {
+          origin: p(0),
+          destination: p(2),
+          time: clock / 1000,
+          timing: "now",
+          stops: [stop(1, 10)],
+        },
+        client,
+        { ...defaults, maxBikeTransfers: 1 },
+      );
+      expect(updates.at(-1)?.journeys).toHaveLength(1);
+      expect(updates.at(-1)?.issues).toEqual([]);
+      const first = client.calls.find((r) => r.origin.name === p(0).name)!;
+      const onward = client.calls.find((r) => r.origin.name === p(1).name)!;
+      expect(onward.timing).toBe("depart");
+      expect(onward.time).toBe(first.time + 30 * 60);
+    } finally {
+      clockSpy.mockRestore();
+    }
+  });
   for (const timing of ["depart", "arrive"] as const)
     for (const count of [1, 2, 3]) {
       it(`plans ${count} stops ${timing} with dwell and publishes only complete trips`, async () => {

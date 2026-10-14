@@ -537,6 +537,7 @@ test("planning deep link loads offline under the static subpath without replacin
   const request = page.waitForRequest((r) =>
     r.url().includes("directModes=BIKE"),
   );
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   expect(new URL((await request).url()).searchParams.get("toPlace")).toBe(
     "48.180000,11.620000",
@@ -562,4 +563,90 @@ test("PWA history deduplicates repeated trips across an offline restart", async 
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(page.locator("#replan-saved")).toBeDisabled();
   await expect(page.locator("#map")).toHaveClass(/offline-map/);
+});
+
+test("installed shell resumes navigation and loads its map while fully offline", async ({
+  page,
+}) => {
+  await production(page);
+  await page.clock.setFixedTime(new Date());
+  await page.evaluate(async (settings) => {
+    const origin = {
+      name: "Start",
+      detail: "",
+      latitude: 48.132,
+      longitude: 11.5756,
+    };
+    const destination = {
+      name: "Ziel",
+      detail: "",
+      latitude: 48.133,
+      longitude: 11.5766,
+    };
+    const now = Date.now() / 1000;
+    const journey = {
+      id: "offline-navigation",
+      origin,
+      destination,
+      departure: now,
+      arrival: now + 100,
+      transfers: 0,
+      isDirect: true,
+      legs: [
+        {
+          kind: "bike",
+          navigationId: "bike",
+          from: origin,
+          to: destination,
+          start: now,
+          end: now + 100,
+          distance: 150,
+          coordinates: [origin, destination],
+        },
+      ],
+    };
+    await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open("foldroute-offline", 2);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const tx = open.result.transaction("state", "readwrite");
+        tx.objectStore("state").put(
+          {
+            version: 1,
+            savedAt: now,
+            journey,
+            settings,
+            request: { origin, destination, timing: "now", time: now },
+            progress: {
+              legIndex: 0,
+              maneuverIndex: 0,
+              meters: 0,
+              confirmedStops: [],
+            },
+          },
+          "activeNavigation",
+        );
+        tx.oncomplete = () => {
+          open.result.close();
+          resolve();
+        };
+        tx.onabort = () => reject(tx.error);
+      };
+    });
+  }, defaults);
+  await page.context().setOffline(true);
+  await page.reload();
+  await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
+  await page.locator("#navigation-resume").click();
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Mit dem Rad nach Ziel",
+  );
+  await expect(page.locator("#navigation-map canvas")).toBeVisible();
+  await expect(page.locator("#navigation-network-status")).toContainText(
+    "Offline",
+  );
+  await expect(page.locator("#update-now")).toBeDisabled();
+  await page.locator("#navigation-end").click();
+  await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#map-view")).toBeVisible();
 });

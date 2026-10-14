@@ -96,10 +96,29 @@ for (const width of [320, 390, 768, 1280]) {
     await expect(page.locator(".route-recommendation")).toHaveText(
       "Früheste Ankunft",
     );
+    const selected = page.locator('.route-choice[aria-pressed="true"]');
+    await expect(selected.locator(".route-stage")).toHaveCount(4);
+    await expect(selected.locator(".route-line")).toHaveText("ÖPNV");
+    await expect(
+      selected.locator('.route-effort-metric[data-kind="bike"]'),
+    ).toHaveText("14 min");
+    await expect(
+      selected.locator('.route-effort-metric[data-kind="walk"]'),
+    ).toHaveText("2 min");
+    await expect(
+      selected.locator('.route-effort-metric[data-kind="transfer"]'),
+    ).toHaveText("1 Umst.");
+    const comparison = page.locator('[data-journey="comparison"]');
+    await expect(
+      comparison.locator('.route-effort-metric[data-kind="walk"]'),
+    ).toHaveCount(0);
+    await expect(comparison).toHaveAccessibleName(/0 min Fuß · 0 Umstiege/);
     await expect(
       page.locator("#panel-handle, .route-details-button"),
     ).toHaveCount(0);
+    await page.locator("#route-more").click();
     await expect(page.locator("#refresh-route")).toBeVisible();
+    await page.keyboard.press("Escape");
     await page.screenshot({ path: info.outputPath(`list-${width}.png`) });
     await page.locator('[data-journey="best"]').click();
     await expect(page.locator("#panel-details")).toBeVisible();
@@ -147,6 +166,71 @@ for (const width of [320, 390, 768, 1280]) {
     ).toBe(true);
   });
 }
+
+test("symbol routes preserve bus lines, transfers, stops and older snapshots", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await preview(page);
+  await page.evaluate(() => {
+    const { state, view } = (window as any).uxPreview;
+    const journey = state.journeys[0];
+    const transit = journey.legs.find((leg: any) => leg.kind === "transit");
+    transit.mode = "BUS";
+    transit.line = "42";
+    journey.legs.splice(
+      journey.legs.indexOf(transit) + 1,
+      0,
+      { ...transit, kind: "wait" },
+      { ...transit, mode: "REGIONAL_RAIL", line: "RE 1" },
+      { ...transit, mode: undefined, line: undefined },
+      {
+        ...transit,
+        kind: "stop",
+        from: {
+          ...transit.from,
+          name: "Zwischenstopp <Marktplatz> mit einem längeren Ortsnamen",
+        },
+      },
+    );
+    journey.transfers = 2;
+    state.restored = true;
+    document.documentElement.style.fontSize = "24px";
+    view.render(state);
+  });
+  const card = page.locator('[data-journey="best"]');
+  await expect(card.locator(".route-line")).toHaveText(["42", "RE 1", "ÖPNV"]);
+  await expect(card.locator('.route-stage[data-symbol="bus"]')).toHaveCount(1);
+  await expect(card.locator('.route-stage[data-symbol="transit"]')).toHaveCount(
+    2,
+  );
+  await expect(card.locator(".route-stage")).toHaveCount(7);
+  await expect(card.locator(".route-stop-name")).toHaveText(
+    "Zwischenstopp <Marktplatz> mit einem längeren Ortsnamen",
+  );
+  await expect(card.locator(".route-stop-name marktplatz")).toHaveCount(0);
+  await expect(
+    card.locator('.route-effort-metric[data-kind="transfer"]'),
+  ).toHaveText("2 Umst.");
+  await expect(card).toHaveAccessibleName(
+    /14 min Rad · 2 min Fuß · 2 Umstiege\. Rad → 42 → RE 1 → ÖPNV → Stopp:/,
+  );
+  expect(
+    await card.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: info.outputPath("symbol-route-large-text.png"),
+  });
+  await page.locator('[data-journey="best"]').click();
+  await page.locator("#result-back").click();
+  await expect(card).toHaveAttribute("aria-pressed", "true");
+  await expect(card).toHaveCSS("border-color", "rgb(255, 212, 59)");
+  await expect(page.locator('.route-choice[aria-pressed="true"]')).toHaveCount(
+    1,
+  );
+});
 
 test("same-ID updates retain reading position and keyboard focus", async ({
   page,
@@ -214,5 +298,41 @@ for (const [width, height] of [
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+  });
+}
+for (const width of [320, 390, 1280]) {
+  test(`one start action follows selection and the menu returns focus at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await preview(page);
+    await expect(page.locator("#route-origin")).toHaveText("Start");
+    await expect(page.locator("#route-destination")).toHaveText("Ziel");
+    await expect(page.locator("#route-start-duration")).toHaveText("55 min");
+    await expect(page.locator("#navigation-start")).toHaveAccessibleName(
+      "Navigation starten",
+    );
+    await expect(page.locator(".panel-actions .primary:visible")).toHaveCount(
+      1,
+    );
+    await expect(page.locator(".panel-actions #adjust-route")).toHaveCount(0);
+    await page.locator('[data-journey="best"]').click();
+    await expect(page.locator("#route-start-duration")).toHaveText("50 min");
+    await expect(page.locator("#route-start-arrival")).toContainText("10:50");
+    if (width < 900) {
+      await expect(page.locator("#navigation-start")).toBeInViewport({
+        ratio: 1,
+      });
+      await expect(page.locator("#route-request-meta")).toBeVisible();
+    }
+    await page.locator("#route-more").click();
+    await expect(page.locator("#route-actions-dialog")).toBeVisible();
+    await expect(page.locator("#refresh-route")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#route-more")).toBeFocused();
+    await expect(page.locator("#route-actions-dialog")).toBeHidden();
+    await page.screenshot({
+      path: test.info().outputPath("preview-start.png"),
+    });
   });
 }

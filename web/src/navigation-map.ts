@@ -1,0 +1,263 @@
+import Map from "ol/Map.js";
+import View from "ol/View.js";
+import { defaults as defaultInteractions } from "ol/interaction/defaults.js";
+import TileLayer from "ol/layer/Tile.js";
+import VectorLayer from "ol/layer/Vector.js";
+import OSM from "ol/source/OSM.js";
+import VectorSource from "ol/source/Vector.js";
+import Feature from "ol/Feature.js";
+import LineString from "ol/geom/LineString.js";
+import Point from "ol/geom/Point.js";
+import CircleGeometry from "ol/geom/Circle.js";
+import { fromLonLat } from "ol/proj.js";
+import { Style, Stroke, Fill, Circle, Text, RegularShape } from "ol/style.js";
+import "ol/ol.css";
+import {
+  headingDelta,
+  projectPath,
+  type NavigationEngine,
+} from "./navigation-engine";
+import { type LocationFix, type LocationQuality } from "./live-location";
+import type { Coordinate, LegKind } from "./model";
+import { legColors } from "./ui";
+const xy = (p: Coordinate) => fromLonLat([p.longitude, p.latitude]);
+const navigationZoom: Partial<Record<LegKind, number>> = {
+  bike: 17,
+  walk: 18,
+  transit: 15,
+};
+export class NavigationMap {
+  private map: Map;
+  private view: View;
+  private routes = new VectorSource();
+  private location = new VectorSource();
+  private tiles = new TileLayer({ source: new OSM({ maxZoom: 19 }) });
+  private following = true;
+  private heading?: number;
+  private lastFix?: LocationFix;
+  private signature = "";
+  private kind?: LegKind;
+  private defaultZoom = navigationZoom.bike!;
+  private observer: ResizeObserver;
+  private events = new AbortController();
+  constructor(
+    private target: HTMLElement,
+    private panel: HTMLElement,
+    private top: HTMLElement,
+    private changed: (following: boolean) => void,
+  ) {
+    this.view = new View({
+      center: fromLonLat([10, 50]),
+      zoom: this.defaultZoom,
+      maxZoom: 19,
+      constrainRotation: false,
+    });
+    const publishZoom = () => {
+      target.dataset.zoom = String(this.view.getZoom());
+    };
+    this.view.on("change:resolution", publishZoom);
+    publishZoom();
+    this.view.on("change:center", () => {
+      target.dataset.center = JSON.stringify(this.view.getCenter());
+    });
+    this.map = new Map({
+      target,
+      view: this.view,
+      interactions: defaultInteractions({ onFocusOnly: false }),
+      layers: [
+        this.tiles,
+        new VectorLayer({ source: this.routes }),
+        new VectorLayer({ source: this.location }),
+      ],
+      controls: [],
+    });
+    this.map.on("pointerdrag", () => this.pause());
+    target.addEventListener("wheel", () => this.pause(), {
+      passive: true,
+      signal: this.events.signal,
+    });
+    target.addEventListener("touchmove", () => this.pause(), {
+      passive: true,
+      signal: this.events.signal,
+    });
+    target.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          [
+            "ArrowUp",
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "+",
+            "-",
+          ].includes(event.key)
+        )
+          this.pause();
+      },
+      { signal: this.events.signal },
+    );
+    this.observer = new ResizeObserver(() => {
+      this.map.updateSize();
+      this.position();
+    });
+    this.observer.observe(target);
+    this.observer.observe(panel);
+    this.observer.observe(top);
+    this.tiles.getSource()!.on("tileloaderror", () => {
+      target.dataset.tileError = "true";
+    });
+  }
+  pause() {
+    this.following = false;
+    this.target.dataset.following = "false";
+    this.changed(false);
+  }
+  center() {
+    this.view.cancelAnimations();
+    this.view.setZoom(this.defaultZoom);
+    this.following = true;
+    this.target.dataset.following = "true";
+    this.changed(true);
+    this.position();
+  }
+  update(engine: NavigationEngine, fix?: LocationFix, state?: LocationQuality) {
+    this.tiles.setVisible(navigator.onLine);
+    const signature = JSON.stringify([
+      engine.journey.legs.map((l) => [l.navigationId, l.coordinates]),
+      engine.progress.legIndex,
+    ]);
+    if (signature !== this.signature) {
+      this.signature = signature;
+      this.routes.clear();
+      engine.journey.legs.forEach((leg, index) => {
+        if (leg.coordinates.length < 2) return;
+        const feature = new Feature(new LineString(leg.coordinates.map(xy)));
+        feature.setStyle(
+          new Style({
+            stroke: new Stroke({
+              color:
+                index < engine.progress.legIndex
+                  ? "#98a5a7"
+                  : legColors[leg.kind],
+              width: index === engine.progress.legIndex ? 7 : 4,
+              lineDash: leg.kind === "walk" ? [3, 8] : undefined,
+            }),
+          }),
+        );
+        this.routes.addFeature(feature);
+      });
+      const points = [
+        engine.journey.origin,
+        ...engine.journey.legs.flatMap((l) => (l.stop ? [l.stop.place] : [])),
+        engine.journey.destination,
+      ];
+      points.forEach((point, index) => {
+        const feature = new Feature(new Point(xy(point)));
+        feature.setStyle(
+          new Style({
+            image: new Circle({
+              radius: 12,
+              fill: new Fill({ color: index === 0 ? "#171a1c" : "#ffd43b" }),
+              stroke: new Stroke({ color: "white", width: 2 }),
+            }),
+            text: new Text({
+              text:
+                index === 0
+                  ? ""
+                  : index === points.length - 1
+                    ? "Z"
+                    : String(index),
+              fill: new Fill({ color: "#171a1c" }),
+              font: "bold 12px sans-serif",
+            }),
+          }),
+        );
+        this.routes.addFeature(feature);
+      });
+    }
+    if (this.kind !== engine.leg.kind) {
+      this.kind = engine.leg.kind;
+      const zoom = navigationZoom[this.kind];
+      if (zoom !== undefined) {
+        this.defaultZoom = zoom;
+        if (this.following) this.view.setZoom(zoom);
+      }
+    }
+    if (fix && state === "current") {
+      this.lastFix = fix;
+      const course =
+        fix.heading !== undefined && (fix.speed ?? 0) >= 1
+          ? fix.heading
+          : undefined;
+      const initial = projectPath(fix, engine.leg.coordinates).bearing;
+      const desired = course ?? this.heading ?? initial;
+      this.heading =
+        this.heading === undefined
+          ? desired
+          : this.heading + headingDelta(this.heading, desired) * 0.4;
+    }
+    this.location.clear();
+    const point = this.lastFix ?? engine.leg.from;
+    const accuracy = new Feature(
+      new CircleGeometry(
+        xy(point),
+        (this.lastFix?.accuracy ?? 0) /
+          Math.max(0.1, Math.cos((point.latitude * Math.PI) / 180)),
+      ),
+    );
+    accuracy.setStyle(
+      new Style({
+        fill: new Fill({ color: "#3478f620" }),
+        stroke: new Stroke({ color: "#3478f680", width: 1 }),
+      }),
+    );
+    const marker = new Feature(new Point(xy(point)));
+    marker.setStyle(
+      new Style({
+        image: new RegularShape({
+          points: 3,
+          radius: 13,
+          radius2: 7,
+          rotation: ((this.heading ?? 0) * Math.PI) / 180,
+          rotateWithView: true,
+          fill: new Fill({
+            color: state === "current" ? "#3478f6" : "#737d83",
+          }),
+          stroke: new Stroke({ color: "white", width: 3 }),
+        }),
+      }),
+    );
+    this.location.addFeatures([accuracy, marker]);
+    this.target.dataset.bearing = String(this.heading ?? 0);
+    this.target.dataset.following = String(this.following);
+    if (!this.lastFix) this.view.setCenter(xy(point));
+    this.position();
+  }
+  private position() {
+    const bounds = this.target.getBoundingClientRect(),
+      top = this.top.getBoundingClientRect(),
+      panel = this.panel.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    this.target.parentElement!.style.setProperty(
+      "--navigation-header-bottom",
+      `${Math.max(0, top.bottom - bounds.top)}px`,
+    );
+    if (!this.following || !this.lastFix || this.target.hidden) return;
+    const upper = Math.max(0, top.bottom - bounds.top + 12),
+      lower = Math.max(upper, panel.top - bounds.top - 12);
+    const heading = (-(this.heading ?? 0) * Math.PI) / 180;
+    this.view.setRotation(heading);
+    this.view.centerOn(
+      xy(this.lastFix),
+      [bounds.width, bounds.height],
+      [bounds.width / 2, upper + ((lower - upper) * 2) / 3],
+    );
+  }
+  dispose() {
+    this.events.abort();
+    this.observer.disconnect();
+    this.map.setTarget(undefined);
+    this.map.dispose();
+  }
+}

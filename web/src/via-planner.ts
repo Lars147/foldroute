@@ -150,7 +150,11 @@ export async function* planViaRoutes(
           const part: RouteRequest = {
             origin: places[index],
             destination: places[index + 1],
-            timing: backward ? "arrive" : "depart",
+            timing: backward
+              ? "arrive"
+              : !path && request.timing === "now"
+                ? "now"
+                : "depart",
             time,
           };
           let latest: Journey[] = [];

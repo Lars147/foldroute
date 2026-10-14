@@ -18,7 +18,7 @@ Im Anpassungsdialog steht **Start** oben und **Ziel** darunter. Beide Felder öf
 
 Zwischenziele werden auf der Karte nummeriert und im Reiseablauf angezeigt. Das Radlimit gilt je Teilstrecke zwischen den ausgewählten Orten: zweimal 20 Minuten Radfahrt über ein Zwischenziel sind bei einem Limit von 30 Minuten zulässig, auch ohne Pause. Der optionale Fahrradvergleich besucht dieselben Stopps und überschreitet das Limit nur, wenn mindestens eine Radetappe zu lang ist. Die Anzahl zusätzlicher Rad-Umstiege gilt weiterhin für die gesamte Reise; ein gewähltes Zwischenziel ist selbst kein Rad-Umstieg.
 
-In der iPhone-Navigation bleibt **Zwischenziel erreicht** aktiv, bis du **Weiterfahren** wählst. Bei früher Bestätigung wartet die Navigation bis zur geplanten Weiterfahrt. Ist ein Anschluss nicht mehr erreichbar oder nicht zuverlässig prüfbar, wird die verbleibende Reise neu berechnet. Ohne erfolgreiche Neuberechnung bleibt der Stopp aktiv. Noch offene Zwischenziele bleiben erhalten; bestätigte Stopps werden nicht erneut angefahren. Das gilt auch nach Wiederaufnahme einer gespeicherten Navigation.
+In der iPhone- und PWA-Navigation bleibt **Zwischenziel erreicht** aktiv, bis du **Weiterfahren** wählst. Bei früher Bestätigung wartet die Navigation bis zur geplanten Weiterfahrt. Ist ein Anschluss nicht mehr erreichbar oder nicht zuverlässig prüfbar, wird die verbleibende Reise neu berechnet. Ohne erfolgreiche Neuberechnung bleibt der Stopp aktiv. Noch offene Zwischenziele bleiben erhalten; bestätigte Stopps werden nicht erneut angefahren. Das gilt auch nach Wiederaufnahme einer gespeicherten Navigation.
 
 ## Favoriten und Ortssuche
 
@@ -72,6 +72,8 @@ Beginnt die ausgewählte Route mindestens 60 Minuten nach dem gewünschten Start
 
 ## Navigation und Wiederaufnahme
 
+Dieser Abschnitt beschreibt den iPhone-Prototyp. Die Vordergrundnavigation im Web ist unter [Navigation in der PWA](#navigation-in-der-pwa) beschrieben.
+
 Nach vollständigem Schließen wird eine nur geplante Route verworfen. Bereits gestartete Navigation wird mit dem gespeicherten Abschnitt und Manöver automatisch fortgesetzt. Beenden oder Ankunft löscht den Wiederherstellungszustand; letzte Orte, Verlauf und Einstellungen bleiben erhalten. Hintergrundwechsel verändert die laufende Sitzung nicht. Alte Routenspeicher ohne Navigationsstatus gelten als Planung.
 
 Die aktive Navigation öffnet sofort eine um 45° geneigte Detailkarte in Fahrtrichtung. Sie folgt dem Standort und berücksichtigt die Höhe der Infokarten. Die Kameraentfernung beträgt 600 Meter beim Radfahren, 350 Meter zu Fuß und 1.500 Meter im ÖPNV; beim Falten und Warten bleibt der letzte Maßstab erhalten. Im Stand bleibt die Blickrichtung stabil. Verschieben, Drehen oder Zoomen pausiert das Mitführen; der Standortknopf **Navigation zentrieren** aktiviert es wieder. Ohne brauchbares GPS bleibt die letzte gültige Position sichtbar, beim Wiederherstellen zunächst der gespeicherte aktuelle Abschnitt. Die Routenplanung behält ihre Gesamtübersicht.
@@ -85,3 +87,9 @@ Beim Vergleich der Routen bleibt der Kartenausschnitt stabil. Die Übersicht umf
 In Web/PWA und der iPhone-Reisevorschau bleiben Abfahrt, Ankunft und Gesamtdauer beim Scrollen sichtbar. Alternativen, Hinweise und Reisedetails scrollen darunter; die Aktionen bleiben unten erreichbar. Bei wenig Platz nutzt das Panel zunächst die volle Höhe. Reicht diese bei großer Schrift oder im Querformat nicht aus, lässt sich ausnahmsweise das gesamte Panel scrollen.
 
 In Web/PWA zeigt die minimierte Routenübersicht Platz für eine Verbindung, die normale Übersicht für zwei. Hochziehen am Griff vergrößert das Panel bis zur Detailansicht; Herunterziehen verkleinert es. Weitere Verbindungen bleiben durch Scrollen erreichbar. Bei wenigen Ergebnissen oder begrenzter Bildschirmhöhe passt sich die Höhe entsprechend an.
+
+## Navigation in der PWA
+
+Nach der Routenwahl „Los“ in der festen Startleiste antippen. Daneben stehen Dauer und Ankunft der ausgewählten Verbindung. Start/Ziel im Kopf öffnet die Bearbeitung; das „…“-Menü bietet Teilen, Aktualisieren und bei gespeicherten Reisen „Jetzt neu planen“. Das X schließt die Vorschau. Die Karte folgt in Fahrtrichtung, Abbiegehinweise stehen im dunklen Panel. Kartenbewegung pausiert das Folgen; „Standort folgen“ aktiviert es wieder. „Ton an“ schaltet Sprachansagen stumm. „Abschnitt fertig“ und „Ausgestiegen“ bestätigen einen Abschnitt, wenn automatische Erkennung nicht ausreicht. Zwischenstopps benötigen „Weiterfahren“. Auf dem Handy steht die Fahranweisung oben; unten bleiben Restdauer, Ankunft und das X zum Beenden sichtbar. Die untere Leiste antippen oder hochziehen, um Etappen, Echtzeitstatus und „Abschnitt fertig“ zu öffnen. Herunterziehen schließt die Details. Warnungen bleiben auch eingeklappt sichtbar. „Verbindung ansehen“ öffnet vorgeschlagene Alternativen; nach erfolgreichem Übernehmen klappen die Details wieder ein. „Weiterfahren“ bleibt an Zwischenstopps direkt erreichbar.
+
+Die geöffnete PWA aktualisiert Bus- und Bahnfahrten und bietet bei Störungen neue Verbindungen zur Übernahme an. Die Anzeige nennt Datenstand und fehlende Aktualisierung. Navigation braucht ein sichtbares Fenster und eingeschalteten Bildschirm. Beim App-Wechsel pausiert sie. Nach vollständigem Schließen fragt sie, ob die gespeicherte Navigation fortgesetzt werden soll; die Fahrten-Speicherung muss dafür eingeschaltet sein. Details und Grenzen stehen in der [Web-Anleitung](../web/README.md#navigation-in-der-pwa).

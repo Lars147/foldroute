@@ -183,3 +183,77 @@ it("explicit requests time out without discarding the subscription", async () =>
   await rejected;
   expect(clear).not.toHaveBeenCalled();
 });
+
+it("requests permission again explicitly after denial and recovers after allowing", async () => {
+  permission.state = "denied";
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  const denied = expect(service.center(true)).rejects.toThrow(
+    "Website-Einstellungen",
+  );
+  expect(watch).toHaveBeenCalledTimes(1);
+  callbacks.get(1)!.error({ code: 1 } as GeolocationPositionError);
+  await denied;
+  permission.state = "prompt";
+  permission.onchange!();
+  expect(watch).toHaveBeenCalledTimes(1);
+  const retry = service.center(true);
+  expect(watch).toHaveBeenCalledTimes(2);
+  callbacks.get(2)!.success(position());
+  expect(await retry).toEqual(readFix(position()));
+});
+
+it("starts accurate requests with a quick fix while retaining the GPS watch", async () => {
+  const single = vi.fn((success: PositionCallback) => success(position(40)));
+  Object.assign(navigator.geolocation, { getCurrentPosition: single });
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  expect(await service.center(true)).toEqual(readFix(position(40)));
+  expect(single.mock.calls[0][2]).toEqual({
+    enableHighAccuracy: false,
+    maximumAge: 5000,
+    timeout: 5000,
+  });
+  expect(watch).toHaveBeenCalledTimes(1);
+  expect(clear).not.toHaveBeenCalled();
+});
+
+it("waits for precise GPS when the cached and quick fixes are inaccurate", async () => {
+  Object.assign(navigator.geolocation, {
+    getCurrentPosition: (success: PositionCallback) => success(position(500)),
+  });
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position(200));
+  const resolved = vi.fn();
+  const centering = service.center(true).then(resolved);
+  await flush();
+  expect(resolved).not.toHaveBeenCalled();
+  callbacks.get(1)!.success(position(20));
+  await centering;
+  expect(resolved).toHaveBeenCalledWith(readFix(position(20)));
+});
+
+it("ignores a quick fix received after cancelling the request", async () => {
+  let success!: PositionCallback;
+  Object.assign(navigator.geolocation, {
+    getCurrentPosition: (callback: PositionCallback) => {
+      success = callback;
+    },
+  });
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  const rejected = expect(service.center(true)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  service.cancelCenter();
+  await rejected;
+  changed.mockClear();
+  success(position());
+  expect(changed).not.toHaveBeenCalled();
+});

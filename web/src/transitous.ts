@@ -13,7 +13,11 @@ import {
   geometryError,
   responseError,
 } from "./model";
-import { decodePolyline, validateGeometry, validCoordinate } from "./geometry";
+import {
+  decodePolyline,
+  validateStreetGeometry,
+  validCoordinate,
+} from "./geometry";
 export const service = {
   api: "https://api.transitous.org/api",
   tiles: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -201,10 +205,11 @@ function mapLeg(raw: RawLeg, request: RouteRequest): Leg {
   if (raw.mode === "BIKE" || raw.mode === "WALK") {
     const steps = (raw.steps ?? []).map((s) => ({
       direction: s.relativeDirection,
+      streetName: s.streetName,
       distance: s.distance,
       coordinates: decodePolyline(s.polyline.points, s.polyline.precision),
     }));
-    coordinates = validateGeometry(
+    const validated = validateStreetGeometry(
       coordinates,
       steps,
       { ...from, latitude: raw.from.lat, longitude: raw.from.lon },
@@ -219,12 +224,34 @@ function mapLeg(raw: RawLeg, request: RouteRequest): Leg {
       start,
       end,
       distance: raw.distance ?? 0,
-      coordinates,
+      coordinates: validated.coordinates,
+      maneuvers: validated.steps.map((step) => ({
+        ...step,
+        streetName: step.streetName ?? "",
+      })),
     };
   }
   if (!coordinates.every(validCoordinate)) throw geometryError();
   return {
     kind: "transit",
+    transitReference:
+      raw.tripId &&
+      raw.from.stopId &&
+      raw.to.stopId &&
+      raw.scheduledStartTime &&
+      raw.scheduledEndTime
+        ? {
+            tripId: raw.tripId,
+            fromId: raw.from.stopId,
+            toId: raw.to.stopId,
+            scheduledDeparture: date(raw.scheduledStartTime),
+            scheduledArrival: date(raw.scheduledEndTime),
+          }
+        : undefined,
+    transitStatus: {
+      updatedAt: Date.now() / 1000,
+      cancelled: raw.cancelled === true,
+    },
     from,
     to,
     start,

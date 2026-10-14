@@ -69,3 +69,10 @@ Die aktuelle Ortssuche verwendet für Start und Ziel dieselbe nach `lastUsedAt` 
 Bei alten Faltzeit-Einstellungen wird der größere der beiden Werte innerhalb des erlaubten Bereichs übernommen. Die bisherigen Datenbankfelder bleiben kompatibel und erhalten beim Speichern denselben Wert. Neue serialisierte Einstellungen verwenden `foldingDuration`. Bereits berechnete Fahrten und gespeicherte Navigationsabschnitte werden nicht nachträglich verschoben.
 
 Alte Routenspeicher ohne Navigationsstatus gelten als Planung und starten nach vollständigem Schließen keine Navigation. Details zum aktuellen Verhalten stehen unter [Navigation und Wiederaufnahme](bedienung.md#navigation-und-wiederaufnahme).
+
+
+## Navigation im Web
+
+Die PWA verwendet dieselben Standortgrenzen wie iOS und portiert dessen ÖPNV-Referenzabgleich, Aktualisierungsintervalle und Anschlussprüfung. Fortschritt und Abweichungen verwenden Projektionen auf Liniensegmente; GPS-Daten bleiben im Arbeitsspeicher. Ein-/Ausstieg werden anhand eindeutiger Haltestellenkennungen und ursprünglicher Ereigniszeiten einer Fahrt zugeordnet. Fortschrittskennungen bleiben bei Echtzeitänderungen stabil. Routen- und Fahrtabrufe werden bei Hintergrundwechsel oder Beenden abgebrochen; verspätete Ergebnisse ersetzen keine neue Sitzung.
+
+Die Navigationskarte nutzt OpenLayers mit den vorhandenen OSM-Kacheln. Es gibt keine zusätzliche Karten-Vorabladung. Dienstpausen der Fahrtaktualisierung gelten separat von `/plan`. Offline oder bei fehlenden Referenzen bleiben letzte Daten mit Kennzeichnung erhalten. Technische Details zu Speicherung und Wiederaufnahme stehen in der [Web-Anleitung](../web/README.md#navigation-in-der-pwa).

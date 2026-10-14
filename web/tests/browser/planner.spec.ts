@@ -210,7 +210,7 @@ for (const width of [320, 390, 768, 1479])
     await page.setViewportSize({ width, height: 986 });
     await setup(page);
     await plan(page);
-    await expect(page.locator("#refresh-route")).toBeVisible();
+    await expect(page.locator("#route-more")).toBeVisible();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -366,7 +366,8 @@ test("cancel retains progressive results and ignores delayed responses", async (
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("32 min");
   await expect(page.locator("#adjust-route")).toBeDisabled();
-  await expect(page.locator(".panel-actions #close-route")).toBeVisible();
+  await expect(page.locator("#navigation-start")).toBeHidden();
+  await expect(page.locator(".panel-tools #close-route")).toBeVisible();
   await page.locator("#cancel").click();
   await expect(page.locator("#adjust-route")).toBeVisible();
   await expect(page.locator("#status")).toContainText("abgebrochen");
@@ -533,6 +534,7 @@ test("failed refresh preserves selected journey", async ({ page }) => {
   await page.route("**/api/v6/plan?*", (r) =>
     r.fulfill({ status: 503, headers: cors }),
   );
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expect(page.locator("#status")).toContainText("nicht verfügbar");
   await expect(
@@ -962,6 +964,7 @@ test("settings errors retain old results and their original offline snapshot", a
     "Anfrage nicht beantworten",
   );
   await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expect(page.locator("#status")).toContainText(
     "Anfrage nicht beantworten",
@@ -1167,6 +1170,7 @@ test("planning URL reloads fixed endpoints without location access and keeps now
   const direct = page.waitForRequest((r) =>
     r.url().includes("directModes=BIKE"),
   );
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   expect(new URL((await direct).url()).searchParams.get("time")).toBe(
     "2026-09-04T08:05:00Z",
@@ -1289,6 +1293,7 @@ test("copy planning link provides a selectable fallback when clipboard is denied
       }),
   );
   await plan(page);
+  await page.locator("#route-more").click();
   await page.locator("#share-plan").click();
   await expect(page.locator("#plan-link-value")).toBeVisible();
   await expect(page.locator("#plan-link-value")).toHaveValue(page.url());
@@ -1349,6 +1354,7 @@ test("copy succeeds and planning details fit the desktop sidebar", async ({
       }),
   );
   await plan(page);
+  await page.locator("#route-more").click();
   await page.locator("#share-plan").click();
   await expect(page.locator("#toast")).toHaveText("Planungslink kopiert.");
   await expect(page.locator("html")).toHaveAttribute(
@@ -1416,7 +1422,10 @@ test("three regular routes keep their places and comparison is an optional fourt
     /Fahrradvergleich:/,
   );
   await expect(
-    page.locator(".route-choice").last().locator(".icon svg"),
+    page
+      .locator(".route-choice")
+      .last()
+      .locator(".route-choice-schedule .icon svg"),
   ).toHaveCount(1);
   await page.locator(".route-choice").last().click();
   await expect(page.locator("#result-back")).toBeInViewport({ ratio: 1 });
@@ -1764,6 +1773,7 @@ test("history deduplicates routes, restores without requests and replans from fi
   expect(requests).toBe(0);
   await context.setOffline(false);
   const queried = page.waitForRequest("**/api/v6/plan?*");
+  await page.locator("#route-more").click();
   await page.locator("#replan-saved").click();
   const url = new URL((await queried).url());
   expect(url.searchParams.get("fromPlace")?.split(",").map(Number)).toEqual([
@@ -1899,9 +1909,7 @@ for (const width of [320, 390, 430, 1479]) {
         page.locator('.route-choice[aria-pressed="true"]'),
       ).toBeFocused();
     }
-    await expect(page.locator("#share-plan")).toBeVisible({
-      visible: width >= 900,
-    });
+    await expect(page.locator("#route-more")).toBeVisible();
   });
 }
 
@@ -1921,7 +1929,11 @@ test("small itinerary screens keep archived actions reachable", async ({
       (size) => (document.documentElement.style.fontSize = `${size}px`),
       fontSize,
     );
-    for (const id of ["replan-saved", "adjust-route", "result-back"]) {
+    await page.locator("#route-more").scrollIntoViewIfNeeded();
+    await page.locator("#route-more").click();
+    await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
+    await page.keyboard.press("Escape");
+    for (const id of ["adjust-route", "result-back"]) {
       await page.locator(`#${id}`).scrollIntoViewIfNeeded();
       await expect(page.locator(`#${id}`)).toBeInViewport({ ratio: 1 });
     }
@@ -2139,6 +2151,7 @@ test("history deletion during a pending recalculation does not resurrect the rou
     await route.fallback();
   });
   const started = page.waitForRequest("**/api/v6/plan?*");
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await started;
   await page.locator("#tab-history").click();
@@ -2149,6 +2162,7 @@ test("history deletion during a pending recalculation does not resurrect the rou
   await expectPlanningComplete(page);
   await expect(page.locator(".history-row")).toHaveCount(0);
   await page.locator("#tab-route").click();
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expectPlanningComplete(page);
   await page.locator("#tab-history").click();
@@ -2168,6 +2182,7 @@ test("history deletion while locating survives the location response", async ({
         } as GeolocationPosition);
     };
   });
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expect(page.locator("#status")).toContainText(
     "Standort wird ermittelt",
@@ -2445,6 +2460,7 @@ for (const outcome of ["success", "cancel", "error"] as const) {
         },
       });
     });
+    await page.locator("#route-more").click();
     await page
       .getByRole("button", { name: "Planung teilen", exact: true })
       .click();
@@ -2469,7 +2485,7 @@ for (const outcome of ["success", "cancel", "error"] as const) {
   });
 }
 
-test("desktop share stays in the header and manual copying works", async ({
+test("desktop actions menu supports keyboard sharing and manual copying", async ({
   page,
 }) => {
   await setup(page);
@@ -2487,20 +2503,14 @@ test("desktop share stays in the header and manual copying works", async ({
     document.documentElement.style.fontSize = "24px";
   });
   {
+    await page.locator("#route-more").click();
     await page.locator("#share-plan").focus();
     await page.keyboard.press("Enter");
     await expect(page.locator("#plan-link-value")).toBeVisible();
     await expect(page.locator("#plan-link-value")).toBeFocused();
     await expect(page.locator("#plan-link-value")).toHaveValue(page.url());
-    const share = (await page.locator("#share-plan").boundingBox())!;
-    const header = (await page.locator("#result-header").boundingBox())!;
-    expect(share.y).toBeGreaterThanOrEqual(header.y);
-    expect(share.y + share.height).toBeLessThanOrEqual(
-      header.y + header.height,
-    );
-    expect(share.width).toBeGreaterThanOrEqual(44);
-    expect(share.height).toBeGreaterThanOrEqual(44);
-    await expect(page.locator("#share-plan")).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#route-actions-dialog")).not.toBeVisible();
+    await expect(page.locator("#route-more")).toBeInViewport({ ratio: 1 });
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(1280);
@@ -2695,7 +2705,7 @@ for (const width of [390, 1479]) {
 }
 
 for (const width of [320, 390, 430]) {
-  test(`mobile results offer refresh and a new search at ${width}`, async ({
+  test(`mobile preview edits in its header and starts in its footer at ${width}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -2703,24 +2713,24 @@ for (const width of [320, 390, 430]) {
     await plan(page);
     await expectPlanningComplete(page);
     await expect(page.locator("#share-plan")).toBeHidden();
-    await expect(page.locator("#refresh-route")).toBeVisible();
-    await expect(page.locator(".panel-actions #close-route")).toHaveText(
-      "Neue Suche",
+    await expect(page.locator("#refresh-route")).toBeHidden();
+    await expect(page.locator(".panel-tools #close-route")).toBeVisible();
+    await expect(page.locator(".panel-actions #navigation-start")).toHaveText(
+      "Los",
     );
-    await expect(page.locator("#result-header")).toBeVisible();
+    await expect(page.locator(".panel-actions #adjust-route")).toHaveCount(0);
     await page.locator("#adjust-route").click();
     const request = page.waitForRequest("**/api/v6/plan?*");
     await page.locator("#calculate").click();
     await request;
     await expectPlanningComplete(page);
     await page.setViewportSize({ width: 900, height: 844 });
-    await expect(page.locator("#close-route")).toBeVisible();
+    await expect(page.locator(".panel-tools #close-route")).toBeVisible();
+    await page.locator("#route-more").click();
     await expect(page.locator("#refresh-route")).toBeVisible();
-    await page.locator("#share-plan").focus();
     await page.setViewportSize({ width, height: 844 });
-    await expect(
-      page.locator('.route-choice[aria-pressed="true"]'),
-    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#route-more")).toBeFocused();
     await page.locator("#close-route").click();
     await expect(page.locator("#destination")).toBeVisible();
     await expect(page.locator("#destination")).toBeFocused();
@@ -2772,6 +2782,7 @@ test("mobile refresh returns to comparison and preserves old results on failure"
     await gate;
     await route.fulfill({ status: 503, headers: cors });
   });
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
@@ -2807,4 +2818,16 @@ test("map itinerary action returns directly to comparison after reading", async 
   await expect(page.locator("#panel-details")).toBeVisible();
   await page.locator("#result-back").click();
   await expect(page.locator("#choices")).toBeVisible();
+});
+
+test("browser back closes the route actions dialog with the preview", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await page.locator("#route-more").click();
+  await expect(page.locator("#route-actions-dialog")).toBeVisible();
+  await page.goBack();
+  await expect(page.locator("#route-actions-dialog")).toBeHidden();
+  await expect(page.locator("#search-view")).toBeVisible();
 });
