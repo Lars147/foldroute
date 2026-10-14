@@ -22,7 +22,7 @@ export const freshTransit = (leg: Leg, now: number) =>
   leg.transitStatus?.updatedAt !== undefined &&
   Math.abs(now - leg.transitStatus.updatedAt) <= 120;
 export const headingDelta = (from: number, to: number) =>
-  ((to - from + 540) % 360) - 180;
+  ((((to - from + 180) % 360) + 360) % 360) - 180;
 
 /** Project onto segments, restricting candidates to the current part of the path. */
 export function projectPath(
@@ -184,7 +184,7 @@ export class NavigationEngine {
       // Keep its instruction until the rider has moved beyond that anchor.
       return special
         ? offset >= this.progress.meters - 25
-        : i > 0 && offset > this.progress.meters + 25;
+        : i > 0 && offset > this.progress.meters;
     });
     this.progress.maneuverIndex =
       next < 0 ? (this.leg.maneuvers?.length ?? 0) : next;

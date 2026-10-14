@@ -330,8 +330,10 @@ async function launchNavigation(replan = false, restored?: NavigationSnapshot) {
     el("navigation-instruction").focus({ preventScroll: true });
   } catch (error) {
     if (generation !== navigationLaunchGeneration) return;
-    if (error instanceof DOMException && error.name === "AbortError") return;
-    navigation!.message = errorText(error);
+    navigation!.message =
+      error instanceof DOMException && error.name === "AbortError"
+        ? "Navigationsstart unterbrochen. Bitte erneut versuchen."
+        : errorText(error);
     navigation!.retryAvailable = !navigation!.distantStart;
     navigationView!.render();
   }
@@ -351,8 +353,18 @@ async function endNavigation() {
     );
   }
   if (journey && request && options) {
-    session.restore(journey, request, Date.now() / 1000, options);
-    activePlan = { request, settings: options };
+    activePlan = structuredClone({ request, settings: options });
+    restorePlanContext(
+      activePlan,
+      temporarySettings || !!navigationStart?.restored,
+    );
+    session.restore(
+      journey,
+      activePlan.request,
+      Date.now() / 1000,
+      activePlan.settings,
+    );
+    settingsUI();
   }
   el("map-view").hidden = false;
   showRouteMap(session.state);
@@ -1391,6 +1403,21 @@ el("confirm-delete-history").onclick = async () => {
     button.disabled = false;
   }
 };
+function restorePlanContext(plan: RouteLink, temporary = true) {
+  settings = structuredClone(plan.settings);
+  temporarySettings = temporary;
+  // Restored endpoints stay fixed even if their original label came from GPS.
+  for (const place of [plan.request.origin, plan.request.destination]) {
+    if (place.name === "Aktueller Standort")
+      place.name = place === plan.request.origin ? "Startpunkt" : "Zielpunkt";
+  }
+  destination.set(plan.request.destination);
+  originOverride = plan.request.origin;
+  stops = structuredClone(plan.request.stops ?? []);
+  timing = plan.request.timing;
+  time = plan.request.time;
+  contextUI();
+}
 function openSnapshot(
   snapshot: SavedJourney,
   id?: string,
@@ -1408,17 +1435,7 @@ function openSnapshot(
     request: structuredClone(snapshot.request),
     settings: migrateSettings(snapshot.settings)!,
   };
-  // Historic coordinates stay fixed, even when their original label was GPS-based.
-  for (const place of [
-    activePlan.request.origin,
-    activePlan.request.destination,
-  ]) {
-    if (place.name === "Aktueller Standort")
-      place.name =
-        place === activePlan.request.origin ? "Startpunkt" : "Zielpunkt";
-  }
-  settings = structuredClone(activePlan.settings);
-  temporarySettings = true;
+  restorePlanContext(activePlan);
   activePlanId = planId ?? crypto.randomUUID();
   session.restore(
     snapshot.journey,
@@ -1426,12 +1443,6 @@ function openSnapshot(
     snapshot.savedAt,
     activePlan.settings,
   );
-  destination.set(activePlan.request.destination);
-  originOverride = activePlan.request.origin;
-  stops = structuredClone(activePlan.request.stops ?? []);
-  timing = activePlan.request.timing;
-  time = activePlan.request.time;
-  contextUI();
   settingsUI();
   if (view === "map") {
     if (push) writeHistory(true);

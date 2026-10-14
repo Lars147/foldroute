@@ -866,3 +866,130 @@ test("explains a silent location provider and offers retry after the deadline", 
     "Navigation konnte nicht starten",
   );
 });
+
+test("interrupted startup can retry location after returning from the background", async ({
+  page,
+}) => {
+  await setup(page);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  await page.goto("/");
+  await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).savedGeo = navigator.geolocation;
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        watchPosition: () => 1,
+        clearWatch() {},
+        getCurrentPosition() {},
+      },
+    });
+  });
+  await page.locator("#navigation-resume").click();
+  await expect(page.locator("#navigation-status")).toHaveText(
+    "Standort wird geprüft …",
+  );
+  await page.evaluate(() => (window as any).navProbe.hide(true));
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: (window as any).savedGeo,
+    });
+    (window as any).navProbe.hide(false);
+  });
+  await page.clock.runFor(10);
+  await expect(page.locator("#navigation-locate")).toBeVisible();
+  await expect(page.locator("#navigation-status")).toContainText(
+    "unterbrochen",
+  );
+  await page.locator("#navigation-locate").click();
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Links abbiegen auf Zweite Straße",
+  );
+});
+
+test("interrupted trip lookup offers a startup retry after returning", async ({
+  page,
+}) => {
+  await setup(page, true);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  await page.goto("/");
+  await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested = false;
+  await page.route("**/api/v6/trip?*", async (r) => {
+    requested = true;
+    await gate;
+    await r.fulfill({ json: { legs: [] } });
+  });
+  await page.locator("#navigation-resume").click();
+  await expect.poll(() => requested).toBe(true);
+  await page.evaluate(() => (window as any).navProbe.hide(true));
+  release();
+  await page.evaluate(() => (window as any).navProbe.hide(false));
+  await page.clock.runFor(10);
+  await expect(page.locator("#navigation-retry")).toBeVisible();
+  await page.locator("#navigation-retry").click();
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Links abbiegen auf Zweite Straße",
+  );
+});
+
+test("ending resumed navigation restores stops and temporary settings to the planner", async ({
+  page,
+}) => {
+  await setup(page, true);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  await page.evaluate(async (defaults) => {
+    const { NavigationStore } = await import("/src/navigation-store.ts");
+    const store = new NavigationStore();
+    const snapshot = (await store.read())!;
+    snapshot.settings = {
+      ...defaults,
+      cyclingSpeedKilometersPerHour: 21,
+      maxCyclingMinutes: 45,
+    };
+    await store.save(snapshot);
+    localStorage.setItem("foldroute.routing.v3", JSON.stringify(defaults));
+  }, defaults);
+  await page.goto("/");
+  await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
+  await page.locator("#navigation-resume").click();
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Links abbiegen auf Zweite Straße",
+  );
+  await page.locator("#navigation-end").click();
+  await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#navigation-view")).toBeHidden();
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#origin")).toHaveValue("Start");
+  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+  await expect(page.locator(".stop-editor-row:visible")).toHaveCount(1);
+  await expect(page.locator("#via-0")).toHaveValue("Café");
+  await page.locator("#cancel-adjust").click();
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#cyclingSpeedKilometersPerHour")).toHaveValue(
+    "21",
+  );
+  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("45");
+  await expect(page.locator("#settings-summary")).toContainText(
+    "nur für diese Planung",
+  );
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("foldroute.routing.v3")!),
+    ),
+  ).toEqual(defaults);
+  await page.locator("#tab-route").click();
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({ json: { direct: [], itineraries: [] } }),
+  );
+  const planned = page.waitForRequest("**/api/v6/plan?*");
+  await page.locator("#route-more").click();
+  await page.locator("#replan-saved").click();
+  const params = new URL((await planned).url()).searchParams;
+  expect(params.get("cyclingSpeed")).toBe((21 / 3.6).toFixed(3));
+});

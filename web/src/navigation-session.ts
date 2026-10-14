@@ -35,6 +35,7 @@ import { ApiClient } from "./transitous";
 import { planRoutes } from "./planner";
 
 const alternativeDecisionSeconds = 30;
+const progressCheckpointMeters = 50;
 function reachableAlternative(
   journey: Journey,
   index: number,
@@ -118,7 +119,12 @@ export class NavigationSession {
   private async plan(
     request: RouteRequest,
     signal: AbortSignal,
-    acceptable: (journey: Journey) => boolean = () => true,
+    acceptable: (journey: Journey) => boolean = (journey) =>
+      reachableAlternative(
+        journey,
+        0,
+        Math.max(request.time, Date.now() / 1000),
+      ),
   ): Promise<Journey> {
     if (!navigator.onLine)
       throw new Error(
@@ -349,7 +355,7 @@ export class NavigationSession {
       this.resumeNeedsConfirmation =
         !!restored &&
         !movement(this.engine!.leg) &&
-        this.engine!.leg.end <= now;
+        this.engine!.leg.end <= checkedAt;
       this.message = restored
         ? "Navigation fortgesetzt. Prüfe deinen aktuellen Abschnitt."
         : "";
@@ -426,6 +432,7 @@ export class NavigationSession {
     if (value === this.foreground) return;
     this.foreground = value;
     if (!value) {
+      this.persist(true);
       this.requiredFixAfter = Date.now();
       this.fixQuality = "stale";
       this.engine?.invalidateLocation();
@@ -601,6 +608,7 @@ export class NavigationSession {
         engine.journey = copy;
       }
       engine.advance(true);
+      this.resumeNeedsConfirmation = false;
       this.persist(true);
       this.emit();
       return;
@@ -800,6 +808,7 @@ export class NavigationSession {
       engine.journey.id,
       engine.progress.legIndex,
       engine.progress.maneuverIndex,
+      Math.floor(engine.progress.meters / progressCheckpointMeters),
       engine.progress.confirmedStops,
     ]);
     if (!force && key === this.savedKey) return;
