@@ -158,6 +158,7 @@ test("offline settings keep the previous result and reconnect never starts plann
   await page.context().setOffline(false);
   await expect(page.locator("#connection")).toBeHidden();
   expect(directRequests).toBe(0);
+  await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expectPlanningComplete(page);
   expect(directRequests).toBe(1);
@@ -268,12 +269,14 @@ test("offline Back and Forward restore the matching old result with the edited r
   await page.evaluate(() =>
     Object.defineProperty(navigator, "geolocation", {
       value: {
+        clearWatch: navigator.geolocation.clearWatch.bind(navigator.geolocation),
         getCurrentPosition() {
           throw new Error("Archived start must remain fixed");
         },
       },
     }),
   );
+  await page.locator("#route-more").click();
   await page.locator("#replan-saved").click();
   await expectPlanningComplete(page);
   await expect(page.locator("#stale-notice")).toBeHidden();

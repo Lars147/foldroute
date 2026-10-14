@@ -187,7 +187,29 @@ export function lateDepartureDelay(
 }
 export type LegKind =
   "bike" | "walk" | "transit" | "fold" | "unfold" | "wait" | "stop";
+export interface Maneuver {
+  direction: string;
+  streetName: string;
+  distance: number;
+  coordinates: Coordinate[];
+}
+export interface TransitReference {
+  tripId: string;
+  fromId: string;
+  toId: string;
+  scheduledDeparture: number;
+  scheduledArrival: number;
+}
+export interface TransitStatus {
+  updatedAt?: number;
+  failure?: "network" | "unavailable";
+  cancelled?: boolean;
+}
 export interface Leg {
+  navigationId?: string;
+  maneuvers?: Maneuver[];
+  transitReference?: TransitReference;
+  transitStatus?: TransitStatus;
   stop?: RouteStop;
   kind: LegKind;
   from: Place;
@@ -503,4 +525,49 @@ export function journeyOutline(journey: Journey): string {
           : kindNames[leg.kind],
     )
     .join(" → ");
+}
+
+/** Optional navigation metadata keeps older route snapshots readable. */
+export function validNavigationLegData(value: Leg): boolean {
+  const point = (p: Coordinate) =>
+    p &&
+    Number.isFinite(p.latitude) &&
+    Math.abs(p.latitude) <= 90 &&
+    Number.isFinite(p.longitude) &&
+    Math.abs(p.longitude) <= 180;
+  const reference = value.transitReference,
+    status = value.transitStatus;
+  return (
+    (value.navigationId === undefined ||
+      (typeof value.navigationId === "string" &&
+        value.navigationId.length > 0)) &&
+    (value.maneuvers === undefined ||
+      (Array.isArray(value.maneuvers) &&
+        value.maneuvers.every(
+          (m) =>
+            m &&
+            typeof m.direction === "string" &&
+            typeof m.streetName === "string" &&
+            Number.isFinite(m.distance) &&
+            m.distance >= 0 &&
+            Array.isArray(m.coordinates) &&
+            m.coordinates.length > 0 &&
+            m.coordinates.every(point),
+        ))) &&
+    (reference === undefined ||
+      (!!reference &&
+        [reference.tripId, reference.fromId, reference.toId].every(
+          (s) => typeof s === "string" && s.length > 0,
+        ) &&
+        Number.isFinite(reference.scheduledDeparture) &&
+        Number.isFinite(reference.scheduledArrival) &&
+        reference.scheduledArrival >= reference.scheduledDeparture)) &&
+    (status === undefined ||
+      (!!status &&
+        (status.updatedAt === undefined || Number.isFinite(status.updatedAt)) &&
+        (status.cancelled === undefined ||
+          typeof status.cancelled === "boolean") &&
+        (status.failure === undefined ||
+          ["network", "unavailable"].includes(status.failure))))
+  );
 }

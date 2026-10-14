@@ -6,10 +6,10 @@ Dein Routenplaner für Faltrad und ÖPNV. FoldRoute kombiniert Rad, Bus und Bahn
 
 | Oberfläche | Aktueller Umfang |
 |---|---|
-| Webplaner / PWA | Routenplanung, Favoriten, letzte Orte, gemeinsame Routing-Einstellungen und bis zu 20 gespeicherte Strecken offline ansehen |
+| Webplaner / PWA | Routenplanung und Navigation im Vordergrund, Abbiegehinweise, drehende Karte, Sprache, Live-ÖPNV und lokale Wiederaufnahme |
 | iPhone-App | Nativer iOS-Prototyp mit Navigation, Abbiegehinweisen, Sprachansagen, Haptik und ÖPNV-Aktualisierungen während der Fahrt |
 
-Die iPhone-App ist noch in Entwicklung und nicht im App Store. Im Webplaner kannst du jetzt Routen planen und ihn als App auf dem Home-Bildschirm installieren; die [Web-Anleitung](web/README.md#app-oberfläche-und-pwa) erklärt den Einstieg. Navigation in der PWA ist **noch nicht umgesetzt**. Gemeinsame Routing-Einstellungen und Auswahlregeln sind angeglichen. Ortssuchanbieter unterscheiden sich; automatische ÖPNV-Aktualisierungen während der Fahrt gehören zum iPhone-Prototyp. Beide Oberflächen bieten einen lokalen Fahrtenverlauf. Eine direkte Übergabe einer Webroute an die iPhone-App gibt es derzeit nicht.
+Die iPhone-App ist noch in Entwicklung und nicht im App Store. Im Webplaner kannst du jetzt Routen planen und ihn als App auf dem Home-Bildschirm installieren; die [Web-Anleitung](web/README.md#app-oberfläche-und-pwa) erklärt den Einstieg. Die PWA bietet Navigation im Vordergrund mit Abbiegehinweisen, Karte in Fahrtrichtung, abschaltbaren Sprachansagen und bestätigter Wiederaufnahme. Gemeinsame Routing-Einstellungen und Auswahlregeln sind angeglichen. Ortssuchanbieter unterscheiden sich; ÖPNV-Aktualisierungen laufen auch in der geöffneten PWA. Beide Oberflächen bieten einen lokalen Fahrtenverlauf. Eine direkte Übergabe einer Webroute an die iPhone-App gibt es derzeit nicht.
 
 ## Lokal ausprobieren
 
@@ -36,14 +36,14 @@ Für den iPhone-Prototyp öffne `ios/FoldRoute.xcodeproj` in Xcode. Voraussetzun
 
 ## Dokumentation
 
-- [Bedienung](documentation/bedienung.md): Suche, Favoriten, Routenauswahl, Einstellungen und Navigation im iPhone-Prototyp.
+- [Bedienung](documentation/bedienung.md): Suche, Favoriten, Routenauswahl, Einstellungen und Navigation in iPhone-Prototyp und PWA.
 - [Routing und Datenverhalten](documentation/routing.md): Auswahlregeln, Rad-Umstiege, Suchbudgets, Geometrieprüfung, Echtzeit und Speicherkompatibilität.
 - [iOS entwickeln und prüfen](ios/README.md): Einrichtung, Architektur, Konfiguration und Geräteabnahme.
 - [Web entwickeln und PWA nutzen](web/README.md): lokale Vorschau, Build, Tests, Offline-Funktionen und Veröffentlichungshinweise.
 
 ## Daten und Grenzen
 
-FoldRoute benötigt kein Konto, nutzt keine Analyse-Tools oder Cloud-Synchronisation und speichert keine GPS-Spuren. Routenplanung und Ortssuche übertragen jedoch Daten an externe Dienste, darunter Start, Ziel und gewählte Zwischenziele; Einzelheiten zu Datenquellen stehen in den Plattformanleitungen. Einstellungen, Favoriten und letzte Orte bleiben lokal. Der Webplaner speichert standardmäßig bis zu 20 unterschiedliche geplante Strecken einschließlich Zwischenzielen, Streckenverlauf und damaligen Zeiten. Ausschalten der Fahrten-Speicherung löscht diesen Verlauf; Orte und Einstellungen bleiben erhalten. „Alle lokalen Daten löschen“ entfernt sämtliche Kategorien. Eine gespeicherte Offline-Reise ist ein früherer Stand, keine aktuelle Verbindung; neue Routen, Ortssuche, aktuelle Verbindungsdaten und Straßenkarten benötigen Internet. Auch der Browser kann lokale Daten entfernen.
+FoldRoute benötigt kein Konto, nutzt keine Analyse-Tools oder Cloud-Synchronisation und speichert keine GPS-Spuren. Routenplanung und Ortssuche übertragen jedoch Daten an externe Dienste, darunter Start, Ziel und gewählte Zwischenziele; Einzelheiten zu Datenquellen stehen in den Plattformanleitungen. Einstellungen, Favoriten und letzte Orte bleiben lokal. Der Webplaner speichert standardmäßig bis zu 20 unterschiedliche geplante Strecken einschließlich Zwischenzielen, Streckenverlauf und damaligen Zeiten. Eine aktive Navigation wird zusätzlich mit Abschnitt und Manöver gespeichert, ohne GPS-Spur. Ausschalten der Fahrten-Speicherung löscht diesen Verlauf und den Wiederaufnahmezustand; Orte und Einstellungen bleiben erhalten. „Alle lokalen Daten löschen“ entfernt sämtliche Kategorien. Eine gespeicherte Offline-Reise ist ein früherer Stand, keine aktuelle Verbindung; neue Routen, Ortssuche, aktuelle Verbindungsdaten und Straßenkarten benötigen Internet. Auch der Browser kann lokale Daten entfernen.
 
 Verbindungen, Echtzeitinformationen und mögliche Zeitvorteile hängen von Strecke, Fahrplan und Datenabdeckung ab. Die zusätzliche Suche nach Rad-Umstiegen ist begrenzt und garantiert kein globales Optimum. Transitous ist ein Best-Effort-Dienst; vor breiter Veröffentlichung müssen Nutzung und Betrieb geklärt werden.
 

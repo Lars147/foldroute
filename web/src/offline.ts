@@ -5,6 +5,7 @@ import {
 } from "./history-names";
 import {
   validStoredSettings,
+  validNavigationLegData,
   validStops,
   validLegacySettings,
   type LegacyRoutingSettings,
@@ -79,6 +80,7 @@ export function validSnapshot(value: unknown): value is SavedJourney {
     j.legs.every(
       (l: unknown) =>
         object(l) &&
+        validNavigationLegData(l as any) &&
         [
           "bike",
           "walk",
@@ -300,6 +302,7 @@ export class OfflineStore {
           const data: HistoryData = { version: 1, entries: result.entries };
           store.put(data, "history");
           store.put(result.enabled, "enabled");
+          if (!result.enabled) store.delete("activeNavigation");
           // Keep the existing latest-journey record compatible with older clients.
           if (result.snapshot) store.put(result.snapshot, "last");
           else store.delete("last");

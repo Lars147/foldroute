@@ -5,8 +5,12 @@ export interface LocationFix {
   longitude: number;
   accuracy: number;
   timestamp: number;
+  heading?: number;
+  speed?: number;
 }
 export type LocationQuality = "current" | "inaccurate" | "stale";
+const permissionDeniedMessage =
+  "Standortzugriff blockiert. Öffne die Website-Einstellungen neben der Adressleiste und erlaube den Standortzugriff. Prüfe auch die Ortungsdienste in den Systemeinstellungen. Tippe danach auf „Standort erneut anfragen“.";
 export const locationLabel = (quality: LocationQuality) =>
   quality === "stale"
     ? "Letzter Standort – nicht aktuell"
@@ -32,7 +36,22 @@ export function readFix(
     accuracy < 0
   )
     return;
-  return { latitude, longitude, accuracy, timestamp };
+  const { heading, speed } = position.coords;
+  return {
+    latitude,
+    longitude,
+    accuracy,
+    timestamp,
+    ...(heading !== null &&
+    Number.isFinite(heading) &&
+    heading >= 0 &&
+    heading < 360
+      ? { heading }
+      : {}),
+    ...(speed !== null && Number.isFinite(speed) && speed >= 0
+      ? { speed }
+      : {}),
+  };
 }
 export const fixPlace = (fix: LocationFix): Place => ({
   latitude: fix.latitude,
@@ -57,6 +76,7 @@ export class LiveLocation {
   private failed = false;
   private timer?: ReturnType<typeof setInterval>;
   private pending?: {
+    accurate: boolean;
     resolve: (fix: LocationFix) => void;
     reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
@@ -110,11 +130,7 @@ export class LiveLocation {
         this.fix = undefined;
         this.changed();
         if (permission.state === "denied")
-          this.fail(
-            new Error(
-              "Standortzugriff nicht erlaubt. Bitte die Standortberechtigung prüfen.",
-            ),
-          );
+          this.fail(new Error(permissionDeniedMessage));
         else this.cancelCenter();
       }
     };
@@ -153,7 +169,7 @@ export class LiveLocation {
         this.fail(
           new Error(
             error.code === 1
-              ? "Standortzugriff nicht erlaubt. Bitte die Standortberechtigung prüfen."
+              ? permissionDeniedMessage
               : "Standort konnte nicht aktualisiert werden. Bitte erneut versuchen.",
           ),
         );
@@ -167,7 +183,12 @@ export class LiveLocation {
     this.fix = fix;
     this.failed = false;
     this.publish();
-    if (this.active && quality(fix) !== "stale" && this.pending) {
+    if (
+      this.active &&
+      this.pending &&
+      quality(fix) !== "stale" &&
+      (!this.pending.accurate || quality(fix) === "current")
+    ) {
       const pending = this.pending;
       this.pending = undefined;
       clearTimeout(pending.timer);
@@ -196,31 +217,58 @@ export class LiveLocation {
       new DOMException("Standortzentrierung abgebrochen", "AbortError"),
     );
   }
-  center(): Promise<LocationFix> {
+  center(accurate = false): Promise<LocationFix> {
     this.cancelCenter();
     if (!this.active)
       return Promise.reject(
         new DOMException("Karte nicht sichtbar", "AbortError"),
       );
-    if (this.fix && !this.failed && quality(this.fix) !== "stale") {
+    if (this.permission && this.permission.state !== "granted") {
+      this.fix = undefined;
+      this.stop();
+    }
+    if (
+      this.fix &&
+      !this.failed &&
+      quality(this.fix) !== "stale" &&
+      (!accurate || quality(this.fix) === "current")
+    ) {
       this.start(true);
       return Promise.resolve(this.fix);
     }
     return new Promise((resolve, reject) => {
       this.pending = {
+        accurate,
         resolve,
         reject,
         timer: setTimeout(
           () =>
             this.fail(
               new Error(
-                "Standortabfrage dauert zu lange. Bitte erneut versuchen.",
+                "Standortabfrage dauert zu lange. Bitte Standortzugriff im Browser und in den Systemeinstellungen erlauben und erneut versuchen.",
               ),
             ),
           12000,
         ),
       };
       this.start(true);
+      // A low-power lookup can return a usable fix before high-accuracy GPS.
+      // Keep the watch running for subsequent, more precise measurements.
+      const pending = this.pending;
+      const generation = this.generation;
+      if (accurate && pending && navigator.geolocation?.getCurrentPosition)
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            if (
+              this.active &&
+              this.generation === generation &&
+              this.pending === pending
+            )
+              this.accept(position);
+          },
+          () => {}, // The watch and our deadline own failure reporting.
+          { enableHighAccuracy: false, maximumAge: 5000, timeout: 5000 },
+        );
     });
   }
 }

@@ -78,7 +78,8 @@ export function setupPWA() {
         "Oberfläche konnte nicht offline bereitgestellt werden. Online kannst du weiterplanen.";
     });
   el("update-now").onclick = () => {
-    if (!registration?.waiting) return;
+    if (!registration?.waiting || document.body.dataset.navigation === "active")
+      return;
     reloadRequested = true;
     registration.waiting.postMessage({ type: "SKIP_WAITING" });
   };

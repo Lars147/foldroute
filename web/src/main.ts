@@ -1,5 +1,9 @@
 import { HistoryNameQueue } from "./history-names";
 import { historySnapshot } from "./offline";
+import { NavigationSession } from "./navigation-session";
+import { NavigationView } from "./navigation-ui";
+import { NavigationStore, type NavigationSnapshot } from "./navigation-store";
+import { audioPreferenceKey } from "./navigation-guidance";
 import { ScreenAwake } from "./screen-awake";
 import { LiveLocation, fixPlace } from "./live-location";
 import { TimePicker, timeSummary } from "./time-picker";
@@ -59,6 +63,7 @@ const planResults = new Map<
   string,
   { plan: RouteLink; state: PlanningState; settingsReplanPending: boolean }
 >();
+const navigationRestoreRequested = history.state?.navigation === true;
 const initialLink = readRouteURL(new URL(location.href));
 let originOverride: Place | undefined,
   timing: Timing = "now",
@@ -110,9 +115,22 @@ const routeMap = new RouteMap(
   (id) => session.select(id),
   () => {},
 );
-const liveLocation = new LiveLocation((fix, quality) =>
-  routeMap.updateLocation(fix, quality),
-);
+let navigation: NavigationSession | undefined;
+let navigationView: NavigationView | undefined;
+const navigationStore = new NavigationStore();
+let navigationLaunchGeneration = 0;
+let navigationStart:
+  | {
+      journey: import("./model").Journey;
+      request: RouteRequest;
+      settings: RoutingSettings;
+      restored?: NavigationSnapshot;
+    }
+  | undefined;
+const liveLocation = new LiveLocation((fix, quality) => {
+  routeMap.updateLocation(fix, quality);
+  navigation?.updateLocation(fix, quality);
+});
 const historyAddressApi = new ApiClient();
 const historyNames = new HistoryNameQueue(
   (coordinate, signal) => historyAddressApi.reversePlace(coordinate, signal),
@@ -133,8 +151,14 @@ const screenAwake = new ScreenAwake();
 let pagePresent = true;
 function syncLiveLocation() {
   syncHistoryNames();
+  const arrived =
+    navigationView?.visible && navigation?.engine?.phase === "arrived";
+  navigation?.setForeground(
+    pagePresent && !document.hidden && !!navigationView?.visible,
+  );
   screenAwake.setActive(
     keepScreenAwake &&
+      !arrived &&
       pagePresent &&
       view === "map" &&
       !document.hidden &&
@@ -143,9 +167,10 @@ function syncLiveLocation() {
   liveLocation.setActive(
     pagePresent &&
       view === "map" &&
-      journeyView.mapVisible &&
+      (journeyView.mapVisible || !!navigationView?.visible) &&
       !document.hidden &&
-      !dialog.open,
+      !dialog.open &&
+      !arrived,
   );
 }
 function cancelMapCenter() {
@@ -156,11 +181,15 @@ function cancelMapCenter() {
 }
 routeMap.onManualMove = cancelMapCenter;
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) cancelMapCenter();
+  if (document.hidden) {
+    cancelMapCenter();
+    navigationView?.pause();
+  }
   syncLiveLocation();
 });
 window.addEventListener("pagehide", () => {
   pagePresent = false;
+  navigationView?.pause();
   cancelMapCenter();
   syncLiveLocation();
 });
@@ -215,6 +244,126 @@ journeyView.onBack = () => {
     writeHistory();
   }
 };
+navigation = new NavigationSession({
+  api,
+  store: navigationStore,
+  locate: () => liveLocation.center(true),
+  storageEnabled: () => offlineEnabled,
+  changed: () => {
+    navigationView?.render();
+    if (navigationView?.visible) {
+      el<HTMLButtonElement>("update-now").disabled = true;
+      if (navigation?.engine?.phase === "arrived") syncLiveLocation();
+    }
+  },
+});
+navigationView = new NavigationView(
+  () => void endNavigation(),
+  (replan) => void launchNavigation(replan),
+);
+el("navigation-locate").onclick = async () => {
+  if (!navigation!.engine) {
+    await launchNavigation();
+    return;
+  }
+  const engine = navigation!.engine;
+  const generation = navigationLaunchGeneration;
+  try {
+    await liveLocation.center(true);
+    if (
+      generation !== navigationLaunchGeneration ||
+      navigation!.engine !== engine
+    )
+      return;
+    navigation!.message = "";
+    await navigation!.resumeAlternativeAfterLocation();
+    navigationView!.render();
+  } catch (error) {
+    if (
+      generation !== navigationLaunchGeneration ||
+      navigation!.engine !== engine
+    )
+      return;
+    navigation!.message = errorText(error);
+    navigationView!.render();
+  }
+};
+async function launchNavigation(replan = false, restored?: NavigationSnapshot) {
+  const generation = ++navigationLaunchGeneration;
+  if (!navigationView!.visible) {
+    const state = session.state;
+    if (!restored && (!state.selected || !state.request)) return;
+    navigationStart = restored
+      ? { ...restored, restored }
+      : {
+          journey: structuredClone(state.selected!),
+          request: structuredClone(state.request!),
+          settings: structuredClone(state.resultSettings ?? settings),
+        };
+    settingsReplanPending = false;
+    session.stop("");
+    show("map", false);
+    document.body.dataset.navigation = "active";
+    el("map-view").hidden = true;
+    history.pushState(
+      { ...history.state, navigation: true },
+      "",
+      location.href,
+    );
+  }
+  if (!navigationStart) return;
+  try {
+    const showing = navigationView!.show(navigation!);
+    syncLiveLocation();
+    await showing;
+    if (generation !== navigationLaunchGeneration || !navigationView!.visible)
+      return;
+    const start = navigationStart;
+    await navigation!.start(
+      start.journey,
+      start.request,
+      start.settings,
+      replan ? undefined : start.restored,
+      replan,
+    );
+    navigationView!.render();
+    el("navigation-instruction").focus({ preventScroll: true });
+  } catch (error) {
+    if (generation !== navigationLaunchGeneration) return;
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    navigation!.message = errorText(error);
+    navigation!.retryAvailable = !navigation!.distantStart;
+    navigationView!.render();
+  }
+}
+async function endNavigation() {
+  navigationLaunchGeneration++;
+  const journey = navigation?.engine?.journey;
+  const request = navigation?.request;
+  const options = navigation?.settings;
+  navigationView!.hide();
+  delete document.body.dataset.navigation;
+  try {
+    await navigation!.stop();
+  } catch {
+    toast(
+      "Navigation beendet. Gespeicherter Zustand konnte nicht gelöscht werden.",
+    );
+  }
+  if (journey && request && options) {
+    session.restore(journey, request, Date.now() / 1000, options);
+    activePlan = { request, settings: options };
+  }
+  el("map-view").hidden = false;
+  showRouteMap(session.state);
+  journeyView.showScreen("detail", false);
+  syncLiveLocation();
+  writeHistory();
+  renderPlanning(session.state);
+  el("navigation-start").focus({ preventScroll: true });
+}
+el("navigation-start").onclick = () => void launchNavigation();
+
 function updateLinkUI() {
   el("share-plan").hidden = !activePlan;
   el<HTMLButtonElement>("share-plan").disabled =
@@ -336,6 +485,11 @@ async function restoreLink(
   if (navigator.onLine) await session.calculate(request, settings, false);
 }
 function show(next: View, push = true) {
+  el<HTMLDialogElement>("route-actions-dialog").close();
+  if (navigationView?.visible) {
+    navigationView.confirmEnd();
+    return;
+  }
   if (push) navigationRevision++;
   const replan =
     view === "settings" &&
@@ -381,6 +535,15 @@ window.addEventListener("popstate", async (event) => {
   const revision = ++navigationRevision;
   const navigation = event.state?.journeyNavigation as
     JourneyNavigation | undefined;
+  if (navigationView?.visible) {
+    history.pushState(
+      { ...history.state, navigation: true },
+      "",
+      location.href,
+    );
+    navigationView.confirmEnd();
+    return;
+  }
   if (dialog.open) closeAdjust();
   const next: View =
     event.state?.view === "history"
@@ -592,7 +755,8 @@ function renderPlanning(state: PlanningState) {
   el("replan-saved").hidden = !state.restored;
   el<HTMLButtonElement>("replan-saved").disabled =
     !navigator.onLine || state.busy;
-  el<HTMLButtonElement>("update-now").disabled = state.busy || dialog.open;
+  el<HTMLButtonElement>("update-now").disabled =
+    state.busy || dialog.open || !!navigationView?.visible;
 }
 const destination = new PlaceSearch(
   "destination",
@@ -707,7 +871,8 @@ function closeAdjust() {
   draftDestination.cancel();
   stopEditor.cancel();
   dialog.close();
-  el<HTMLButtonElement>("update-now").disabled = session.state.busy;
+  el<HTMLButtonElement>("update-now").disabled =
+    session.state.busy || !!navigationView?.visible;
 }
 dialog.addEventListener("close", () => {
   syncLiveLocation();
@@ -715,7 +880,8 @@ dialog.addEventListener("close", () => {
   draftOrigin.cancel();
   draftDestination.cancel();
   stopEditor.cancel();
-  el<HTMLButtonElement>("update-now").disabled = session.state.busy;
+  el<HTMLButtonElement>("update-now").disabled =
+    session.state.busy || !!navigationView?.visible;
 });
 el("search-adjust").onclick = () => openAdjust();
 el("adjust-route").onclick = () => openAdjust();
@@ -1122,6 +1288,7 @@ el("confirm-delete-data").onclick = async () => {
     localStorage.removeItem(storageKey);
     localStorage.removeItem(legacyStorageKey);
     localStorage.removeItem(screenAwakeKey);
+    localStorage.removeItem(audioPreferenceKey);
     keepScreenAwake = true;
     el<HTMLInputElement>("keep-screen-awake").checked = true;
     saved = undefined;
@@ -1301,6 +1468,8 @@ function connectionChanged() {
   syncHistoryNames();
   el("connection").hidden = navigator.onLine;
   updateConnectionHeight();
+  navigationView?.render();
+  if (navigator.onLine) void navigation?.refresh();
   savedUI();
   el<HTMLButtonElement>("replan-saved").disabled =
     !navigator.onLine || session.state.busy;
@@ -1319,13 +1488,58 @@ window.addEventListener("online", connectionChanged);
 window.addEventListener("offline", connectionChanged);
 void store
   .read()
-  .then((result) => {
+  .then(async (result) => {
     if (storageGeneration === 0) offlineEnabled = result.enabled;
     if (!activeSnapshot && storageGeneration === 0) {
       saved = result.snapshot;
       historyEntries = result.entries;
     }
     savedUI();
+    if (storageGeneration === 0 && result.enabled) {
+      const snapshot = await navigationStore.read();
+      const sameLink =
+        snapshot &&
+        initialLink.kind === "plan" &&
+        routeURL(location.href, initialLink.plan).href ===
+          routeURL(location.href, {
+            request: snapshot.request,
+            settings: snapshot.settings,
+          }).href;
+      if (
+        snapshot &&
+        !navigationView?.visible &&
+        storageGeneration === 0 &&
+        navigationLaunchGeneration === 0 &&
+        ((!activePlan && initialLink.kind === "none") ||
+          navigationRestoreRequested ||
+          sameLink)
+      ) {
+        const resumeDialog = el<HTMLDialogElement>("navigation-resume-dialog");
+        el("navigation-resume-summary").textContent =
+          `${snapshot.journey.destination.name} · Abschnitt ${snapshot.progress.legIndex + 1}`;
+        el("navigation-resume").onclick = () => {
+          resumeDialog.close();
+          void launchNavigation(false, snapshot);
+        };
+        const discard = () => {
+          resumeDialog.close();
+          void navigationStore
+            .clear()
+            .catch(() =>
+              toast("Gespeicherte Navigation konnte nicht gelöscht werden."),
+            );
+          initializeLink();
+        };
+        el("navigation-discard").onclick = discard;
+        resumeDialog.oncancel = (event) => {
+          event.preventDefault();
+          discard();
+        };
+        resumeDialog.showModal();
+        return;
+      }
+    }
+    initializeLink();
     if (result.invalid)
       el("storage-message").textContent =
         "Nicht lesbare gespeicherte Fahrten wurden entfernt.";
@@ -1341,6 +1555,7 @@ void store
   .catch(() => {
     el("storage-message").textContent =
       "Offline-Speicher nicht verfügbar. Online-Planung bleibt möglich.";
+    initializeLink();
   });
 void book
   .load()
@@ -1425,8 +1640,11 @@ visualViewportChanged();
 
 // Read links after every form and dialog handler is ready. Offline storage must
 // never replace an explicitly linked planning request with an unrelated trip.
-if (initialLink.kind !== "none") void restoreLink(initialLink);
-else writeHistory();
+function initializeLink() {
+  if (navigationLaunchGeneration > 0) return;
+  if (initialLink.kind !== "none") void restoreLink(initialLink);
+  else writeHistory();
+}
 el("share-plan").onclick = async () => {
   if (!activePlan || session.state.locating || sharingPlan) return;
   const link = routeURL(location.href, activePlan).href;

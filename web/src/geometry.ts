@@ -59,18 +59,19 @@ export function decodePolyline(
   return points;
 }
 export interface GeometryStep {
+  streetName?: string;
   direction: string;
   distance: number;
   coordinates: Coordinate[];
 }
-export function validateGeometry(
+export function validateStreetGeometry(
   geometry: Coordinate[],
   steps: GeometryStep[],
   from: Place,
   to: Place,
   walk: boolean,
   length: number,
-): Coordinate[] {
+): { coordinates: Coordinate[]; steps: GeometryStep[] } {
   if (
     ![from, to, ...geometry].every(validCoordinate) ||
     !Number.isFinite(length) ||
@@ -143,5 +144,10 @@ export function validateGeometry(
         : [];
   if (!connects(result) || (result.length < 2 && distance(from, to) > 100))
     throw geometryError();
-  return result;
+  return { coordinates: result, steps: normalized };
+}
+export function validateGeometry(
+  ...args: Parameters<typeof validateStreetGeometry>
+): Coordinate[] {
+  return validateStreetGeometry(...args).coordinates;
 }

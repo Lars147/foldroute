@@ -30,11 +30,20 @@ export const dateLabel = (seconds: number) =>
 export const localDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 const paths: Record<string, string> = {
+  volume:
+    '<path d="M11 4 6 8H3v8h3l5 4V4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
+  muted: '<path d="M11 4 6 8H3v8h3l5 4V4Zm5 5 6 6m0-6-6 6"/>',
+  crosshair:
+    '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  edit: '<path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6Z"/>',
   bike: '<circle cx="5" cy="17" r="3.5"/><circle cx="19" cy="17" r="3.5"/><path d="m5 17 5-9 5 9H5m5-9h6l3 9M8 5h4m4-1h3v4"/>',
   fold: '<path d="m3 3 6 6M3 9h6V3m12 18-6-6m6 0h-6v6"/>',
   unfold: '<path d="m9 9-6-6m0 6V3h6m6 12 6 6m-6 0h6v-6"/>',
   transit:
     '<rect x="5" y="3" width="14" height="15" rx="4"/><path d="M5 11h14M12 3v8m-4 7-3 3m11-3 3 3M9 21h6M8 14h1m6 0h1"/>',
+  bus: '<rect x="5" y="3" width="14" height="16" rx="3"/><path d="M5 11h14M9 3v8m6-8v8M5 7H2v5m17-5h3v5M7 19v2m10-2v2M8 15h1m6 0h1"/>',
+  transfer: '<path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/>',
   walk: '<circle cx="13" cy="4" r="2"/><path d="m7 21 4-7 2-6 3 4 4 1M5 12l4-4h4m-2 6 5 7"/>',
   wait: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   stop: '<path d="M12 22s8-8 8-14a8 8 0 0 0-16 0c0 6 8 14 8 14Z"/><circle cx="12" cy="8" r="3"/>',
@@ -72,3 +81,20 @@ export const legColors: Record<LegKind, string> = {
   wait: "#ffd43b",
   stop: "#ffd43b",
 };
+const transitModeColors: Record<string, string> = {
+  SUBURBAN: "#69d58a",
+  SUBWAY: "#79b8ff",
+  TRAM: "#c29bff",
+  BUS: "#ffaf70",
+  COACH: "#ffaf70",
+  REGIONAL_RAIL: "#ff8993",
+  HIGHSPEED_RAIL: "#ff8993",
+  LONG_DISTANCE: "#ff8993",
+  NIGHT_RAIL: "#ff8993",
+};
+export const routeSymbolColor = (kind: LegKind, mode?: string) =>
+  kind === "transit"
+    ? (transitModeColors[mode ?? ""] ?? "#c29bff")
+    : kind === "walk"
+      ? "#e1d7bd"
+      : legColors[kind];

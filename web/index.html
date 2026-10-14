@@ -38,6 +38,19 @@
     <span id="connection" role="status" hidden>Offline</span>
     <noscript><p>Für die Routenplanung wird JavaScript benötigt.</p></noscript>
     <main id="main">
+      <dialog
+        id="navigation-resume-dialog"
+        aria-labelledby="navigation-resume-title"
+      >
+        <h2 id="navigation-resume-title">Navigation fortsetzen?</h2>
+        <p id="navigation-resume-summary"></p>
+        <p>Standort und Fahrtdaten werden vor der Weiterfahrt geprüft.</p>
+        <div class="navigation-actions">
+          <button id="navigation-resume" class="primary">
+            Navigation fortsetzen</button
+          ><button id="navigation-discard" class="secondary">Verwerfen</button>
+        </div>
+      </dialog>
       <section
         id="search-view"
         class="screen search-screen"
@@ -146,23 +159,44 @@
               <button id="panel-map-toggle" class="text-button" type="button">
                 Karte anzeigen
               </button>
-              <button
-                id="share-plan"
-                class="icon-button"
-                type="button"
-                aria-label="Planung teilen"
-                title="Planung teilen"
-                data-icon="share"
-                hidden
-              ></button>
             </div>
             <h1 id="result-context" tabindex="-1">Verbindungen</h1>
-            <div id="result-freshness">
-              <span id="result-stand"></span>
-              <button id="refresh-route" class="text-button" type="button">
-                Aktualisieren
+            <div class="panel-tools">
+              <button
+                id="adjust-route"
+                class="route-request"
+                type="button"
+                aria-label="Route anpassen"
+                aria-describedby="route-origin route-destination route-request-meta"
+              >
+                <span class="route-request-places"
+                  ><span id="route-origin">Start</span
+                  ><span aria-hidden="true"> → </span
+                  ><span id="route-destination">Ziel</span
+                  ><span data-icon="edit"></span
+                ></span>
+                <span id="route-request-meta"></span>
               </button>
+              <div class="panel-tool-actions">
+                <button
+                  id="route-more"
+                  class="icon-button"
+                  type="button"
+                  aria-label="Weitere Routenaktionen"
+                  aria-haspopup="dialog"
+                  aria-controls="route-actions-dialog"
+                  data-icon="more"
+                ></button>
+                <button
+                  id="close-route"
+                  class="icon-button"
+                  type="button"
+                  aria-label="Route schließen"
+                  data-icon="close"
+                ></button>
+              </div>
             </div>
+            <div id="result-freshness"><span id="result-stand"></span></div>
             <div id="map-preview" hidden>
               <strong id="map-preview-time"></strong>
               <p id="map-preview-outline"></p>
@@ -217,19 +251,40 @@
             </div>
           </div>
           <div class="panel-actions">
-            <button id="replan-saved" class="primary" type="button" hidden>
-              Jetzt neu planen
+            <div id="route-start-summary" aria-live="polite">
+              <strong id="route-start-duration"></strong
+              ><span id="route-start-arrival"></span>
+            </div>
+            <button
+              id="navigation-start"
+              class="primary"
+              type="button"
+              aria-label="Navigation starten"
+              hidden
+            >
+              <span data-icon="location"></span>Los
             </button>
-
-            <button id="adjust-route" class="primary">Route anpassen</button
-            ><button id="close-route" class="secondary" type="button">
-              Neue Suche</button
-            ><button id="cancel" class="secondary" hidden>
+            <button id="cancel" class="secondary" type="button" hidden>
               Suche abbrechen
             </button>
           </div>
         </article>
       </section>
+      <dialog id="route-actions-dialog" aria-labelledby="route-actions-title">
+        <h2 id="route-actions-title">Routenaktionen</h2>
+        <button id="share-plan" type="button" class="secondary" hidden>
+          Planung teilen
+        </button>
+        <button id="refresh-route" type="button" class="secondary">
+          Aktualisieren
+        </button>
+        <button id="replan-saved" type="button" class="secondary" hidden>
+          Jetzt neu planen
+        </button>
+        <button id="route-actions-close" type="button" class="secondary">
+          Schließen
+        </button>
+      </dialog>
       <section
         id="settings-view"
         class="screen settings-screen"
@@ -300,8 +355,8 @@
         <section class="group info">
           <h2>Über FoldRoute</h2>
           <p>
-            Routenplanung ohne Konto. Navigation während der Fahrt bietet der
-            iPhone-Prototyp in Entwicklung.
+            Routenplanung und Navigation ohne Konto. Abbiegehinweise, Sprache
+            und aktuelle ÖPNV-Daten bei geöffneter App.
           </p>
           <p>
             <a href="../#projekt">Projekt entdecken</a> ·
@@ -317,11 +372,16 @@
               werden lokal gespeichert. Einstellungen und Favoriten und letzte
               Orte bleiben auf diesem Gerät. Der lokale Verlauf mit bis zu 20
               Strecken ist standardmäßig eingeschaltet und lässt sich
-              ausschalten und löschen. Keine Analyse-Tools, keine GPS-Spuren.
-              Gespeicherte Zeiten sind der Stand der Abfrage. Neue Planung und
-              Karten benötigen Internet; die Offline-Übersicht zeigt den
-              gespeicherten Streckenverlauf ohne Straßenkarte. Der Browser kann
-              lokale Daten löschen.
+              ausschalten und löschen. Aktive Navigation speichert zusätzlich
+              Abschnitt und Manöver für bestätigte Wiederaufnahme.
+              Fahrtkennungen werden zur Aktualisierung an Transitous übertragen;
+              Neuberechnungen nutzen den aktuellen Standort. Sprachansagen
+              nutzen Browserstimmen, die je nach Gerät online arbeiten.
+              Ausschalten der Speicherung löscht auch die Wiederaufnahme. Keine
+              Analyse-Tools, keine GPS-Spuren. Gespeicherte Zeiten sind der
+              Stand der Abfrage. Neue Planung und Karten benötigen Internet; die
+              Offline-Übersicht zeigt den gespeicherten Streckenverlauf ohne
+              Straßenkarte. Der Browser kann lokale Daten löschen.
             </p>
           </details>
           <p>

@@ -10,7 +10,16 @@ import {
   journeyOutline,
 } from "./model";
 import { type PlanningState } from "./planning-state";
-import { el, node, clock, duration, dateLabel, icon, legColors } from "./ui";
+import {
+  el,
+  node,
+  clock,
+  duration,
+  dateLabel,
+  icon,
+  legColors,
+  routeSymbolColor,
+} from "./ui";
 export type JourneyScreen = "list" | "detail" | "map";
 export interface JourneyNavigation {
   screen: JourneyScreen;
@@ -63,10 +72,25 @@ export class JourneyView {
           buttons.length
       ]?.focus();
     };
+    const actionsDialog = el<HTMLDialogElement>("route-actions-dialog");
+    const closeActions = () => {
+      actionsDialog.close();
+      el("route-more").focus({ preventScroll: true });
+    };
+    el("route-more").onclick = () => actionsDialog.showModal();
+    el("route-actions-close").onclick = closeActions;
+    actionsDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeActions();
+    });
+    for (const id of ["share-plan", "refresh-route", "replan-saved"]) {
+      el(id).addEventListener("click", closeActions, { capture: true });
+    }
     this.desktop.addEventListener("change", () => {
       this.applyLayout();
       this.restorePosition();
-      this.focusSelection();
+      if (!actionsDialog.open && document.activeElement !== el("route-more"))
+        this.focusSelection();
     });
     let pending = false;
     const observer = new ResizeObserver(() => {
@@ -234,6 +258,23 @@ export class JourneyView {
     target.focus({ preventScroll: true });
   }
   render(state: PlanningState, cyclingLimit = 30) {
+    const request = state.request;
+    el("route-origin").textContent = request?.origin.name ?? "Start";
+    el("route-destination").textContent = request?.destination.name ?? "Ziel";
+    el("route-request-meta").textContent = request
+      ? `${request.timing === "now" ? "Abfahrt jetzt" : `${request.timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`}${request.stops?.length ? ` · ${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}` : ""}`
+      : "Route bearbeiten";
+    const selected = state.selected;
+    el("route-start-duration").textContent = selected
+      ? duration(selected.arrival - selected.departure)
+      : "";
+    el("route-start-arrival").textContent = selected
+      ? `Ankunft ${dateLabel(selected.arrival)}, ${clock(selected.arrival)}`
+      : "";
+    el("route-start-summary").hidden = !selected;
+    el("navigation-start").hidden = !selected || state.busy;
+    el<HTMLButtonElement>("navigation-start").disabled =
+      state.busy || state.locating;
     cyclingLimit = state.resultSettings?.maxCyclingMinutes ?? cyclingLimit;
     el("status").textContent = state.message;
     el("stale-notice").textContent = state.staleReason ?? "";
@@ -323,20 +364,32 @@ export class JourneyView {
       const row = node("div", "", "route-choice-row");
       row.classList.toggle("selected", journey.id === j?.id);
       const button = node("button", "", "route-choice");
-      const heading = node(
+      const heading = node("span", "", "route-choice-time");
+      const schedule = node(
         "span",
-        `${comparison ? " · " : ""}${journeyTimeRange(journey)} · ${duration(journey.arrival - journey.departure)}`,
-        "route-choice-time",
+        journeyTimeRange(journey),
+        "route-choice-schedule",
       );
-      if (comparison) heading.prepend(icon("bike"));
+      if (comparison) {
+        schedule.style.setProperty("--stage-color", routeSymbolColor("bike"));
+        schedule.prepend(icon("bike"), node("span", " · ", "visually-hidden"));
+      }
+      heading.append(
+        schedule,
+        node("span", " · ", "visually-hidden"),
+        node(
+          "strong",
+          duration(journey.arrival - journey.departure),
+          "route-choice-duration",
+        ),
+      );
       const effort = journeyEffort(journey);
       const effortText = `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
       const outline = journeyOutline(journey);
-      const outlineElement = node("span", outline, "route-outline");
       button.append(
         heading,
-        outlineElement,
-        node("span", effortText, "route-choice-effort"),
+        this.choiceOutline(journey),
+        this.choiceEffort(effort),
       );
       if (journey.id === recommendedID && !state.restored)
         button.prepend(node("span", recommendation, "route-recommendation"));
@@ -375,6 +428,64 @@ export class JourneyView {
       [...el("choices").querySelectorAll<HTMLButtonElement>("button")]
         .find((b) => b.dataset.journey === focused)
         ?.focus({ preventScroll: true });
+  }
+
+  private choiceOutline(journey: Journey) {
+    const outline = node("span", "", "route-outline");
+    outline.setAttribute("aria-hidden", "true");
+    for (const leg of journey.legs) {
+      if (["fold", "unfold", "wait"].includes(leg.kind)) continue;
+      const stage = node("span", "", "route-stage");
+      stage.dataset.kind = leg.kind;
+      stage.style.setProperty(
+        "--stage-color",
+        routeSymbolColor(leg.kind, leg.mode),
+      );
+      if (outline.childElementCount)
+        stage.append(node("span", "→", "route-stage-arrow"));
+      const symbol =
+        leg.kind === "transit" && ["BUS", "COACH"].includes(leg.mode ?? "")
+          ? "bus"
+          : leg.kind;
+      stage.dataset.symbol = symbol;
+      stage.append(icon(symbol));
+      if (leg.kind === "transit")
+        stage.append(node("span", leg.line?.trim() || "ÖPNV", "route-line"));
+      else if (leg.kind === "stop")
+        stage.append(node("span", leg.from.name, "route-stop-name"));
+      outline.append(stage);
+    }
+    return outline;
+  }
+
+  private choiceEffort(effort: ReturnType<typeof journeyEffort>) {
+    const summary = node("span", "", "route-choice-effort");
+    summary.setAttribute("aria-hidden", "true");
+    const addMetric = (
+      name: "bike" | "walk" | "transfer",
+      text: string,
+      label: string,
+    ) => {
+      const metric = node("span", "", "route-effort-metric");
+      metric.dataset.kind = name;
+      metric.title = label;
+      metric.style.setProperty(
+        "--stage-color",
+        name === "transfer" ? "#c1c8cb" : routeSymbolColor(name),
+      );
+      metric.append(icon(name), node("span", text));
+      summary.append(metric);
+    };
+    if (effort.cyclingSeconds > 0)
+      addMetric(
+        "bike",
+        duration(effort.cyclingSeconds),
+        "Zeit auf dem Fahrrad",
+      );
+    if (effort.walkingSeconds > 0)
+      addMetric("walk", duration(effort.walkingSeconds), "Zeit zu Fuß");
+    addMetric("transfer", `${effort.transfers} Umst.`, "Anzahl der Umstiege");
+    return summary;
   }
 
   private details(j: Journey, restored: boolean) {
