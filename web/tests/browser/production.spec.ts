@@ -1,4 +1,4 @@
-import { toggleSelectedDetails } from "./assertions";
+import { openSelectedDetails } from "./assertions";
 import { expectPlanningComplete } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import { defaults } from "../../src/model";
@@ -142,7 +142,9 @@ test("offline restart restores exactly the saved journey without API or tile cac
   await context.setOffline(true);
   await page.goto(root);
   await expect(page.locator("#saved-notice")).toBeVisible();
-  await expect(page.locator(".route-choice[aria-pressed=true] .route-choice-time")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await expect(page.locator("#map")).toHaveClass(/offline-map/);
   await expect(page.locator("#refresh-route")).toBeDisabled();
   const urls = await page.evaluate(async () => {
@@ -161,7 +163,7 @@ test("offline restart restores exactly the saved journey without API or tile cac
       (url) => url.includes("transitous") || url.includes("tile.openstreetmap"),
     ),
   ).toBe(false);
-  await toggleSelectedDetails(page);
+  await openSelectedDetails(page);
   await expect(page.locator("#journey-detail")).toContainText("Rad");
   await page.screenshot({
     path: "test-results/pwa-offline.png",
@@ -209,7 +211,9 @@ test("local storage failure does not prevent online planning", async ({
   await page.locator("#destination").fill("Ziel");
   await page.locator("#destination-options").locator(".place-select").click();
   await expectPlanningComplete(page);
-  await expect(page.locator(".route-choice[aria-pressed=true] .route-choice-time")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await expect(page.locator("#storage-message")).toContainText(
     "nicht offline gespeichert",
   );
@@ -337,7 +341,9 @@ test("switching alternatives replaces the single saved record", async ({
     .toBe("bike-1");
   await context.setOffline(true);
   await page.goto(root);
-  await expect(page.locator(".route-choice[aria-pressed=true] .route-choice-time")).toContainText("1 h 1 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("1 h 1 min");
   await expect(page.locator(".route-choice")).toHaveCount(1);
 });
 
@@ -447,7 +453,9 @@ test("upgrades legacy database and settings while retaining the original offline
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator("#saved-notice")).toBeVisible();
-  await expect(page.locator(".route-choice[aria-pressed=true] .route-choice-time")).toContainText("32 min");
+  await expect(
+    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
+  ).toContainText("32 min");
   await expect(page.locator("#late-departure")).toBeHidden();
   const persisted = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve) => {

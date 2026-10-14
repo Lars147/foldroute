@@ -7,15 +7,23 @@ export async function expectPlanningComplete(page: Page) {
   await expect(page.locator("#status")).toHaveCSS("display", "none");
 }
 
-export async function resizeOverview(page: Page) {
-  if (await page.evaluate(() => innerWidth >= 900)) return;
-  const size = await page.locator("#journey-panel").getAttribute("data-size");
-  await page
-    .locator("#panel-handle")
-    .press(size === "expanded" ? "ArrowDown" : "ArrowUp");
+export async function openSelectedDetails(page: Page) {
+  if (await page.evaluate(() => innerWidth >= 900)) {
+    await page.locator("#panel-details").scrollIntoViewIfNeeded();
+    return;
+  }
+  const screen = await page
+    .locator("#map-view")
+    .getAttribute("data-result-screen");
+  if (screen === "map") await page.locator("#map-open-details").click();
+  else if (screen !== "detail")
+    await page.locator('.route-choice[aria-pressed="true"]').click();
 }
-export async function toggleSelectedDetails(page: Page) {
-  await page
-    .locator(".route-choice-row.selected .route-details-button")
-    .click();
+export async function showMap(page: Page) {
+  if (await page.evaluate(() => innerWidth >= 900)) return;
+  if (
+    (await page.locator("#map-view").getAttribute("data-result-screen")) !==
+    "map"
+  )
+    await page.locator("#panel-map-toggle").click();
 }

@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { defaults } from "../../src/model";
 import { routeURL } from "../../src/route-url";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
-import { expectPlanningComplete } from "./assertions";
+import { expectPlanningComplete, showMap } from "./assertions";
 
 async function setup(page: Page, permission = "granted") {
   await page.clock.install({ time: new Date("2026-09-04T08:00:00Z") });
@@ -93,6 +93,7 @@ async function setup(page: Page, permission = "granted") {
   });
   await page.goto("/" + link.search);
   await expectPlanningComplete(page);
+  await showMap(page);
 }
 const push = (page: Page, latitude: number, accuracy: number, age = 0) =>
   page.evaluate(
@@ -268,6 +269,7 @@ test("screen stays awake only on visible route and preference persists", async (
     .toEqual({ requested: 3, released: 3 });
   await page.reload();
   await expectPlanningComplete(page);
+  await showMap(page);
   await expect
     .poll(() => wakeCounts(page))
     .toEqual({ requested: 0, released: 0 });
@@ -294,4 +296,28 @@ test("screen lock denial does not interrupt planning", async ({ page }) => {
     .poll(() => wakeCounts(page))
     .toEqual({ requested: 1, released: 0 });
   expect(errors).toEqual([]);
+});
+
+test("mobile list and itinerary pause GPS while keeping the screen awake", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await wakeProbe(page);
+  await setup(page);
+  await expect
+    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .toBe(1);
+  await page.locator("#result-back").click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).liveProbe.stopped))
+    .toBe(1);
+  await page.locator('.route-choice[aria-pressed="true"]').click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .toBe(1);
+  expect((await wakeCounts(page)).released).toBe(0);
+  await showMap(page);
+  await expect
+    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .toBe(2);
 });

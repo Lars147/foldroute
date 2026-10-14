@@ -1,4 +1,4 @@
-import { resizeOverview } from "./assertions";
+import { openSelectedDetails } from "./assertions";
 import { expect, test, type Page } from "@playwright/test";
 import { defaults } from "../../src/model";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
@@ -212,8 +212,8 @@ test("entry focus and archive timestamps remain stable without background focus 
 }) => {
   await setup(page);
   await plan(page);
-  // Desktop empty-state focus stays on content when results arrive.
-  await expect(page.locator("#panel-content")).toBeFocused();
+  // Empty-state heading retains focus when results arrive.
+  await expect(page.locator("#result-context")).toBeFocused();
   await page.locator("#close-route").click();
   await expect(page.locator("#destination")).toBeFocused();
   await page.locator("#tab-history").click();
@@ -282,7 +282,7 @@ test("offline Back and Forward restore the matching old result with the edited r
     .toBe(20);
 });
 
-test("details opened before the first result hold that result as better options arrive", async ({
+test("opening an available itinerary holds it as better options arrive", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -307,17 +307,18 @@ test("details opened before the first result hold that result as better options 
     });
   });
   await choose(page, "destination", "Ziel");
-  await resizeOverview(page);
   releaseFirst();
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("1 h");
+  await openSelectedDetails(page);
   releaseOther();
   await expectPlanningComplete(page);
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("1 h");
   await expect(page.locator("#better-connection")).toHaveCount(0);
+  await page.locator("#result-back").click();
   await page
     .locator(".route-choice")
     .filter({ hasText: "53 min" })

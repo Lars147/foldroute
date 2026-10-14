@@ -45,6 +45,12 @@ async function setup(page: Page, width = 1100) {
     document.getElementById("map-view")!.hidden = false;
     const panel = document.getElementById("journey-panel")!;
     panel.style.height = "240px";
+    document.getElementById("map-view")!.dataset.resultScreen = "map";
+    for (const id of ["map", "map-route", "map-location"]) {
+      document.getElementById(id)!.inert = false;
+      document.getElementById(id)!.style.visibility = "visible";
+    }
+    document.getElementById("map")!.style.visibility = "visible";
     const view = new RouteMap(
       () => {},
       () => {},

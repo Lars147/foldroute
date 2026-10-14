@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { expectPlanningComplete, toggleSelectedDetails } from "./assertions";
+import { expectPlanningComplete, openSelectedDetails } from "./assertions";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 
 async function setup(page: Page) {
@@ -95,7 +95,7 @@ test("map and accordion use reclaimed space across offline, desktop and landscap
   await expect
     .poll(async () => (await page.locator("#map").boundingBox())!.y)
     .toBe(0);
-  await toggleSelectedDetails(page);
+  await openSelectedDetails(page);
   await expect(page.locator("#panel-details")).toBeVisible();
   await page.screenshot({ path: info.outputPath("mobile-map.png") });
   await page.context().setOffline(true);

@@ -15,8 +15,15 @@ test("mobile search uses visual viewport and returns to the unchanged adjustment
   await expect(page.locator(".search-focus-back")).toBeVisible();
   await page.evaluate(() => {
     // Model the visual area left above an on-screen keyboard without changing layout width.
-    document.documentElement.style.setProperty("--visual-height", "380px");
-    document.documentElement.style.setProperty("--visual-top", "35px");
+    Object.defineProperty(window.visualViewport, "height", {
+      configurable: true,
+      value: 380,
+    });
+    Object.defineProperty(window.visualViewport, "offsetTop", {
+      configurable: true,
+      value: 35,
+    });
+    window.visualViewport!.dispatchEvent(new Event("resize"));
   });
   await expect(
     page.locator("#destination-options .place-select"),

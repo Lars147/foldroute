@@ -136,35 +136,16 @@
         <article
           id="journey-panel"
           class="journey-panel"
-          data-size="normal"
-          aria-label="Routendetails"
+          aria-label="Verbindungen und Reiseablauf"
         >
-          <div
-            id="panel-handle"
-            class="panel-handle"
-            role="slider"
-            tabindex="0"
-            aria-label="Größe der Routenübersicht"
-            aria-orientation="vertical"
-            aria-valuemin="0"
-            aria-valuemax="2"
-            aria-valuenow="1"
-            aria-valuetext="Normal"
-          >
-            <span></span>
-          </div>
-          <div class="panel-tools">
-            <div class="panel-tool-actions">
-              <button
-                id="panel-map-toggle"
-                class="icon-button"
-                type="button"
-                aria-label="Karte anzeigen"
-                title="Karte anzeigen"
-                aria-controls="map"
-                data-icon="map"
-                hidden
-              ></button>
+          <header id="result-header">
+            <div class="result-nav">
+              <button id="result-back" class="text-button" type="button" hidden>
+                ‹ Alle Verbindungen
+              </button>
+              <button id="panel-map-toggle" class="text-button" type="button">
+                Karte anzeigen
+              </button>
               <button
                 id="share-plan"
                 class="icon-button"
@@ -174,14 +155,23 @@
                 data-icon="share"
                 hidden
               ></button>
-              <button
-                id="close-route"
-                class="icon-button"
-                aria-label="Route schließen"
-                data-icon="close"
-              ></button>
             </div>
-          </div>
+            <h1 id="result-context" tabindex="-1">Verbindungen</h1>
+            <div id="result-freshness">
+              <span id="result-stand"></span>
+              <button id="refresh-route" class="text-button" type="button">
+                Aktualisieren
+              </button>
+            </div>
+            <div id="map-preview" hidden>
+              <strong id="map-preview-time"></strong>
+              <p id="map-preview-outline"></p>
+              <p id="map-preview-stand"></p>
+              <button id="map-open-details" class="primary" type="button">
+                Reiseablauf ansehen
+              </button>
+            </div>
+          </header>
           <div
             id="panel-content"
             class="panel-content"
@@ -221,6 +211,8 @@
             <p id="map-error" class="map-error" role="status" hidden></p>
             <p id="cycling-comparison" class="notice" role="status" hidden></p>
             <div id="panel-details" class="panel-details" hidden inert>
+              <h2 id="journey-heading" tabindex="-1"></h2>
+              <p id="journey-effort"></p>
               <div id="journey-detail"></div>
             </div>
           </div>
@@ -230,7 +222,8 @@
             </button>
 
             <button id="adjust-route" class="primary">Route anpassen</button
-            ><button id="refresh-route" class="secondary">Aktualisieren</button
+            ><button id="close-route" class="secondary" type="button">
+              Neue Suche</button
             ><button id="cancel" class="secondary" hidden>
               Suche abbrechen
             </button>

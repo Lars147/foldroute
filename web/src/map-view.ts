@@ -249,7 +249,7 @@ export class RouteMap {
     }
   }
   resize() {
-    if (!this.map || el("map-view").hidden) return;
+    if (!this.map || el("map-view").hidden || el("map").inert) return;
     const size = this.map.getSize();
     if (size.x !== el("map").clientWidth || size.y !== el("map").clientHeight)
       this.map.invalidateSize({ pan: false });
@@ -261,16 +261,12 @@ export class RouteMap {
     const layout = JSON.stringify([
       el("map").clientWidth,
       el("map").clientHeight,
-      panel.dataset.size,
-      panel.classList.contains("panel-map-only"),
+      window.innerWidth >= 900,
     ]);
     let changed = layout !== this.layoutKey;
     const height = panel.getBoundingClientRect().height;
     if (changed) this.reservedPanelHeight = height;
-    else if (innerWidth < 900 && height > this.reservedPanelHeight + 0.5) {
-      this.reservedPanelHeight = height;
-      changed = true;
-    }
+
     this.layoutKey = layout;
     if (!this.manualCamera && (this.fitPending || changed)) {
       if (changed) this.overviewArea = undefined;
@@ -288,7 +284,8 @@ export class RouteMap {
       .map((p) => [p.latitude, p.longitude]);
   }
   fitRoute() {
-    if (!this.map || !this.selected || el("map-view").hidden) return;
+    if (!this.map || !this.selected || el("map-view").hidden || el("map").inert)
+      return;
     this.locationFocus = undefined;
     this.manualCamera = false;
     this.map.stop();

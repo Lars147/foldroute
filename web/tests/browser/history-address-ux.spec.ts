@@ -101,7 +101,6 @@ test("backfills an old start address, keeps route data intact and opens it offli
   );
   await page.context().setOffline(true);
   await page.locator(".history-open").click();
-  await page.locator(".route-details-button").first().click();
   await expect(page.locator("#panel-details")).toContainText(
     "Marienplatz 22, München",
   );

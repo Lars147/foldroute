@@ -22,7 +22,7 @@ import { ApiClient } from "./transitous";
 import { PlaceSearch, locate, clearSearchLocation } from "./search";
 import { PlanningSession, type PlanningState } from "./planning-state";
 import { RouteMap } from "./map-view";
-import { JourneyView } from "./journey-view";
+import { JourneyView, type JourneyNavigation } from "./journey-view";
 import {
   OfflineStore,
   sameHistoryRoute,
@@ -47,6 +47,7 @@ const suppressedCalculations = new Set<string>();
 let currentSaveSuppressed = false;
 let sharingPlan = false;
 let planningWasBusy = false;
+let navigationRevision = 0;
 let view: View = "search",
   settings: RoutingSettings = structuredClone(defaults);
 let settingsReplanPending = false;
@@ -107,7 +108,7 @@ function toast(message: string) {
 }
 const routeMap = new RouteMap(
   (id) => session.select(id),
-  () => journeyView.setSize("collapsed"),
+  () => {},
 );
 const liveLocation = new LiveLocation((fix, quality) =>
   routeMap.updateLocation(fix, quality),
@@ -140,7 +141,11 @@ function syncLiveLocation() {
       !dialog.open,
   );
   liveLocation.setActive(
-    pagePresent && view === "map" && !document.hidden && !dialog.open,
+    pagePresent &&
+      view === "map" &&
+      journeyView.mapVisible &&
+      !document.hidden &&
+      !dialog.open,
   );
 }
 function cancelMapCenter() {
@@ -171,14 +176,62 @@ const session = new PlanningSession(api, renderPlanning, (request, options) => {
   writeHistory();
 });
 journeyView.onDetailsOpened = () => session.holdSelection();
+journeyView.onLayoutChange = () => {
+  if (!journeyView.mapVisible) cancelMapCenter();
+  syncLiveLocation();
+  if (view === "map" && journeyView.mapVisible) showRouteMap(session.state);
+};
+journeyView.onPositionChange = () => {
+  if (view === "map" && history.state?.planId === activePlanId)
+    history.replaceState(
+      { ...history.state, journeyNavigation: journeyView.snapshot() },
+      "",
+    );
+};
+journeyView.onNavigate = (screen, replace) => {
+  navigationRevision++;
+  if (
+    replace &&
+    screen === "detail" &&
+    journeyView.screen === "map" &&
+    journeyView.backScreen === "detail" &&
+    (history.state?.resultDepth ?? 0) > 0
+  ) {
+    history.back();
+    return;
+  }
+  const depth = history.state?.resultDepth ?? 0;
+  writeHistory();
+  journeyView.showScreen(screen);
+  writeHistory(!replace, replace ? depth : depth + 1);
+};
+journeyView.onBack = () => {
+  if ((history.state?.resultDepth ?? 0) > 0) {
+    history.back();
+  } else if (journeyView.screen === "detail" && journeyView.savedOrigin) {
+    history.back();
+  } else {
+    journeyView.showScreen(journeyView.backScreen);
+    writeHistory();
+  }
+};
 function updateLinkUI() {
   el("share-plan").hidden = !activePlan;
   el<HTMLButtonElement>("share-plan").disabled =
     session.state.locating || sharingPlan;
 }
-function writeHistory(push = false) {
+function writeHistory(
+  push = false,
+  resultDepth = push ? 0 : (history.state?.resultDepth ?? 0),
+) {
   history[push ? "pushState" : "replaceState"](
-    { view, planId: activePlanId, historyId: openedHistoryId },
+    {
+      view,
+      planId: activePlanId,
+      historyId: openedHistoryId,
+      resultDepth,
+      journeyNavigation: journeyView.snapshot(),
+    },
     "",
     routeURL(location.href, activePlan),
   );
@@ -194,9 +247,11 @@ function releasePlan() {
   settingsUI();
 }
 function beginPlanning() {
+  navigationRevision++;
   activePlan = undefined;
   activePlanId = crypto.randomUUID();
   settingsReplanPending = false;
+  journeyView.reset();
   session.clear();
   activeSnapshot = undefined;
   persistKey = "";
@@ -209,6 +264,7 @@ async function restoreLink(
   next: View = "map",
   id?: string,
 ) {
+  journeyView.reset();
   settingsReplanPending = false;
   session.clear();
   activeSnapshot = undefined;
@@ -280,6 +336,7 @@ async function restoreLink(
   if (navigator.onLine) await session.calculate(request, settings, false);
 }
 function show(next: View, push = true) {
+  if (push) navigationRevision++;
   const replan =
     view === "settings" &&
     next !== "settings" &&
@@ -320,7 +377,10 @@ function show(next: View, push = true) {
   }
   if (replan) void refreshRoute(false);
 }
-window.addEventListener("popstate", (event) => {
+window.addEventListener("popstate", async (event) => {
+  const revision = ++navigationRevision;
+  const navigation = event.state?.journeyNavigation as
+    JourneyNavigation | undefined;
   if (dialog.open) closeAdjust();
   const next: View =
     event.state?.view === "history"
@@ -344,6 +404,7 @@ window.addEventListener("popstate", (event) => {
           event.state.planId,
         );
       show(next, false);
+      journeyView.restoreNavigation(navigation, next === "map");
     } else {
       show("history", false);
       toast("Diese gespeicherte Fahrt ist nicht mehr vorhanden.");
@@ -352,13 +413,17 @@ window.addEventListener("popstate", (event) => {
   }
   if (event.state?.planId === activePlanId) {
     show(next === "map" && !session.state.request ? "search" : next, false);
+    journeyView.restoreNavigation(navigation, next === "map");
     writeHistory();
   } else {
-    void restoreLink(
+    await restoreLink(
       readRouteURL(new URL(location.href)),
       next,
       event.state?.planId,
     );
+    if (revision !== navigationRevision) return;
+    journeyView.restoreNavigation(navigation, next === "map");
+    writeHistory();
   }
 });
 function historyUI() {
@@ -475,6 +540,7 @@ async function persist(snapshot: SavedJourney, id: string) {
   }
 }
 function showRouteMap(state: PlanningState) {
+  if (!journeyView.mapVisible) return;
   routeMap.show(
     state.journeys,
     state.selected,
@@ -587,7 +653,6 @@ async function start(place: Place) {
     return;
   }
   beginPlanning();
-  journeyView.setSize("normal");
   const result = await session.calculate(
     {
       origin: originOverride ?? {
@@ -759,7 +824,6 @@ el("route-form").onsubmit = async (event) => {
   destination.set(target);
   closeAdjust();
   beginPlanning();
-  journeyView.setSize("normal");
   const result = await session.calculate(
     {
       origin: originOverride ?? {
@@ -783,6 +847,11 @@ el("route-form").onsubmit = async (event) => {
   }
 };
 async function refreshRoute(interactive = true) {
+  if (view === "map") {
+    journeyView.reset();
+    el("result-context").focus({ preventScroll: true });
+    writeHistory(false, 0);
+  }
   const request = activePlan?.request ?? session.state.request;
   if (!request) return;
   if (request.timing !== "now" && request.time < Date.now() / 1000) {
@@ -1162,6 +1231,8 @@ function openSnapshot(
   focus = true,
   planId?: string,
 ) {
+  const origin = view === "history" ? "history" : "search";
+  journeyView.reset("detail", origin);
   const entry = historyEntries.find((entry) => entry.id === id);
   if (entry) snapshot = historySnapshot(entry);
   settingsReplanPending = false;
@@ -1195,7 +1266,6 @@ function openSnapshot(
   time = activePlan.request.time;
   contextUI();
   settingsUI();
-  journeyView.setSize("normal");
   if (view === "map") {
     if (push) writeHistory(true);
   } else show("map", push);
@@ -1207,6 +1277,7 @@ function openSaved(focus = true) {
 el("open-saved").onclick = () => openSaved();
 el("replan-saved").onclick = async () => {
   if (!activePlan || !navigator.onLine) return;
+  journeyView.reset();
   const request = structuredClone(activePlan.request);
   request.timing = "now";
   request.time = Date.now() / 1000;
