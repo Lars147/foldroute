@@ -258,9 +258,17 @@ interface StoredHistory {
   snapshot?: SavedJourney;
   invalid: boolean;
 }
+export interface HistoryDeletion {
+  entry: HistoryEntry;
+  epoch: number;
+  databaseGeneration: number;
+}
 export class OfflineStore {
   private generation = 0;
   private deleted = new Set<string>();
+  private deletedCalculations = new Set<string>();
+  private undoEpoch = 0;
+  private undoTokens = new WeakSet<HistoryDeletion>();
   private calculationEntries = new Map<string, string>();
 
   private async transaction(
@@ -329,6 +337,7 @@ export class OfflineStore {
       const knownEntry = this.calculationEntries.get(id);
       if (
         !state.enabled ||
+        this.deletedCalculations.has(id) ||
         this.deleted.has(id) ||
         (knownEntry && this.deleted.has(knownEntry))
       )
@@ -385,6 +394,7 @@ export class OfflineStore {
     return changed;
   }
   async setEnabled(enabled: boolean): Promise<void> {
+    this.undoEpoch++;
     this.generation++;
     await this.transaction((state) => {
       state.enabled = enabled;
@@ -392,17 +402,72 @@ export class OfflineStore {
     });
   }
   async clear(): Promise<void> {
+    this.undoEpoch++;
     this.generation++;
     await this.transaction((state) => {
       state.entries = [];
     });
   }
-  async remove(id: string): Promise<void> {
+  async remove(id: string): Promise<HistoryDeletion | undefined> {
     this.generation++;
+    const epoch = this.undoEpoch;
+    const databaseGeneration = localDatabase.generation;
+    const alreadyDeleted = this.deleted.has(id);
     this.deleted.add(id);
+    let entry: HistoryEntry | undefined;
+    try {
+      await this.transaction((state) => {
+        entry = state.entries.find((item) => item.id === id);
+        state.entries = state.entries.filter((item) => item.id !== id);
+      });
+    } catch (error) {
+      if (!alreadyDeleted) this.deleted.delete(id);
+      throw error;
+    }
+    if (!entry) return;
+    this.deletedCalculations.add(entry.calculationId ?? entry.id);
+    for (const [calculation, entryId] of this.calculationEntries)
+      if (entryId === id) this.deletedCalculations.add(calculation);
+    const token = { entry: structuredClone(entry), epoch, databaseGeneration };
+    this.undoTokens.add(token);
+    return token;
+  }
+  async restoreDeleted(
+    token: HistoryDeletion,
+  ): Promise<"restored" | "newer" | "unavailable"> {
+    let result: "restored" | "newer" | "unavailable" = "unavailable";
     await this.transaction((state) => {
-      state.entries = state.entries.filter((entry) => entry.id !== id);
+      if (
+        !state.enabled ||
+        !this.undoTokens.has(token) ||
+        token.epoch !== this.undoEpoch ||
+        token.databaseGeneration !== localDatabase.generation
+      )
+        return;
+      if (
+        state.entries.some((entry) =>
+          sameHistoryRoute(
+            entry.snapshot.request,
+            token.entry.snapshot.request,
+          ),
+        )
+      ) {
+        result = "newer";
+        return;
+      }
+      if (state.entries.length >= 20) return;
+      state.entries = retainHistory(
+        state.entries,
+        structuredClone(token.entry),
+      );
+      result = "restored";
     });
+    if (result !== "unavailable") {
+      this.undoTokens.delete(token);
+      // Old calculations remain blocked even after the entry itself is restored.
+      this.deleted.delete(token.entry.id);
+    }
+    return result;
   }
 }
 

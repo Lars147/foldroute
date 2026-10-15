@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-C8_-XmaK.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-D7HOLFrT.css">
+    <script type="module" crossorigin src="./assets/index-ThVdTg7q.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BdB6t01a.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search">
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -117,8 +117,7 @@
         aria-labelledby="history-heading"
         hidden
       >
-        <h1 id="history-heading">Fahrten</h1>
-        <p class="subtitle">Deine letzten 20 Strecken auf diesem Gerät.</p>
+        <h1 id="history-heading" tabindex="-1">Fahrten</h1>
         <p id="history-empty" class="message"></p>
         <ul id="history-list" class="history-list"></ul>
       </section>
@@ -219,7 +218,7 @@
               <p id="map-preview-outline"></p>
               <p id="map-preview-stand"></p>
               <button id="map-open-details" class="primary" type="button">
-                Reiseablauf ansehen
+                Details
               </button>
             </div>
           </header>
@@ -238,12 +237,6 @@
                 aria-label="Planungslink"
               />
             </label>
-            <div
-              id="choices"
-              class="route-choices"
-              role="group"
-              aria-label="Verbindung auswählen"
-            ></div>
             <p
               id="status"
               class="panel-status"
@@ -253,6 +246,12 @@
             <p id="issues" class="notice" hidden></p>
             <p id="saved-notice" class="notice" hidden></p>
             <p id="stale-notice" class="notice" role="status" hidden></p>
+            <div
+              id="choices"
+              class="route-choices"
+              role="group"
+              aria-label="Verbindung auswählen"
+            ></div>
             <div id="late-departure" class="notice" hidden>
               <span id="late-departure-text"></span>
               <button id="late-settings" type="button" class="text-button">
@@ -280,9 +279,6 @@
               hidden
             >
               <span data-icon="location"></span>Los
-            </button>
-            <button id="cancel" class="secondary" type="button" hidden>
-              Suche abbrechen
             </button>
           </div>
         </article>
@@ -432,64 +428,81 @@
           <button id="cancel-adjust" type="button" class="text-button">
             Abbrechen
           </button>
-          <h2 id="adjust-heading">Route anpassen</h2>
+          <h2 id="adjust-heading" tabindex="-1">Route anpassen</h2>
         </div>
         <div class="dialog-body">
-          <label for="origin">Start</label
-          ><input
-            id="origin"
-            type="search"
-            autocomplete="off"
-            placeholder="Start wählen"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-controls="origin-options"
-            aria-expanded="false"
-          />
-          <ul
-            id="origin-options"
-            class="suggestions"
-            role="listbox"
-            aria-label="Startvorschläge"
-            hidden
-          ></ul>
-          <button id="origin-location" type="button" class="text-button">
-            Aktuellen Standort verwenden</button
-          ><button
-            id="swap"
-            type="button"
-            class="swap"
-            aria-label="Start und Ziel tauschen"
-          >
-            Start und Ziel tauschen ↕
-          </button>
-          <div id="via-fields"></div>
-          <button id="add-stop" type="button" class="text-button">
-            Zwischenziel hinzufügen
-          </button>
-          <label for="adjust-destination">Ziel</label
-          ><input
-            id="adjust-destination"
-            type="search"
-            autocomplete="off"
-            placeholder="Ziel wählen"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-controls="adjust-destination-options"
-            aria-expanded="false"
-          />
-          <ul
-            id="adjust-destination-options"
-            class="suggestions"
-            role="listbox"
-            aria-label="Zielvorschläge"
-            hidden
-          ></ul>
+          <div class="route-editor-places" role="group" aria-label="Strecke">
+            <div class="route-editor-origin">
+              <label for="origin"
+                ><span aria-hidden="true">○</span> Start</label
+              >
+              <div class="route-editor-origin-input">
+                <input
+                  id="origin"
+                  type="search"
+                  autocomplete="off"
+                  placeholder="Start wählen"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-controls="origin-options"
+                  aria-expanded="false"
+                />
+                <button
+                  id="origin-location"
+                  type="button"
+                  aria-label="Aktuellen Standort verwenden"
+                  title="Aktuellen Standort verwenden"
+                  data-icon="location"
+                ></button>
+                <button
+                  id="swap"
+                  type="button"
+                  class="swap"
+                  aria-label="Start und Ziel tauschen"
+                  title="Start und Ziel tauschen"
+                  aria-describedby="swap-description"
+                  data-icon="swap"
+                ></button>
+              </div>
+              <ul
+                id="origin-options"
+                class="suggestions"
+                role="listbox"
+                aria-label="Startvorschläge"
+                hidden
+              ></ul>
+            </div>
+            <span id="swap-description" class="sr-only"></span>
+            <div id="via-fields"></div>
+            <div class="route-editor-destination">
+              <label for="adjust-destination"
+                ><span data-icon="flag"></span> Ziel</label
+              ><input
+                id="adjust-destination"
+                type="search"
+                autocomplete="off"
+                placeholder="Ziel wählen"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="adjust-destination-options"
+                aria-expanded="false"
+              />
+              <ul
+                id="adjust-destination-options"
+                class="suggestions"
+                role="listbox"
+                aria-label="Zielvorschläge"
+                hidden
+              ></ul>
+            </div>
+            <button id="add-stop" type="button" class="text-button">
+              <span aria-hidden="true">+</span> Zwischenziel
+            </button>
+          </div>
           <p id="adjust-status" class="message" role="status"></p>
           <p id="adjust-location-help" class="message" hidden>
             <a href="hilfe.html#standort">Hilfe zum Standort</a>
           </p>
-          <p>Zeitpunkt</p>
           <button id="time-trigger" type="button" class="time-trigger">
             <svg
               aria-hidden="true"
@@ -502,13 +515,14 @@
             >
               <rect x="3" y="5" width="18" height="16" rx="3" />
               <path d="M7 2v6m10-6v6M3 11h18" /></svg
-            ><span id="time-summary"></span><span aria-hidden="true">›</span>
+            ><span class="time-trigger-copy"
+              ><span>Zeitpunkt</span><strong id="time-summary"></strong></span
+            ><span aria-hidden="true">›</span>
           </button>
           <input id="timing" type="hidden" value="now" /><input
             id="when"
             type="hidden"
           />
-          <p id="timezone" class="message"></p>
         </div>
         <div class="dialog-actions">
           <button id="calculate" type="submit" class="primary">
@@ -530,6 +544,7 @@
           </button>
         </div>
         <div class="time-editor-body">
+          <p id="timezone" class="message"></p>
           <div
             class="time-modes"
             role="group"
@@ -632,7 +647,15 @@
         Schließen
       </button>
     </div>
-    <div id="toast" class="toast" role="status" hidden></div>
+    <div class="history-feedback">
+      <div id="toast" class="toast" role="status" hidden></div>
+      <div id="history-undo" class="toast history-undo" hidden>
+        <span role="status">Fahrt gelöscht</span>
+        <button id="history-undo-button" class="text-button" type="button">
+          Rückgängig
+        </button>
+      </div>
+    </div>
     <div id="update-banner" class="update-banner" role="status" hidden>
       <span>Neue Version verfügbar.</span>
       <div class="update-actions">

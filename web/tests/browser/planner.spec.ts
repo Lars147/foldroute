@@ -74,6 +74,70 @@ async function plan(page: Page) {
   ).toContainText("32 min");
   await expectPlanningComplete(page);
 }
+for (const width of [320, 393, 1280]) {
+  test(`route editor groups places and keeps swap reachable at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 852 });
+    await page.emulateMedia({ colorScheme: width === 393 ? "dark" : "light" });
+    await setup(page);
+    await plan(page);
+    await page.locator("#adjust-route").click();
+    await expect(page.locator("#adjust-heading")).toBeFocused();
+    await expect(page.locator("#swap")).toHaveAccessibleName(
+      "Start und Ziel tauschen",
+    );
+    await expect(page.locator("#swap")).toBeInViewport({ ratio: 1 });
+    const origin = await page.locator("#origin").boundingBox();
+    const swap = await page.locator("#swap").boundingBox();
+    expect(swap!.width).toBe(48);
+    expect(swap!.height).toBe(48);
+    expect(origin!.x + origin!.width).toBeLessThanOrEqual(swap!.x);
+    expect(
+      Math.abs(swap!.y + swap!.height / 2 - origin!.y - origin!.height / 2),
+    ).toBeLessThan(1);
+    const locationButton = page.locator("#origin-location");
+    await expect(locationButton).toHaveAccessibleName(
+      "Aktuellen Standort verwenden",
+    );
+    const locationBounds = await locationButton.boundingBox();
+    expect(locationBounds!.width).toBe(44);
+    expect(locationBounds!.height).toBe(44);
+    expect(locationBounds!.x + locationBounds!.width).toBeLessThanOrEqual(
+      origin!.x + origin!.width,
+    );
+    expect(
+      Math.abs(locationBounds!.y + 22 - origin!.y - origin!.height / 2),
+    ).toBeLessThan(1);
+    await page.screenshot({ path: test.info().outputPath("route-editor.png") });
+    await page.locator("#swap").click();
+    await expect(page.locator("#origin")).toHaveValue("Ziel");
+    await expect(page.locator("#adjust-destination")).toHaveValue(
+      "Aktueller Standort",
+    );
+    await page.locator("#time-trigger").click();
+    await expect(page.locator("#timezone")).toBeVisible();
+    await page.locator("#time-cancel").click();
+    await expect(page.locator("#time-trigger")).toBeFocused();
+    await expect(page.locator("#timezone")).toBeHidden();
+    await page.locator("#add-stop").click();
+    await expect(page.locator("#via-0")).toBeFocused();
+    await page.locator("#via-0").press("Escape");
+    await expect(page.locator("#swap")).toHaveAccessibleDescription(
+      "Die Reihenfolge der Zwischenziele wird ebenfalls umgekehrt.",
+    );
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "24px";
+    });
+    await page.locator("#calculate").scrollIntoViewIfNeeded();
+    await expect(page.locator("#calculate")).toBeInViewport({ ratio: 1 });
+    expect(
+      await page
+        .locator("#adjust-dialog")
+        .evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth),
+    ).toBe(true);
+  });
+}
 // The mocked GPS position equals the route origin, so its existing marker
 // provides a rendered screen coordinate without exposing the map to tests.
 async function locationCenterError(page: Page) {
@@ -269,6 +333,7 @@ test("location denial keeps destination and allows a manual start", async ({
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("32 min");
+  await expect(page.locator("#route-origin")).toHaveText("Start");
 });
 test("adjustments are drafts and cancellation preserves results", async ({
   page,
@@ -348,7 +413,7 @@ test("throttling stops further requests; manual retry observes the pause", async
   await expect(page.locator("#status")).toContainText("Pause");
   expect(requests).toBe(before);
 });
-test("cancel retains progressive results and ignores delayed responses", async ({
+test("closing the route cancels optimization and ignores delayed responses", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -365,18 +430,189 @@ test("cancel retains progressive results and ignores delayed responses", async (
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("32 min");
-  await expect(page.locator("#adjust-route")).toBeDisabled();
-  await expect(page.locator("#navigation-start")).toBeHidden();
+  await expect(page.locator("#adjust-route")).toBeEnabled();
+  await expect(page.locator("#navigation-start")).toBeVisible();
+  await expect(page.locator("#navigation-start")).toBeEnabled();
   await expect(page.locator(".panel-tools #close-route")).toBeVisible();
-  await page.locator("#cancel").click();
-  await expect(page.locator("#adjust-route")).toBeVisible();
-  await expect(page.locator("#status")).toContainText("abgebrochen");
-  await page.waitForTimeout(1700);
   await expect(
-    page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
-  ).toContainText("32 min");
-  await expect(page.locator("#status")).toContainText("abgebrochen");
+    page.getByRole("button", { name: "Suche abbrechen", exact: true }),
+  ).toHaveCount(0);
+  await page.locator("#close-route").click();
+  await expect(page.locator("#destination")).toBeVisible();
+  await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+  await page.waitForTimeout(1700);
+  await expect(page.locator("#destination")).toBeVisible();
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
 });
+for (const width of [390, 1280]) {
+  test(`navigation starts during optimization and retains the chosen route at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page);
+    let releaseTransit!: () => void;
+    const transitGate = new Promise<void>(
+      (resolve) => (releaseTransit = resolve),
+    );
+    await page.route("**/api/v6/plan?*", async (route) => {
+      const direct =
+        new URL(route.request().url()).searchParams.get("directModes") ===
+        "BIKE";
+      if (!direct) await transitGate;
+      await route.fulfill({
+        headers: cors,
+        json: direct ? fixture.direct : fixture.multimodal,
+      });
+    });
+    await choose(page, "destination", "Ziel");
+    await expect(page.locator(".route-choice")).not.toHaveCount(0);
+    await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
+    await expect(page.locator("#navigation-start")).toBeEnabled();
+    await page.locator("#navigation-start").click();
+    await expect(page.locator("#navigation-view")).toBeVisible();
+    const savedJourney = () =>
+      page.evaluate(async () => {
+        const { NavigationStore } = await import("/src/navigation-store.ts");
+        return (await new NavigationStore().read())?.journey;
+      });
+    await expect.poll(savedJourney).toBeTruthy();
+    const chosen = await savedJourney();
+    expect(chosen!.legs.every((leg) => leg.kind !== "transit")).toBe(true);
+    releaseTransit();
+    await page.waitForTimeout(300);
+    expect(await savedJourney()).toEqual(chosen);
+    await expect(page.locator("#navigation-view")).toBeVisible();
+    await page.locator("#navigation-end").click();
+    await page.locator("#navigation-confirm-yes").click();
+    await expect(page.locator("#navigation-view")).toBeHidden();
+    await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+  });
+}
+test("editing during search preserves drafts, focus and optimization until cancelled", async ({
+  page,
+}) => {
+  await setup(page);
+  let releaseDirect!: () => void;
+  let releaseTransit!: () => void;
+  const directGate = new Promise<void>((resolve) => (releaseDirect = resolve));
+  const transitGate = new Promise<void>(
+    (resolve) => (releaseTransit = resolve),
+  );
+  let requests = 0;
+  await page.route("**/api/v6/plan?*", async (route) => {
+    requests++;
+    const direct =
+      new URL(route.request().url()).searchParams.get("directModes") === "BIKE";
+    await (direct ? directGate : transitGate);
+    await route.fulfill({
+      headers: cors,
+      json: direct ? fixture.direct : fixture.multimodal,
+    });
+  });
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#adjust-route")).toBeEnabled();
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+  await page.locator("#origin").fill("Unbestätigter Start");
+  const requestCount = requests;
+  await page.locator("#calculate").click();
+  await expect(page.locator("#adjust-status")).toContainText(
+    "Bitte Start aus den Vorschlägen auswählen",
+  );
+  expect(requests).toBe(requestCount);
+  await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
+  releaseDirect();
+  await expect(page.locator(".route-choice")).not.toHaveCount(0);
+  await expect(page.locator("#origin")).toHaveValue("Unbestätigter Start");
+  await expect(page.locator("#origin")).toBeFocused();
+  await page.locator("#cancel-adjust").click();
+  await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
+  await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
+  await page.locator("#origin").fill("Unbestätigter Start");
+  releaseTransit();
+  await expectPlanningComplete(page);
+  await expect(page.locator("#origin")).toHaveValue("Unbestätigter Start");
+  await expect(page.locator("#origin")).toBeFocused();
+  await page.locator("#cancel-adjust").click();
+  await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
+  await expect(page.locator(".route-choice")).not.toHaveCount(0);
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
+});
+
+test("submitting edits during optimization replaces the search and ignores late results", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route("**/api/v1/geocode?*", (route) =>
+    route.fulfill({
+      headers: cors,
+      json: [...places, { name: "Park", lat: 48.16, lon: 11.62 }],
+    }),
+  );
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let newDirectRequests = 0;
+  let oldTransitStarted = false;
+  await page.route("**/api/v6/plan?*", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const direct = params.get("directModes") === "BIKE";
+    const old = params.get("toPlace")?.includes("48.175");
+    if (old && !direct) {
+      oldTransitStarted = true;
+      await gate;
+    }
+    if (!old && direct) newDirectRequests++;
+    await route.fulfill({
+      headers: cors,
+      json: direct ? fixture.direct : fixture.multimodal,
+    });
+  });
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator(".route-choice")).not.toHaveCount(0);
+  await expect.poll(() => oldTransitStarted).toBe(true);
+  await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
+  await page.locator("#adjust-route").click();
+  await choose(page, "adjust-destination", "Park");
+  await page.locator("#calculate").click();
+  await expectPlanningComplete(page);
+  await expect(page.locator("#route-destination")).toHaveText("Park");
+  expect(newDirectRequests).toBe(1);
+  const link = page.url();
+  release();
+  await page.waitForTimeout(200);
+  await expect(page.locator("#route-destination")).toHaveText("Park");
+  expect(page.url()).toBe(link);
+  await expect(page.locator("#adjust-dialog")).not.toBeVisible();
+});
+
+test("a late location failure does not reset an open edit dialog", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        getCurrentPosition(_success: unknown, fail: (error: unknown) => void) {
+          (window as any).failPlanningLocation = () => fail({ code: 2 });
+        },
+      },
+    });
+  });
+  await setup(page, false);
+  await choose(page, "destination", "Ziel");
+  await page.locator("#adjust-route").click();
+  await page.locator("#origin").fill("Manueller Entwurf");
+  await page.evaluate(() => (window as any).failPlanningLocation());
+  await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+  await expect(page.locator("#adjust-dialog")).toBeVisible();
+  await expect(page.locator("#origin")).toHaveValue("Manueller Entwurf");
+  await expect(page.locator("#origin")).toBeFocused();
+  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+});
+
 test("choice labels keep arrival times for both search modes and update dates without changing IDs", async ({
   page,
 }) => {
@@ -551,7 +787,9 @@ test("dark appearance, large text and reduced motion remain usable", async ({
   await page.addStyleTag({ content: ":root {font-size: 24px !important;}" });
   const card = page.locator(".route-choice[aria-pressed=true]");
   await expect(card.locator(".route-choice-arrival")).toHaveText("10:32 an");
-  await expect(card.locator(".route-choice-schedule")).toHaveText("Ab 10:00 · 32 min");
+  await expect(card.locator(".route-choice-schedule")).toHaveText(
+    "Ab 10:00 · 32 min",
+  );
   expect(
     await card.evaluate(
       (element) => element.scrollWidth <= element.clientWidth + 1,
@@ -1167,6 +1405,7 @@ test("planning URL reloads fixed endpoints without location access and keeps now
   page.on("pageerror", (error) => errors.push(error.message));
   await page.reload();
   await expectPlanningComplete(page);
+  await expect(page.locator("#route-origin")).toHaveText("Startpunkt");
   await page.clock.setFixedTime(new Date("2026-09-04T08:05:00Z"));
   const direct = page.waitForRequest((r) =>
     r.url().includes("directModes=BIKE"),
@@ -1384,7 +1623,7 @@ for (const mode of ["depart", "arrive"] as const)
     const params = new URL((await query).url()).searchParams;
     expect(params.get("time")).toBe("2026-09-04T09:00:00Z");
     expect(params.get("arriveBy")).toBe(String(mode === "arrive"));
-    await expect(page.locator("#cancel")).toBeHidden();
+    await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
     await page.locator("#adjust-route").click();
     await expect(page.locator("#timing")).toHaveValue(mode);
     await expect(page.locator("#when")).toHaveValue("2026-09-04T11:00");
@@ -1492,7 +1731,7 @@ test("hidden comparison arriving first does not finish the search before transit
   );
   await choose(page, "destination", "Ziel");
   await response;
-  await expect(page.locator("#cancel")).toBeVisible();
+  await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
   await expect(page.locator(".route-choice")).toHaveCount(0);
   release();
   await expectPlanningComplete(page);
@@ -1642,6 +1881,104 @@ test("free stops edit, reorder, reverse and cancel without changing the active p
   await expect(page.locator("#via-fields > div:not([hidden])")).toHaveCount(0);
 });
 
+for (const width of [320, 393, 1280]) {
+  test(`stop duration editor is compact, validates and preserves durations at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 852 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await setupVia(page);
+    await page.locator("#search-adjust").click();
+    await choose(page, "origin", "Start");
+    await choose(page, "adjust-destination", "Ziel");
+    await page.locator("#add-stop").click();
+    await choose(page, "via-0", "Café");
+    const toggle = page.locator(
+      '.stop-stay-toggle[aria-controls="via-0-stay"]',
+    );
+    await expect(toggle).toHaveText("AufenthaltOhne Pause");
+    await expect(
+      page.getByRole("button", { name: "Zwischenziel 1 nach oben" }),
+    ).toBeHidden();
+    await expect(page.locator("#via-0-stay")).toBeHidden();
+    for (const [hours, minutes, summary] of [
+      ["0", "0", "Ohne Pause"],
+      ["0", "15", "15 Min."],
+      ["1", "0", "1 Std."],
+      ["16", "40", "16 Std. 40 Min."],
+      ["24", "0", "24 Std."],
+    ]) {
+      await toggle.click();
+      await expect(page.locator("#via-0-hours")).toBeFocused();
+      await page.locator("#via-0-hours").fill(hours);
+      await page.locator("#via-0-minutes").fill(minutes);
+      await toggle.click();
+      await expect(page.locator("#via-0-stay")).toBeHidden();
+      await expect(toggle).toContainText(summary);
+      await page.locator("#use-context").click();
+      await page.locator("#search-adjust").click();
+      await expect(toggle).toContainText(summary);
+      await expect(page.locator("#via-0-stay")).toBeHidden();
+      await expect(page.locator("#via-0-hours")).toHaveValue(hours);
+      await expect(page.locator("#via-0-minutes")).toHaveValue(minutes);
+    }
+    await page.screenshot({
+      path: test.info().outputPath("stop-collapsed.png"),
+    });
+    await toggle.click();
+    for (const [hours, minutes, field] of [
+      ["-1", "0", "hours"],
+      ["1.5", "0", "hours"],
+      ["0", "60", "minutes"],
+      ["24", "1", "minutes"],
+    ]) {
+      await page.locator("#via-0-hours").fill(hours);
+      await page.locator("#via-0-minutes").fill(minutes);
+      await page.locator("#use-context").click();
+      await expect(page.locator("#via-0-stay-error")).toBeVisible();
+      await expect(page.locator(`#via-0-${field}`)).toBeFocused();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    }
+    await page.locator("#via-0-hours").fill("");
+    await page.locator("#via-0-minutes").fill("");
+    await page.locator("#use-context").click();
+    await page.locator("#search-adjust").click();
+    await expect(toggle).toContainText("Ohne Pause");
+    await toggle.click();
+    await page.locator("#via-0-minutes").fill("15");
+    await page.locator("#add-stop").click();
+    await choose(page, "via-1", "See");
+    await page
+      .getByRole("button", { name: "Zwischenziel 1 nach unten", exact: true })
+      .click();
+    await expect(page.locator("#via-0-stay")).toBeVisible();
+    await expect(page.locator("#via-0-minutes")).toHaveValue("15");
+    await expect(
+      page.locator(".stop-heading label").filter({ hasText: "Zwischenziel 2" }),
+    ).toHaveAttribute("for", "via-0");
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "24px";
+    });
+    await page.locator("#via-0-minutes").scrollIntoViewIfNeeded();
+    expect(
+      await page
+        .locator("#adjust-dialog")
+        .evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth),
+    ).toBe(true);
+    await page.screenshot({
+      path: test.info().outputPath("stop-expanded-large-text.png"),
+    });
+    await page
+      .getByRole("button", { name: "Zwischenziel 2 entfernen", exact: true })
+      .click();
+    await expect(page.locator("#add-stop")).toBeFocused();
+    await page.locator("#cancel-adjust").click();
+    await page.locator("#search-adjust").click();
+    await expect(page.locator("#via-0")).toHaveValue("Café");
+    await expect(toggle).toContainText("Ohne Pause");
+  });
+}
 test("mobile stop planning shares and reloads pauses and restores the complete offline trip", async ({
   page,
 }) => {
@@ -1652,9 +1989,8 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   await choose(page, "adjust-destination", "Ziel");
   await page.locator("#add-stop").click();
   await choose(page, "via-0", "Café");
-  await page
-    .locator("#via-fields > div:not([hidden]) input[type=number]")
-    .fill("10");
+  await page.locator('.stop-stay-toggle[aria-controls="via-0-stay"]').click();
+  await page.locator("#via-0-minutes").fill("10");
   await page.locator("#calculate").click();
   await expectPlanningComplete(page);
   await expect(
@@ -1676,9 +2012,7 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   ).toContainText("50 min");
   await page.locator("#adjust-route").click();
   await expect(page.locator("#via-0")).toHaveValue("Café");
-  await expect(
-    page.locator("#via-fields > div:not([hidden]) input[type=number]"),
-  ).toHaveValue("10");
+  await expect(page.locator("#via-0-minutes")).toHaveValue("10");
   await page.locator("#cancel-adjust").click();
   await expect
     .poll(
@@ -1761,6 +2095,7 @@ test("history deduplicates routes, restores without requests and replans from fi
   });
   await page.locator(".history-open").last().click();
   await expect(page.locator("#saved-notice")).toBeVisible();
+  await expect(page.locator("#route-origin")).toHaveText("Startpunkt");
   await page.goBack();
   await expect(page.locator("#history-view")).toBeVisible();
   await page.goForward();
@@ -1789,6 +2124,48 @@ test("history deduplicates routes, restores without requests and replans from fi
   });
 });
 
+for (const width of [320, 393, 1280]) {
+  test(`history offers accessible deletion and undo at ${width}px`, async ({
+    page,
+    browserName,
+  }) => {
+    await page.setViewportSize({ width, height: 852 });
+    await page.emulateMedia({ colorScheme: width === 320 ? "light" : "dark" });
+    await setup(page);
+    await plan(page);
+    await page.locator("#tab-history").click();
+    await expect(page.locator(".history-origin")).toContainText("Startpunkt");
+    await expect(page.locator(".history-destination")).toHaveText("Ziel");
+    await expect(page.locator(".history-timestamp")).toHaveText(
+      "Geplant heute, 10:00",
+    );
+    await expect(page.locator("#history-edit")).toHaveCount(0);
+    const heading = await page.locator("#history-heading").boundingBox();
+    expect(heading!.height > 1).toBe(width >= 900);
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: test.info().outputPath("history-list.png") });
+    await page.locator(".history-open").focus();
+    await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+    await expect(page.locator(".history-remove")).toBeFocused();
+    await expect.poll(async () => {
+      const row = await page.locator(".history-row").boundingBox();
+      const open = await page.locator(".history-open").boundingBox();
+      return row!.x - open!.x;
+    }).toBeGreaterThan(90);
+    await page.screenshot({
+      path: test.info().outputPath("history-delete.png"),
+    });
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#history-empty")).toBeVisible();
+    await expect(page.locator("#history-heading")).toBeFocused();
+    await expect(page.locator("#history-undo")).toBeVisible();
+    await page.locator("#history-undo-button").click();
+    await expect(page.locator(".history-open")).toBeFocused();
+    await expect(page.locator("#history-undo")).toBeHidden();
+    await page.locator(".history-open").click();
+    await expect(page.locator("#history-view")).toBeHidden();
+  });
+}
 test("history deletion and disabling persist without restoring deleted calculations", async ({
   page,
 }) => {
@@ -1796,7 +2173,8 @@ test("history deletion and disabling persist without restoring deleted calculati
   await plan(page);
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-row")).toHaveCount(1);
-  await page.locator(".history-row > button[aria-label]").click();
+  await page.locator(".history-remove").focus();
+  await page.keyboard.press("Enter");
   await expect(page.locator(".history-row")).toHaveCount(0);
   await page.locator("#tab-route").click();
   await page.locator(".route-choice").last().click();
@@ -2030,7 +2408,7 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
     );
     await expect.poll(animation).toBe("route-loading");
     await expect(page.locator("#status")).toBeVisible();
-    await expect(page.locator("#cancel")).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect.poll(animation).toBe("none");
     expect(
@@ -2040,7 +2418,7 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
     ).toBe('""');
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect.poll(animation).toBe("route-loading");
-    if (outcome === "cancel") await page.locator("#cancel").click();
+    if (outcome === "cancel") await page.locator("#close-route").click();
     release();
     await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
     await expect.poll(animation).toBe("none");
@@ -2053,10 +2431,11 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
       for (let i = 0; i < 3; i++) {
         await expectPlanningComplete(page);
       }
+    } else if (outcome === "cancel") {
+      await expect(page.locator("#destination")).toBeVisible();
+      await expect(page.locator(".route-choice")).toHaveCount(0);
     } else {
-      await expect(page.locator("#status")).toContainText(
-        outcome === "cancel" ? "abgebrochen" : "nicht beantworten",
-      );
+      await expect(page.locator("#status")).toContainText("nicht beantworten");
       await expect(page.locator("#status")).toBeVisible();
     }
   });
@@ -2162,7 +2541,8 @@ test("history deletion during a pending recalculation does not resurrect the rou
   await started;
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-row")).toHaveCount(1);
-  await page.locator(".history-row > button[aria-label]").click();
+  await page.locator(".history-remove").focus();
+  await page.keyboard.press("Enter");
   await expect(page.locator(".history-row")).toHaveCount(0);
   release();
   await expectPlanningComplete(page);
@@ -2194,7 +2574,8 @@ test("history deletion while locating survives the location response", async ({
     "Standort wird ermittelt",
   );
   await page.locator("#tab-history").click();
-  await page.locator(".history-row > button[aria-label]").click();
+  await page.locator(".history-remove").focus();
+  await page.keyboard.press("Enter");
   await expect(page.locator(".history-row")).toHaveCount(0);
   await page.evaluate(() => (window as any).resolveHistoryLocation());
   await expectPlanningComplete(page);
@@ -2277,7 +2658,9 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
           element.scrollTop = element.scrollHeight;
         });
         expect(await scroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(0);
-        await expect(page.locator("#cancel")).toBeInViewport({ ratio: 1 });
+        await expect(page.locator("#navigation-start")).toBeInViewport({
+          ratio: 1,
+        });
       }
       if (screen === "detail") await page.locator("#result-back").click();
     }
@@ -2748,6 +3131,16 @@ test("new GPS planning enriches history without renaming the active origin", asy
   page,
 }) => {
   await setup(page);
+  await page.evaluate(() => {
+    const original = navigator.geolocation.getCurrentPosition.bind(
+      navigator.geolocation,
+    );
+    (window as any).gpsRequests = 0;
+    navigator.geolocation.getCurrentPosition = (...args) => {
+      (window as any).gpsRequests++;
+      return original(...args);
+    };
+  });
   await page.route("**/api/v1/reverse-geocode?*", (route) =>
     route.fulfill({
       headers: cors,
@@ -2764,6 +3157,21 @@ test("new GPS planning enriches history without renaming the active origin", asy
     }),
   );
   await plan(page);
+  await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
+  await expect(page.locator("#result-context")).toHaveText(
+    "Aktueller Standort → Ziel",
+  );
+  await expect(page.locator("#adjust-route")).toHaveAccessibleDescription(
+    /Aktueller Standort Ziel/,
+  );
+  const gpsRequests = await page.evaluate(() => (window as any).gpsRequests);
+  await page.locator("#route-more").click();
+  await page.locator("#refresh-route").click();
+  await expectPlanningComplete(page);
+  expect(
+    await page.evaluate(() => (window as any).gpsRequests),
+  ).toBeGreaterThan(gpsRequests);
+  await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
   await page
@@ -2773,6 +3181,21 @@ test("new GPS planning enriches history without renaming the active origin", asy
   await expect(page.locator(".history-open").first()).toContainText(
     "Marienplatz 22, München",
   );
+  await page.locator(".history-open").first().click();
+  await expect(page.locator("#route-origin")).toHaveText(
+    "Marienplatz 22, München",
+  );
+  await page.locator("#adjust-route").click();
+  await choose(page, "origin", "Start");
+  await page.locator("#calculate").click();
+  await expectPlanningComplete(page);
+  await expect(page.locator("#route-origin")).toHaveText("Start");
+  await page.locator("#adjust-route").click();
+  await page.locator("#origin-location").click();
+  await expect(page.locator("#origin-location")).toBeEnabled();
+  await page.locator("#calculate").click();
+  await expectPlanningComplete(page);
+  await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
 });
 
 test("mobile refresh returns to comparison and preserves old results on failure", async ({
@@ -2836,4 +3259,248 @@ test("browser back closes the route actions dialog with the preview", async ({
   await page.goBack();
   await expect(page.locator("#route-actions-dialog")).toBeHidden();
   await expect(page.locator("#search-view")).toBeVisible();
+});
+
+test("history undo preserves snapshots, blocks late writes and respects replacement and clearing", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  const result = await page.evaluate(async () => {
+    const path = "/src/offline.ts";
+    const { OfflineStore } = await import(path);
+    const store = new OfflineStore();
+    const base = (await store.read()).snapshot;
+    await store.clear();
+    await store.save(base, "original");
+    const before = (await store.read()).entries[0];
+    const token = await store.remove(before.id);
+    const restored = await store.restoreDeleted(token);
+    const after = (await store.read()).entries[0];
+    const late = await store.save(
+      { ...base, savedAt: base.savedAt + 1 },
+      "original",
+    );
+    const newerToken = await store.remove(before.id);
+    await store.save({ ...base, savedAt: base.savedAt + 2 }, "newer");
+    const newer = await store.restoreDeleted(newerToken);
+    const current = (await store.read()).entries[0].id;
+    const clearedToken = await store.remove(current);
+    await store.clear();
+    const cleared = await store.restoreDeleted(clearedToken);
+    await store.save(base, "disable");
+    const disabledToken = await store.remove("disable");
+    await store.setEnabled(false);
+    await store.setEnabled(true);
+    const disabled = await store.restoreDeleted(disabledToken);
+    await store.save(base, "capacity");
+    const capacityToken = await store.remove("capacity");
+    for (let i = 1; i <= 20; i++) {
+      const snapshot = structuredClone(base);
+      snapshot.request.destination.longitude += i * 0.01;
+      await store.save(snapshot, `other-${i}`);
+    }
+    const full = await store.restoreDeleted(capacityToken);
+    return {
+      restored,
+      exact: JSON.stringify(before) === JSON.stringify(after),
+      late,
+      newer,
+      current,
+      cleared,
+      disabled,
+      full,
+      count: (await store.read()).entries.length,
+    };
+  });
+  expect(result).toEqual({
+    restored: "restored",
+    exact: true,
+    late: false,
+    newer: "newer",
+    current: "newer",
+    cleared: "unavailable",
+    disabled: "unavailable",
+    full: "unavailable",
+    count: 20,
+  });
+});
+
+test("history undo expires and storage failure keeps the row", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await page.locator("#tab-history").click();
+  await page.locator(".history-remove").focus();
+  await page.evaluate(() => {
+    const original = IDBDatabase.prototype.transaction;
+    (window as any).restoreHistoryTransactions = () => {
+      IDBDatabase.prototype.transaction = original;
+    };
+    IDBDatabase.prototype.transaction = function () {
+      throw new Error("Storage unavailable");
+    };
+  });
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#toast")).toContainText("nicht gelöscht");
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await expect(page.locator("#history-undo")).toBeHidden();
+  await page.evaluate(() => (window as any).restoreHistoryTransactions());
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#history-undo")).toBeVisible();
+  await page.locator("#history-undo-button").focus();
+  await page.clock.fastForward(9000);
+  await expect(page.locator("#history-undo")).toBeVisible();
+  await page.locator("#tab-history").focus();
+  await page.mouse.move(0, 0);
+  await page.clock.fastForward(8100);
+  await expect(page.locator("#history-undo")).toBeHidden();
+});
+
+test.describe("history touch gestures", () => {
+  test.use({ hasTouch: true, viewport: { width: 393, height: 852 } });
+
+  // Synthetic pointer input allows the same gesture checks in Chromium and WebKit.
+  // Native pointer capture is stubbed because synthetic pointers aren't OS-owned.
+  async function swipe(page: Page, dx: number, dy = 0) {
+    await page
+      .locator(".history-row")
+      .first()
+      .evaluate(
+        (row, { dx, dy }) => {
+          row.setPointerCapture = () => {};
+          const target = row.querySelector(".history-open")!;
+          const send = (type: string, x: number, y: number) =>
+            target.dispatchEvent(
+              new PointerEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                pointerId: 7,
+                pointerType: "touch",
+                isPrimary: true,
+                button: 0,
+                clientX: x,
+                clientY: y,
+              }),
+            );
+          send("pointerdown", 250, 200);
+          send("pointermove", 250 + dx, 200 + dy);
+          send("pointerup", 250 + dx, 200 + dy);
+          if (Math.abs(dx) > Math.abs(dy))
+            target.dispatchEvent(
+              new MouseEvent("click", { bubbles: true, cancelable: true }),
+            );
+        },
+        { dx, dy },
+      );
+  }
+  test("swipe reveals only; vertical scroll and short drag do not open or delete", async ({
+    page,
+  }) => {
+    await setup(page);
+    await plan(page);
+    await page.evaluate(() =>
+      localStorage.setItem("foldroute.historySwipeSeen.v1", "true"),
+    );
+    await page.reload();
+    await page.locator("#tab-history").click();
+    await swipe(page, -15, 70);
+    await expect(page.locator(".history-row")).not.toHaveClass(/swipe-open/);
+    await swipe(page, -20);
+    await expect(page.locator(".history-row")).not.toHaveClass(/swipe-open/);
+    await swipe(page, -80);
+    await expect(page.locator(".history-row")).toHaveClass(/swipe-open/);
+    await expect(page.locator("#history-view")).toBeVisible();
+    await expect(page.locator(".history-row")).toHaveCount(1);
+    await swipe(page, 80);
+    await expect(page.locator(".history-row")).not.toHaveClass(/swipe-open/);
+    await swipe(page, -80);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".history-row")).not.toHaveClass(/swipe-open/);
+    await swipe(page, -80);
+    await page.locator(".history-remove").tap();
+    await expect(page.locator(".history-row")).toHaveCount(0);
+    await page.locator("#history-undo-button").tap();
+    await expect(page.locator(".history-row")).toHaveCount(1);
+  });
+  test("first visit animates once and interruption cannot open the journey", async ({
+    page,
+  }) => {
+    await setup(page);
+    await plan(page);
+    await page.locator("#tab-history").tap();
+    await expect(page.locator(".swipe-demo")).toHaveCount(1);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          localStorage.getItem("foldroute.historySwipeSeen.v1"),
+        ),
+      )
+      .toBe("true");
+    await page.locator(".history-open").tap();
+    await expect(page.locator(".swipe-demo")).toHaveCount(0);
+    await expect(page.locator("#history-view")).toBeVisible();
+    await page.reload();
+    await page.locator("#tab-history").tap();
+    await page.clock.fastForward(2500);
+    await expect(page.locator(".swipe-demo")).toHaveCount(0);
+  });
+  test("reduced motion skips demonstration without disabling deletion", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await setup(page);
+    await plan(page);
+    await page.locator("#tab-history").tap();
+    await page.clock.fastForward(2500);
+    await expect(page.locator(".swipe-demo")).toHaveCount(0);
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem("foldroute.historySwipeSeen.v1"),
+      ),
+    ).toBeNull();
+    await swipe(page, -90);
+    await expect(page.locator(".history-row")).toHaveClass(/swipe-open/);
+    await expect(page.locator(".history-open")).toHaveCSS(
+      "transition-duration",
+      "0s",
+    );
+  });
+});
+
+test("history undo restores only the latest deletion and clearing invalidates it", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await page.evaluate(async () => {
+    const path = "/src/offline.ts";
+    const { OfflineStore } = await import(path);
+    const store = new OfflineStore();
+    const snapshot = structuredClone((await store.read()).snapshot);
+    snapshot.request.destination.longitude += 0.05;
+    snapshot.request.destination.name = "Anderes Ziel";
+    snapshot.journey.destination.name = "Anderes Ziel";
+    snapshot.savedAt += 1;
+    await store.save(snapshot, "second");
+  });
+  await page.reload();
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-row")).toHaveCount(2);
+  await page.locator(".history-remove").first().focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await page.locator(".history-remove").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".history-row")).toHaveCount(0);
+  await page.locator("#history-undo-button").click();
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await expect(page.locator(".history-destination")).toHaveText("Ziel");
+  await page.locator(".history-remove").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#history-undo")).toBeVisible();
+  await page.locator("#tab-settings").click();
+  await page.locator("#offline-enabled").uncheck();
+  await expect(page.locator("#history-undo")).toBeHidden();
 });

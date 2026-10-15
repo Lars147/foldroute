@@ -85,7 +85,7 @@ test("context-only action is limited to the initial dialog, including failed pla
     route.fulfill({ status: 500, headers: cors }),
   );
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#cancel")).toBeHidden();
+  await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
   await page.locator("#adjust-route").click();
   await expect(page.locator("#use-context")).toBeHidden();
 });
@@ -220,7 +220,7 @@ test("entry focus and archive timestamps remain stable without background focus 
   await page.locator("#tab-history").click();
   const timestamp = page.locator(".history-timestamp").first();
   const savedTime = await timestamp.getAttribute("datetime");
-  await expect(timestamp).toContainText("Zuletzt geplant: 4. Sept., 10:00");
+  await expect(timestamp).toContainText("Geplant heute, 10:00");
   await page.locator(".history-open").first().click();
   await expect(page.locator(".route-choice[aria-pressed=true]")).toBeFocused();
   await page.locator("#tab-history").focus();
@@ -414,6 +414,6 @@ for (const succeeds of [true, false])
     await expect(page.locator("#foldingDuration")).toHaveValue("4");
     await page.locator("#save-settings").click();
     await expect(page.locator("#map-view")).toBeVisible();
-    await expect(page.locator("#cancel")).toBeHidden();
+    await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
     expect(calculations).toBe(1);
   });

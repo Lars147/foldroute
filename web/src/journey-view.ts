@@ -263,7 +263,14 @@ export class JourneyView {
   }
   render(state: PlanningState, cyclingLimit = 30) {
     const request = state.request;
-    el("route-origin").textContent = request?.origin.name ?? "Start";
+    // Keep the internal GPS label intact: planning uses it to refresh location.
+    const originName =
+      request?.origin.name === "Aktueller Standort"
+        ? state.restored
+          ? "Startpunkt"
+          : "Aktueller Standort"
+        : (request?.origin.name ?? "Start");
+    el("route-origin").textContent = originName;
     el("route-destination").textContent = request?.destination.name ?? "Ziel";
     el("route-request-meta").textContent = request
       ? `${request.timing === "now" ? "Abfahrt jetzt" : `${request.timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`}${request.stops?.length ? ` · ${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}` : ""}`
@@ -276,9 +283,9 @@ export class JourneyView {
       ? `${journeyEndpointTime(selected, "arrival")} an`
       : "";
     el("route-start-summary").hidden = !selected;
-    el("navigation-start").hidden = !selected || state.busy;
+    el("navigation-start").hidden = !selected;
     el<HTMLButtonElement>("navigation-start").disabled =
-      state.busy || state.locating;
+      !selected || !state.request;
     cyclingLimit = state.resultSettings?.maxCyclingMinutes ?? cyclingLimit;
     el("status").textContent = state.message;
     el("stale-notice").textContent = state.staleReason ?? "";
@@ -286,11 +293,11 @@ export class JourneyView {
     el("refresh-route").textContent = state.staleReason
       ? "Erneut versuchen"
       : "Aktualisieren";
-    el("cancel").hidden = !state.busy;
     el("refresh-route").hidden = state.busy;
     el<HTMLButtonElement>("refresh-route").disabled =
       !state.request || !navigator.onLine;
-    el<HTMLButtonElement>("adjust-route").disabled = state.busy;
+    el<HTMLButtonElement>("adjust-route").disabled =
+      !state.pendingRequest && !state.request;
     el("issues").textContent = state.issues.join(" ");
     el("issues").hidden = !state.issues.length;
     el("journey-panel").classList.toggle("is-loading", state.busy);
@@ -298,7 +305,7 @@ export class JourneyView {
     this.savePosition();
     this.displayedID = j?.id;
     el("result-context").textContent = state.request
-      ? `${state.request.origin.name} → ${state.request.destination.name}`
+      ? `${originName} → ${state.request.destination.name}`
       : "Verbindungen";
     el("result-stand").textContent = state.queriedAt
       ? `${state.restored ? "Gespeichert" : "Stand"}: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}`
@@ -412,7 +419,7 @@ export class JourneyView {
       details.dataset.detailJourney = journey.id;
       details.setAttribute(
         "aria-label",
-        `Details: Reiseablauf ansehen, Abfahrt ${clock(journey.departure)}, Ankunft ${clock(journey.arrival)}`,
+        `Details: Abfahrt ${clock(journey.departure)}, Ankunft ${clock(journey.arrival)}`,
       );
       details.disabled = journey.id !== j?.id;
       details.inert = details.disabled;

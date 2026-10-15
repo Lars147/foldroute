@@ -86,9 +86,10 @@ test("backfills an old start address, keeps route data intact and opens it offli
   await seed(page);
   const before = await read(page);
   await page.locator("#tab-history").click();
-  await expect(page.locator(".history-open")).toContainText(
-    "Marienplatz 22, München → Daglfing",
+  await expect(page.locator(".history-origin")).toHaveText(
+    "Marienplatz 22, München",
   );
+  await expect(page.locator(".history-destination")).toHaveText("Daglfing");
   const after = await read(page);
   expect(after.entries[0].snapshot).toEqual(before.entries[0].snapshot);
   expect(after.entries[0].id).toBe(before.entries[0].id);
@@ -129,9 +130,8 @@ test("a deleted history entry stays deleted after a delayed address response", a
   await seed(page);
   await page.locator("#tab-history").click();
   await started;
-  await page
-    .getByRole("button", { name: "Fahrt nach Daglfing löschen" })
-    .click();
+  await page.locator(".history-remove").focus();
+  await page.keyboard.press("Enter");
   release();
   await expect(page.locator(".history-open")).toHaveCount(0);
   expect((await read(page)).entries).toEqual([]);

@@ -1,3 +1,5 @@
+import { HistorySwipe } from "./history-swipe";
+import { HistoryUndo } from "./history-undo";
 import { HistoryNameQueue } from "./history-names";
 import { historySnapshot } from "./offline";
 import { NavigationSession } from "./navigation-session";
@@ -33,7 +35,15 @@ import {
   type SavedJourney,
   type HistoryEntry,
 } from "./offline";
-import { el, node, icon, localDate, clock, dateLabel } from "./ui";
+import {
+  el,
+  node,
+  icon,
+  localDate,
+  clock,
+  dateLabel,
+  historyPlannedAt,
+} from "./ui";
 import { setupPWA } from "./pwa";
 import { PlaceBook } from "./places";
 import { localDatabase } from "./storage";
@@ -46,6 +56,12 @@ import {
 
 type View = "search" | "map" | "settings" | "history";
 let historyEntries: HistoryEntry[] = [];
+let historyMutationPending = false;
+const historySwipe = new HistorySwipe(el("history-list"));
+const historyUndo = new HistoryUndo(
+  el("history-undo"),
+  el<HTMLButtonElement>("history-undo-button"),
+);
 let openedHistoryId: string | undefined;
 const suppressedCalculations = new Set<string>();
 let currentSaveSuppressed = false;
@@ -526,6 +542,7 @@ function show(next: View, push = true) {
   el("map-view").hidden = next !== "map";
   el("settings-view").hidden = next !== "settings";
   el("history-view").hidden = next !== "history";
+  historySwipe.setActive(next === "history");
   for (const tab of ["route", "history", "settings"]) {
     const active =
       tab === "route" ? next === "search" || next === "map" : tab === next;
@@ -602,6 +619,11 @@ window.addEventListener("popstate", async (event) => {
   }
 });
 function historyUI() {
+  if (historySwipe.deferRender(historyUI)) return;
+  const focused = document.activeElement as HTMLElement | null;
+  const focusedId =
+    focused?.closest<HTMLElement>(".history-row")?.dataset.historyId;
+  const focusedRemove = focused?.classList.contains("history-remove");
   el("history-list").replaceChildren();
   el("history-empty").hidden = historyEntries.length > 0;
   el("history-empty").textContent = offlineEnabled
@@ -611,14 +633,31 @@ function historyUI() {
   for (const entry of historyEntries) {
     const { journey, request } = historySnapshot(entry);
     const row = node("li", "", "history-row");
+    row.dataset.historyId = entry.id;
     const open = node("button", "", "history-open");
-    open.type = "button";
-    open.append(
-      node(
-        "strong",
-        `${journey.origin.name === "Aktueller Standort" ? "Startpunkt" : journey.origin.name} → ${journey.destination.name}`,
-      ),
+    const origin =
+      journey.origin.name === "Aktueller Standort"
+        ? "Startpunkt"
+        : journey.origin.name;
+    const description = `Von ${origin} nach ${journey.destination.name}${request.stops?.length ? `, über ${request.stops.map((stop) => stop.place.name).join(", ")}` : ""}`;
+    if (open instanceof HTMLButtonElement) {
+      open.type = "button";
+      open.setAttribute(
+        "aria-label",
+        `Gespeicherte Planung öffnen: ${description}`,
+      );
+      open.onclick = () => openSnapshot(entry.snapshot, entry.id);
+    }
+    const originLine = node("span", "", "history-origin");
+    const marker = node("span", "", "route-origin-marker");
+    marker.setAttribute("aria-hidden", "true");
+    originLine.append(marker, node("span", origin));
+    const destinationLine = node("strong", "", "history-destination");
+    destinationLine.append(
+      icon("flag"),
+      node("span", journey.destination.name),
     );
+    open.append(originLine, destinationLine);
     if (request.stops?.length)
       open.append(
         node(
@@ -629,29 +668,29 @@ function historyUI() {
     const plannedAt = new Date(entry.snapshot.savedAt * 1000);
     const timestamp = node(
       "time",
-      `Zuletzt geplant: ${plannedAt.toLocaleDateString("de-DE", {
-        day: "numeric",
-        month: "short",
-        ...(plannedAt.getFullYear() !== new Date().getFullYear()
-          ? { year: "numeric" as const }
-          : {}),
-      })}, ${clock(entry.snapshot.savedAt)}`,
+      historyPlannedAt(entry.snapshot.savedAt),
       "history-timestamp",
     );
     timestamp.dateTime = plannedAt.toISOString();
+    timestamp.id = `history-time-${entry.id}`;
+    open.setAttribute("aria-describedby", timestamp.id);
     open.append(timestamp);
-    open.onclick = () => openSnapshot(entry.snapshot, entry.id);
-    const remove = node("button", "", "icon-button");
+    const remove = node("button", "Löschen", "history-remove");
     remove.type = "button";
-    remove.setAttribute(
-      "aria-label",
-      `Fahrt nach ${journey.destination.name} löschen`,
-    );
-    remove.append(icon("close"));
+    remove.setAttribute("aria-label", `Fahrt löschen: ${description}`);
     remove.onclick = () => void deleteHistoryEntry(entry.id);
+    const chevron = icon("chevron");
+    chevron.classList.add("history-chevron");
+    open.append(chevron);
     row.append(open, remove);
     el("history-list").append(row);
+    if (entry.id === focusedId)
+      (focusedRemove
+        ? row.querySelector<HTMLButtonElement>(".history-remove")
+        : open
+      )?.focus({ preventScroll: true });
   }
+  historySwipe.ready();
 }
 async function reloadHistory() {
   const generation = storageGeneration;
@@ -663,18 +702,64 @@ async function reloadHistory() {
   if (view === "history") historyNames.enqueue(historyEntries);
 }
 async function deleteHistoryEntry(id: string) {
-  storageGeneration++;
+  if (historyMutationPending) return;
+  historyMutationPending = true;
+  const generation = ++storageGeneration;
   historyNames.clear();
-  const entry = historyEntries.find((item) => item.id === id);
-  const request = activePlan?.request ?? session.state.request;
-  if (entry && request && sameHistoryRoute(entry.snapshot.request, request))
-    suppressCurrentSave();
+  const index = historyEntries.findIndex((item) => item.id === id);
+  const entry = historyEntries[index];
   try {
-    await store.remove(id);
+    const token = await store.remove(id);
+    if (generation !== storageGeneration || !token) return;
+    const request = activePlan?.request ?? session.state.request;
+    if (entry && request && sameHistoryRoute(entry.snapshot.request, request))
+      suppressCurrentSave();
+    historySwipe.close();
     await reloadHistory();
-    toast("Fahrt gelöscht.");
+    if (generation !== storageGeneration) return;
+    historyUndo.show(async () => {
+      if (historyMutationPending) return;
+      historyMutationPending = true;
+      const restoreGeneration = ++storageGeneration;
+      try {
+        const result = await store.restoreDeleted(token);
+        if (restoreGeneration !== storageGeneration) return;
+        await reloadHistory();
+        if (restoreGeneration !== storageGeneration) return;
+        if (result === "restored") {
+          if (view === "history")
+            Array.from(
+              el("history-list").querySelectorAll<HTMLElement>(".history-row"),
+            )
+              .find((row) => row.dataset.historyId === id)
+              ?.querySelector<HTMLButtonElement>(".history-open")
+              ?.focus({ preventScroll: true });
+          toast("Fahrt wiederhergestellt.");
+        } else
+          toast(
+            result === "newer"
+              ? "Diese Strecke ist bereits gespeichert. Die aktuelle Planung bleibt erhalten."
+              : "Fahrt konnte nicht wiederhergestellt werden. Der Verlauf ist voll oder wurde geändert.",
+          );
+      } catch {
+        toast(
+          "Fahrt konnte nicht wiederhergestellt werden. Speicher nicht verfügbar.",
+        );
+      } finally {
+        historyMutationPending = false;
+      }
+    });
+    if (view === "history") {
+      const buttons =
+        el("history-list").querySelectorAll<HTMLButtonElement>(".history-open");
+      (
+        buttons[Math.min(index, buttons.length - 1)] ?? el("history-heading")
+      ).focus({ preventScroll: true });
+    }
   } catch {
     toast("Fahrt konnte nicht gelöscht werden. Bitte erneut versuchen.");
+  } finally {
+    historyMutationPending = false;
   }
 }
 function suppressCurrentSave() {
@@ -845,7 +930,7 @@ async function start(place: Place) {
     settings,
     !originOverride,
   );
-  if (result === "location-error" && view === "map") {
+  if (result === "location-error" && view === "map" && !dialog.open) {
     openAdjust(place);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
@@ -854,23 +939,32 @@ async function start(place: Place) {
 }
 function openAdjust(target?: Place) {
   destination.cancel();
-  adjustMode = activePlan || session.state.request ? "replan" : "context";
+  const request = structuredClone(
+    session.state.pendingRequest ?? session.state.request,
+  );
+  adjustMode = activePlan || request ? "replan" : "context";
   el("use-context").hidden = adjustMode !== "context";
-  const request = session.state.request;
-  stopEditor.set(structuredClone(stops));
-  draftOrigin.set(originOverride ?? request?.origin);
-  useLocation = !originOverride || originOverride.name === "Aktueller Standort";
+  stopEditor.set(structuredClone(request ? (request.stops ?? []) : stops));
+  draftOrigin.set(request?.origin ?? originOverride);
+  useLocation =
+    !draftOrigin.value || draftOrigin.value.name === "Aktueller Standort";
   if (useLocation && !draftOrigin.value)
     draftOrigin.input.value = "Aktueller Standort";
   draftDestination.set(target ?? request?.destination ?? destination.value);
-  el<HTMLInputElement>("timing").value = timing;
+  const draftTiming = request?.timing ?? timing;
+  el<HTMLInputElement>("timing").value = draftTiming;
   el<HTMLInputElement>("when").value = localDate(
-    new Date((timing === "now" ? Date.now() / 1000 + 3600 : time) * 1000),
+    new Date(
+      (draftTiming === "now"
+        ? Date.now() / 1000 + 3600
+        : (request?.time ?? time)) * 1000,
+    ),
   );
   updateTiming();
   el("adjust-status").textContent = "";
   el("adjust-location-help").hidden = true;
   dialog.showModal();
+  el("adjust-heading").focus({ preventScroll: true });
   cancelMapCenter();
   syncLiveLocation();
   if (!draftOrigin.value) draftOrigin.activate();
@@ -1018,7 +1112,7 @@ el("route-form").onsubmit = async (event) => {
     settings,
     !originOverride,
   );
-  if (result === "location-error" && view === "map") {
+  if (result === "location-error" && view === "map" && !dialog.open) {
     openAdjust(target);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
@@ -1051,7 +1145,12 @@ async function refreshRoute(interactive = true) {
     settings,
     request.origin.name === "Aktueller Standort",
   );
-  if (result === "location-error" && interactive && view === "map") {
+  if (
+    result === "location-error" &&
+    interactive &&
+    view === "map" &&
+    !dialog.open
+  ) {
     openAdjust(request.destination);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
@@ -1075,7 +1174,6 @@ el("close-route").onclick = () => {
   writeHistory();
   destination.input.focus({ preventScroll: true });
 };
-el("cancel").onclick = () => session.stop();
 el("dismiss-location-error").onclick = () => {
   el("map-location-error").hidden = true;
 };
@@ -1279,6 +1377,7 @@ el("clear-data").onclick = () => {
 el("cancel-delete-data").onclick = () =>
   el<HTMLDialogElement>("delete-data-dialog").close();
 el("confirm-delete-data").onclick = async () => {
+  historyUndo.clear();
   const button = el<HTMLButtonElement>("confirm-delete-data");
   button.disabled = true;
   storageGeneration++;
@@ -1297,6 +1396,7 @@ el("confirm-delete-data").onclick = async () => {
   clearSearchLocation();
   try {
     await localDatabase.clearAll();
+    historySwipe.resetHint();
     localStorage.removeItem(storageKey);
     localStorage.removeItem(legacyStorageKey);
     localStorage.removeItem(screenAwakeKey);
@@ -1347,7 +1447,10 @@ el("offline-enabled").onchange = async () => {
   const generation = ++storageGeneration;
   checkbox.disabled = true;
   offlineEnabled = enabled;
-  if (!enabled) historyNames.clear();
+  if (!enabled) {
+    historyNames.clear();
+    historyUndo.clear();
+  }
   syncHistoryNames();
   try {
     await store.setEnabled(enabled);
@@ -1386,6 +1489,7 @@ el("delete-saved").onclick = () => {
 el("cancel-delete-history").onclick = () =>
   el<HTMLDialogElement>("delete-history-dialog").close();
 el("confirm-delete-history").onclick = async () => {
+  historyUndo.clear();
   const button = el<HTMLButtonElement>("confirm-delete-history");
   button.disabled = true;
   storageGeneration++;
