@@ -27,3 +27,45 @@ export async function showMap(page: Page) {
   )
     await page.locator("#panel-map-toggle").click();
 }
+
+export async function openSettingsSection(
+  page: Page,
+  section: "options" | "modes" | "data" | "help",
+) {
+  const group = page.locator(`#settings-${section}`);
+  if ((await group.getAttribute("open")) === null)
+    await group.locator(":scope > summary").click();
+}
+
+export async function expectSelectedJourneySaved(page: Page) {
+  const selectedID = await page
+    .locator(".route-choice[aria-pressed=true]")
+    .getAttribute("data-journey");
+  expect(selectedID).toBeTruthy();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<string | undefined>((resolve, reject) => {
+            const open = indexedDB.open("foldroute-offline", 2);
+            open.onerror = () => reject(open.error);
+            open.onsuccess = () => {
+              const db = open.result;
+              const request = db
+                .transaction("state")
+                .objectStore("state")
+                .get("last");
+              request.onerror = () => {
+                db.close();
+                reject(request.error);
+              };
+              request.onsuccess = () => {
+                db.close();
+                resolve(request.result?.journey?.id);
+              };
+            };
+          }),
+      ),
+    )
+    .toBe(selectedID);
+}

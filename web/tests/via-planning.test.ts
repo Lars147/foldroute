@@ -301,7 +301,7 @@ describe("free intermediate stops", () => {
     ).rejects.toThrow("Pause");
     expect(client.calls.length).toBeLessThanOrEqual(2);
   });
-  it("round-trips v2 links and rejects gaps, invalid stays, and unversioned stops", () => {
+  it("round-trips v3 links and rejects gaps, invalid stays, and unversioned stops", () => {
     const request = {
       origin: p(0),
       destination: p(4),
@@ -311,9 +311,8 @@ describe("free intermediate stops", () => {
     };
     const url = routeURL("https://example.org/plan/", {
       request,
-      settings: defaults,
     });
-    expect(url.searchParams.get("v")).toBe("2");
+    expect(url.searchParams.get("v")).toBe("3");
     const parsed = readRouteURL(url);
     expect(parsed.kind).toBe("plan");
     if (parsed.kind === "plan")

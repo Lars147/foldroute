@@ -286,7 +286,10 @@ it("validates saved navigation and rejects corrupt progress or maneuver metadata
   j.legs[0].maneuvers![0].coordinates = [{ latitude: NaN, longitude: 0 }];
   expect(validNavigationSnapshot(s)).toBe(false);
 });
-function sessionHarness(plan = vi.fn().mockResolvedValue(journey())) {
+function sessionHarness(
+  plan = vi.fn().mockResolvedValue(journey()),
+  routingSettings?: () => typeof defaults,
+) {
   const store = {
     save: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
@@ -294,6 +297,7 @@ function sessionHarness(plan = vi.fn().mockResolvedValue(journey())) {
   const session = new NavigationSession({
     changed: vi.fn(),
     locate: async () => fix(),
+    routingSettings,
     storageEnabled: () => true,
     api: new ApiClient(),
     store: store as unknown as NavigationStore,
@@ -535,14 +539,18 @@ it("keeps onboard leg while offering an alternative from the intended exit", asy
 });
 
 it("accepts a valid alternative once, preserves confirmed stops and saves the new route", async () => {
-  const { session, store } = sessionHarness();
+  const preferences = { ...defaults, cyclingSpeedKilometersPerHour: 22 };
+  const { session, store, plan } = sessionHarness(undefined, () => preferences);
   await session.start(journey(), request, defaults);
   const previous = session.engine!;
   previous.progress.confirmedStops = ["visited"];
   session.disruption = { id: "connection", message: "Anschluss gefährdet" };
   await session.proposeAlternative();
+  expect(plan.mock.calls[0][1]).toEqual(preferences);
+  expect(session.settings).toEqual(defaults);
   await Promise.all([session.acceptAlternative(), session.acceptAlternative()]);
   expect(session.engine).not.toBe(previous);
+  expect(session.settings).toEqual(preferences);
   expect(session.engine?.progress.confirmedStops).toEqual(["visited"]);
   expect(session.alternative).toBeUndefined();
   expect(session.message).toBe("");
@@ -958,5 +966,28 @@ it("restores a loop from its latest distance instead of a previously traversed s
   const restored = new NavigationEngine(snapshot.journey, snapshot.progress);
   restored.update(fix(a, 61), (now + 61) * 1000);
   expect(restored.progress.meters).toBeGreaterThan(600);
+  await session.stop();
+});
+
+it("new navigation calculations use personal preferences and failed calculations preserve result settings", async () => {
+  const preferences = {
+    ...defaults,
+    cyclingSpeedKilometersPerHour: 22,
+    foldingDuration: 120,
+  };
+  const plan = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValue(journey());
+  const { session, store } = sessionHarness(plan, () => preferences);
+  await session.start(journey(), request, defaults);
+  const previous = session.engine;
+  await session.reroute();
+  expect(plan.mock.calls[0][1]).toEqual(preferences);
+  expect(session.engine).toBe(previous);
+  expect(session.settings).toEqual(defaults);
+  await session.reroute();
+  expect(session.settings).toEqual(preferences);
+  expect(store.save.mock.lastCall?.[0].settings).toEqual(preferences);
   await session.stop();
 });

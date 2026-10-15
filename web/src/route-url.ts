@@ -14,7 +14,9 @@ export interface RouteLink {
   settings: RoutingSettings;
 }
 export type ParsedRouteLink =
-  { kind: "none" } | { kind: "invalid" } | { kind: "plan"; plan: RouteLink };
+  | { kind: "none" }
+  | { kind: "invalid" }
+  | { kind: "plan"; plan: Pick<RouteLink, "request"> };
 const optionKeys = [
   ...Object.keys(ranges),
   "excludedTransitModes",
@@ -43,14 +45,17 @@ const fixedPlace = (place: Place, name: string): Place => ({
   detail: "",
 });
 
-export function routeURL(base: string | URL, plan?: RouteLink): URL {
+export function routeURL(
+  base: string | URL,
+  plan?: Pick<RouteLink, "request">,
+): URL {
   const url = new URL(base);
   for (const key of [...keys, "departureLeadMinutes"])
     url.searchParams.delete(key);
   if (!plan) return url;
-  const { request, settings } = plan;
+  const { request } = plan;
   const params = url.searchParams;
-  params.set("v", request.stops?.length ? "2" : "1");
+  params.set("v", "3");
   request.stops?.forEach((stop, i) => {
     params.set(
       `via${i + 1}`,
@@ -69,16 +74,9 @@ export function routeURL(base: string | URL, plan?: RouteLink): URL {
     );
     params.set(`${key}Name`, place.name);
   }
-  params.set("showCyclingComparison", String(settings.showCyclingComparison));
   params.set("timing", request.timing);
   if (request.timing !== "now")
     params.set("time", new Date(request.time * 1000).toISOString());
-  for (const key of Object.keys(ranges) as (keyof typeof ranges)[])
-    params.set(key, String(settings[key]));
-  params.set(
-    "excludedTransitModes",
-    [...settings.excludedTransitModes].sort().join(","),
-  );
   return url;
 }
 
@@ -86,7 +84,7 @@ export function readRouteURL(url: URL): ParsedRouteLink {
   const params = url.searchParams;
   if (!keys.some((key) => params.has(key))) return { kind: "none" };
   if (
-    !["1", "2"].includes(params.get("v") ?? "") ||
+    !["1", "2", "3"].includes(params.get("v") ?? "") ||
     keys.some((key) => params.getAll(key).length > 1)
   )
     return { kind: "invalid" };
@@ -134,27 +132,29 @@ export function readRouteURL(url: URL): ParsedRouteLink {
           rawTime.replace(".000Z", "Z")))
   )
     return { kind: "invalid" };
-  const showComparison = params.get("showCyclingComparison");
-  if (
-    showComparison !== null &&
-    showComparison !== "true" &&
-    showComparison !== "false"
-  )
-    return { kind: "invalid" };
-  const values: Record<string, unknown> = {
-    showCyclingComparison: showComparison !== "false",
-  };
-  for (const key of Object.keys(ranges)) {
-    const raw = params.get(key);
-    if (!raw?.trim()) return { kind: "invalid" };
-    values[key] = Number(raw);
+  if (params.get("v") !== "3") {
+    const showComparison = params.get("showCyclingComparison");
+    if (
+      showComparison !== null &&
+      showComparison !== "true" &&
+      showComparison !== "false"
+    )
+      return { kind: "invalid" };
+    const values: Record<string, unknown> = {
+      showCyclingComparison: showComparison !== "false",
+    };
+    for (const key of Object.keys(ranges)) {
+      const raw = params.get(key);
+      if (!raw?.trim()) return { kind: "invalid" };
+      values[key] = Number(raw);
+    }
+    if (!params.has("excludedTransitModes")) return { kind: "invalid" };
+    values.excludedTransitModes = params
+      .get("excludedTransitModes")!
+      .split(",")
+      .filter(Boolean);
+    if (!validSettings(values)) return { kind: "invalid" };
   }
-  if (!params.has("excludedTransitModes")) return { kind: "invalid" };
-  values.excludedTransitModes = params
-    .get("excludedTransitModes")!
-    .split(",")
-    .filter(Boolean);
-  if (!validSettings(values)) return { kind: "invalid" };
   return {
     kind: "plan",
     plan: {
@@ -165,7 +165,6 @@ export function readRouteURL(url: URL): ParsedRouteLink {
         timing: timing as RouteRequest["timing"],
         time,
       },
-      settings: values,
     },
   };
 }

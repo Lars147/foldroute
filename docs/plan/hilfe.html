@@ -151,6 +151,7 @@
         <li><a href="#updates">Updates &amp; Tastatur</a></li>
         <li><a href="#offline">Offline</a></li>
         <li><a href="#navigation">Navigation</a></li>
+        <li><a href="#datenschutz">Datenschutz &amp; Daten</a></li>
       </ul>
       <section aria-labelledby="planung-heading">
         <h2 id="planung-heading">Planung und Reiseabschnitte</h2>
@@ -183,6 +184,11 @@
             erhält deine Leseposition. Am Desktop stehen Liste und gewählter
             Reiseablauf links neben der Karte.
           </p>
+        </details>
+        <details id="routeneinstellungen">
+          <summary>Für welche Planungen gelten meine Einstellungen?</summary>
+          <p>Deine Vorgaben gelten für jede neue Berechnung auf diesem Gerät: bei neuen Zielen, geteilten Links, vergangenen Fahrten und Neuberechnungen während der Navigation. Gültige Änderungen werden automatisch gespeichert. Wenn eine Route geöffnet ist, wird sie beim Verlassen der Einstellungen einmal neu berechnet.</p>
+          <p>Geteilte Links übertragen Start, Ziel, Zwischenstopps und Zeitpunkt. Empfänger planen mit ihren eigenen Vorgaben und können deshalb andere Verbindungen erhalten. Gespeicherte Fahrten behalten ihren bisherigen Stand, bis du erneut planst.</p>
         </details>
         <details>
           <summary>Wie aktuell sind die angezeigten Zeiten?</summary>
@@ -402,11 +408,20 @@
           <p>
             „Jetzt neu planen“ berechnet aktuelle Verbindungen ab den
             gespeicherten Startkoordinaten mit Abfahrt jetzt. Zwischenziele,
-            Aufenthalte und die damaligen Routing-Einstellungen werden
-            übernommen. Persönliche Einstellungen bleiben erhalten. Änderungen
+            Aufenthalte werden übernommen. Jede neue Berechnung verwendet deine aktuellen persönlichen Routing-Einstellungen. Änderungen
             sind über „Route anpassen“ möglich. Der Verlauf enthält Planungen,
             keine aufgezeichneten Fahrten.
           </p>
+        </details>
+      </section>
+      <section aria-labelledby="daten-heading">
+        <h2 id="daten-heading">Datenschutz &amp; Daten</h2>
+        <details id="datenschutz">
+          <summary>Welche Daten verwendet und speichert FoldRoute?</summary>
+          <p><strong>Planung und Karten.</strong> Ortssuchen, Start, Ziel, Zwischenziele, Zeitpunkt und Routing-Einstellungen gehen an Transitous; Kartenabrufe an OpenStreetMap. Für Adressen im Verlauf werden gespeicherte Start- und Zielkoordinaten an Transitous gesendet. Die ermittelten Namen werden lokal gespeichert.</p>
+          <p><strong>Auf deinem Gerät.</strong> Einstellungen, Favoriten und letzte Orte bleiben auf diesem Gerät. Der lokale Verlauf mit bis zu 20 Strecken ist standardmäßig eingeschaltet und lässt sich ausschalten und löschen. Auch der Browser kann lokale Daten löschen.</p>
+          <p><strong>Während der Navigation.</strong> Aktive Navigation speichert zusätzlich Abschnitt und Manöver für bestätigte Wiederaufnahme. Fahrtkennungen werden zur Aktualisierung an Transitous übertragen; Neuberechnungen nutzen den aktuellen Standort. Sprachansagen nutzen Browserstimmen, die je nach Gerät online arbeiten. Ausschalten der Speicherung löscht auch die Wiederaufnahme. Keine Analyse-Tools, keine GPS-Spuren.</p>
+          <p><strong>Ohne Internet.</strong> Gespeicherte Zeiten sind der Stand der Abfrage. Neue Planung und Karten benötigen Internet; die Offline-Übersicht zeigt den gespeicherten Streckenverlauf ohne Straßenkarte.</p>
         </details>
       </section>
       <section id="navigation">

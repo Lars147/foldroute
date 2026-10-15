@@ -25,14 +25,16 @@ const plan: RouteLink = {
   },
 };
 describe("planning links", () => {
-  it("round trips named endpoints, UTC time and every routing option under a subpath", () => {
+  it("round trips named endpoints and UTC time without routing options under a subpath", () => {
     const url = routeURL("https://example.org/foldroute/plan/", plan);
     expect(url.pathname).toBe("/foldroute/plan/");
+    expect(url.searchParams.get("v")).toBe("3");
+    for (const key of Object.keys(plan.settings))
+      expect(url.searchParams.has(key)).toBe(false);
     const parsed = readRouteURL(url);
     expect(parsed.kind).toBe("plan");
     if (parsed.kind !== "plan") throw new Error("Expected plan");
     expect(parsed.plan).toEqual({
-      ...plan,
       request: {
         ...plan.request,
         origin: { ...plan.request.origin, detail: "" },
@@ -93,10 +95,6 @@ describe("planning links", () => {
     ["time", "not-a-date"],
     ["time", "2026-02-30T12:00:00Z"],
     ["time", "2026-09-09T12:06:00"],
-    ["maxCyclingMinutes", ""],
-    ["maxCyclingMinutes", "61"],
-    ["foldingDuration", "61"],
-    ["excludedTransitModes", "plane"],
   ])("rejects invalid %s = %s", (key, value) => {
     const url = routeURL("https://example.org/", plan);
     url.searchParams.set(key, value);
@@ -104,7 +102,7 @@ describe("planning links", () => {
   });
   it("rejects incomplete and duplicate fields without filling personal defaults", () => {
     const url = routeURL("https://example.org/", plan);
-    url.searchParams.delete("maxWalkingMinutes");
+    url.searchParams.delete("from");
     expect(readRouteURL(url)).toEqual({ kind: "invalid" });
     const duplicate = routeURL("https://example.org/", plan);
     duplicate.searchParams.append("from", "1,1");
@@ -131,7 +129,7 @@ it("ignores old departure lead and removes it from shared and cleared links", ()
     const parsed = readRouteURL(url);
     expect(parsed.kind).toBe("plan");
     if (parsed.kind !== "plan") throw new Error("Expected valid old link");
-    expect(parsed.plan.settings).toEqual(plan.settings);
+    expect(parsed.plan).not.toHaveProperty("settings");
     expect(
       routeURL(url, parsed.plan).searchParams.has("departureLeadMinutes"),
     ).toBe(false);
@@ -140,3 +138,34 @@ it("ignores old departure lead and removes it from shared and cleared links", ()
     );
   }
 });
+
+it.each(["1", "2"])(
+  "accepts legacy v%s settings without returning them as preferences",
+  (version) => {
+    const url = routeURL("https://example.org/", plan);
+    url.searchParams.set("v", version);
+    if (version === "2") {
+      url.searchParams.set("via1", "48.1,11.5");
+      url.searchParams.set("via1Name", "Pause");
+      url.searchParams.set("via1Stay", "5");
+    }
+    for (const [key, value] of Object.entries(plan.settings))
+      url.searchParams.set(key, String(value));
+    expect(readRouteURL(url)).toMatchObject({
+      kind: "plan",
+      plan: { request: { timing: "depart" } },
+    });
+    const parsed = readRouteURL(url);
+    if (parsed.kind !== "plan") throw new Error("Expected legacy plan");
+    expect(parsed.plan).not.toHaveProperty("settings");
+    for (const [key, value] of [
+      ["maxCyclingMinutes", "61"],
+      ["foldingDuration", "61"],
+      ["excludedTransitModes", "plane"],
+    ]) {
+      const invalid = new URL(url);
+      invalid.searchParams.set(key, value);
+      expect(readRouteURL(invalid)).toEqual({ kind: "invalid" });
+    }
+  },
+);

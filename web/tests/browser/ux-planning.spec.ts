@@ -1,8 +1,12 @@
+import { openSettingsSection } from "./assertions";
 import { openSelectedDetails } from "./assertions";
 import { expect, test, type Page } from "@playwright/test";
 import { defaults } from "../../src/model";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
-import { expectPlanningComplete } from "./assertions";
+import {
+  expectPlanningComplete,
+  expectSelectedJourneySaved,
+} from "./assertions";
 
 const cors = { "Access-Control-Allow-Origin": "*" };
 async function setup(page: Page) {
@@ -53,7 +57,7 @@ async function choose(page: Page, id: string, name: string) {
 async function plan(page: Page) {
   await choose(page, "destination", "Ziel");
   await expectPlanningComplete(page);
-  await expect(page.locator("#storage-message")).toContainText("gespeichert");
+  await expectSelectedJourneySaved(page);
 }
 async function snapshot(page: Page) {
   return page.evaluate(async () => {
@@ -75,6 +79,8 @@ test("context-only action is limited to the initial dialog, including failed pla
   await expect(page.locator("#use-context")).toBeVisible();
   await choose(page, "origin", "Start");
   await page.locator("#use-context").click();
+  await expect(page.locator("#search-context")).toContainText("Start");
+  await expect(page.locator("#toast")).toBeHidden();
   expect(requests).toBe(0);
   await plan(page);
   await page.locator("#adjust-route").click();
@@ -120,7 +126,7 @@ test("settings exit respects History and attempts once while preserving the old 
   ).toContainText("32 min");
   await expect(page.locator("#stale-notice")).toBeVisible();
   expect(directRequests).toBe(1);
-  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("240");
+  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBeNull();
   expect(await snapshot(page)).toEqual(before);
 });
 
@@ -198,14 +204,14 @@ test("archive edits have distinct browser history and retain their request on Ba
   await expect(page.locator("#settings-view")).toBeVisible();
   await expect(page.locator("#foldingDuration")).toHaveValue("4");
   await page.goBack();
-  await expect(page.locator("#foldingDuration")).toHaveValue("3");
-  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("180");
+  await expect(page.locator("#foldingDuration")).toHaveValue("4");
+  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBeNull();
   expect((await page.evaluate(() => history.state)).historyId).toBe(
     archive.state.historyId,
   );
   await page.goForward();
   await expect(page.locator("#foldingDuration")).toHaveValue("4");
-  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("240");
+  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBeNull();
 });
 
 test("entry focus and archive timestamps remain stable without background focus changes", async ({
@@ -248,7 +254,7 @@ test("offline Back and Forward restore the matching old result with the edited r
   await page.goBack();
   await page.goBack();
   await page.goBack();
-  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("60");
+  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("20");
   await page.goForward();
   await expect(page.locator("#maxCyclingMinutes")).toHaveValue("20");
   await page.goForward();
@@ -263,13 +269,15 @@ test("offline Back and Forward restore the matching old result with the edited r
   await expect(page.locator("#status")).toContainText(
     "Keine Internetverbindung",
   );
-  expect(new URL(page.url()).searchParams.get("maxCyclingMinutes")).toBe("20");
+  expect(new URL(page.url()).searchParams.get("maxCyclingMinutes")).toBeNull();
   expect(await snapshot(page)).toEqual(before);
   await page.context().setOffline(false);
   await page.evaluate(() =>
     Object.defineProperty(navigator, "geolocation", {
       value: {
-        clearWatch: navigator.geolocation.clearWatch.bind(navigator.geolocation),
+        clearWatch: navigator.geolocation.clearWatch.bind(
+          navigator.geolocation,
+        ),
         getCurrentPosition() {
           throw new Error("Archived start must remain fixed");
         },
@@ -346,7 +354,7 @@ test("editing settings does not mark the original plan cache stale", async ({
   await page.locator("#maxCyclingMinutes").fill("20");
   expect(await page.evaluate(() => history.state.planId)).not.toBe(originalId);
   await page.goBack();
-  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("60");
+  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("20");
   expect(await page.evaluate(() => history.state.planId)).toBe(originalId);
   await expect(page.locator("#stale-notice")).toHaveJSProperty("hidden", true);
   await page.goBack();
@@ -364,6 +372,7 @@ test("clearing all local data also clears cached results from browser history", 
   await setup(page);
   await plan(page);
   await page.locator("#tab-settings").click();
+  await openSettingsSection(page, "data");
   await page.locator("#clear-data").click();
   await page.locator("#confirm-delete-data").click();
   await expect(page.locator("#search-view")).toBeVisible();
@@ -395,7 +404,7 @@ for (const succeeds of [true, false])
     await page.locator("#tab-settings").click();
     await page.locator("#foldingDuration").fill("4");
     await page.goBack();
-    await expect(page.locator("#foldingDuration")).toHaveValue("3");
+    await expect(page.locator("#foldingDuration")).toHaveValue("4");
     expect(calculations).toBe(0);
     await page.goForward();
     await expect(page.locator("#foldingDuration")).toHaveValue("4");
@@ -409,7 +418,7 @@ for (const succeeds of [true, false])
     expect(calculations).toBe(1);
     await page.goBack();
     await page.goBack();
-    await expect(page.locator("#foldingDuration")).toHaveValue("3");
+    await expect(page.locator("#foldingDuration")).toHaveValue("4");
     await page.goForward();
     await expect(page.locator("#foldingDuration")).toHaveValue("4");
     await page.locator("#save-settings").click();

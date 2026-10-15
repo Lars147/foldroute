@@ -1,6 +1,6 @@
+import { renderJourneyDetails } from "./journey-detail";
 import {
   type Journey,
-  kindNames,
   bikeDistance,
   lateDepartureDelay,
   compare,
@@ -17,7 +17,6 @@ import {
   duration,
   dateLabel,
   icon,
-  legColors,
   routeSymbolColor,
 } from "./ui";
 export type JourneyScreen = "list" | "detail" | "map";
@@ -46,10 +45,7 @@ export class JourneyView {
     el("panel-map-toggle").onclick = () => this.requestScreen("map");
     el("result-back").onclick = () => {
       if (this.onBack) this.onBack();
-      else
-        this.showScreen(
-          this.navigation.screen === "map" ? this.navigation.mapReturn : "list",
-        );
+      else this.showScreen("list");
     };
     el("map-open-details").onclick = () => {
       this.onDetailsOpened?.();
@@ -216,16 +212,24 @@ export class JourneyView {
     this.detailPanel.inert = this.detailPanel.hidden;
     el("result-back").hidden = !mobile || this.screen === "list";
     el("result-back").textContent = map
-      ? this.navigation.mapReturn === "detail"
-        ? "‹ Reiseablauf"
+      ? this.savedOrigin
+        ? "‹ Fahrten"
         : "‹ Alle Verbindungen"
       : this.savedOrigin === "history"
         ? "‹ Fahrten"
         : this.savedOrigin === "search"
           ? "‹ Zur Suche"
           : "‹ Alle Verbindungen";
-    el("panel-map-toggle").hidden = !mobile || map;
-    el<HTMLButtonElement>("panel-map-toggle").disabled = !this.displayedID;
+    const mapToggle = el<HTMLButtonElement>("panel-map-toggle");
+    const mapToggleParent = el(
+      mobile && this.screen === "list"
+        ? "planning-context-footer"
+        : "result-nav",
+    );
+    if (mapToggle.parentElement !== mapToggleParent)
+      mapToggleParent.append(mapToggle);
+    mapToggle.hidden = !mobile || map;
+    mapToggle.disabled = !this.displayedID;
     el("map-preview").hidden = !map;
     const mapError = el("map-error");
     const errorParent = map ? el("map-preview") : el("panel-content");
@@ -235,7 +239,7 @@ export class JourneyView {
         map ? el("map-open-details") : this.detailPanel,
       );
     el("result-context").hidden = detail || map;
-    el("result-freshness").hidden = map;
+    el("result-freshness").hidden = false;
     el("close-route").hidden = mobile && this.screen !== "list";
     for (const element of [
       el("map"),
@@ -310,10 +314,11 @@ export class JourneyView {
     el("result-stand").textContent = state.queriedAt
       ? `${state.restored ? "Gespeichert" : "Stand"}: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}`
       : "";
-    el("map-preview-stand").textContent = state.restored
-      ? `Gespeicherter Stand: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}. Zeiten nicht aktualisiert.`
-      : (state.staleReason ??
-        (state.busy ? state.message : `Stand: ${clock(state.queriedAt)}`));
+    const mapStatus = el("map-preview-status");
+    mapStatus.textContent = state.restored
+      ? `Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`
+      : (state.staleReason ?? (state.busy ? state.message : ""));
+    mapStatus.hidden = !mapStatus.textContent;
     const onlyComparison =
       state.journeys.length > 0 &&
       state.journeys.every(
@@ -377,32 +382,18 @@ export class JourneyView {
       const row = node("div", "", "route-choice-row");
       row.classList.toggle("selected", journey.id === j?.id);
       const button = node("button", "", "route-choice");
-      const heading = node("span", "", "route-choice-time");
-      const arrival = node(
-        "strong",
-        `${journeyEndpointTime(journey, "arrival")} an`,
-        "route-choice-arrival",
-      );
-      const schedule = node(
-        "span",
-        `Ab ${journeyEndpointTime(journey, "departure")} · ${duration(journey.arrival - journey.departure)}`,
-        "route-choice-schedule",
-      );
-      if (comparison) {
-        arrival.style.setProperty("--stage-color", routeSymbolColor("bike"));
-        arrival.prepend(icon("bike"), node("span", " · ", "visually-hidden"));
-      }
-      heading.append(arrival, node("span", " · ", "visually-hidden"), schedule);
       const effort = journeyEffort(journey);
       const effortText = `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
       const outline = journeyOutline(journey);
       button.append(
-        heading,
-        this.choiceOutline(journey),
-        this.choiceEffort(effort),
+        ...this.summary(
+          journey,
+          cyclingLimit,
+          journey.id === recommendedID && !state.restored
+            ? recommendation
+            : undefined,
+        ),
       );
-      if (journey.id === recommendedID && !state.restored)
-        button.prepend(node("span", recommendation, "route-recommendation"));
       button.type = "button";
       button.dataset.journey = journey.id;
       button.setAttribute("aria-pressed", String(journey.id === j?.id));
@@ -440,9 +431,20 @@ export class JourneyView {
       const effort = journeyEffort(j);
       el("journey-effort").textContent =
         `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
-      el("map-preview-time").textContent = summary;
-      el("map-preview-outline").textContent = journeyOutline(j);
-    } else el("journey-detail").replaceChildren();
+      el("map-preview-summary").replaceChildren(
+        ...this.summary(
+          j,
+          cyclingLimit,
+          j.id === recommendedID && !state.restored
+            ? recommendation
+            : undefined,
+        ),
+      );
+    } else {
+      el("journey-detail").replaceChildren();
+      el("map-preview-summary").replaceChildren();
+    }
+    el<HTMLButtonElement>("map-open-details").disabled = !j;
     this.applyLayout();
     this.restorePosition();
     if (focusedDetail && !el("choices").hidden)
@@ -457,6 +459,45 @@ export class JourneyView {
       [...el("choices").querySelectorAll<HTMLButtonElement>("button")]
         .find((b) => b.dataset.journey === focused)
         ?.focus({ preventScroll: true });
+  }
+
+  private summary(
+    journey: Journey,
+    cyclingLimit: number,
+    recommendation?: string,
+  ) {
+    const comparison = cyclingExcess(journey, cyclingLimit) > 0;
+    const heading = node("span", "", "route-choice-time");
+    const arrival = node(
+      "strong",
+      `${journeyEndpointTime(journey, "arrival")} an`,
+      "route-choice-arrival",
+    );
+    const schedule = node(
+      "span",
+      `Ab ${journeyEndpointTime(journey, "departure")} · ${duration(journey.arrival - journey.departure)}`,
+      "route-choice-schedule",
+    );
+    if (comparison) {
+      arrival.style.setProperty("--stage-color", routeSymbolColor("bike"));
+      arrival.prepend(icon("bike"), node("span", " · ", "visually-hidden"));
+    }
+    heading.append(arrival, node("span", " · ", "visually-hidden"), schedule);
+    const effort = journeyEffort(journey);
+    const accessible = node(
+      "span",
+      `${comparison ? `Fahrradvergleich: ${cyclingComparisonLabel(journey, cyclingLimit)}. ` : ""}${journeyOutline(journey)}. ${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`,
+      "sr-only",
+    );
+    return [
+      ...(recommendation
+        ? [node("span", recommendation, "route-recommendation")]
+        : []),
+      heading,
+      this.choiceOutline(journey),
+      this.choiceEffort(effort),
+      accessible,
+    ];
   }
 
   private choiceOutline(journey: Journey) {
@@ -522,73 +563,7 @@ export class JourneyView {
   }
 
   private details(j: Journey, restored: boolean) {
-    const list = node("ol", "", "journey-legs");
-    j.legs.forEach((leg, index) => {
-      const previous = j.legs[index - 1];
-      if (previous && leg.start - previous.end >= 60)
-        list.append(
-          node(
-            "li",
-            `${duration(leg.start - previous.end)} Aufenthalt · ${leg.from.name}`,
-            "wait",
-          ),
-        );
-      const item = node("li");
-      item.style.setProperty("--leg-color", legColors[leg.kind]);
-      const symbol = icon(leg.kind);
-      symbol.classList.add("leg-symbol");
-      const copy = node("div");
-      copy.append(
-        node(
-          "strong",
-          `${kindNames[leg.kind]}${leg.line ? " " + leg.line : ""}`,
-        ),
-        node(
-          "small",
-          `${clock(leg.start)} – ${clock(leg.end)} · ${duration(leg.end - leg.start)}`,
-        ),
-        node(
-          "p",
-          leg.from.name +
-            (leg.from.name !== leg.to.name ? " → " + leg.to.name : ""),
-        ),
-      );
-      if (leg.stop)
-        copy.append(
-          node(
-            "small",
-            `Geplanter Aufenthalt: ${leg.stop.stayMinutes} min · Weiterfahrt ${clock(leg.end)}`,
-          ),
-        );
-      if (leg.headsign) copy.append(node("small", "Richtung " + leg.headsign));
-      if (leg.platform || leg.arrivalPlatform)
-        copy.append(
-          node(
-            "small",
-            [
-              leg.platform ? "Abfahrt Gleis / Steig " + leg.platform : "",
-              leg.arrivalPlatform
-                ? "Ankunft Gleis / Steig " + leg.arrivalPlatform
-                : "",
-            ]
-              .filter(Boolean)
-              .join(" · "),
-          ),
-        );
-      if (leg.kind === "transit")
-        copy.append(
-          node(
-            "small",
-            restored
-              ? "Gespeicherte Fahrplanangabe"
-              : leg.realtime
-                ? "Echtzeitdaten zum Zeitpunkt der Abfrage"
-                : "Fahrplanzeit",
-          ),
-        );
-      item.append(symbol, copy);
-      list.append(item);
-    });
+    const list = renderJourneyDetails(j, restored);
     el("journey-detail").replaceChildren(
       node(
         "p",

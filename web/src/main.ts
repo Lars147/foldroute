@@ -71,8 +71,6 @@ let navigationRevision = 0;
 let view: View = "search",
   settings: RoutingSettings = structuredClone(defaults);
 let settingsReplanPending = false;
-let personalSettings: RoutingSettings;
-let temporarySettings = false;
 let activePlan: RouteLink | undefined;
 let activePlanId: string | undefined;
 const planResults = new Map<
@@ -100,6 +98,25 @@ const screenAwakeKey = "foldroute.screenAwake";
 let keepScreenAwake = true;
 const storageKey = "foldroute.routing.v3";
 const legacyStorageKey = "foldroute.routing.v1";
+type StorageMessageSource =
+  "settings" | "save" | "toggle" | "disabled" | "history" | "load";
+let storageMessageSource: StorageMessageSource | undefined;
+function storageMessage(source: StorageMessageSource, message: string) {
+  storageMessageSource = source;
+  el("storage-message").textContent = message;
+}
+function clearStorageMessage(...sources: StorageMessageSource[]) {
+  if (storageMessageSource && sources.includes(storageMessageSource)) {
+    storageMessageSource = undefined;
+    el("storage-message").textContent = "";
+  }
+  if (toastStorageSource && sources.includes(toastStorageSource)) {
+    clearTimeout(toastTimer);
+    el("toast").hidden = true;
+    toastStorageSource = undefined;
+  }
+}
+
 try {
   keepScreenAwake = localStorage.getItem(screenAwakeKey) !== "false";
   const current = localStorage.getItem(storageKey),
@@ -113,15 +130,15 @@ try {
     }
   }
 } catch {
-  el("storage-message").textContent =
-    "Einstellungen gelten nur für diese Sitzung.";
+  storageMessage("settings", "Einstellungen gelten nur für diese Sitzung.");
 }
-personalSettings = structuredClone(settings);
 document
   .querySelectorAll<HTMLElement>("[data-icon]")
   .forEach((element) => element.append(icon(element.dataset.icon!)));
 let toastTimer: ReturnType<typeof setTimeout>;
-function toast(message: string) {
+let toastStorageSource: StorageMessageSource | undefined;
+function toast(message: string, source?: StorageMessageSource) {
+  toastStorageSource = source;
   el("toast").textContent = message;
   el("toast").hidden = false;
   clearTimeout(toastTimer);
@@ -251,6 +268,21 @@ journeyView.onNavigate = (screen, replace) => {
   writeHistory(!replace, replace ? depth : depth + 1);
 };
 journeyView.onBack = () => {
+  if (journeyView.screen === "map") {
+    if (journeyView.savedOrigin) {
+      navigationRevision++;
+      writeHistory();
+      show("history");
+      const row = [
+        ...el("history-list").querySelectorAll<HTMLElement>(".history-row"),
+      ].find((item) => item.dataset.historyId === openedHistoryId);
+      (
+        row?.querySelector<HTMLElement>(".history-open") ??
+        el("history-heading")
+      ).focus({ preventScroll: true });
+    } else journeyView.onNavigate?.("list", false);
+    return;
+  }
   if ((history.state?.resultDepth ?? 0) > 0) {
     history.back();
   } else if (journeyView.screen === "detail" && journeyView.savedOrigin) {
@@ -265,6 +297,7 @@ navigation = new NavigationSession({
   store: navigationStore,
   locate: () => liveLocation.center(true),
   storageEnabled: () => offlineEnabled,
+  routingSettings: () => settings,
   changed: () => {
     navigationView?.render();
     if (navigationView?.visible) {
@@ -370,10 +403,7 @@ async function endNavigation() {
   }
   if (journey && request && options) {
     activePlan = structuredClone({ request, settings: options });
-    restorePlanContext(
-      activePlan,
-      temporarySettings || !!navigationStart?.restored,
-    );
+    restorePlanContext(activePlan);
     session.restore(
       journey,
       activePlan.request,
@@ -419,8 +449,6 @@ function releasePlan() {
   openedHistoryId = undefined;
   activePlan = undefined;
   activePlanId = undefined;
-  temporarySettings = false;
-  settings = structuredClone(personalSettings);
   settingsUI();
 }
 function beginPlanning() {
@@ -462,10 +490,11 @@ async function restoreLink(
         : "";
     return;
   }
-  activePlan = structuredClone(parsed.plan);
+  activePlan = {
+    request: structuredClone(parsed.plan.request),
+    settings: structuredClone(settings),
+  };
   activePlanId = id ?? crypto.randomUUID();
-  temporarySettings = true;
-  settings = structuredClone(activePlan.settings);
   const request = activePlan.request;
   originOverride = request.origin;
   destination.set(request.destination);
@@ -480,6 +509,9 @@ async function restoreLink(
     routeURL(location.href, previousResult.plan).href ===
       routeURL(location.href, activePlan).href
   ) {
+    // A history entry identifies an exact calculation, including its settings.
+    // Restoring that result must not roll back the user's current preferences.
+    activePlan = structuredClone(previousResult.plan);
     settingsReplanPending = previousResult.settingsReplanPending;
     session.restoreContext(previousResult.state);
     show(next === "settings" || next === "history" ? next : "map", false);
@@ -792,15 +824,14 @@ async function persist(snapshot: SavedJourney, id: string) {
         historyNames.enqueue(
           historyEntries.filter((entry) => entry.calculationId === id),
         );
-        el("storage-message").textContent =
-          "Letzte Reise auf diesem Gerät gespeichert.";
+        clearStorageMessage("save");
       }
     }
   } catch {
-    el("storage-message").textContent =
-      "Reise konnte nicht offline gespeichert werden.";
+    storageMessage("save", "Reise konnte nicht offline gespeichert werden.");
     toast(
       "Offline-Speicherung nicht verfügbar. Deine Online-Reise bleibt nutzbar.",
+      "save",
     );
   }
 }
@@ -905,6 +936,7 @@ let draftLocationRequest: AbortController | undefined;
 function cancelDraftLocation() {
   draftLocationRequest?.abort();
   draftLocationRequest = undefined;
+  el("adjust-location-announcement").textContent = "";
   el<HTMLButtonElement>("origin-location").disabled = false;
 }
 function contextUI() {
@@ -967,6 +999,7 @@ function openAdjust(target?: Place) {
   );
   updateTiming();
   el("adjust-status").textContent = "";
+  el("adjust-location-announcement").textContent = "";
   el("adjust-location-help").hidden = true;
   dialog.showModal();
   el("adjust-heading").focus({ preventScroll: true });
@@ -1015,8 +1048,8 @@ el("origin-location").onclick = async () => {
     const place = await locate(controller.signal);
     if (!controller.signal.aborted) {
       draftOrigin.set(place);
-      el("adjust-status").textContent =
-        "Standort verfügbar. Du kannst jetzt die Route berechnen.";
+      el("adjust-status").textContent = "";
+      el("adjust-location-announcement").textContent = "Standort ermittelt";
     }
   } catch (error) {
     if (!controller.signal.aborted) {
@@ -1024,7 +1057,10 @@ el("origin-location").onclick = async () => {
       el("adjust-location-help").hidden = false;
     }
   } finally {
-    if (draftLocationRequest === controller) cancelDraftLocation();
+    if (draftLocationRequest === controller) {
+      draftLocationRequest = undefined;
+      el<HTMLButtonElement>("origin-location").disabled = false;
+    }
   }
 };
 draftOrigin.input.addEventListener("input", () => {
@@ -1086,7 +1122,6 @@ el("use-context").onclick = () => {
   if (adjustMode !== "context") return;
   if (readContext()) {
     closeAdjust();
-    toast("Start, Zwischenziele und Zeitpunkt übernommen.");
   }
 };
 el("route-form").onsubmit = async (event) => {
@@ -1215,26 +1250,32 @@ const labels: Record<keyof typeof ranges, string> = {
   cyclingSpeedKilometersPerHour: "Radgeschwindigkeit",
   maxCyclingMinutes: "Maximale Radzeit je Etappe",
   maxWalkingMinutes: "Fußweg zum / vom ÖPNV",
-  foldingDuration: "Falten / Entfalten",
+  foldingDuration: "Zeit je Falten / Entfalten",
   maxBikeTransfers: "Radverbindungen zwischen Linien",
 };
 function settingsUI() {
   el("settings-fields").replaceChildren();
-  for (const [key, [min, max, step]] of Object.entries(ranges)) {
+  el("settings-extra-fields").replaceChildren();
+  const orderedKeys: (keyof typeof ranges)[] = [
+    "cyclingSpeedKilometersPerHour",
+    "maxCyclingMinutes",
+    "foldingDuration",
+    "maxWalkingMinutes",
+    "maxBikeTransfers",
+  ];
+  for (const key of orderedKeys) {
+    const [min, max, step] = ranges[key];
     const k = key as keyof typeof ranges,
       divisor = k === "foldingDuration" ? 60 : 1;
     const label = node("label", "", "setting-row"),
       copy = node("span", labels[k]);
-    copy.append(
-      node(
-        "small",
-        k === "cyclingSpeedKilometersPerHour"
-          ? "km/h"
-          : k === "maxBikeTransfers"
-            ? "Maximale Anzahl"
-            : "Minuten" + (k.startsWith("max") ? " · maximal" : ""),
-      ),
-    );
+    if (k === "maxWalkingMinutes" || k === "maxBikeTransfers")
+      copy.append(
+        node(
+          "small",
+          k === "maxBikeTransfers" ? "Maximale Anzahl" : "Maximal je Fußweg",
+        ),
+      );
     const input = node("input");
     input.type = "number";
     input.id = k;
@@ -1250,34 +1291,58 @@ function settingsUI() {
     if (k === "maxCyclingMinutes") {
       const hint = node(
         "small",
-        "Gilt für jede Radetappe deiner ÖPNV-Reise. Falten, Entfalten und Anschlusspuffer kommen hinzu. Längere reine Fahrradrouten können zusätzlich zum Vergleich erscheinen.",
+        "Pro Radetappe. Falten, Entfalten und Anschlusspuffer kommen hinzu.",
       );
       hint.id = "cycling-limit-hint";
       copy.append(hint);
       input.setAttribute("aria-describedby", hint.id);
     }
-    label.append(copy, input);
-    el("settings-fields").append(label);
-    if (k === "maxCyclingMinutes") {
-      const toggle = node("label", "", "toggle-row");
-      const text = node("span", "Fahrradvergleich anzeigen");
-      text.append(
-        node(
-          "small",
-          "Längere reine Fahrradrouten zusätzlich anzeigen. Fahrradrouten innerhalb deines Radlimits bleiben sichtbar.",
-        ),
+    const value = node("span", "", "setting-value");
+    const unit = node(
+      "span",
+      k === "cyclingSpeedKilometersPerHour"
+        ? "km/h"
+        : k === "maxBikeTransfers"
+          ? ""
+          : "min",
+      "setting-unit",
+    );
+    unit.id = `${k}-unit`;
+    if (unit.textContent) {
+      input.setAttribute(
+        "aria-describedby",
+        [input.getAttribute("aria-describedby"), unit.id]
+          .filter(Boolean)
+          .join(" "),
       );
-      const checkbox = node("input");
-      checkbox.type = "checkbox";
-      checkbox.id = "showCyclingComparison";
-      checkbox.checked = settings.showCyclingComparison;
-      checkbox.onchange = () =>
-        applySettings({ ...settings, showCyclingComparison: checkbox.checked });
-      toggle.append(text, checkbox);
-      el("settings-fields").append(toggle);
     }
+    value.append(input, unit);
+    label.append(copy, value);
+    el(
+      k === "maxWalkingMinutes" || k === "maxBikeTransfers"
+        ? "settings-extra-fields"
+        : "settings-fields",
+    ).append(label);
   }
-  el("modes").replaceChildren(node("legend", "Verkehrsmittel"));
+  const toggle = node("label", "", "toggle-row");
+  const text = node("span", "Fahrradvergleich anzeigen");
+  const hint = node(
+    "small",
+    "Zeigt zusätzlich reine Radstrecken über deinem Radzeitlimit. Kürzere Radstrecken bleiben sichtbar.",
+  );
+  hint.id = "cycling-comparison-hint";
+  text.append(hint);
+  const checkbox = node("input");
+  checkbox.type = "checkbox";
+  checkbox.id = "showCyclingComparison";
+  checkbox.setAttribute("role", "switch");
+  checkbox.setAttribute("aria-describedby", hint.id);
+  checkbox.checked = settings.showCyclingComparison;
+  checkbox.onchange = () =>
+    applySettings({ ...settings, showCyclingComparison: checkbox.checked });
+  toggle.append(text, checkbox);
+  el("settings-extra-fields").append(toggle);
+  el("modes").replaceChildren();
   for (const [key, mode] of Object.entries(modes)) {
     const label = node("label", "", "toggle-row"),
       input = node("input");
@@ -1300,8 +1365,22 @@ function settingsUI() {
   settingsSummary();
 }
 function settingsSummary() {
-  el("settings-summary").textContent =
-    `${settings.cyclingSpeedKilometersPerHour} km/h · ${settings.foldingDuration / 60} min je Falten und Entfalten. ${temporarySettings ? "Einstellungen gelten nur für diese Planung." : "Änderungen werden gespeichert."}${session.state.request ? " Beim Verlassen wird einmal neu berechnet. Bisherige Ergebnisse bleiben bis dahin erhalten." : ""}`;
+  el("settings-replan").hidden =
+    !settingsReplanPending || !session.state.request;
+  el("settings-replan").textContent =
+    "Die Route wird beim Verlassen neu berechnet.";
+  const selected = Object.entries(modes)
+    .filter(
+      ([key]) =>
+        !settings.excludedTransitModes.includes(key as keyof typeof modes),
+    )
+    .map(([, mode]) => mode.name);
+  el("modes-summary").textContent =
+    selected.length === Object.keys(modes).length
+      ? "Alle Verkehrsmittel"
+      : selected.length
+        ? selected.join(" · ")
+        : "Keine ausgewählt";
 }
 function updateSettingsReplanPending(pending: boolean) {
   settingsReplanPending = pending;
@@ -1329,17 +1408,14 @@ function applySettings(next: RoutingSettings) {
     activeSnapshot = undefined;
     persistKey = "";
   }
-  if (temporarySettings) {
-    settingsSummary();
-    return;
-  }
-  personalSettings = structuredClone(settings);
   try {
     localStorage.setItem(storageKey, JSON.stringify(settings));
     localStorage.removeItem(legacyStorageKey);
+    clearStorageMessage("settings");
   } catch {
     toast(
       "Einstellungen konnten nicht dauerhaft gespeichert werden. Sie gelten für diese Sitzung.",
+      "settings",
     );
   }
   settingsSummary();
@@ -1356,7 +1432,6 @@ el("tab-history").onclick = () => {
   );
 };
 el("tab-settings").onclick = openSettings;
-el("header-settings").onclick = openSettings;
 el("late-settings").onclick = openSettings;
 el("tab-route").onclick = () => {
   show(session.state.request ? "map" : "search");
@@ -1365,8 +1440,40 @@ el("reset-settings").onclick = () => {
   applySettings(structuredClone(defaults));
   settingsUI();
 };
+const settingsHeading = document.querySelector<HTMLElement>(
+  ".settings-heading-row",
+)!;
+new ResizeObserver(() => {
+  el("settings-view").style.setProperty(
+    "--settings-heading-height",
+    `${settingsHeading.getBoundingClientRect().height}px`,
+  );
+}).observe(settingsHeading);
+el("settings-form").addEventListener("focusin", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  requestAnimationFrame(() => {
+    if (document.activeElement !== target) return;
+    if (
+      target.getBoundingClientRect().top <
+      settingsHeading.getBoundingClientRect().bottom + 8
+    )
+      target.scrollIntoView({ block: "nearest" });
+  });
+});
 el("settings-form").onsubmit = (event) => {
   event.preventDefault();
+  const invalid =
+    el("settings-form").querySelector<HTMLInputElement>("input:invalid");
+  if (invalid) {
+    const details = invalid.closest("details");
+    if (details) details.open = true;
+    // Reveal before validating: WebKit otherwise leaves focus on the submit button.
+    invalid.focus();
+    invalid.scrollIntoView({ block: "nearest" });
+    invalid.reportValidity();
+    return;
+  }
   show(
     beforeSettings === "history"
       ? "history"
@@ -1411,7 +1518,7 @@ el("confirm-delete-data").onclick = async () => {
     saved = undefined;
     historyEntries = [];
     offlineEnabled = true;
-    personalSettings = structuredClone(defaults);
+    settings = structuredClone(defaults);
     releasePlan();
     planResults.clear();
     originOverride = undefined;
@@ -1460,15 +1567,16 @@ el("offline-enabled").onchange = async () => {
   try {
     await store.setEnabled(enabled);
     if (generation !== storageGeneration) return;
+    clearStorageMessage("toggle", "disabled");
     if (!enabled) {
       suppressCurrentSave();
       saved = undefined;
       historyEntries = [];
-      el("storage-message").textContent =
-        "Fahrten gelöscht. Speicherung ausgeschaltet.";
+      storageMessage(
+        "disabled",
+        "Fahrten gelöscht. Speicherung ausgeschaltet.",
+      );
     } else {
-      el("storage-message").textContent =
-        "Die nächsten Planungen werden auf diesem Gerät gespeichert.";
       if (activeSnapshot && session.state.calculationId)
         await persist(activeSnapshot, session.state.calculationId);
     }
@@ -1478,10 +1586,13 @@ el("offline-enabled").onchange = async () => {
     offlineEnabled = previous;
     syncHistoryNames();
     savedUI();
-    el("storage-message").textContent =
-      "Offline-Einstellung konnte nicht gespeichert werden. Bitte erneut versuchen.";
+    storageMessage(
+      "toggle",
+      "Offline-Einstellung konnte nicht gespeichert werden. Bitte erneut versuchen.",
+    );
     toast(
       "Speicher nicht verfügbar. Änderung konnte nicht dauerhaft übernommen werden.",
+      "toggle",
     );
   } finally {
     checkbox.disabled = false;
@@ -1504,7 +1615,7 @@ el("confirm-delete-history").onclick = async () => {
     await store.clear();
     await reloadHistory();
     el<HTMLDialogElement>("delete-history-dialog").close();
-    el("storage-message").textContent = "Fahrtenverlauf gelöscht.";
+    storageMessage("history", "Fahrtenverlauf gelöscht.");
   } catch {
     el("delete-history-status").textContent =
       "Löschen fehlgeschlagen. Bitte erneut versuchen.";
@@ -1512,9 +1623,7 @@ el("confirm-delete-history").onclick = async () => {
     button.disabled = false;
   }
 };
-function restorePlanContext(plan: RouteLink, temporary = true) {
-  settings = structuredClone(plan.settings);
-  temporarySettings = temporary;
+function restorePlanContext(plan: RouteLink) {
   // Restored endpoints stay fixed even if their original label came from GPS.
   for (const place of [plan.request.origin, plan.request.destination]) {
     if (place.name === "Aktueller Standort")
@@ -1623,7 +1732,6 @@ void store
         routeURL(location.href, initialLink.plan).href ===
           routeURL(location.href, {
             request: snapshot.request,
-            settings: snapshot.settings,
           }).href;
       if (
         snapshot &&
@@ -1661,8 +1769,10 @@ void store
     }
     initializeLink();
     if (result.invalid)
-      el("storage-message").textContent =
-        "Nicht lesbare gespeicherte Fahrten wurden entfernt.";
+      storageMessage(
+        "load",
+        "Nicht lesbare gespeicherte Fahrten wurden entfernt.",
+      );
     if (
       !navigator.onLine &&
       saved &&
@@ -1673,8 +1783,10 @@ void store
       openSaved(false);
   })
   .catch(() => {
-    el("storage-message").textContent =
-      "Offline-Speicher nicht verfügbar. Online-Planung bleibt möglich.";
+    storageMessage(
+      "load",
+      "Offline-Speicher nicht verfügbar. Online-Planung bleibt möglich.",
+    );
     initializeLink();
   });
 void book

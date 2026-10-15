@@ -103,20 +103,22 @@ describe("optional fourth cycling comparison", () => {
       migrateSettings({ ...old, showCyclingComparison: "false" }),
     ).toBeUndefined();
   });
-  it("round trips disabled links and defaults old links to enabled", () => {
+  it("legacy comparison values are validated without becoming personal preferences", () => {
     const url = routeURL("https://example.org/plan/", {
       request: { origin: place, destination: place, time: 0, timing: "now" },
-      settings: { ...defaults, showCyclingComparison: false },
     });
-    expect(readRouteURL(url)).toMatchObject({
-      kind: "plan",
-      plan: { settings: { showCyclingComparison: false } },
-    });
-    url.searchParams.delete("showCyclingComparison");
-    expect(readRouteURL(url)).toMatchObject({
-      kind: "plan",
-      plan: { settings: { showCyclingComparison: true } },
-    });
+    expect(url.searchParams.has("showCyclingComparison")).toBe(false);
+    url.searchParams.set("v", "1");
+    for (const [key, value] of Object.entries(defaults))
+      url.searchParams.set(key, String(value));
+    for (const value of ["true", "false", null]) {
+      if (value === null) url.searchParams.delete("showCyclingComparison");
+      else url.searchParams.set("showCyclingComparison", value);
+      const parsed = readRouteURL(url);
+      expect(parsed.kind).toBe("plan");
+      if (parsed.kind === "plan")
+        expect(parsed.plan).not.toHaveProperty("settings");
+    }
     url.searchParams.set("showCyclingComparison", "no");
     expect(readRouteURL(url)).toEqual({ kind: "invalid" });
   });

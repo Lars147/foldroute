@@ -12,8 +12,6 @@ export function setupPWA() {
     (navigator as Navigator & { standalone?: boolean }).standalone === true;
   function installed() {
     el("install").hidden = standalone();
-    if (standalone())
-      el("install-message").textContent = "FoldRoute ist als App geöffnet.";
   }
   installed();
   window.addEventListener("appinstalled", () => {

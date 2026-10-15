@@ -1,5 +1,8 @@
-import { openSelectedDetails } from "./assertions";
-import { expectPlanningComplete } from "./assertions";
+import { openSettingsSection, openSelectedDetails } from "./assertions";
+import {
+  expectPlanningComplete,
+  expectSelectedJourneySaved,
+} from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import { defaults } from "../../src/model";
 import { mapResponse, baseVariants } from "../../src/transitous";
@@ -48,9 +51,7 @@ async function plan(page: Page) {
   await page.locator("#destination").fill("Ziel");
   await page.locator("#destination-options").locator(".place-select").click();
   await expectPlanningComplete(page);
-  await expect(page.locator("#storage-message")).toHaveText(
-    "Letzte Reise auf diesem Gerät gespeichert.",
-  );
+  await expectSelectedJourneySaved(page);
 }
 test("scoped PWA manifest, icons and cache work under a static subpath", async ({
   page,
@@ -100,6 +101,7 @@ test("license page and original notices remain accessible offline", async ({
   ).toBeVisible();
   await production(page);
   await page.locator("#tab-settings").click();
+  await openSettingsSection(page, "help");
   await context.setOffline(true);
   await page
     .getByRole("link", { name: "Lizenzen & Datenquellen", exact: true })
@@ -356,8 +358,13 @@ test("help topics and links work offline under the deployment subpath", async ({
   await expect(page).toHaveURL(new URL("hilfe.html", root).href);
   await production(page);
   await page.locator("#tab-settings").click();
+  await openSettingsSection(page, "help");
   await context.setOffline(true);
-  await page.getByRole("link", { name: "Hilfe & FAQ", exact: true }).click();
+  await page
+    .getByRole("link", { name: "Datenschutz & Daten", exact: true })
+    .click();
+  await expect(page.locator("#datenschutz")).toHaveAttribute("open", "");
+  await expect(page.locator("#datenschutz summary")).toBeInViewport();
   for (const topic of [
     "standort-pwa",
     "standort-freigabe",
@@ -365,6 +372,7 @@ test("help topics and links work offline under the deployment subpath", async ({
     "installation",
     "updates",
     "offline",
+    "datenschutz",
   ]) {
     await page.goto(new URL(`hilfe.html#${topic}`, root).href);
     await page.reload();

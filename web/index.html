@@ -28,12 +28,7 @@
           height="34"
           alt=""
         />FoldRoute</a
-      ><button
-        id="header-settings"
-        class="icon-button"
-        aria-label="Einstellungen öffnen"
-        data-icon="settings"
-      ></button>
+      >
     </header>
     <span id="connection" role="status" hidden>Offline</span>
     <noscript><p>Für die Routenplanung wird JavaScript benötigt.</p></noscript>
@@ -151,12 +146,9 @@
           aria-label="Verbindungen und Reiseablauf"
         >
           <header id="result-header">
-            <div class="result-nav">
+            <div id="result-nav" class="result-nav">
               <button id="result-back" class="text-button" type="button" hidden>
                 ‹ Alle Verbindungen
-              </button>
-              <button id="panel-map-toggle" class="text-button" type="button">
-                Karte anzeigen
               </button>
             </div>
             <div class="planning-context">
@@ -206,15 +198,27 @@
                   ></button>
                 </div>
               </div>
-              <div class="planning-context-meta">
-                <span id="route-request-meta"></span>
-                <div id="result-freshness"><span id="result-stand"></span></div>
+              <div id="planning-context-footer" class="planning-context-footer">
+                <div class="planning-context-meta">
+                  <span id="route-request-meta"></span>
+                  <div id="result-freshness">
+                    <span id="result-stand"></span>
+                  </div>
+                </div>
+                <button
+                  id="panel-map-toggle"
+                  class="text-button"
+                  type="button"
+                  aria-label="Karte anzeigen"
+                >
+                  <span data-icon="map" aria-hidden="true"></span>
+                  <span>Karte</span>
+                </button>
               </div>
             </div>
             <div id="map-preview" hidden>
-              <strong id="map-preview-time"></strong>
-              <p id="map-preview-outline"></p>
-              <p id="map-preview-stand"></p>
+              <p id="map-preview-status" role="status" hidden></p>
+              <div id="map-preview-summary" class="route-summary"></div>
               <button id="map-open-details" class="primary" type="button">
                 Details
               </button>
@@ -302,114 +306,127 @@
         aria-labelledby="settings-heading"
         hidden
       >
-        <h1 id="settings-heading">Einstellungen</h1>
-        <p class="subtitle">Dein Rad. Dein Tempo.</p>
-        <form id="settings-form">
-          <div class="group">
-            <h2>Faltrad & Wege</h2>
-            <div id="settings-fields"></div>
-            <p id="settings-summary" class="message"></p>
-            <button id="reset-settings" type="button" class="text-button">
-              Standardwerte einsetzen
-            </button>
-          </div>
-          <fieldset id="modes" class="group">
-            <legend>Verkehrsmittel</legend>
-          </fieldset>
+        <div class="settings-heading-row">
+          <h1 id="settings-heading">Einstellungen</h1>
+          <span
+            id="settings-summary"
+            class="settings-mobile-title"
+            aria-hidden="true"
+            >Deine Vorgaben</span
+          >
+          <button
+            id="save-settings"
+            class="text-button"
+            type="submit"
+            form="settings-form"
+          >
+            Fertig
+          </button>
+        </div>
+        <form id="settings-form" novalidate>
+          <p id="settings-replan" class="message" role="status" hidden></p>
           <section class="group">
-            <h2>Bildschirm</h2>
-            <label class="toggle-row">
+            <h2>Rad &amp; Falten</h2>
+            <div id="settings-fields"></div>
+          </section>
+          <details id="settings-modes" class="group settings-disclosure">
+            <summary>
               <span
-                >Bildschirm während der Route eingeschaltet lassen<small
-                  >Gilt für die sichtbare Routenvorschau. Verbraucht mehr Akku;
-                  der Stromsparmodus kann dies verhindern.</small
+                >Verkehrsmittel<small id="modes-summary"
+                  >Alle Verkehrsmittel</small
                 ></span
               >
-              <input
-                id="keep-screen-awake"
-                type="checkbox"
-                role="switch"
-                checked
-              />
-            </label>
-          </section>
-          <div class="form-actions">
-            <button id="save-settings" class="primary" type="submit">
-              Fertig
-            </button>
-          </div>
+            </summary>
+            <fieldset id="modes" aria-label="Verkehrsmittel"></fieldset>
+          </details>
+          <details id="settings-options" class="group settings-disclosure">
+            <summary>
+              <span
+                >Weitere Routenoptionen<small
+                  >Fußwege, Radverbindungen und Fahrradvergleich</small
+                ></span
+              >
+            </summary>
+            <div id="settings-extra-fields"></div>
+          </details>
+          <button id="reset-settings" type="button" class="text-button">
+            Routeneinstellungen zurücksetzen
+          </button>
         </form>
         <section class="group">
-          <h2>Unterwegs verfügbar</h2>
-          <label class="toggle-row"
-            ><span
+          <h2>App &amp; Speicher</h2>
+          <label class="toggle-row">
+            <span
+              >Bildschirm eingeschaltet lassen<small
+                >Während der Routenvorschau. Verbraucht mehr Akku; der
+                Stromsparmodus kann dies verhindern.</small
+              ></span
+            >
+            <input
+              id="keep-screen-awake"
+              type="checkbox"
+              role="switch"
+              checked
+            />
+          </label>
+          <label class="toggle-row">
+            <span
               >Fahrten auf diesem Gerät speichern<small
                 >Bis zu 20 Strecken, auch offline. Ausschalten löscht den
                 Verlauf.</small
               ></span
-            ><input
-              id="offline-enabled"
-              type="checkbox"
-              role="switch"
-              checked /></label
-          ><button id="delete-saved" class="text-button">
+            >
+            <input id="offline-enabled" type="checkbox" role="switch" checked />
+          </label>
+          <p id="storage-message" class="message" role="status"></p>
+        </section>
+        <details id="settings-data" class="group settings-disclosure">
+          <summary>Daten verwalten</summary>
+          <button
+            id="delete-saved"
+            type="button"
+            class="text-button settings-delete"
+          >
             Fahrtenverlauf löschen
           </button>
-          <p id="storage-message" class="message" role="status"></p>
-          <button id="clear-data" class="text-button" type="button">
+          <button
+            id="clear-data"
+            type="button"
+            class="text-button settings-delete"
+          >
             Alle lokalen Daten löschen
           </button>
-          <button id="install" class="secondary">FoldRoute installieren</button>
-          <p id="install-message" class="message" role="status"></p>
-          <p id="offline-ready" class="message" role="status"></p>
-        </section>
-        <section class="group info">
-          <h2>Über FoldRoute</h2>
-          <p>
-            Routenplanung und Navigation ohne Konto. Abbiegehinweise, Sprache
-            und aktuelle ÖPNV-Daten bei geöffneter App.
-          </p>
-          <p>
-            <a href="../#projekt">Projekt entdecken</a> ·
-            <a href="https://github.com/Lars147/foldroute">Kontakt</a>
-          </p>
-          <details>
-            <summary>Daten und Verfügbarkeit</summary>
-            <p>
-              Ortssuchen, Start, Ziel, Zwischenziele, Zeitpunkt und
-              Routing-Einstellungen gehen an Transitous; Kartenabrufe an
-              OpenStreetMap. Für Adressen im Verlauf werden gespeicherte Start-
-              und Zielkoordinaten an Transitous gesendet. Die ermittelten Namen
-              werden lokal gespeichert. Einstellungen und Favoriten und letzte
-              Orte bleiben auf diesem Gerät. Der lokale Verlauf mit bis zu 20
-              Strecken ist standardmäßig eingeschaltet und lässt sich
-              ausschalten und löschen. Aktive Navigation speichert zusätzlich
-              Abschnitt und Manöver für bestätigte Wiederaufnahme.
-              Fahrtkennungen werden zur Aktualisierung an Transitous übertragen;
-              Neuberechnungen nutzen den aktuellen Standort. Sprachansagen
-              nutzen Browserstimmen, die je nach Gerät online arbeiten.
-              Ausschalten der Speicherung löscht auch die Wiederaufnahme. Keine
-              Analyse-Tools, keine GPS-Spuren. Gespeicherte Zeiten sind der
-              Stand der Abfrage. Neue Planung und Karten benötigen Internet; die
-              Offline-Übersicht zeigt den gespeicherten Streckenverlauf ohne
-              Straßenkarte. Der Browser kann lokale Daten löschen.
-            </p>
-          </details>
-          <p>
-            <a href="hilfe.html">Hilfe &amp; FAQ</a> ·
-            <a href="licenses.html">Lizenzen &amp; Datenquellen</a>
-          </p>
-          <p>
-            Daten:
-            <a href="https://transitous.org/sources/"
-              >Transitous & Datenquellen</a
+        </details>
+        <details id="settings-help" class="group settings-disclosure info">
+          <summary>Installation &amp; Hilfe</summary>
+          <div class="settings-install">
+            <button id="install" class="secondary">
+              FoldRoute installieren
+            </button>
+            <p id="install-message" class="message" role="status"></p>
+            <p id="offline-ready" class="message" role="status"></p>
+          </div>
+          <nav class="settings-help-links" aria-label="Hilfe und Informationen">
+            <a href="hilfe.html"
+              ><span>Hilfe &amp; FAQ</span><span aria-hidden="true">›</span></a
             >
-            · Karte:
-            <a href="https://www.openstreetmap.org/copyright"
-              >OpenStreetMap-Mitwirkende</a
+            <a href="hilfe.html#datenschutz"
+              ><span>Datenschutz &amp; Daten</span
+              ><span aria-hidden="true">›</span></a
             >
-          </p>
-        </section>
+            <a href="licenses.html"
+              ><span>Lizenzen &amp; Datenquellen</span
+              ><span aria-hidden="true">›</span></a
+            >
+            <a href="../#projekt"
+              ><span>Über FoldRoute</span><span aria-hidden="true">›</span></a
+            >
+            <a href="https://github.com/Lars147/foldroute"
+              ><span>Feedback auf GitHub</span
+              ><span aria-hidden="true">↗</span></a
+            >
+          </nav>
+        </details>
       </section>
     </main>
     <nav class="app-tabs" aria-label="Hauptbereiche">
@@ -498,6 +515,12 @@
             </button>
           </div>
           <p id="adjust-status" class="message" role="status"></p>
+          <span
+            id="adjust-location-announcement"
+            class="sr-only"
+            role="status"
+            aria-atomic="true"
+          ></span>
           <p id="adjust-location-help" class="message" hidden>
             <a href="hilfe.html#standort">Hilfe zum Standort</a>
           </p>

@@ -87,7 +87,10 @@ async function preview(page: Page) {
 }
 
 for (const width of [320, 390, 1280]) {
-  test(`planning context stays grouped and accessible at ${width}`, async ({ page, browserName }, info) => {
+  test(`planning context stays grouped and accessible at ${width}`, async ({
+    page,
+    browserName,
+  }, info) => {
     await page.setViewportSize({ width, height: 844 });
     await preview(page);
     await page.evaluate(() => {
@@ -97,8 +100,19 @@ for (const width of [320, 390, 1280]) {
       view.render(state, 30);
     });
     const context = page.locator(".planning-context");
-    await expect(context.getByRole("button", { name: "Route anpassen" })).toBeVisible();
-    await expect(context.getByRole("heading", { level: 1 })).toHaveText("Aktueller Standort → Bahnhofstraße 3a");
+    if (width < 900) {
+      await expect(page.locator("#result-nav")).toBeHidden();
+      await expect(
+        context.getByRole("button", { name: "Karte anzeigen" }),
+      ).toBeVisible();
+      await expect(page.locator("#panel-map-toggle")).toHaveText("Karte");
+    }
+    await expect(
+      context.getByRole("button", { name: "Route anpassen" }),
+    ).toBeVisible();
+    await expect(context.getByRole("heading", { level: 1 })).toHaveText(
+      "Aktueller Standort → Bahnhofstraße 3a",
+    );
     await page.locator("#result-context").focus();
     await expect(page.locator("#result-context")).toBeFocused();
     await expect(context).toHaveCSS("outline-style", "solid");
@@ -119,16 +133,30 @@ for (const width of [320, 390, 1280]) {
       view.render(state, 30);
     });
     await expect(page.locator("#route-request-meta")).toContainText("Ankunft");
-    await expect(page.locator("#route-request-meta")).toContainText("2 Zwischenstopps");
+    await expect(page.locator("#route-request-meta")).toContainText(
+      "2 Zwischenstopps",
+    );
     await expect(page.locator("#result-stand")).toContainText("Gespeichert:");
-    expect(await page.evaluate(() => {
-      const ids = ["route-origin", "route-destination", "route-request-meta"];
-      return ids.every((id) => {
-        const element = document.getElementById(id)!;
-        return element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight;
-      }) && document.documentElement.scrollWidth <= innerWidth;
-    })).toBe(true);
-    for (const id of ["adjust-route", "route-more", "close-route"]) {
+    expect(
+      await page.evaluate(() => {
+        const ids = ["route-origin", "route-destination", "route-request-meta"];
+        return (
+          ids.every((id) => {
+            const element = document.getElementById(id)!;
+            return (
+              element.scrollWidth <= element.clientWidth &&
+              element.scrollHeight <= element.clientHeight
+            );
+          }) && document.documentElement.scrollWidth <= innerWidth
+        );
+      }),
+    ).toBe(true);
+    for (const id of [
+      "adjust-route",
+      "route-more",
+      "close-route",
+      ...(width < 900 ? ["panel-map-toggle"] : []),
+    ]) {
       const control = page.locator(`#${id}`);
       await control.scrollIntoViewIfNeeded();
       await expect(control).toBeInViewport();
@@ -136,9 +164,43 @@ for (const width of [320, 390, 1280]) {
       expect(bounds.width).toBeGreaterThanOrEqual(44);
       expect(bounds.height).toBeGreaterThanOrEqual(44);
     }
-    await page.screenshot({ path: info.outputPath("planning-context-large-text.png") });
+    await page.screenshot({
+      path: info.outputPath("planning-context-large-text.png"),
+    });
   });
 }
+
+test("map action follows mobile view and stays unique across desktop resizing", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await preview(page);
+  const toggle = page.getByRole("button", { name: "Karte anzeigen" });
+  await expect(
+    page.locator("#planning-context-footer #panel-map-toggle"),
+  ).toBeVisible();
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#map-preview")).toBeVisible();
+  await expect(page.locator("#panel-map-toggle")).toBeHidden();
+  await page.locator("#result-back").click();
+  await expect(page.locator("#choices")).toBeVisible();
+  await page.locator(".route-choice-row.selected .route-detail-link").click();
+  await expect(page.locator("#result-nav #panel-map-toggle")).toBeVisible();
+  await toggle.click();
+  await page.locator("#map-open-details").click();
+  await expect(page.locator("#panel-details")).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await expect(page.locator("#panel-map-toggle")).toBeHidden();
+  await expect(page.locator("#result-nav")).toBeHidden();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("#result-nav #panel-map-toggle")).toBeVisible();
+  await page.locator("#result-back").click();
+  await expect(
+    page.locator("#planning-context-footer #panel-map-toggle"),
+  ).toBeVisible();
+  await expect(page.locator("#panel-map-toggle")).toHaveCount(1);
+});
 
 for (const width of [320, 390, 768, 1280]) {
   test(`separate results and itinerary remain readable at ${width}`, async ({
@@ -147,7 +209,7 @@ for (const width of [320, 390, 768, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     await preview(page);
     await expect(page.locator(".route-choice")).toHaveCount(4);
-    await expect(page.locator(".route-recommendation")).toHaveText(
+    await expect(page.locator("#choices .route-recommendation")).toHaveText(
       "Früheste Ankunft",
     );
     const selected = page.locator('.route-choice[aria-pressed="true"]');
@@ -209,6 +271,10 @@ for (const width of [320, 390, 768, 1280]) {
       await expect(page.locator("#map")).toHaveJSProperty("inert", false);
       await expect(page.locator("#map-preview")).toBeVisible();
       await page.locator("#result-back").click();
+      await expect(page.locator("#choices")).toBeVisible();
+      await page
+        .locator(".route-choice-row.selected .route-detail-link")
+        .click();
       await expect(page.locator("#panel-details")).toBeVisible();
       await expect(page.locator("#panel-content")).toHaveJSProperty(
         "scrollTop",
@@ -226,6 +292,135 @@ for (const width of [320, 390, 768, 1280]) {
     ).toBe(true);
   });
 }
+
+for (const [width, height] of [
+  [320, 844],
+  [390, 844],
+  [844, 390],
+]) {
+  test(`map summary keeps route symbols and metrics at ${width}x${height}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height });
+    await preview(page);
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      for (const journey of state.journeys) {
+        for (const leg of journey.legs)
+          if (leg.kind === "transit") {
+            leg.mode = "SUBURBAN";
+            leg.line = "S6";
+          }
+      }
+      view.render(state, 30);
+    });
+    await page.locator('[data-journey="best"]').click();
+    const card = page.locator('[data-journey="best"]');
+    const arrival = await card.locator(".route-choice-arrival").innerText();
+    const schedule = await card.locator(".route-choice-schedule").innerText();
+    const lineColor = await card
+      .locator(".route-line")
+      .evaluate((e) => getComputedStyle(e).color);
+    await page.locator("#panel-map-toggle").click();
+    const summary = page.locator("#map-preview-summary");
+    await expect(summary.locator(".route-choice-arrival")).toHaveText(arrival);
+    await expect(summary.locator(".route-choice-schedule")).toHaveText(
+      schedule,
+    );
+    await expect(summary.locator(".route-recommendation")).toHaveText(
+      "Früheste Ankunft",
+    );
+    await expect(summary.locator(".route-line")).toHaveText("S6");
+    await expect(summary.locator(".route-line")).toHaveCSS("color", lineColor);
+    await expect(
+      summary.locator('.route-stage[data-kind="bike"] .icon'),
+    ).toHaveCount(2);
+    await expect(
+      summary.locator('.route-stage[data-kind="walk"] .icon'),
+    ).toHaveCount(1);
+    await expect(
+      summary.locator('.route-effort-metric[data-kind="bike"]'),
+    ).toHaveText("14 min");
+    await expect(
+      summary.locator('.route-effort-metric[data-kind="walk"]'),
+    ).toHaveText("2 min");
+    await expect(
+      summary.locator('.route-effort-metric[data-kind="transfer"]'),
+    ).toHaveText("1 Umst.");
+    await expect(summary.locator(".sr-only")).toContainText(
+      "14 min Rad · 2 min Fuß · 1 Umstieg",
+    );
+    await expect(summary.getByRole("button")).toHaveCount(0);
+    await expect(page.locator("#result-freshness")).toBeVisible();
+    await expect(page.locator("#map-preview-status")).toBeHidden();
+    await page.screenshot({ path: info.outputPath("map-summary.png") });
+    await page.locator("#map-open-details").scrollIntoViewIfNeeded();
+    await expect(page.locator("#map-open-details")).toBeInViewport({
+      ratio: 1,
+    });
+    await page.locator("#map-open-details").click();
+    await expect(page.locator("#panel-details")).toBeVisible();
+    await page.locator("#result-back").click();
+    await page.locator('[data-journey="comparison"]').click();
+    await page.locator("#panel-map-toggle").click();
+    await expect(summary.locator(".route-choice-arrival .icon")).toHaveCount(1);
+    await expect(summary.locator(".route-recommendation")).toHaveCount(0);
+    await expect(
+      summary.locator('.route-effort-metric[data-kind="walk"]'),
+    ).toHaveCount(0);
+    await expect(summary.locator(".sr-only")).toContainText("Fahrradvergleich");
+  });
+}
+
+test("map summary keeps midnight dates and changing status without repeating its timestamp", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await preview(page);
+  await page.evaluate(() => {
+    const { state, view } = (window as any).uxPreview;
+    state.selected.departure = Date.parse("2026-09-11T23:50:00+02:00") / 1000;
+    state.selected.arrival = state.selected.departure + 55 * 60;
+    view.render(state, 30);
+  });
+  await page.locator("#panel-map-toggle").click();
+  const summary = page.locator("#map-preview-summary");
+  await expect(summary.locator(".route-choice-arrival")).toHaveText(
+    "12. Sept. 00:45 an",
+  );
+  await expect(summary.locator(".route-choice-schedule")).toHaveText(
+    "Ab 11. Sept. 23:50 · 55 min",
+  );
+  for (const [updates, message] of [
+    [
+      { busy: true, message: "Verbindungen optimieren" },
+      "Verbindungen optimieren",
+    ],
+    [
+      {
+        busy: false,
+        staleReason:
+          "Zeitlimit erreicht. Bisherige Ergebnisse bleiben erhalten.",
+      },
+      "Zeitlimit erreicht. Bisherige Ergebnisse bleiben erhalten.",
+    ],
+    [{ restored: true }, "Zeiten wurden nicht aktualisiert."],
+  ] as const) {
+    await page.evaluate((updates) => {
+      const { state, view } = (window as any).uxPreview;
+      Object.assign(state, updates);
+      view.render(state, 30);
+    }, updates);
+    await expect(page.locator("#map-preview-status")).toContainText(message);
+    expect(
+      (await page.locator("#map-preview-status").boundingBox())!.y,
+    ).toBeLessThan((await summary.boundingBox())!.y);
+  }
+  await expect(page.locator("#result-stand")).toContainText("Gespeichert:");
+  await expect(page.locator("#map-preview-status")).not.toContainText(
+    "Gespeicherter Stand",
+  );
+});
 
 test("symbol routes preserve bus lines, transfers, stops and older snapshots", async ({
   page,
@@ -264,9 +459,15 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
   await expect(card.locator('.route-stage[data-symbol="transit"]')).toHaveCount(
     2,
   );
-  await expect(card.locator('.route-stage[data-symbol="bus"] .icon')).toHaveCount(1);
-  await expect(card.locator('.route-stage').filter({ hasText: "RE 1" }).locator('.icon')).toHaveCount(0);
-  await expect(card.locator('.route-stage').filter({ hasText: "ÖPNV" }).locator('.icon')).toHaveCount(1);
+  await expect(
+    card.locator('.route-stage[data-symbol="bus"] .icon'),
+  ).toHaveCount(1);
+  await expect(
+    card.locator(".route-stage").filter({ hasText: "RE 1" }).locator(".icon"),
+  ).toHaveCount(0);
+  await expect(
+    card.locator(".route-stage").filter({ hasText: "ÖPNV" }).locator(".icon"),
+  ).toHaveCount(1);
   await expect(card.locator(".route-stage")).toHaveCount(7);
   await expect(card.locator(".route-stop-name")).toHaveText(
     "Zwischenstopp <Marktplatz> mit einem längeren Ortsnamen",
@@ -294,6 +495,29 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
   await expect(page.locator('.route-choice[aria-pressed="true"]')).toHaveCount(
     1,
   );
+  await page.locator("#panel-map-toggle").click();
+  const mapSummary = page.locator("#map-preview-summary");
+  await expect(mapSummary.locator(".route-line")).toHaveText([
+    "42",
+    "RE 1",
+    "ÖPNV",
+  ]);
+  await expect(mapSummary.locator(".route-stop-name")).toHaveText(
+    "Zwischenstopp <Marktplatz> mit einem längeren Ortsnamen",
+  );
+  await expect(
+    mapSummary.locator('.route-effort-metric[data-kind="transfer"]'),
+  ).toHaveText("2 Umst.");
+  expect(
+    await mapSummary.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  await page.locator("#map-open-details").scrollIntoViewIfNeeded();
+  await expect(page.locator("#map-open-details")).toBeInViewport({ ratio: 1 });
+  await page.screenshot({
+    path: info.outputPath("map-summary-large-text.png"),
+  });
 });
 
 test("same-ID updates retain reading position and keyboard focus", async ({
@@ -440,15 +664,23 @@ for (const width of [320, 390, 1280]) {
     );
     await expect(page.locator("body")).not.toHaveAttribute("data-detail-opens");
     expect((await details.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await expect(first.locator('.route-choice-arrival')).toHaveText('10:50 an');
-    await expect(first.locator('.route-choice-schedule')).toHaveText('Ab 10:00 · 50 min');
-    expect(await first.evaluate((card) => {
-      const detail = card.parentElement!.querySelector('.route-detail-link')!.getBoundingClientRect();
-      return [...card.querySelectorAll('.route-effort-metric')].every((metric) => {
-        const box = metric.getBoundingClientRect();
-        return box.right <= detail.left || box.bottom <= detail.top;
-      });
-    })).toBe(true);
+    await expect(first.locator(".route-choice-arrival")).toHaveText("10:50 an");
+    await expect(first.locator(".route-choice-schedule")).toHaveText(
+      "Ab 10:00 · 50 min",
+    );
+    expect(
+      await first.evaluate((card) => {
+        const detail = card
+          .parentElement!.querySelector(".route-detail-link")!
+          .getBoundingClientRect();
+        return [...card.querySelectorAll(".route-effort-metric")].every(
+          (metric) => {
+            const box = metric.getBoundingClientRect();
+            return box.right <= detail.left || box.bottom <= detail.top;
+          },
+        );
+      }),
+    ).toBe(true);
     await page.screenshot({ path: info.outputPath("minimal-details.png") });
     await first.focus();
     await page.keyboard.press("ArrowRight");
@@ -470,6 +702,126 @@ for (const width of [320, 390, 1280]) {
       await expect(page.locator("#choices")).toBeHidden();
       await page.locator("#result-back").click();
       await expect(details).toBeFocused();
+    }
+  });
+}
+
+for (const width of [320, 390, 1280]) {
+  test(`open itinerary groups preparation and exposes boarding at ${width}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await preview(page);
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      const selected = state.selected;
+      const from = selected.origin;
+      const station = { ...from, name: "München Pasing – Bahnhofsvorplatz" };
+      const next = {
+        ...from,
+        name: "München Hauptbahnhof, Ausgang Arnulfstraße",
+      };
+      const end = { ...from, name: "Karlsplatz (Stachus)" };
+      let time = Date.parse("2026-10-15T21:40:00Z") / 1000;
+      const step = (
+        kind: string,
+        minutes: number,
+        origin: any,
+        destination: any,
+        extra = {},
+      ) => {
+        const start = time;
+        time += minutes * 60;
+        return {
+          kind,
+          start,
+          end: time,
+          from: origin,
+          to: destination,
+          distance: 1000,
+          coordinates: [origin, destination],
+          ...extra,
+        };
+      };
+      selected.departure = time;
+      selected.legs = [
+        step("bike", 10, from, station),
+        step("fold", 3, station, station),
+        step("wait", 2, station, station),
+        step("transit", 15, station, next, {
+          line: "S6",
+          headsign: "Ebersberg",
+          platform: "4",
+          arrivalPlatform: "2",
+          realtime: true,
+        }),
+        step("walk", 3, next, end),
+        step("transit", 5, end, end),
+        step("stop", 10, end, end, { stop: { place: end, stayMinutes: 10 } }),
+        step("unfold", 3, end, end),
+        step("bike", 5, end, selected.destination),
+      ];
+      selected.arrival = time;
+      state.request.time = selected.departure;
+      state.queriedAt = selected.departure;
+      view.render(state, 30);
+    });
+    await page.locator(".route-choice-row.selected .route-detail-link").click();
+    await expect(page.locator(".detail-step")).toHaveCount(9);
+    await expect(
+      page
+        .locator(".journey-section")
+        .filter({ has: page.locator('[data-kind="fold"]') }),
+    ).toContainText("S6");
+    const transit = page.locator('.detail-step[data-kind="transit"]').first();
+    await expect(transit.locator(".detail-heading")).toContainText(
+      "23:55 · S6",
+    );
+    await expect(transit).toContainText("Richtung Ebersberg");
+    await expect(transit.locator(".detail-platform")).toHaveText([
+      "Gleis / Steig 4",
+      "Gleis / Steig 2",
+    ]);
+    await expect(transit.locator(".detail-arrival")).toContainText(
+      "16. Okt. 00:10 · Ausstieg",
+    );
+    await expect(transit.locator(".detail-source")).toHaveText(
+      "Echtzeitdaten zum Zeitpunkt der Abfrage",
+    );
+    await expect(
+      page
+        .locator('.detail-step[data-kind="transit"]')
+        .last()
+        .locator(".detail-platform"),
+    ).toHaveCount(0);
+    await expect(page.locator('.detail-step[data-kind="stop"]')).toContainText(
+      "Geplanter Aufenthalt: 10 min",
+    );
+    await page.screenshot({ path: info.outputPath("open-itinerary.png") });
+    await transit.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath("boarding-and-exit.png") });
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "200%";
+      const { state, view } = (window as any).uxPreview;
+      state.restored = true;
+      view.render(state, 30);
+    });
+    await expect(transit.locator(".detail-source")).toHaveText(
+      "Gespeicherte Fahrplanangabe",
+    );
+    expect(
+      await page
+        .locator("#journey-detail")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+    await page.screenshot({
+      path: info.outputPath("open-itinerary-large-text.png"),
+    });
+    if (width < 900) {
+      await page.locator("#result-back").click();
+      await expect(
+        page.locator(".route-choice-row.selected .route-detail-link"),
+      ).toBeFocused();
     }
   });
 }

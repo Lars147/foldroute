@@ -1,5 +1,9 @@
+import { openSettingsSection } from "./assertions";
 import { openSelectedDetails, showMap } from "./assertions";
-import { expectPlanningComplete } from "./assertions";
+import {
+  expectPlanningComplete,
+  expectSelectedJourneySaved,
+} from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import { defaults, type Journey } from "../../src/model";
 import type { PlanningState } from "../../src/planning-state";
@@ -365,7 +369,13 @@ test("settings persist immediately and replan once on leaving", async ({
     }
   });
   await page.locator("#tab-settings").click();
+  await expect(page.locator("#settings-replan")).toBeHidden();
   await page.locator("#foldingDuration").fill("4");
+  await expect(page.locator("#settings-replan")).toHaveText(
+    "Die Route wird beim Verlassen neu berechnet.",
+  );
+  await expect(page.locator("#settings-replan")).toBeVisible();
+  await openSettingsSection(page, "options");
   await page.locator("#maxWalkingMinutes").fill("3");
   const cycling = page.getByLabel("Maximale Radzeit je Etappe", {
     exact: false,
@@ -680,8 +690,9 @@ test("choice labels keep arrival times for both search modes and update dates wi
     };
     const view = new JourneyView(() => {});
     const texts = () =>
-      Array.from(document.querySelectorAll(".route-choice-time"), (b) =>
-        b.textContent!.trim(),
+      Array.from(
+        document.querySelectorAll("#choices .route-choice-time"),
+        (b) => b.textContent!.trim(),
       );
     view.render(state, 60);
     const departure = texts();
@@ -748,7 +759,7 @@ test("better alternatives replace automatic selection", async ({ page }) => {
   ).toContainText("1 h 1 min");
   release();
   await expectPlanningComplete(page);
-  await expect(page.locator(".route-choice-time")).toHaveText([
+  await expect(page.locator("#choices .route-choice-time")).toHaveText([
     "10:53 an · Ab 10:00 · 53 min",
     "· 11:01 an · Ab 10:00 · 1 h 1 min",
   ]);
@@ -948,15 +959,23 @@ for (const code of [0, 1, 2, 3]) {
     await setup(page, false);
     await page.locator("#search-adjust").click();
     await page.locator("#origin-location").click();
-    await expect(page.locator("#adjust-status")).toContainText(
-      [
-        "Standort verfügbar",
-        "Standortzugriff nicht erlaubt",
-        "Standort konnte nicht ermittelt werden",
-        "Standortabfrage dauert zu lange",
-      ][code],
-    );
-    if (code) {
+    if (!code) {
+      await expect(page.locator("#adjust-status")).toBeEmpty();
+      await expect(page.locator("#adjust-status")).toHaveCSS("display", "none");
+      await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
+      await expect(page.locator("#adjust-location-announcement")).toHaveText(
+        "Standort ermittelt",
+      );
+    } else {
+      await expect(page.locator("#adjust-status")).toContainText(
+        [
+          "",
+          "Standortzugriff nicht erlaubt",
+          "Standort konnte nicht ermittelt werden",
+          "Standortabfrage dauert zu lange",
+        ][code],
+      );
+      await expect(page.locator("#adjust-location-announcement")).toBeEmpty();
       await expect(page.locator("#adjust-status")).toContainText(
         `Diagnose: Standortfehler ${code} – Origin does not have permission to use Geolocation service`,
       );
@@ -967,6 +986,72 @@ for (const code of [0, 1, 2, 3]) {
     await expect(page.locator("#adjust-dialog")).toBeVisible();
   });
 }
+
+test("location success stays quiet after retry and cancelled replies cannot announce success", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    let calls = 0;
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        getCurrentPosition(
+          success: (position: unknown) => void,
+          fail: (error: unknown) => void,
+        ) {
+          if (++calls === 1) {
+            fail({ code: 1 });
+            return;
+          }
+          window.addEventListener(
+            "resolve-location",
+            () =>
+              success({
+                coords: { latitude: 48.132, longitude: 11.5756 },
+              }),
+            { once: true },
+          );
+        },
+      },
+    });
+  });
+  await setup(page, false);
+  await page.locator("#search-adjust").click();
+  const button = page.locator("#origin-location");
+  const announcement = page.locator("#adjust-location-announcement");
+  await button.click();
+  await expect(page.locator("#adjust-location-help")).toBeVisible();
+  await button.click();
+  await expect(button).toBeDisabled();
+  await expect(page.locator("#adjust-status")).toContainText(
+    "Standort wird ermittelt",
+  );
+  await expect(page.locator("#adjust-location-help")).toBeHidden();
+  await expect(announcement).toBeEmpty();
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("resolve-location")),
+  );
+  await expect(button).toBeEnabled();
+  await expect(page.locator("#adjust-status")).toBeEmpty();
+  await expect(announcement).toHaveText("Standort ermittelt");
+  await choose(page, "origin", "Start");
+  await expect(announcement).toBeEmpty();
+  await button.click();
+  await choose(page, "origin", "Start");
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("resolve-location")),
+  );
+  await expect(page.locator("#origin")).toHaveValue("Start");
+  await expect(announcement).toBeEmpty();
+  await button.click();
+  await page.locator("#cancel-adjust").click();
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("resolve-location")),
+  );
+  await page.locator("#search-adjust").click();
+  await expect(announcement).toBeEmpty();
+  await expect(page.locator("#adjust-status")).toBeEmpty();
+  await expect(button).toBeEnabled();
+});
 
 test("cancelled location request does not overwrite manual start feedback", async ({
   page,
@@ -1180,7 +1265,7 @@ test("settings errors retain old results and their original offline snapshot", a
   await setup(page);
   await plan(page);
   const priorChoices = await page.locator(".route-choice").count();
-  await expect(page.locator("#storage-message")).toContainText("gespeichert");
+  await expectSelectedJourneySaved(page);
   const original = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve) => {
       const r = indexedDB.open("foldroute-offline", 2);
@@ -1216,7 +1301,7 @@ test("settings errors retain old results and their original offline snapshot", a
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("32 min");
   await page.locator("#tab-settings").click();
-  await expect(page.locator("#foldingDuration")).toHaveValue("3");
+  await expect(page.locator("#foldingDuration")).toHaveValue("4.5");
   expect(
     await page.evaluate(
       () =>
@@ -1225,7 +1310,7 @@ test("settings errors retain old results and their original offline snapshot", a
     ),
   ).toBe(270);
   expect(original.settings.foldingDuration).toBe(180);
-  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("180");
+  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBeNull();
 });
 
 test("clearing local data requires confirmation and removes all app records", async ({
@@ -1240,9 +1325,11 @@ test("clearing local data requires confirmation and removes all app records", as
   await expectPlanningComplete(page);
   await page.locator("#tab-settings").click();
   await page.locator("#foldingDuration").fill("4");
+  await openSettingsSection(page, "data");
   await page.locator("#clear-data").click();
   await page.locator("#cancel-delete-data").click();
   await expect(page.locator("#foldingDuration")).toHaveValue("4");
+  await openSettingsSection(page, "data");
   await page.locator("#clear-data").click();
   await page.locator("#confirm-delete-data").click();
   await expect(page.locator("#search-view")).toBeVisible();
@@ -1420,44 +1507,42 @@ test("planning URL reloads fixed endpoints without location access and keeps now
   expect(errors).toEqual([]);
 });
 
-test("link options and edits remain temporary, including Back from settings", async ({
+test("legacy links use personal preferences and edits survive Back and reload", async ({
   page,
 }) => {
   await setup(page);
   await plan(page);
   const link = new URL(page.url());
-  link.searchParams.set("maxCyclingMinutes", "17");
+  link.searchParams.set("v", "1");
+  for (const [key, value] of Object.entries({
+    ...defaults,
+    maxCyclingMinutes: 17,
+    cyclingSpeedKilometersPerHour: 22,
+  }))
+    link.searchParams.set(key, String(value));
+  const planned = page.waitForRequest("**/api/v6/plan?*");
   await page.goto(link.href);
+  expect(new URL((await planned).url()).searchParams.get("cyclingSpeed")).toBe(
+    (defaults.cyclingSpeedKilometersPerHour / 3.6).toFixed(3),
+  );
   await expectPlanningComplete(page);
   await page.locator("#tab-settings").click();
-  await expect(page.locator("#settings-summary")).toContainText(
-    "nur für diese Planung",
-  );
-  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("17");
+  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("60");
   await page.locator("#foldingDuration").fill("4");
-  let calculations = 0;
-  page.on("request", (r) => {
-    if (r.url().includes("directModes=BIKE")) calculations++;
-  });
   await page.goBack();
-  await expect(page.locator("#foldingDuration")).toHaveValue("3");
-  expect(calculations).toBe(0);
-  await page.goForward();
   await expect(page.locator("#foldingDuration")).toHaveValue("4");
+  await page.goForward();
   await page.locator("#save-settings").click();
   await expectPlanningComplete(page);
-  expect(calculations).toBe(1);
-  expect(new URL(page.url()).searchParams.get("foldingDuration")).toBe("240");
   expect(
     await page.evaluate(() =>
       JSON.parse(localStorage.getItem("foldroute.routing.v3")!),
     ),
-  ).toMatchObject({ maxCyclingMinutes: 60, foldingDuration: 180 });
-  await page.locator("#close-route").click();
-  expect(new URL(page.url()).searchParams.has("v")).toBe(false);
+  ).toMatchObject({ maxCyclingMinutes: 60, foldingDuration: 240 });
+  await page.reload();
+  await expectPlanningComplete(page);
   await page.locator("#tab-settings").click();
-  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("60");
-  await expect(page.locator("#foldingDuration")).toHaveValue("3");
+  await expect(page.locator("#foldingDuration")).toHaveValue("4");
 });
 
 test("Back and Forward restore distinct submitted plans without result history entries", async ({
@@ -1683,14 +1768,15 @@ test("three regular routes keep their places and comparison is an optional fourt
     .toBeGreaterThan(550);
   await page.screenshot({ path: "test-results/fourth-comparison-mobile.png" });
   await page.locator("#tab-settings").click();
+  await openSettingsSection(page, "options");
   await page.locator("#showCyclingComparison").uncheck();
   await page.locator("#save-settings").click();
   await expectPlanningComplete(page);
   await expect(page.locator(".route-choice")).toHaveCount(3);
   await expect(page.locator("#cycling-comparison")).toBeHidden();
-  expect(new URL(page.url()).searchParams.get("showCyclingComparison")).toBe(
-    "false",
-  );
+  expect(
+    new URL(page.url()).searchParams.get("showCyclingComparison"),
+  ).toBeNull();
   expect(
     await page.evaluate(
       () =>
@@ -1711,6 +1797,7 @@ test("hidden comparison arriving first does not finish the search before transit
   await setup(page);
   await page.locator("#tab-settings").click();
   await page.locator("#maxCyclingMinutes").fill("30");
+  await openSettingsSection(page, "options");
   await page.locator("#showCyclingComparison").uncheck();
   await page.locator("#save-settings").click();
   let release!: () => void;
@@ -1745,6 +1832,7 @@ test("only hidden comparisons produce an empty-result message", async ({
   await setup(page);
   await page.locator("#tab-settings").click();
   await page.locator("#maxCyclingMinutes").fill("30");
+  await openSettingsSection(page, "options");
   await page.locator("#showCyclingComparison").uncheck();
   await page.locator("#save-settings").click();
   await page.route("**/api/v6/plan?*", (r) =>
@@ -1876,7 +1964,7 @@ test("free stops edit, reorder, reverse and cancel without changing the active p
     .click();
   await expect(page.locator("#add-stop")).toBeEnabled();
   await page.locator("#cancel-adjust").click();
-  expect(new URL(page.url()).searchParams.get("v")).toBe("1");
+  expect(new URL(page.url()).searchParams.get("v")).toBe("3");
   await page.locator("#adjust-route").click();
   await expect(page.locator("#via-fields > div:not([hidden])")).toHaveCount(0);
 });
@@ -1996,7 +2084,7 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("50 min");
-  expect(new URL(page.url()).searchParams.get("v")).toBe("2");
+  expect(new URL(page.url()).searchParams.get("v")).toBe("3");
   expect(new URL(page.url()).searchParams.get("via1Stay")).toBe("10");
   await expect(page.locator("#journey-detail")).toContainText(
     "Geplanter Aufenthalt: 10 min",
@@ -2198,9 +2286,11 @@ test("history deletion and disabling persist without restoring deleted calculati
   await page.locator("#close-route").click();
   await plan(page);
   await page.locator("#tab-settings").click();
+  await openSettingsSection(page, "data");
   await page.locator("#delete-saved").click();
   await page.locator("#cancel-delete-history").click();
   await expect(page.locator("#delete-saved")).toBeEnabled();
+  await openSettingsSection(page, "data");
   await page.locator("#delete-saved").click();
   await page.locator("#confirm-delete-history").click();
   await expect(page.locator("#delete-saved")).toBeDisabled();
@@ -2225,7 +2315,7 @@ test("history storage caps entries atomically and guards pending writes during d
 }) => {
   await setup(page);
   await plan(page);
-  await expect(page.locator("#storage-message")).toContainText("gespeichert");
+  await expectSelectedJourneySaved(page);
   const result = await page.evaluate(async () => {
     const path = "/src/offline.ts";
     const { OfflineStore } = await import(path);
@@ -2460,7 +2550,7 @@ test("history normalizes persisted duplicates and guards stable IDs against late
 }) => {
   await setup(page);
   await plan(page);
-  await expect(page.locator("#storage-message")).toContainText("gespeichert");
+  await expectSelectedJourneySaved(page);
   const result = await page.evaluate(async () => {
     const path = "/src/offline.ts";
     const { OfflineStore } = await import(path);
@@ -3241,6 +3331,94 @@ test("mobile refresh returns to comparison and preserves old results on failure"
   await expect(page.locator("#journey-heading")).toContainText("32 min");
 });
 
+for (const width of [320, 390]) {
+  for (const fromDetail of [false, true]) {
+    test(`map actions separate comparison and details at ${width}, fromDetail=${fromDetail}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 650 });
+      await setup(page);
+      await plan(page);
+      const selected = page.locator(".route-choice").last();
+      await selected.click();
+      const id = await selected.getAttribute("data-journey");
+      const scrollPosition = () =>
+        page.evaluate(() => {
+          const panel = document.getElementById("journey-panel")!;
+          return (
+            panel.classList.contains("result-scroll-all")
+              ? panel
+              : document.getElementById("panel-content")!
+          ).scrollTop;
+        });
+      const position = await scrollPosition();
+      let requests = 0;
+      page.on("request", (request) => {
+        if (request.url().includes("/api/v6/plan?")) requests++;
+      });
+      if (fromDetail) await openSelectedDetails(page);
+      await showMap(page);
+      await expect(page.locator("#result-back")).toHaveText(
+        "‹ Alle Verbindungen",
+      );
+      await page.locator("#result-back").click();
+      await expect(page.locator("#choices")).toBeVisible();
+      await expect(selected).toHaveAttribute("aria-pressed", "true");
+      await expect(selected).toBeFocused();
+      await expect.poll(scrollPosition).toBe(position);
+      await page.goBack();
+      await expect(page.locator("#map-view")).toHaveAttribute(
+        "data-result-screen",
+        "map",
+      );
+      await page.goForward();
+      await expect(page.locator("#choices")).toBeVisible();
+      await expect(selected).toHaveAttribute("data-journey", id!);
+      await showMap(page);
+      await page.locator("#map-open-details").click();
+      await expect(page.locator("#panel-details")).toBeVisible();
+      await expect(selected).toHaveAttribute("aria-pressed", "true");
+      await page.locator("#result-back").click();
+      await expect(page.locator("#choices")).toBeVisible();
+      expect(requests).toBe(0);
+    });
+  }
+}
+
+for (const origin of ["history", "search"]) {
+  test(`saved map returns to Fahrten from ${origin}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page);
+    await plan(page);
+    await page.locator("#tab-history").click();
+    await expect(page.locator(".history-open")).toHaveCount(1);
+    if (origin === "search") {
+      await page.goto("/");
+      await page.locator("#open-saved").click();
+    } else await page.locator(".history-open").click();
+    let requests = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/v6/plan?")) requests++;
+    });
+    await showMap(page);
+    await expect(page.locator("#result-back")).toHaveText("‹ Fahrten");
+    await page.locator("#result-back").click();
+    await expect(page.locator("#history-view")).toBeVisible();
+    await expect(page.locator(".history-open")).toBeFocused();
+    await page.goBack();
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      "map",
+    );
+    await page.goForward();
+    await expect(page.locator("#history-view")).toBeVisible();
+    await page.goBack();
+    await page.locator("#map-open-details").click();
+    await expect(page.locator("#panel-details")).toBeVisible();
+    expect(requests).toBe(0);
+  });
+}
+
 test("map itinerary action returns directly to comparison after reading", async ({
   page,
 }) => {
@@ -3647,4 +3825,91 @@ test("desktop history keeps long routes readable beside delete action", async ({
   await expect(row.locator(".history-destination")).toContainText(
     "Frankfurt (Main) Süd",
   );
+});
+
+test("successful save retry clears its error without a success message", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.evaluate(async () => {
+    const path = "/src/offline.ts";
+    const { OfflineStore } = await import(path);
+    const save = OfflineStore.prototype.save;
+    (window as any).failJourneySave = true;
+    OfflineStore.prototype.save = function (...args: any[]) {
+      if ((window as any).failJourneySave)
+        return Promise.reject(new Error("Storage blocked"));
+      return save.apply(this, args);
+    };
+  });
+  await plan(page);
+  await expect(page.locator("#storage-message")).toContainText(
+    "nicht offline gespeichert",
+  );
+  await page.evaluate(() => {
+    (window as any).failJourneySave = false;
+  });
+  await page.locator("#close-route").click();
+  await plan(page);
+  await expectSelectedJourneySaved(page);
+  await expect(page.locator("#storage-message")).toBeEmpty();
+  await expect(page.locator("#toast")).toBeHidden();
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#storage-message")).toBeHidden();
+  await page.locator("#offline-enabled").uncheck();
+  await expect(page.locator("#storage-message")).toContainText(
+    "Speicherung ausgeschaltet",
+  );
+  await page.locator("#offline-enabled").check();
+  await expect(page.locator("#storage-message")).toBeEmpty();
+  await expect(page.locator("#toast")).toBeHidden();
+  await expect(page.locator("#offline-enabled")).toBeEnabled();
+  await page.evaluate(async () => {
+    const path = "/src/offline.ts";
+    const { OfflineStore } = await import(path);
+    const setEnabled = OfflineStore.prototype.setEnabled;
+    OfflineStore.prototype.setEnabled = function (...args: any[]) {
+      OfflineStore.prototype.setEnabled = setEnabled;
+      return Promise.reject(new Error("Storage blocked"));
+    };
+  });
+  await page.locator("#offline-enabled").click();
+  await expect(page.locator("#storage-message")).toContainText(
+    "Offline-Einstellung konnte nicht gespeichert",
+  );
+  await expect(page.locator("#offline-enabled")).toBeChecked();
+  await page.locator("#offline-enabled").uncheck();
+  await expect(page.locator("#storage-message")).toContainText(
+    "Speicherung ausgeschaltet",
+  );
+  await page.locator("#offline-enabled").check();
+  await expect(page.locator("#storage-message")).toBeEmpty();
+  await expect(page.locator("#toast")).toBeHidden();
+});
+
+test("silent storage success preserves an unrelated settings warning", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key) {
+      if (key === "foldroute.routing.v3")
+        throw new DOMException("Blocked", "SecurityError");
+      return getItem.call(this, key);
+    };
+  });
+  await setup(page);
+  await expect(page.locator("#storage-message")).toContainText(
+    "nur für diese Sitzung",
+  );
+  await plan(page);
+  await expectSelectedJourneySaved(page);
+  await expect(page.locator("#storage-message")).toContainText(
+    "nur für diese Sitzung",
+  );
+  await page.locator("#tab-settings").click();
+  await page.locator("#cyclingSpeedKilometersPerHour").fill("20");
+  await page.locator("#cyclingSpeedKilometersPerHour").blur();
+  await expect(page.locator("#storage-message")).toBeEmpty();
+  await expect(page.locator("#toast")).toBeHidden();
 });

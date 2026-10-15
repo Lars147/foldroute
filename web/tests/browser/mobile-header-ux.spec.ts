@@ -37,20 +37,26 @@ for (const width of [320, 390, 430]) {
     await page.setViewportSize({ width, height: 844 });
     await setup(page);
     await expect(page.locator(".app-header")).toBeHidden();
-    await expect(page.locator("#header-settings")).toBeHidden();
+    await expect(page.locator("#header-settings")).toHaveCount(0);
     expect((await page.locator("#search-heading").boundingBox())!.y).toBe(28);
     for (const [tab, heading] of [
       ["history", "history-heading"],
       ["settings", "settings-heading"],
     ]) {
       await page.locator(`#tab-${tab}`).click();
-      expect((await page.locator(`#${heading}`).boundingBox())!.y).toBe(28);
+      const box = (await page
+        .locator(tab === "settings" ? ".settings-heading-row" : `#${heading}`)
+        .boundingBox())!;
+      // History deliberately retains only a screen-reader heading on mobile.
+      if (tab === "history") expect(box.height).toBe(1);
+      else expect(box.y).toBe(28);
     }
     await page.context().setOffline(true);
     await expect(page.locator("#connection")).toBeVisible();
     await expect
       .poll(
-        async () => (await page.locator("#settings-heading").boundingBox())!.y,
+        async () =>
+          (await page.locator(".settings-heading-row").boundingBox())!.y,
       )
       .toBeGreaterThan(28);
     expect(
@@ -63,7 +69,7 @@ for (const width of [320, 390, 430]) {
       .poll(async () => {
         const status = (await page.locator("#connection").boundingBox())!;
         const heading = (await page
-          .locator("#settings-heading")
+          .locator(".settings-heading-row")
           .boundingBox())!;
         return heading.y >= status.y + status.height + 27;
       })
@@ -73,7 +79,8 @@ for (const width of [320, 390, 430]) {
     await expect(page.locator("#connection")).toBeHidden();
     await expect
       .poll(
-        async () => (await page.locator("#settings-heading").boundingBox())!.y,
+        async () =>
+          (await page.locator(".settings-heading-row").boundingBox())!.y,
       )
       .toBe(28);
     await page.locator("#tab-route").focus();
@@ -107,7 +114,8 @@ test("map and accordion use reclaimed space across offline, desktop and landscap
     .toBe(0);
   await page.setViewportSize({ width: 1100, height: 844 });
   await expect(page.locator(".app-header")).toBeVisible();
-  await expect(page.locator("#header-settings")).toBeVisible();
+  await expect(page.locator("#header-settings")).toHaveCount(0);
+  await expect(page.locator("#tab-settings")).toBeVisible();
   await expect
     .poll(async () => (await page.locator("#map").boundingBox())!.y)
     .toBe(64);

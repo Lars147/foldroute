@@ -938,7 +938,7 @@ test("interrupted trip lookup offers a startup retry after returning", async ({
   );
 });
 
-test("ending resumed navigation restores stops and temporary settings to the planner", async ({
+test("ending resumed navigation restores stops without replacing personal preferences", async ({
   page,
 }) => {
   await setup(page, true);
@@ -972,11 +972,10 @@ test("ending resumed navigation restores stops and temporary settings to the pla
   await page.locator("#cancel-adjust").click();
   await page.locator("#tab-settings").click();
   await expect(page.locator("#cyclingSpeedKilometersPerHour")).toHaveValue(
-    "21",
+    String(defaults.cyclingSpeedKilometersPerHour),
   );
-  await expect(page.locator("#maxCyclingMinutes")).toHaveValue("45");
-  await expect(page.locator("#settings-summary")).toContainText(
-    "nur für diese Planung",
+  await expect(page.locator("#maxCyclingMinutes")).toHaveValue(
+    String(defaults.maxCyclingMinutes),
   );
   expect(
     await page.evaluate(() =>
@@ -991,5 +990,7 @@ test("ending resumed navigation restores stops and temporary settings to the pla
   await page.locator("#route-more").click();
   await page.locator("#replan-saved").click();
   const params = new URL((await planned).url()).searchParams;
-  expect(params.get("cyclingSpeed")).toBe((21 / 3.6).toFixed(3));
+  expect(params.get("cyclingSpeed")).toBe(
+    (defaults.cyclingSpeedKilometersPerHour / 3.6).toFixed(3),
+  );
 });
