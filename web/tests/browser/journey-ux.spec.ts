@@ -86,6 +86,60 @@ async function preview(page: Page) {
   });
 }
 
+for (const width of [320, 390, 1280]) {
+  test(`planning context stays grouped and accessible at ${width}`, async ({ page, browserName }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await preview(page);
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      state.request.origin.name = "Aktueller Standort";
+      state.request.destination.name = "Bahnhofstraße 3a";
+      view.render(state, 30);
+    });
+    const context = page.locator(".planning-context");
+    await expect(context.getByRole("button", { name: "Route anpassen" })).toBeVisible();
+    await expect(context.getByRole("heading", { level: 1 })).toHaveText("Aktueller Standort → Bahnhofstraße 3a");
+    await page.locator("#result-context").focus();
+    await expect(page.locator("#result-context")).toBeFocused();
+    await expect(context).toHaveCSS("outline-style", "solid");
+    await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+    await expect(page.locator("#adjust-route")).toBeFocused();
+    await page.locator("#adjust-route").blur();
+    await page.screenshot({ path: info.outputPath("planning-context.png") });
+
+    // Long place names and all planning metadata must remain readable with large text.
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "200%";
+      const { state, view } = (window as any).uxPreview;
+      state.request.origin.name = "München Hauptbahnhof, Ausgang Arnulfstraße";
+      state.request.destination.name = "Bahnhofstraße 3a, 82166 Gräfelfing";
+      state.request.timing = "arrive";
+      state.request.stops = [state.request.origin, state.request.destination];
+      state.restored = true;
+      view.render(state, 30);
+    });
+    await expect(page.locator("#route-request-meta")).toContainText("Ankunft");
+    await expect(page.locator("#route-request-meta")).toContainText("2 Zwischenstopps");
+    await expect(page.locator("#result-stand")).toContainText("Gespeichert:");
+    expect(await page.evaluate(() => {
+      const ids = ["route-origin", "route-destination", "route-request-meta"];
+      return ids.every((id) => {
+        const element = document.getElementById(id)!;
+        return element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight;
+      }) && document.documentElement.scrollWidth <= innerWidth;
+    })).toBe(true);
+    for (const id of ["adjust-route", "route-more", "close-route"]) {
+      const control = page.locator(`#${id}`);
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeInViewport();
+      const bounds = (await control.boundingBox())!;
+      expect(bounds.width).toBeGreaterThanOrEqual(44);
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.screenshot({ path: info.outputPath("planning-context-large-text.png") });
+  });
+}
+
 for (const width of [320, 390, 768, 1280]) {
   test(`separate results and itinerary remain readable at ${width}`, async ({
     page,
@@ -121,6 +175,7 @@ for (const width of [320, 390, 768, 1280]) {
     await page.keyboard.press("Escape");
     await page.screenshot({ path: info.outputPath(`list-${width}.png`) });
     await page.locator('[data-journey="best"]').click();
+    await page.locator(".route-choice-row.selected .route-detail-link").click();
     await expect(page.locator("#panel-details")).toBeVisible();
     await expect(page.locator("#journey-heading")).toBeFocused();
     await expect(page.locator("#journey-effort")).toContainText("14 min Rad");
@@ -139,8 +194,13 @@ for (const width of [320, 390, 768, 1280]) {
         .locator("#panel-content")
         .evaluate((e) => e.scrollTop);
       await page.locator("#result-back").click();
-      await expect(page.locator('[data-journey="best"]')).toBeFocused();
+      await expect(
+        page.locator(".route-choice-row.selected .route-detail-link"),
+      ).toBeFocused();
       await page.locator('[data-journey="best"]').click();
+      await page
+        .locator(".route-choice-row.selected .route-detail-link")
+        .click();
       await expect(page.locator("#panel-content")).toHaveJSProperty(
         "scrollTop",
         scroll,
@@ -204,6 +264,9 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
   await expect(card.locator('.route-stage[data-symbol="transit"]')).toHaveCount(
     2,
   );
+  await expect(card.locator('.route-stage[data-symbol="bus"] .icon')).toHaveCount(1);
+  await expect(card.locator('.route-stage').filter({ hasText: "RE 1" }).locator('.icon')).toHaveCount(0);
+  await expect(card.locator('.route-stage').filter({ hasText: "ÖPNV" }).locator('.icon')).toHaveCount(1);
   await expect(card.locator(".route-stage")).toHaveCount(7);
   await expect(card.locator(".route-stop-name")).toHaveText(
     "Zwischenstopp <Marktplatz> mit einem längeren Ortsnamen",
@@ -224,6 +287,7 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
     path: info.outputPath("symbol-route-large-text.png"),
   });
   await page.locator('[data-journey="best"]').click();
+  await page.locator(".route-choice-row.selected .route-detail-link").click();
   await page.locator("#result-back").click();
   await expect(card).toHaveAttribute("aria-pressed", "true");
   await expect(card).toHaveCSS("border-color", "rgb(255, 212, 59)");
@@ -238,6 +302,7 @@ test("same-ID updates retain reading position and keyboard focus", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await preview(page);
   await page.locator('[data-journey="selected"]').click();
+  await page.locator(".route-choice-row.selected .route-detail-link").click();
   await page.locator("#panel-content").evaluate((e) => (e.scrollTop = 160));
   const scroll = await page
     .locator("#panel-content")
@@ -262,6 +327,7 @@ test("desktop resize preserves selection and returns to mobile itinerary", async
   await page.setViewportSize({ width: 390, height: 844 });
   await preview(page);
   await page.locator('[data-journey="third"]').click();
+  await page.locator(".route-choice-row.selected .route-detail-link").click();
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect(page.locator("#choices")).toBeVisible();
   await expect(page.locator("#panel-details")).toBeVisible();
@@ -285,6 +351,7 @@ for (const [width, height] of [
       () => (document.documentElement.style.fontSize = "24px"),
     );
     await page.locator('[data-journey="selected"]').click();
+    await page.locator(".route-choice-row.selected .route-detail-link").click();
     await page.locator("#adjust-route").scrollIntoViewIfNeeded();
     await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
     await page.locator("#result-back").scrollIntoViewIfNeeded();
@@ -334,5 +401,75 @@ for (const width of [320, 390, 1280]) {
     await page.screenshot({
       path: test.info().outputPath("preview-start.png"),
     });
+  });
+}
+
+for (const width of [320, 390, 1280]) {
+  test(`selection stays in place and only Details opens the itinerary at ${width}`, async ({
+    page,
+    browserName,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.clock.setFixedTime(new Date("2026-09-11T08:00:00Z"));
+    await preview(page);
+    const first = page.locator('[data-journey="best"]');
+    const details = page.locator(
+      ".route-choice-row.selected .route-detail-link",
+    );
+    await expect(page.locator(".route-detail-link:visible")).toHaveCount(1);
+    await first.scrollIntoViewIfNeeded();
+    const geometry = () =>
+      page.locator(".route-choice-row").evaluateAll((rows) =>
+        rows.map((row) => {
+          const box = row.getBoundingClientRect();
+          return { top: box.top, height: box.height };
+        }),
+      );
+    const before = await geometry();
+    const scroll = await page
+      .locator("#panel-content")
+      .evaluate((e) => e.scrollTop);
+    await first.click();
+    await first.click();
+    await expect(first).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("#choices")).toBeVisible();
+    expect(await geometry()).toEqual(before);
+    await expect(page.locator("#panel-content")).toHaveJSProperty(
+      "scrollTop",
+      scroll,
+    );
+    await expect(page.locator("body")).not.toHaveAttribute("data-detail-opens");
+    expect((await details.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expect(first.locator('.route-choice-arrival')).toHaveText('10:50 an');
+    await expect(first.locator('.route-choice-schedule')).toHaveText('Ab 10:00 · 50 min');
+    expect(await first.evaluate((card) => {
+      const detail = card.parentElement!.querySelector('.route-detail-link')!.getBoundingClientRect();
+      return [...card.querySelectorAll('.route-effort-metric')].every((metric) => {
+        const box = metric.getBoundingClientRect();
+        return box.right <= detail.left || box.bottom <= detail.top;
+      });
+    })).toBe(true);
+    await page.screenshot({ path: info.outputPath("minimal-details.png") });
+    await first.focus();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-journey="selected"]')).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.locator("#choices")).toBeVisible();
+    await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+    await expect(details).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#journey-heading")).toBeFocused();
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-detail-opens",
+      "1",
+    );
+    if (width < 900) {
+      await expect(page.locator("#choices")).toBeHidden();
+      await page.locator("#result-back").click();
+      await expect(details).toBeFocused();
+    }
   });
 }

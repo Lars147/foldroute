@@ -160,43 +160,58 @@
                 Karte anzeigen
               </button>
             </div>
-            <h1 id="result-context" tabindex="-1">Verbindungen</h1>
-            <div class="panel-tools">
-              <button
-                id="adjust-route"
-                class="route-request"
-                type="button"
-                aria-label="Route anpassen"
-                aria-describedby="route-origin route-destination route-request-meta"
-              >
-                <span class="route-request-places"
-                  ><span id="route-origin">Start</span
-                  ><span aria-hidden="true"> → </span
-                  ><span id="route-destination">Ziel</span
-                  ><span data-icon="edit"></span
-                ></span>
+            <div class="planning-context">
+              <h1 id="result-context" class="sr-only" tabindex="-1">
+                Verbindungen
+              </h1>
+              <div class="panel-tools">
+                <button
+                  id="adjust-route"
+                  class="route-request"
+                  type="button"
+                  aria-label="Route anpassen"
+                  aria-describedby="route-origin route-destination route-request-meta"
+                >
+                  <span class="route-request-places"
+                    ><span class="route-origin-marker" aria-hidden="true"></span
+                    ><span id="route-origin">Start</span
+                    ><span
+                      class="route-destination-marker"
+                      data-icon="flag"
+                      aria-hidden="true"
+                    ></span
+                    ><span id="route-destination">Ziel</span
+                    ><span
+                      class="route-edit-icon"
+                      data-icon="edit"
+                      aria-hidden="true"
+                    ></span
+                  ></span>
+                </button>
+                <div class="panel-tool-actions">
+                  <button
+                    id="route-more"
+                    class="icon-button"
+                    type="button"
+                    aria-label="Weitere Routenaktionen"
+                    aria-haspopup="dialog"
+                    aria-controls="route-actions-dialog"
+                    data-icon="more"
+                  ></button>
+                  <button
+                    id="close-route"
+                    class="icon-button"
+                    type="button"
+                    aria-label="Route schließen"
+                    data-icon="close"
+                  ></button>
+                </div>
+              </div>
+              <div class="planning-context-meta">
                 <span id="route-request-meta"></span>
-              </button>
-              <div class="panel-tool-actions">
-                <button
-                  id="route-more"
-                  class="icon-button"
-                  type="button"
-                  aria-label="Weitere Routenaktionen"
-                  aria-haspopup="dialog"
-                  aria-controls="route-actions-dialog"
-                  data-icon="more"
-                ></button>
-                <button
-                  id="close-route"
-                  class="icon-button"
-                  type="button"
-                  aria-label="Route schließen"
-                  data-icon="close"
-                ></button>
+                <div id="result-freshness"><span id="result-stand"></span></div>
               </div>
             </div>
-            <div id="result-freshness"><span id="result-stand"></span></div>
             <div id="map-preview" hidden>
               <strong id="map-preview-time"></strong>
               <p id="map-preview-outline"></p>
@@ -252,8 +267,8 @@
           </div>
           <div class="panel-actions">
             <div id="route-start-summary" aria-live="polite">
-              <strong id="route-start-duration"></strong
-              ><span id="route-start-arrival"></span>
+              <strong id="route-start-arrival"></strong
+              ><span id="route-start-duration"></span>
             </div>
             <button
               id="navigation-start"

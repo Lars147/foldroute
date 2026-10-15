@@ -311,7 +311,7 @@ test("mobile list and itinerary pause GPS while keeping the screen awake", async
   await expect
     .poll(() => page.evaluate(() => (window as any).liveProbe.stopped))
     .toBe(1);
-  await page.locator('.route-choice[aria-pressed="true"]').click();
+  await page.locator(".route-choice-row.selected .route-detail-link").click();
   await expect
     .poll(() => page.evaluate(() => (window as any).liveProbe.started))
     .toBe(1);

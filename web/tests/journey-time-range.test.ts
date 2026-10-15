@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { journeyTimeRange } from "../src/journey-view";
+import { journeyEndpointTime, journeyTimeRange } from "../src/journey-view";
 afterEach(() => vi.useRealTimers());
 it("shows departure and arrival with dates only when needed", () => {
   vi.useFakeTimers();
@@ -19,4 +19,20 @@ it("shows departure and arrival with dates only when needed", () => {
   expect(range(22, 22)).toBe("22:31 → 23:35");
   expect(range(23, 23)).toBe("23. Sept. · 22:31 → 23:35");
   expect(range(22, 23)).toBe("22. Sept. 22:31 → 23. Sept. 00:35");
+});
+
+it("labels individual times unambiguously for today, archived trips and midnight crossings", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 8, 22, 12));
+  const journey = {
+    departure: new Date(2026, 8, 22, 22, 31).getTime() / 1000,
+    arrival: new Date(2026, 8, 22, 23, 35).getTime() / 1000,
+  };
+  expect(journeyEndpointTime(journey, "departure")).toBe("22:31");
+  expect(journeyEndpointTime(journey, "arrival")).toBe("23:35");
+  journey.arrival = new Date(2026, 8, 23, 0, 35).getTime() / 1000;
+  expect(journeyEndpointTime(journey, "departure")).toBe("22. Sept. 22:31");
+  expect(journeyEndpointTime(journey, "arrival")).toBe("23. Sept. 00:35");
+  vi.setSystemTime(new Date(2026, 8, 24, 12));
+  expect(journeyEndpointTime(journey, "arrival")).toBe("23. Sept. 00:35");
 });

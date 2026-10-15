@@ -155,13 +155,14 @@ export class JourneyView {
     return structuredClone(this.navigation);
   }
   restoreNavigation(value?: JourneyNavigation, focus = false) {
+    const fromDetail = this.screen === "detail";
     this.navigation =
       value && ["list", "detail", "map"].includes(value.screen)
         ? structuredClone(value)
         : { screen: "list", mapReturn: "list", positions: {} };
     this.applyLayout();
     this.restorePosition();
-    if (focus) this.focusSelection();
+    if (focus) this.focusSelection(fromDetail);
   }
   reset(screen: JourneyScreen = "list", savedOrigin?: "search" | "history") {
     this.restoreNavigation({
@@ -172,13 +173,14 @@ export class JourneyView {
     });
   }
   showScreen(screen: JourneyScreen, focus = true) {
+    const fromDetail = this.screen === "detail";
     this.savePosition();
     if (screen === "map" && this.screen !== "map")
       this.navigation.mapReturn = this.screen;
     this.navigation.screen = screen;
     this.applyLayout();
     this.restorePosition();
-    if (focus) this.focusSelection();
+    if (focus) this.focusSelection(fromDetail);
   }
   private requestScreen(screen: JourneyScreen, replace = false) {
     if (this.onNavigate) this.onNavigate(screen, replace);
@@ -246,14 +248,16 @@ export class JourneyView {
     }
     this.onLayoutChange?.();
   }
-  focusSelection() {
+  focusSelection(fromDetail = false) {
     const target =
       !this.desktop.matches && this.screen === "map"
         ? el("result-back")
         : !this.desktop.matches && this.screen === "detail"
           ? el("journey-heading")
           : (el("choices").querySelector<HTMLElement>(
-              '.route-choice[aria-pressed="true"]',
+              fromDetail
+                ? ".route-choice-row.selected .route-detail-link"
+                : '.route-choice[aria-pressed="true"]',
             ) ?? el("result-context"));
     target.focus({ preventScroll: true });
   }
@@ -269,7 +273,7 @@ export class JourneyView {
       ? duration(selected.arrival - selected.departure)
       : "";
     el("route-start-arrival").textContent = selected
-      ? `Ankunft ${dateLabel(selected.arrival)}, ${clock(selected.arrival)}`
+      ? `${journeyEndpointTime(selected, "arrival")} an`
       : "";
     el("route-start-summary").hidden = !selected;
     el("navigation-start").hidden = !selected || state.busy;
@@ -357,7 +361,9 @@ export class JourneyView {
       return;
     }
     this.key = key;
-    const focused = (document.activeElement as HTMLElement)?.dataset.journey;
+    const active = document.activeElement as HTMLElement;
+    const focused = active?.dataset.journey;
+    const focusedDetail = active?.dataset.detailJourney;
     el("choices").replaceChildren();
     state.journeys.forEach((journey, index) => {
       const comparison = cyclingExcess(journey, cyclingLimit) > 0;
@@ -365,24 +371,21 @@ export class JourneyView {
       row.classList.toggle("selected", journey.id === j?.id);
       const button = node("button", "", "route-choice");
       const heading = node("span", "", "route-choice-time");
+      const arrival = node(
+        "strong",
+        `${journeyEndpointTime(journey, "arrival")} an`,
+        "route-choice-arrival",
+      );
       const schedule = node(
         "span",
-        journeyTimeRange(journey),
+        `Ab ${journeyEndpointTime(journey, "departure")} · ${duration(journey.arrival - journey.departure)}`,
         "route-choice-schedule",
       );
       if (comparison) {
-        schedule.style.setProperty("--stage-color", routeSymbolColor("bike"));
-        schedule.prepend(icon("bike"), node("span", " · ", "visually-hidden"));
+        arrival.style.setProperty("--stage-color", routeSymbolColor("bike"));
+        arrival.prepend(icon("bike"), node("span", " · ", "visually-hidden"));
       }
-      heading.append(
-        schedule,
-        node("span", " · ", "visually-hidden"),
-        node(
-          "strong",
-          duration(journey.arrival - journey.departure),
-          "route-choice-duration",
-        ),
-      );
+      heading.append(arrival, node("span", " · ", "visually-hidden"), schedule);
       const effort = journeyEffort(journey);
       const effortText = `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
       const outline = journeyOutline(journey);
@@ -403,13 +406,24 @@ export class JourneyView {
       button.onclick = () => {
         this.savePosition();
         this.select(journey.id);
+      };
+      const details = node("button", "Details ›", "route-detail-link");
+      details.type = "button";
+      details.dataset.detailJourney = journey.id;
+      details.setAttribute(
+        "aria-label",
+        `Details: Reiseablauf ansehen, Abfahrt ${clock(journey.departure)}, Ankunft ${clock(journey.arrival)}`,
+      );
+      details.disabled = journey.id !== j?.id;
+      details.inert = details.disabled;
+      details.onclick = () => {
         this.onDetailsOpened?.();
         if (this.desktop.matches) {
           el("journey-heading").focus({ preventScroll: true });
           this.detailPanel.scrollIntoView({ block: "nearest" });
         } else this.requestScreen("detail");
       };
-      row.append(button);
+      row.append(button, details);
       el("choices").append(row);
     });
     if (j) {
@@ -424,6 +438,14 @@ export class JourneyView {
     } else el("journey-detail").replaceChildren();
     this.applyLayout();
     this.restorePosition();
+    if (focusedDetail && !el("choices").hidden)
+      [
+        ...el("choices").querySelectorAll<HTMLButtonElement>(
+          ".route-detail-link:not(:disabled)",
+        ),
+      ]
+        .find((b) => b.dataset.detailJourney === focusedDetail)
+        ?.focus({ preventScroll: true });
     if (focused && !el("choices").hidden)
       [...el("choices").querySelectorAll<HTMLButtonElement>("button")]
         .find((b) => b.dataset.journey === focused)
@@ -448,7 +470,11 @@ export class JourneyView {
           ? "bus"
           : leg.kind;
       stage.dataset.symbol = symbol;
-      stage.append(icon(symbol));
+      const namedRail =
+        leg.kind === "transit" &&
+        ["SUBURBAN", "SUBWAY", "REGIONAL_RAIL"].includes(leg.mode ?? "") &&
+        !!leg.line?.trim();
+      if (!namedRail) stage.append(icon(symbol));
       if (leg.kind === "transit")
         stage.append(node("span", leg.line?.trim() || "ÖPNV", "route-line"));
       else if (leg.kind === "stop")
@@ -565,6 +591,20 @@ export class JourneyView {
       list,
     );
   }
+}
+
+export function journeyEndpointTime(
+  journey: Pick<Journey, "departure" | "arrival">,
+  endpoint: "departure" | "arrival",
+): string {
+  const instant = journey[endpoint];
+  const crossDay =
+    new Date(journey.departure * 1000).toDateString() !==
+    new Date(journey.arrival * 1000).toDateString();
+  const showDate =
+    crossDay ||
+    new Date(instant * 1000).toDateString() !== new Date().toDateString();
+  return `${showDate ? `${dateLabel(instant)} ` : ""}${clock(instant)}`;
 }
 
 export function journeyTimeRange(

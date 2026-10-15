@@ -17,7 +17,7 @@ export async function openSelectedDetails(page: Page) {
     .getAttribute("data-result-screen");
   if (screen === "map") await page.locator("#map-open-details").click();
   else if (screen !== "detail")
-    await page.locator('.route-choice[aria-pressed="true"]').click();
+    await page.locator(".route-choice-row.selected .route-detail-link").click();
 }
 export async function showMap(page: Page) {
   if (await page.evaluate(() => innerWidth >= 900)) return;

@@ -473,15 +473,15 @@ test("choice labels keep arrival times for both search modes and update dates wi
     };
   });
   expect(labels.departure).toEqual([
-    "22:55 → 23:50 · 55 min",
-    "23:10 → 23:55 · 45 min",
-    "· 22:39 → 23:59 · 1 h 20 min",
+    "23:50 an · Ab 22:55 · 55 min",
+    "23:55 an · Ab 23:10 · 45 min",
+    "· 23:59 an · Ab 22:39 · 1 h 20 min",
   ]);
   expect(labels.arrival).toEqual(labels.departure);
   expect(labels.updated).toEqual([
-    "22:55 → 23:50 · 55 min",
-    "4. Sept. 23:10 → 5. Sept. 00:05 · 55 min",
-    "· 22:39 → 23:59 · 1 h 20 min",
+    "23:50 an · Ab 22:55 · 55 min",
+    "5. Sept. 00:05 an · Ab 4. Sept. 23:10 · 55 min",
+    "· 23:59 an · Ab 22:39 · 1 h 20 min",
   ]);
   expect(labels.selected).toBe("two");
   expect(labels.focused).toBe("two");
@@ -513,12 +513,12 @@ test("better alternatives replace automatic selection", async ({ page }) => {
   release();
   await expectPlanningComplete(page);
   await expect(page.locator(".route-choice-time")).toHaveText([
-    "10:00 → 10:53 · 53 min",
-    "· 10:00 → 11:01 · 1 h 1 min",
+    "10:53 an · Ab 10:00 · 53 min",
+    "· 11:01 an · Ab 10:00 · 1 h 1 min",
   ]);
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
-  ).toHaveText("10:00 → 10:53 · 53 min");
+  ).toHaveText("10:53 an · Ab 10:00 · 53 min");
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("53 min");
@@ -550,7 +550,8 @@ test("dark appearance, large text and reduced motion remain usable", async ({
   await plan(page);
   await page.addStyleTag({ content: ":root {font-size: 24px !important;}" });
   const card = page.locator(".route-choice[aria-pressed=true]");
-  await expect(card).toContainText("→");
+  await expect(card.locator(".route-choice-arrival")).toHaveText("10:32 an");
+  await expect(card.locator(".route-choice-schedule")).toHaveText("Ab 10:00 · 32 min");
   expect(
     await card.evaluate(
       (element) => element.scrollWidth <= element.clientWidth + 1,
@@ -1096,7 +1097,7 @@ test("long direct rides are labeled comparisons and suitable transit is preferre
   await expectPlanningComplete(page);
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
-  ).toHaveText("10:00 → 10:53 · 53 min");
+  ).toHaveText("10:53 an · Ab 10:00 · 53 min");
   await page.getByRole("button", { name: /Fahrradvergleich: 46 Min/ }).click();
   await expect(page.locator("#cycling-comparison")).toHaveText(
     "46 Min. Radfahrt · 16 Min. über deinem Radlimit",
@@ -1425,9 +1426,10 @@ test("three regular routes keep their places and comparison is an optional fourt
     page
       .locator(".route-choice")
       .last()
-      .locator(".route-choice-schedule .icon svg"),
+      .locator(".route-choice-arrival .icon svg"),
   ).toHaveCount(1);
   await page.locator(".route-choice").last().click();
+  await openSelectedDetails(page);
   await expect(page.locator("#result-back")).toBeInViewport({ ratio: 1 });
   await expect(page.locator("#journey-heading")).toBeInViewport({ ratio: 1 });
   await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
@@ -1739,7 +1741,6 @@ test("history deduplicates routes, restores without requests and replans from fi
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-row")).toHaveCount(1);
   await page.locator("#tab-route").click();
-  await page.locator("#result-back").click();
   await page.locator("#close-route").click();
   await plan(page);
   await page.locator("#tab-history").click();
@@ -1906,7 +1907,7 @@ for (const width of [320, 390, 430, 1479]) {
       await page.locator("#result-back").click();
       await expect(page.locator("#panel-details")).toBeHidden();
       await expect(
-        page.locator('.route-choice[aria-pressed="true"]'),
+        page.locator(".route-choice-row.selected .route-detail-link"),
       ).toBeFocused();
     }
     await expect(page.locator("#route-more")).toBeVisible();
@@ -1952,7 +1953,10 @@ test("browser navigation restores itinerary, list and map without another search
   });
   const selected = page.locator('.route-choice[aria-pressed="true"]');
   const id = await selected.getAttribute("data-journey");
+  const historyLength = await page.evaluate(() => history.length);
   await selected.click();
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  await openSelectedDetails(page);
   await page.locator("#panel-content").evaluate((e) => (e.scrollTop = 80));
   const scroll = await page
     .locator("#panel-content")
@@ -1973,7 +1977,9 @@ test("browser navigation restores itinerary, list and map without another search
     "list",
   );
   await expect(selected).toHaveAttribute("data-journey", id!);
-  await expect(selected).toBeFocused();
+  await expect(
+    page.locator(".route-choice-row.selected .route-detail-link"),
+  ).toBeFocused();
   await page.goForward();
   await expect(page.locator("#panel-details")).toBeVisible();
   await page.goForward();
