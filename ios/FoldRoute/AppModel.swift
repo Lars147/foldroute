@@ -248,7 +248,10 @@ final class AppModel {
     private var settingsReplanPending = false
     private(set) var isPreviewReplan = false
     private var routingProducerTask: Task<Void, Never>?
-    var dataMessage: String?
+    private var isSettingsSaveError = false
+    var dataMessage: String? {
+        didSet { isSettingsSaveError = false }
+    }
 
     private var navigationClock: Task<Void, Never>?
     private var navigationAlerts: Task<Void, Never>?
@@ -1034,9 +1037,10 @@ final class AppModel {
         navigation?.settings = settings
         do {
             try store.saveSettings(settings)
-            dataMessage = "Einstellungen gespeichert."
+            if isSettingsSaveError { dataMessage = nil }
         } catch {
             dataMessage = "Einstellungen konnten nicht gespeichert werden."
+            isSettingsSaveError = true
         }
     }
 

@@ -8,6 +8,30 @@ import XCTest
 @testable import FoldRoute
 
 final class FoldRouteTests: XCTestCase, @unchecked Sendable {
+    @MainActor
+    func testSettingsSaveStaysQuietAndClearsOnlyItsOwnFailure() throws {
+        let store = SettingsFailureStore(base: try makeHomeStore())
+        let model = try AppModel(planner: UnusedJourneyPlanner(), store: store,
+                                 location: LocationService(), guidance: GuidanceService())
+        model.settings.foldingDuration = 90
+        XCTAssertNil(model.dataMessage)
+        XCTAssertEqual(try store.loadSettings(), model.settings)
+        store.failSettings = true
+        model.saveSettings()
+        XCTAssertEqual(model.dataMessage, "Einstellungen konnten nicht gespeichert werden.")
+        store.failSettings = false
+        model.saveSettings()
+        XCTAssertNil(model.dataMessage)
+        store.failSettings = true
+        model.saveSettings()
+        model.dataMessage = "Fahrt konnte nicht im Verlauf gespeichert werden."
+        store.failSettings = false
+        model.saveSettings()
+        XCTAssertEqual(model.dataMessage, "Fahrt konnte nicht im Verlauf gespeichert werden.")
+        model.clearLocalData()
+        XCTAssertEqual(model.dataMessage, "Lokale Daten gelöscht.")
+    }
+
     func testScreenAwakeRequiresVisibleRouteAndPreference() {
         XCTAssertTrue(ScreenAwakePolicy.enabled(preference: true, foreground: true, previewVisible: true, previewObscured: false, navigating: false))
         XCTAssertTrue(ScreenAwakePolicy.enabled(preference: true, foreground: true, previewVisible: false, previewObscured: true, navigating: true))
@@ -4865,4 +4889,28 @@ private final class SlowHistoryResolver: HistoryPlaceNameResolving {
         try await Task.sleep(for: .milliseconds(10))
         return "Marienplatz 22, München"
     }
+}
+
+
+@MainActor
+private final class SettingsFailureStore: JourneyStore {
+    let base: SwiftDataJourneyStore
+    var failSettings = false
+    init(base: SwiftDataJourneyStore) { self.base = base }
+    func loadSettings() throws -> NavigationSettings { try base.loadSettings() }
+    func saveSettings(_ settings: NavigationSettings) throws {
+        if failSettings { throw CocoaError(.fileWriteNoPermission) }
+        try base.saveSettings(settings)
+    }
+    func saveRecentPlace(_ place: Place, asDestination: Bool) throws { try base.saveRecentPlace(place, asDestination: asDestination) }
+    func setFavorite(_ place: Place, isFavorite: Bool) throws { try base.setFavorite(place, isFavorite: isFavorite) }
+    func record(_ journey: Journey) throws { try base.record(journey) }
+    func deleteJourney(id: String) throws { try base.deleteJourney(id: id) }
+    func updateJourneyNames(id: String, originName: String?, destinationName: String?) throws {
+        try base.updateJourneyNames(id: id, originName: originName, destinationName: destinationName)
+    }
+    func loadActiveSnapshot() throws -> ActiveJourneySnapshot? { try base.loadActiveSnapshot() }
+    func saveActiveSnapshot(_ snapshot: ActiveJourneySnapshot) throws { try base.saveActiveSnapshot(snapshot) }
+    func clearActiveJourney() throws { try base.clearActiveJourney() }
+    func clearAll() throws { try base.clearAll() }
 }
