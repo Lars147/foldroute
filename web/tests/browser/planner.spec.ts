@@ -2144,14 +2144,28 @@ for (const width of [320, 393, 1280]) {
     expect(heading!.height > 1).toBe(width >= 900);
     await page.mouse.move(0, 0);
     await page.screenshot({ path: test.info().outputPath("history-list.png") });
+    const positions = () =>
+      page
+        .locator(".history-row")
+        .evaluate((row) =>
+          [
+            row,
+            ...row.querySelectorAll(
+              ".history-origin, .history-destination, .history-chevron",
+            ),
+          ].map((element) => element.getBoundingClientRect().toJSON()),
+        );
+    const beforeHover = await positions();
+    await page.locator(".history-open").hover();
+    await expect(page.locator(".history-remove")).toHaveCSS("opacity", "1");
+    expect(await positions()).toEqual(beforeHover);
+    await page.mouse.move(0, 0);
+    await expect(page.locator(".history-remove")).toHaveCSS("opacity", "0");
     await page.locator(".history-open").focus();
     await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
     await expect(page.locator(".history-remove")).toBeFocused();
-    await expect.poll(async () => {
-      const row = await page.locator(".history-row").boundingBox();
-      const open = await page.locator(".history-open").boundingBox();
-      return row!.x - open!.x;
-    }).toBeGreaterThan(90);
+    await expect(page.locator(".history-open")).toHaveCSS("transform", "none");
+    await expect(page.locator(".history-remove")).toHaveCSS("opacity", "1");
     await page.screenshot({
       path: test.info().outputPath("history-delete.png"),
     });
@@ -3364,37 +3378,85 @@ test.describe("history touch gestures", () => {
   // Synthetic pointer input allows the same gesture checks in Chromium and WebKit.
   // Native pointer capture is stubbed because synthetic pointers aren't OS-owned.
   async function swipe(page: Page, dx: number, dy = 0) {
-    await page
-      .locator(".history-row")
-      .first()
-      .evaluate(
-        (row, { dx, dy }) => {
-          row.setPointerCapture = () => {};
-          const target = row.querySelector(".history-open")!;
-          const send = (type: string, x: number, y: number) =>
-            target.dispatchEvent(
-              new PointerEvent(type, {
-                bubbles: true,
-                cancelable: true,
-                pointerId: 7,
-                pointerType: "touch",
-                isPrimary: true,
-                button: 0,
-                clientX: x,
-                clientY: y,
-              }),
-            );
-          send("pointerdown", 250, 200);
-          send("pointermove", 250 + dx, 200 + dy);
-          send("pointerup", 250 + dx, 200 + dy);
-          if (Math.abs(dx) > Math.abs(dy))
-            target.dispatchEvent(
-              new MouseEvent("click", { bubbles: true, cancelable: true }),
-            );
-        },
-        { dx, dy },
-      );
+    await expect(page.locator(".history-row").first()).toBeVisible();
+    await page.evaluate(
+      ({ dx, dy }) => {
+        const row = document.querySelector<HTMLElement>(".history-row")!;
+        row.setPointerCapture = () => {};
+        const target = row.querySelector(".history-open")!;
+        const send = (type: string, x: number, y: number) =>
+          target.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              pointerId: 7,
+              pointerType: "touch",
+              isPrimary: true,
+              button: 0,
+              clientX: x,
+              clientY: y,
+            }),
+          );
+        send("pointerdown", 250, 200);
+        send("pointermove", 250 + dx, 200 + dy);
+        // Implicit capture on the child is released when the row takes over.
+        send("lostpointercapture", 250 + dx, 200 + dy);
+        send("pointerup", 250 + dx, 200 + dy);
+        if (Math.abs(dx) > Math.abs(dy))
+          target.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, cancelable: true }),
+          );
+      },
+      { dx, dy },
+    );
   }
+  test("native touch keeps dragging across pointer capture transfer", async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(
+      browserName !== "chromium",
+      "Native touch injection uses CDP; capture regression also covered in WebKit below.",
+    );
+    await setup(page);
+    await plan(page);
+    await page.evaluate(() =>
+      localStorage.setItem("foldroute.historySwipeSeen.v1", "true"),
+    );
+    await page.reload();
+    await page.locator("#tab-history").tap();
+    const row = page.locator(".history-row").first();
+    await expect(row).toBeVisible();
+    let box!: { x: number; y: number; width: number; height: number };
+    await expect
+      .poll(async () => {
+        const bounds = await row.boundingBox();
+        if (bounds) box = bounds;
+        return bounds?.width ?? 0;
+      })
+      .toBeGreaterThan(100);
+    const client = await page.context().newCDPSession(page);
+    const x = box.x + box.width - 35,
+      y = box.y + box.height / 2;
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x, y }],
+    });
+    for (const distance of [15, 30, 50, 75, 95])
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: x - distance, y }],
+      });
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await expect(row).toHaveClass(/swipe-open/);
+    await expect(page.locator("#history-view")).toBeVisible();
+    await page.locator(".history-remove").tap();
+    await expect(page.locator(".history-row")).toHaveCount(0);
+    await client.detach();
+  });
   test("swipe reveals only; vertical scroll and short drag do not open or delete", async ({
     page,
   }) => {
@@ -3423,6 +3485,36 @@ test.describe("history touch gestures", () => {
     await expect(page.locator(".history-row")).toHaveCount(0);
     await page.locator("#history-undo-button").tap();
     await expect(page.locator(".history-row")).toHaveCount(1);
+  });
+  test("losing the row capture still cancels the gesture", async ({ page }) => {
+    await setup(page);
+    await plan(page);
+    await page.locator("#tab-history").tap();
+    await page
+      .locator(".history-row")
+      .first()
+      .evaluate((row) => {
+        row.setPointerCapture = () => {};
+        const child = row.querySelector(".history-open")!;
+        const event = (type: string, x: number) =>
+          new PointerEvent(type, {
+            bubbles: true,
+            pointerId: 9,
+            pointerType: "touch",
+            isPrimary: true,
+            button: 0,
+            clientX: x,
+            clientY: 100,
+          });
+        child.dispatchEvent(event("pointerdown", 250));
+        child.dispatchEvent(event("pointermove", 170));
+        row.dispatchEvent(event("lostpointercapture", 170));
+        row.dispatchEvent(event("pointerup", 170));
+      });
+    await expect(page.locator(".history-row")).not.toHaveClass(
+      /swipe-open|swipe-dragging/,
+    );
+    await expect(page.locator("#history-view")).toBeVisible();
   });
   test("first visit animates once and interruption cannot open the journey", async ({
     page,
@@ -3503,4 +3595,56 @@ test("history undo restores only the latest deletion and clearing invalidates it
   await page.locator("#tab-settings").click();
   await page.locator("#offline-enabled").uncheck();
   await expect(page.locator("#history-undo")).toBeHidden();
+});
+
+test("desktop history keeps long routes readable beside delete action", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1000, height: 852 });
+  await setup(page);
+  await plan(page);
+  await page.evaluate(async () => {
+    const path = "/src/offline.ts";
+    const { OfflineStore } = await import(path);
+    const store = new OfflineStore();
+    const snapshot = structuredClone((await store.read()).snapshot);
+    const origin =
+      "Daglfinger Straße 99a, München – Eingang am Fahrradparkplatz";
+    const destination = "Frankfurt (Main) Süd – Ausgang zur Schweizer Straße";
+    snapshot.request.origin.name = snapshot.journey.origin.name = origin;
+    snapshot.request.destination.name = snapshot.journey.destination.name =
+      destination;
+    await store.clear();
+    await store.save(snapshot, "long-route");
+  });
+  await page.reload();
+  await page.locator("#tab-history").click();
+  const row = page.locator('.history-row[data-history-id="long-route"]');
+  await expect(row).toBeVisible();
+  await row.hover();
+  await expect(row.locator(".history-remove")).toHaveCSS("opacity", "1");
+  expect(
+    await row.evaluate((element) => {
+      const button = element.querySelector(".history-open")!;
+      const content = button.getBoundingClientRect();
+      const action = element
+        .querySelector(".history-remove")!
+        .getBoundingClientRect();
+      return (
+        button.scrollWidth <= button.clientWidth &&
+        content.right + 12 <= action.left &&
+        action.width >= 44 &&
+        action.height >= 44
+      );
+    }),
+  ).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath("history-desktop-long-route.png"),
+  });
+  await row.locator(".history-remove").click();
+  await expect(row).toHaveCount(0);
+  await page.locator("#history-undo-button").click();
+  await expect(row.locator(".history-destination")).toContainText(
+    "Frankfurt (Main) Süd",
+  );
 });

@@ -18,6 +18,7 @@ export class HistorySwipe {
     offset: number;
     horizontal: boolean;
   };
+  private desktop = matchMedia("(hover: hover) and (pointer: fine)");
   private reduced = matchMedia("(prefers-reduced-motion: reduce)");
 
   constructor(private list: HTMLElement) {
@@ -31,10 +32,19 @@ export class HistorySwipe {
     list.addEventListener("pointerup", (event) => {
       if (this.drag?.pointer === event.pointerId) this.end();
     });
-    for (const type of ["pointercancel", "lostpointercapture"] as const)
-      list.addEventListener(type, (event) => {
-        if (this.drag?.pointer === event.pointerId) this.end(true);
-      });
+    list.addEventListener("pointercancel", (event) => {
+      if (this.drag?.pointer === event.pointerId) this.end(true);
+    });
+    list.addEventListener("lostpointercapture", (event) => {
+      // Touch starts with implicit capture on a child button. Transferring it
+      // to the row releases the child's capture and bubbles this event here.
+      // Only losing the row's own capture cancels an active drag.
+      if (
+        this.drag?.pointer === event.pointerId &&
+        event.target === this.drag.row
+      )
+        this.end(true);
+    });
     list.addEventListener(
       "click",
       (event) => {
@@ -95,6 +105,12 @@ export class HistorySwipe {
       }
     });
     this.reduced.addEventListener("change", () => this.cancelDemo());
+    this.desktop.addEventListener("change", () => {
+      this.interrupted = true;
+      this.cancelDemo();
+      this.end(true);
+      this.close();
+    });
   }
   private markSeen() {
     this.seen = true;
@@ -137,6 +153,7 @@ export class HistorySwipe {
       row.classList.toggle("swipe-open", row.dataset.historyId === this.opened);
     if (
       !this.active ||
+      this.desktop.matches ||
       this.interrupted ||
       document.hidden ||
       this.seen ||
@@ -194,6 +211,7 @@ export class HistorySwipe {
   }
   private down(event: PointerEvent) {
     if (
+      this.desktop.matches ||
       performance.now() < this.suppressClickUntil ||
       !event.isPrimary ||
       event.pointerType === "mouse" ||

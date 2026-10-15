@@ -675,7 +675,12 @@ function historyUI() {
     timestamp.id = `history-time-${entry.id}`;
     open.setAttribute("aria-describedby", timestamp.id);
     open.append(timestamp);
-    const remove = node("button", "Löschen", "history-remove");
+    const remove = node("button", "", "history-remove");
+    remove.append(
+      icon("trash"),
+      node("span", "Löschen", "history-remove-label"),
+    );
+    remove.title = "Fahrt löschen";
     remove.type = "button";
     remove.setAttribute("aria-label", `Fahrt löschen: ${description}`);
     remove.onclick = () => void deleteHistoryEntry(entry.id);

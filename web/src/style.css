@@ -1228,9 +1228,57 @@ dialog.compact .dialog-actions {
 .history-row.swipe-dragging .history-open {
   transition: none;
 }
+.history-remove > .icon {
+  display: none;
+}
 @media (hover: hover) and (pointer: fine) {
-  .history-row:hover {
-    --swipe-offset: calc(-1 * var(--delete-width));
+  .history-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 12px;
+    align-items: center;
+  }
+  .history-row .history-open {
+    transform: none;
+    transition: none;
+  }
+  .history-remove {
+    position: static;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 10px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .history-remove > .icon {
+    display: block;
+    width: 20px;
+    height: 20px;
+  }
+  .history-remove-label {
+    display: none;
+  }
+  .history-row:hover .history-remove,
+  .history-row:focus-within .history-remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .history-remove:hover,
+  .history-remove:focus-visible {
+    background: #b42332;
+    color: white;
+  }
+}
+@media (hover: hover) and (pointer: fine) and (any-pointer: coarse) {
+  .history-remove {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 @media (prefers-reduced-motion: reduce) {

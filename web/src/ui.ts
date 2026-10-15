@@ -30,6 +30,7 @@ export const dateLabel = (seconds: number) =>
 export const localDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 const paths: Record<string, string> = {
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
   swap: '<path d="M8 20V4m-4 4 4-4 4 4M16 4v16m-4-4 4 4 4-4"/>',
   volume:
     '<path d="M11 4 6 8H3v8h3l5 4V4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
@@ -100,16 +101,21 @@ export const routeSymbolColor = (kind: LegKind, mode?: string) =>
       ? "#e1d7bd"
       : legColors[kind];
 
-
 export function historyPlannedAt(seconds: number, now = new Date()): string {
   const date = new Date(seconds * 1000);
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  const day = date.toDateString() === now.toDateString() ? "heute"
-    : date.toDateString() === yesterday.toDateString() ? "gestern"
-    : date.toLocaleDateString("de-DE", {
-      day: "numeric", month: "short",
-      ...(date.getFullYear() !== now.getFullYear() ? { year: "numeric" as const } : {}),
-    });
+  const day =
+    date.toDateString() === now.toDateString()
+      ? "heute"
+      : date.toDateString() === yesterday.toDateString()
+        ? "gestern"
+        : date.toLocaleDateString("de-DE", {
+            day: "numeric",
+            month: "short",
+            ...(date.getFullYear() !== now.getFullYear()
+              ? { year: "numeric" as const }
+              : {}),
+          });
   return `Geplant ${day}, ${clock(seconds)}`;
 }
