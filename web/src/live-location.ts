@@ -9,8 +9,30 @@ export interface LocationFix {
   speed?: number;
 }
 export type LocationQuality = "current" | "inaccurate" | "stale";
+export class LocationError extends Error {
+  constructor(
+    readonly reason:
+      "permission-denied" | "timeout" | "unavailable" | "unusable",
+    message: string,
+  ) {
+    super(message);
+    this.name = "LocationError";
+  }
+}
 const permissionDeniedMessage =
   "Standortzugriff blockiert. Öffne die Website-Einstellungen neben der Adressleiste und erlaube den Standortzugriff. Prüfe auch die Ortungsdienste in den Systemeinstellungen. Tippe danach auf „Standort erneut anfragen“.";
+const timeoutMessage =
+  "Standortabfrage dauert zu lange. Bitte erneut versuchen.";
+function positionError(code: number) {
+  return code === 1
+    ? new LocationError("permission-denied", permissionDeniedMessage)
+    : code === 3
+      ? new LocationError("timeout", timeoutMessage)
+      : new LocationError(
+          "unavailable",
+          "Standort konnte nicht aktualisiert werden. Bitte erneut versuchen.",
+        );
+}
 export const locationLabel = (quality: LocationQuality) =>
   quality === "stale"
     ? "Letzter Standort – nicht aktuell"
@@ -73,7 +95,7 @@ export class LiveLocation {
   private permission?: PermissionStatus;
   private sessionAllowed = false;
   private fix?: LocationFix;
-  private failed = false;
+  private failure?: LocationError;
   private timer?: ReturnType<typeof setInterval>;
   private pending?: {
     accurate: boolean;
@@ -82,7 +104,11 @@ export class LiveLocation {
     timer: ReturnType<typeof setTimeout>;
   };
   constructor(
-    private changed: (fix?: LocationFix, state?: LocationQuality) => void,
+    private changed: (
+      fix?: LocationFix,
+      state?: LocationQuality,
+      error?: LocationError,
+    ) => void,
   ) {
     window.addEventListener("foldroute-location", (event) => {
       this.accept((event as CustomEvent<GeolocationPosition>).detail);
@@ -128,9 +154,10 @@ export class LiveLocation {
         this.stop();
         this.sessionAllowed = false;
         this.fix = undefined;
-        this.changed();
-        if (permission.state === "denied")
-          this.fail(new Error(permissionDeniedMessage));
+        this.failure =
+          permission.state === "denied" ? positionError(1) : undefined;
+        this.publish();
+        if (this.failure) this.fail(this.failure);
         else this.cancelCenter();
       }
     };
@@ -146,7 +173,12 @@ export class LiveLocation {
     )
       return;
     if (!window.isSecureContext || !navigator.geolocation?.watchPosition) {
-      this.fail(new Error("Standort ist in diesem Browser nicht verfügbar."));
+      this.failure = new LocationError(
+        "unavailable",
+        "Standort ist in diesem Browser nicht verfügbar.",
+      );
+      this.publish();
+      this.fail(this.failure);
       return;
     }
     const generation = this.generation;
@@ -161,18 +193,10 @@ export class LiveLocation {
           this.stop();
           this.sessionAllowed = false;
           this.fix = undefined;
-          this.changed();
-        } else {
-          this.failed = true;
-          this.publish();
         }
-        this.fail(
-          new Error(
-            error.code === 1
-              ? permissionDeniedMessage
-              : "Standort konnte nicht aktualisiert werden. Bitte erneut versuchen.",
-          ),
-        );
+        this.failure = positionError(error.code);
+        this.publish();
+        this.fail(this.failure);
       },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 12000 },
     );
@@ -181,7 +205,7 @@ export class LiveLocation {
     const fix = readFix(position);
     if (!fix || (this.fix && fix.timestamp < this.fix.timestamp)) return;
     this.fix = fix;
-    this.failed = false;
+    this.failure = undefined;
     this.publish();
     if (
       this.active &&
@@ -198,7 +222,8 @@ export class LiveLocation {
   private publish() {
     this.changed(
       this.fix,
-      this.fix ? (this.failed ? "stale" : quality(this.fix)) : undefined,
+      this.fix ? (this.failure ? "stale" : quality(this.fix)) : undefined,
+      this.failure,
     );
   }
   private stop() {
@@ -229,7 +254,7 @@ export class LiveLocation {
     }
     if (
       this.fix &&
-      !this.failed &&
+      !this.failure &&
       quality(this.fix) !== "stale" &&
       (!accurate || quality(this.fix) === "current")
     ) {
@@ -242,12 +267,7 @@ export class LiveLocation {
         resolve,
         reject,
         timer: setTimeout(
-          () =>
-            this.fail(
-              new Error(
-                "Standortabfrage dauert zu lange. Bitte Standortzugriff im Browser und in den Systemeinstellungen erlauben und erneut versuchen.",
-              ),
-            ),
+          () => this.fail(new LocationError("timeout", timeoutMessage)),
           12000,
         ),
       };

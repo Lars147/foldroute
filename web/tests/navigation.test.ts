@@ -22,6 +22,7 @@ import {
   type Place,
 } from "../src/model";
 import { NavigationSession } from "../src/navigation-session";
+import { LocationError, type LocationFix } from "../src/live-location";
 import type { NavigationStore } from "../src/navigation-store";
 import { ApiClient } from "../src/transitous";
 import { clock } from "../src/ui";
@@ -335,9 +336,10 @@ function sessionHarness(
     save: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
   };
+  const locate = vi.fn(async (): Promise<LocationFix> => fix());
   const session = new NavigationSession({
     changed: vi.fn(),
-    locate: async () => fix(),
+    locate,
     routingSettings,
     storageEnabled: () => true,
     api: new ApiClient(),
@@ -345,7 +347,7 @@ function sessionHarness(
     plan,
     refresher: { refresh: async () => new Map() } as any,
   });
-  return { session, store, plan };
+  return { session, store, plan, locate };
 }
 const request = {
   origin: a,
@@ -518,6 +520,139 @@ it("pauses navigation on hide and requires a new fix when returning", async () =
   expect(session.fixQuality).toBe("current");
   await session.stop();
 });
+it("clears a location timeout on reliable GPS while preserving other messages during work", async () => {
+  const { session, locate } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  session.message = "Fahrtdaten konnten nicht aktualisiert werden.";
+  session.updateLocation(undefined);
+  locate.mockRejectedValueOnce(
+    new LocationError("timeout", "Standortabfrage dauert zu lange."),
+  );
+  await session.retryLocation();
+  expect(session.locationError?.reason).toBe("timeout");
+  expect(session.locating).toBe(false);
+  session.updateLocation(fix(a, 0, 500), "inaccurate");
+  expect(session.locationError?.reason).toBe("timeout");
+  session.updateLocation(fix(a, -61), "current");
+  expect(session.locationQuality).toBe("stale");
+  expect(session.locationError?.reason).toBe("timeout");
+  session.busy = true;
+  session.updateLocation(fix(), "current");
+  expect(session.locationError).toBeUndefined();
+  expect(session.message).toBe("Fahrtdaten konnten nicht aktualisiert werden.");
+  session.busy = false;
+  await session.stop();
+});
+it("keeps route messages after a successful explicit location retry", async () => {
+  const { session } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  session.updateLocation(undefined);
+  session.message = "Route konnte nicht berechnet werden.";
+  await session.retryLocation();
+  expect(session.hasCurrentLocation).toBe(true);
+  expect(session.locationError).toBeUndefined();
+  expect(session.message).toBe("Route konnte nicht berechnet werden.");
+  await session.stop();
+});
+it.each(["resolve", "reject"] as const)(
+  "ignores a location retry that %ss after a new navigation starts",
+  async (result) => {
+    const { session, locate } = sessionHarness();
+    await session.start(journey(), request, defaults);
+    session.updateLocation(undefined);
+    let resolve!: (fix: LocationFix) => void;
+    let reject!: (error: Error) => void;
+    locate.mockImplementationOnce(
+      () =>
+        new Promise((done, fail) => {
+          resolve = done;
+          reject = fail;
+        }),
+    );
+    const pending = session.retryLocation();
+    expect(session.locating).toBe(true);
+    await session.retryLocation();
+    expect(locate).toHaveBeenCalledTimes(2);
+    await session.stop();
+    await session.start(journey(), request, defaults);
+    const engine = session.engine;
+    session.message = "Neue Navigation";
+    if (result === "resolve") resolve(fix(b));
+    else reject(new LocationError("timeout", "Alter Timeout"));
+    await pending;
+    expect(session.engine).toBe(engine);
+    expect(session.fix).toEqual(fix());
+    expect(session.locationError).toBeUndefined();
+    expect(session.locating).toBe(false);
+    expect(session.message).toBe("Neue Navigation");
+    await session.stop();
+  },
+);
+it("does not accept a cached location from before a foreground gap", async () => {
+  const { session, locate } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  vi.setSystemTime((now + 10) * 1000);
+  session.setForeground(false);
+  session.setForeground(true);
+  locate.mockResolvedValueOnce(fix(a, 1));
+  await session.retryLocation();
+  expect(session.locationQuality).toBe("stale");
+  expect(session.locationError?.reason).toBe("unusable");
+  session.updateLocation(fix(a, 11), "current");
+  expect(session.locationError).toBeUndefined();
+  await session.stop();
+});
+it("does not present a cancelled location request as a failure", async () => {
+  const { session, locate } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  session.updateLocation(undefined);
+  locate.mockRejectedValueOnce(new DOMException("Abgebrochen", "AbortError"));
+  await session.retryLocation();
+  expect(session.locating).toBe(false);
+  expect(session.locationError).toBeUndefined();
+  await session.stop();
+});
+it("ignores an interrupted location retry after returning to the same navigation", async () => {
+  const { session, locate } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  session.updateLocation(undefined);
+  let reject!: (error: Error) => void;
+  locate.mockImplementationOnce(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail;
+      }),
+  );
+  const pending = session.retryLocation();
+  session.setForeground(false);
+  expect(session.locating).toBe(false);
+  session.setForeground(true);
+  session.updateLocation(fix(), "current");
+  reject(new LocationError("timeout", "Unterbrochene Anfrage"));
+  await pending;
+  expect(session.locationError).toBeUndefined();
+  expect(session.hasCurrentLocation).toBe(true);
+  await session.stop();
+});
+it("does not restore a timeout after GPS recovers before the request rejects", async () => {
+  const { session, locate } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  session.updateLocation(undefined);
+  let reject!: (error: Error) => void;
+  locate.mockImplementationOnce(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail;
+      }),
+  );
+  const pending = session.retryLocation();
+  session.updateLocation(fix(), "current");
+  reject(new LocationError("timeout", "Verspäteter Timeout"));
+  await pending;
+  expect(session.locationError).toBeUndefined();
+  expect(session.locating).toBe(false);
+  await session.stop();
+});
 it("rejoins the current street leg after a foreground gap without skipping other legs", () => {
   const long = {
     ...bike(),
@@ -603,7 +738,8 @@ it("refreshes an expired proposal after locating and requires confirmation again
   expect(session.engine).toBe(previous);
   expect(session.alternative).toBeUndefined();
   expect(session.alternativeNeedsLocation).toBe(true);
-  expect(session.message).toContain("Standort erneut anfragen");
+  expect(session.locationError?.reason).toBe("unusable");
+  expect(session.locationError?.message).toContain("Standort erneut anfragen");
   session.updateLocation(fix(a, 121), "current");
   await session.resumeAlternativeAfterLocation();
   expect(plan).toHaveBeenCalledTimes(2);

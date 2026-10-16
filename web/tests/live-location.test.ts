@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   LiveLocation,
+  LocationError,
   announceLocation,
   quality,
   readFix,
@@ -59,7 +60,11 @@ it("starts once for granted permission and ignores callbacks after pause", async
     timeout: 12000,
   });
   callbacks.get(1)!.success(position());
-  expect(changed).toHaveBeenLastCalledWith(readFix(position()), "current");
+  expect(changed).toHaveBeenLastCalledWith(
+    readFix(position()),
+    "current",
+    undefined,
+  );
   service.setActive(false);
   expect(clear).toHaveBeenCalledWith(1);
   changed.mockClear();
@@ -91,7 +96,11 @@ it("stops and removes the marker when permission is revoked", async () => {
   permission.state = "denied";
   permission.onchange!();
   expect(clear).toHaveBeenCalledWith(1);
-  expect(changed).toHaveBeenLastCalledWith();
+  expect(changed).toHaveBeenLastCalledWith(
+    undefined,
+    undefined,
+    expect.objectContaining({ reason: "permission-denied" }),
+  );
   changed.mockClear();
   callbacks.get(1)!.success(position());
   expect(changed).not.toHaveBeenCalled();
@@ -178,11 +187,43 @@ it("explicit requests time out without discarding the subscription", async () =>
   const service = new LiveLocation(vi.fn());
   service.setActive(true);
   await flush();
-  const rejected = expect(service.center()).rejects.toThrow("dauert zu lange");
+  const rejected = expect(service.center()).rejects.toMatchObject({
+    name: "LocationError",
+    reason: "timeout",
+    message: "Standortabfrage dauert zu lange. Bitte erneut versuchen.",
+  });
   await vi.advanceTimersByTimeAsync(12000);
   await rejected;
   expect(clear).not.toHaveBeenCalled();
 });
+
+it.each([
+  [1, "permission-denied"],
+  [2, "unavailable"],
+  [3, "timeout"],
+] as const)(
+  "reports provider error %s and recovers with GPS",
+  async (code, reason) => {
+    const changed = vi.fn(),
+      service = new LiveLocation(changed);
+    service.setActive(true);
+    await flush();
+    callbacks.get(1)!.success(position());
+    callbacks.get(1)!.error({ code } as GeolocationPositionError);
+    const error = changed.mock.lastCall?.[2];
+    expect(error).toBeInstanceOf(LocationError);
+    expect(error.reason).toBe(reason);
+    if (code !== 1) {
+      expect(error.message).not.toMatch(/Berechtigung|erlauben|Einstellungen/);
+      callbacks.get(1)!.success(position());
+      expect(changed).toHaveBeenLastCalledWith(
+        readFix(position()),
+        "current",
+        undefined,
+      );
+    }
+  },
+);
 
 it("requests permission again explicitly after denial and recovers after allowing", async () => {
   permission.state = "denied";
