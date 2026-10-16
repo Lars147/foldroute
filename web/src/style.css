@@ -242,10 +242,18 @@ input[type="search"]::-webkit-search-cancel-button {
     background-color: ButtonText;
   }
 }
-.search-box input {
+.search-box input[type="search"] {
   border: 0;
+  border-radius: 0;
   background: none;
-  padding: 14px 0;
+  padding: 12px 0;
+}
+.search-box:focus-within {
+  outline: 3px solid #537ee6;
+  outline-offset: 3px;
+}
+.search-box input:not(.search-focus-input):focus-visible {
+  outline: none;
 }
 .context-button {
   display: flex;
