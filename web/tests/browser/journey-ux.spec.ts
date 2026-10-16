@@ -119,9 +119,17 @@ for (const width of [320, 390, 1280]) {
     );
     await page.locator("#result-context").focus();
     await expect(page.locator("#result-context")).toBeFocused();
-    await expect(context).toHaveCSS("outline-style", "solid");
+    await expect(context).toHaveCSS("outline-style", "none");
+    await expect(page.locator("#result-context")).toHaveCSS(
+      "outline-style",
+      "none",
+    );
     await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
     await expect(page.locator("#adjust-route")).toBeFocused();
+    await expect(page.locator("#adjust-route")).toHaveCSS(
+      "outline-style",
+      "none",
+    );
     await page.locator("#adjust-route").blur();
     await page.screenshot({ path: info.outputPath("planning-context.png") });
 
