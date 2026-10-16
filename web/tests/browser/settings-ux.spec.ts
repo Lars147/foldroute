@@ -248,7 +248,7 @@ for (const installed of [false, true]) {
         "FoldRoute wurde installiert.",
       );
     }
-    const links = page.locator(".settings-help-links a");
+    const links = page.locator(".settings-help-links a, .settings-feedback");
     await expect(links).toHaveCount(5);
     for (const link of await links.all()) {
       expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(48);
