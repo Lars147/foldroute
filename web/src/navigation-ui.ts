@@ -31,6 +31,7 @@ export class NavigationView {
     this.root.innerHTML = `
       <div id="navigation-map" tabindex="0" aria-label="Navigationskarte in Fahrtrichtung"></div>
       <div class="navigation-top" id="navigation-top"><div id="navigation-phases" aria-label="Reiseabschnitte"></div></div>
+      <div id="navigation-gps-status" role="status" aria-live="polite" aria-atomic="true" hidden></div>
       <div class="navigation-map-controls" role="group" aria-label="Kartensteuerung">
         <button id="navigation-audio" class="navigation-icon-button secondary" type="button" aria-label="Ton ausschalten" title="Ton ausschalten"></button>
         <button id="navigation-center" class="navigation-center navigation-icon-button secondary" type="button" aria-label="Navigation zentrieren" title="Navigation zentrieren" aria-pressed="true"></button>
@@ -47,12 +48,12 @@ export class NavigationView {
         <div id="navigation-details">
         <div id="navigation-phases-slot"></div>
         <div class="navigation-arrival"><span id="navigation-stage"></span><strong id="navigation-arrival"></strong></div>
-        <p id="navigation-location-status" role="status"></p>
+        <div id="navigation-location" hidden><p id="navigation-location-status" role="status"></p><div class="navigation-actions"><button id="navigation-locate" class="secondary" hidden>Standort erneut anfragen</button></div></div>
         <p id="navigation-network-status"></p>
         <p id="navigation-transit-status"></p><p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
         <div id="navigation-alternative" hidden><p id="navigation-alternative-text"></p><button id="navigation-accept" class="primary">Verbindung übernehmen</button><button id="navigation-dismiss" class="secondary">Bisherige behalten</button></div>
         <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
-        <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-locate" class="secondary" hidden>Standort erneut anfragen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
+        <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
         </div>
       </article>
       <dialog id="navigation-confirm" aria-labelledby="navigation-confirm-title" aria-describedby="navigation-confirm-message"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary" type="button">Bestätigen</button><button id="navigation-confirm-no" class="secondary" type="button">Abbrechen</button></div></dialog>`;
@@ -178,11 +179,7 @@ export class NavigationView {
         : "navigation-detail-actions",
       true,
     );
-    for (const id of [
-      "navigation-retry",
-      "navigation-locate",
-      "navigation-replan",
-    ])
+    for (const id of ["navigation-retry", "navigation-replan"])
       move(
         id,
         mobile ? "navigation-quick-actions" : "navigation-detail-actions",
@@ -392,13 +389,29 @@ export class NavigationView {
     el("navigation-storage-status").textContent = session.storageMessage;
     el("navigation-disruption").textContent =
       session.disruption?.message ?? session.assessment?.message ?? "";
-    const invalidLocation = !session.fix || session.fixQuality !== "current";
-    el("navigation-location-status").textContent =
+    const invalidLocation = !session.hasCurrentLocation;
+    const gpsStatus = el("navigation-gps-status");
+    const gpsMessage =
+      engine && !arrived && invalidLocation
+        ? session.locationQuality === "inaccurate"
+          ? "GPS ungenau"
+          : "Kein GPS"
+        : "";
+    if (gpsStatus.textContent !== gpsMessage)
+      gpsStatus.textContent = gpsMessage;
+    gpsStatus.hidden = !gpsMessage;
+    const locationMessage =
       !engine || arrived
         ? ""
-        : invalidLocation
-          ? "Standort fehlt, ist ungenau oder veraltet. Automatischer Fortschritt pausiert."
-          : "";
+        : session.locating
+          ? "Standort wird gesucht …"
+          : (session.locationError?.message ??
+            (invalidLocation
+              ? `${!session.fix ? "Kein Standort verfügbar." : session.locationQuality === "inaccurate" ? "Standort zu ungenau." : "Letzter Standort nicht aktuell."} Automatischer Fortschritt pausiert.`
+              : ""));
+    const locationStatus = el("navigation-location-status");
+    if (locationStatus.textContent !== locationMessage)
+      locationStatus.textContent = locationMessage;
     el("navigation-network-status").textContent = navigator.onLine
       ? ""
       : "Offline · Streckenverlauf verfügbar. Neue Routen und Fahrtdaten benötigen Internet.";
@@ -418,14 +431,25 @@ export class NavigationView {
           ? "Ausgestiegen"
           : "Abschnitt fertig";
     const locationRetry = !engine && session.needsLocation;
-    el("navigation-retry").hidden = !session.retryAvailable || locationRetry;
+    el("navigation-retry").hidden =
+      !session.retryAvailable ||
+      locationRetry ||
+      (invalidLocation && !!session.locationError);
     el("navigation-replan").hidden = !session.distantStart;
     el("navigation-locate").hidden =
       arrived === true ||
       (engine
-        ? !invalidLocation && !session.alternativeNeedsLocation
+        ? !invalidLocation &&
+          !session.alternativeNeedsLocation &&
+          !session.locating
         : !locationRetry || !session.retryAvailable);
-    el<HTMLButtonElement>("navigation-locate").disabled = session.busy;
+    el<HTMLButtonElement>("navigation-locate").disabled =
+      session.busy || session.locating;
+    el("navigation-locate").textContent = session.locating
+      ? "Standort wird gesucht …"
+      : "Standort erneut anfragen";
+    el("navigation-location").hidden =
+      !locationMessage && el("navigation-locate").hidden;
     el("navigation-end").textContent = arrived
       ? "Fahrt abschließen"
       : "Navigation beenden";
@@ -474,9 +498,6 @@ export class NavigationView {
       el("navigation-arrival").textContent += target;
     }
     const notices = [
-      engine && !arrived && invalidLocation
-        ? "Standort ungenau oder veraltet · Fortschritt pausiert"
-        : "",
       session.disruption?.message ?? session.assessment?.message ?? "",
       !navigator.onLine ? "Offline · Neue Routen benötigen Internet" : "",
       session.resumeNeedsConfirmation
@@ -552,6 +573,6 @@ export class NavigationView {
       if (session.disruption)
         this.guidance.speak(session.disruption.id, session.disruption.message);
     }
-    this.map?.update(engine, session.fix, session.fixQuality);
+    this.map?.update(engine, session.fix, session.locationQuality);
   }
 }

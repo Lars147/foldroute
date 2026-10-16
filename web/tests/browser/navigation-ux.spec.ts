@@ -137,7 +137,7 @@ for (const mobile of [false, true])
     await expect(page.locator("#navigation-alternative")).toBeVisible();
     await page.clock.runFor(121000);
     await page.locator("#navigation-accept").click();
-    await expect(page.locator("#navigation-status")).toContainText(
+    await expect(page.locator("#navigation-location-status")).toContainText(
       "Standort erneut anfragen",
     );
     await expect(page.locator("#navigation-alternative")).toBeHidden();
@@ -290,6 +290,7 @@ async function setup(
   await page.clock.install({ time: new Date(now * 1000) });
   await page.addInitScript(() => {
     const watchers = new Map<number, PositionCallback>();
+    const errors = new Map<number, PositionErrorCallback>();
     let id = 0;
     let coords = {
       latitude: 48,
@@ -300,8 +301,13 @@ async function setup(
     };
     const probe = {
       started: 0,
+      silent: false,
       spoken: [] as string[],
       cancelled: 0,
+      fail(code: number) {
+        for (const error of errors.values())
+          error({ code } as GeolocationPositionError);
+      },
       push(latitude: number, longitude: number, heading = 90, accuracy = 10) {
         coords = { ...coords, latitude, longitude, heading, accuracy };
         for (const success of watchers.values())
@@ -323,22 +329,24 @@ async function setup(
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: {
-        watchPosition(success: PositionCallback) {
+        watchPosition(success: PositionCallback, error: PositionErrorCallback) {
           const key = ++id;
           watchers.set(key, success);
+          errors.set(key, error);
           probe.started++;
-          setTimeout(
-            () =>
-              success({ coords, timestamp: Date.now() } as GeolocationPosition),
-            0,
-          );
+          setTimeout(() => {
+            if (!probe.silent)
+              success({ coords, timestamp: Date.now() } as GeolocationPosition);
+          }, 0);
           return key;
         },
         clearWatch(key: number) {
           watchers.delete(key);
+          errors.delete(key);
         },
         getCurrentPosition(success: PositionCallback) {
-          success({ coords, timestamp: Date.now() } as GeolocationPosition);
+          if (!probe.silent)
+            success({ coords, timestamp: Date.now() } as GeolocationPosition);
         },
       },
     });
@@ -554,21 +562,160 @@ for (const [width, height] of [
     await page.locator("#navigation-details-toggle").click();
     await expect(page.locator("#navigation-details")).toBeHidden();
     await page.evaluate(() => (window as any).navProbe.push(48, 11, 90, 500));
-    await expect(page.locator("#navigation-alert-summary")).toContainText(
-      "Standort ungenau",
+    await expect(page.locator("#navigation-gps-status")).toHaveText(
+      "GPS ungenau",
     );
+    await expect(page.locator("#navigation-alert")).toBeHidden();
     await expectMobileCredit(page);
     await page.screenshot({
-      path: test.info().outputPath("warning-credits.png"),
+      path: test.info().outputPath("gps-status-credits.png"),
     });
     await expect(page.locator("#navigation-details")).toBeHidden();
-    await page.locator("#navigation-alert-open").click();
+    await page.locator("#navigation-details-toggle").click();
     await expect(page.locator("#navigation-location-status")).toBeVisible();
     await expectMobileCredit(page);
     await page.screenshot({
       path: test.info().outputPath("expanded-credits.png"),
     });
   });
+
+for (const colorScheme of ["light", "dark"] as const)
+  for (const [width, height] of [
+    [320, 640],
+    [390, 844],
+    [844, 390],
+    [1280, 900],
+  ])
+    test(`GPS status stays compact and clears on recovery (${width}x${height}, ${colorScheme})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await page.emulateMedia({ colorScheme });
+      await setup(page);
+      const status = page.locator("#navigation-gps-status");
+      await expect(status).toBeHidden();
+      await page.evaluate(() => (window as any).navProbe.push(48, 11, 90, 500));
+      await expect(status).toHaveText("GPS ungenau");
+      await expect(status).toBeVisible();
+      await expect(status).toHaveAttribute("aria-live", "polite");
+      await expect(page.locator("#navigation-alert")).toBeHidden();
+      if (width < 900) {
+        await expect(page.locator("#navigation-details")).toBeHidden();
+        await expect(page.locator("#navigation-locate")).toBeHidden();
+      }
+      const bounds = await page.evaluate(() => {
+        const status = document
+          .getElementById("navigation-gps-status")!
+          .getBoundingClientRect();
+        const header = document
+          .getElementById("navigation-top")!
+          .getBoundingClientRect();
+        const controls = document
+          .querySelector(".navigation-map-controls")!
+          .getBoundingClientRect();
+        const panel = document
+          .getElementById("navigation-panel")!
+          .getBoundingClientRect();
+        return {
+          center: status.x + status.width / 2,
+          gap: status.top - header.bottom,
+          height: status.height,
+          panelGap: panel.top - status.bottom,
+          overlapsControls:
+            status.left < controls.right &&
+            status.right > controls.left &&
+            status.top < controls.bottom &&
+            status.bottom > controls.top,
+          overflow: document.documentElement.scrollWidth > innerWidth,
+        };
+      });
+      expect(bounds.center).toBeCloseTo(width / 2, 0);
+      expect(bounds.gap).toBeGreaterThanOrEqual(7);
+      expect(bounds.height).toBeLessThanOrEqual(34);
+      expect(bounds.panelGap).toBeGreaterThan(0);
+      expect(bounds.overlapsControls).toBe(false);
+      expect(bounds.overflow).toBe(false);
+      await page.evaluate(() => {
+        (window as any).gpsAnnouncements = 0;
+        new MutationObserver((records) => {
+          (window as any).gpsAnnouncements += records.length;
+        }).observe(document.getElementById("navigation-gps-status")!, {
+          childList: true,
+          characterData: true,
+          subtree: true,
+        });
+      });
+      await page.clock.runFor(7000);
+      await expect(status).toBeVisible();
+      expect(await page.evaluate(() => (window as any).gpsAnnouncements)).toBe(
+        0,
+      );
+      if (width === 390)
+        await page.screenshot({
+          path: test.info().outputPath(`gps-status-${colorScheme}.png`),
+        });
+      await page.evaluate(() => (window as any).navProbe.fail(2));
+      await expect(status).toHaveText("Kein GPS");
+      if (width < 900) await page.locator("#navigation-details-toggle").click();
+      await expect(page.locator("#navigation-location-status")).toContainText(
+        "nicht aktualisiert",
+      );
+      await expect(page.locator("#navigation-locate")).toBeVisible();
+      await page.evaluate(() => (window as any).navProbe.push(48, 11));
+      await expect(status).toBeHidden();
+      await expect(page.locator("#navigation-location-status")).toBeEmpty();
+      await expect(page.locator("#navigation-location")).toBeHidden();
+      await expect(page.locator("#navigation-alert")).toBeHidden();
+    });
+
+test("a location timeout stays in details and clears when the watch recovers", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.evaluate(() => {
+    (window as any).navProbe.silent = true;
+    (window as any).navProbe.fail(2);
+  });
+  await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
+  await page.locator("#navigation-details-toggle").click();
+  await page.locator("#navigation-locate").click();
+  await expect(page.locator("#navigation-locate")).toBeDisabled();
+  await page.clock.runFor(12100);
+  await expect(page.locator("#navigation-location-status")).toHaveText(
+    "Standortabfrage dauert zu lange. Bitte erneut versuchen.",
+  );
+  await expect(page.locator("#navigation-locate")).toBeEnabled();
+  await expect(page.locator("#navigation-alert")).toBeHidden();
+  await page.locator("#navigation-details-toggle").click();
+  await expect(page.locator("#navigation-gps-status")).toBeVisible();
+  await expect(page.locator("#navigation-locate")).toBeHidden();
+  await page.evaluate(() => (window as any).navProbe.push(48, 11));
+  await expect(page.locator("#navigation-gps-status")).toBeHidden();
+  await page.locator("#navigation-details-toggle").click();
+  await expect(page.locator("#navigation-location-status")).toBeEmpty();
+});
+
+test("denied permission explains recovery only in location details", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.evaluate(() => (window as any).navProbe.fail(1));
+  await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
+  await expect(page.locator("#navigation-alert")).toBeHidden();
+  await page.locator("#navigation-details-toggle").click();
+  await expect(page.locator("#navigation-location-status")).toContainText(
+    "Standortzugriff blockiert",
+  );
+  await expect(page.locator("#navigation-location-status")).toContainText(
+    "Website-Einstellungen",
+  );
+  await page.locator("#navigation-locate").click();
+  await page.clock.runFor(10);
+  await expect(page.locator("#navigation-gps-status")).toBeHidden();
+  await expect(page.locator("#navigation-location-status")).toBeEmpty();
+});
 
 test("mobile details resize without recentering a manually moved map and keep stop actions visible", async ({
   page,

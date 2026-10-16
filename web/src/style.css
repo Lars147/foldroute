@@ -2502,6 +2502,27 @@ body[data-navigation="active"] .app-tabs {
 .navigation-icon-button[aria-pressed="true"] {
   color: var(--accent);
 }
+#navigation-gps-status {
+  position: absolute;
+  top: calc(var(--navigation-header-bottom, 72px) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 144px);
+  padding: 6px 12px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: 0 2px 8px #0002;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#navigation-location .navigation-actions {
+  margin-top: 8px;
+}
 .navigation-panel {
   position: absolute;
   bottom: max(28px, env(safe-area-inset-bottom));

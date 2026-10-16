@@ -216,9 +216,9 @@ let navigationStart:
       restored?: NavigationSnapshot;
     }
   | undefined;
-const liveLocation = new LiveLocation((fix, quality) => {
+const liveLocation = new LiveLocation((fix, quality, error) => {
   routeMap.updateLocation(fix, quality);
-  navigation?.updateLocation(fix, quality);
+  navigation?.updateLocation(fix, quality, error);
   if (navigation && !navigationView?.visible) renderNavigationCheck();
 });
 const historyAddressApi = new ApiClient();
@@ -384,27 +384,7 @@ el("navigation-locate").onclick = async () => {
     await launchNavigation();
     return;
   }
-  const engine = navigation!.engine;
-  const generation = navigationLaunchGeneration;
-  try {
-    await liveLocation.center(true);
-    if (
-      generation !== navigationLaunchGeneration ||
-      navigation!.engine !== engine
-    )
-      return;
-    navigation!.message = "";
-    await navigation!.resumeAlternativeAfterLocation();
-    navigationView!.render();
-  } catch (error) {
-    if (
-      generation !== navigationLaunchGeneration ||
-      navigation!.engine !== engine
-    )
-      return;
-    navigation!.message = errorText(error);
-    navigationView!.render();
-  }
+  await navigation!.retryLocation();
 };
 function navigationContextKey() {
   return JSON.stringify([

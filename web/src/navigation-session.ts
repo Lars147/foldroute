@@ -10,6 +10,7 @@ import {
 import { distance } from "./geometry";
 import {
   fixPlace,
+  LocationError,
   quality,
   type LocationFix,
   type LocationQuality,
@@ -102,6 +103,8 @@ export class NavigationSession {
   fixQuality?: LocationQuality;
   busy = false;
   message = "";
+  locationError?: LocationError;
+  locating = false;
   storageMessage = "";
   disruption?: Disruption;
   alternative?: NavigationAlternative;
@@ -113,6 +116,7 @@ export class NavigationSession {
   assessment?: ConnectionAssessment;
   routeChanged = false;
   private requiredFixAfter = 0;
+  private locationGeneration = 0;
   private generation = 0;
   private controller?: AbortController;
   private transitController?: AbortController;
@@ -183,16 +187,20 @@ export class NavigationSession {
       );
     return { journey: selected, settings };
   }
+  get locationQuality() {
+    if (!this.fix) return;
+    return this.fixQuality === "current" ? quality(this.fix) : this.fixQuality;
+  }
+  get hasCurrentLocation() {
+    return this.locationQuality === "current";
+  }
   private usableFix(): LocationFix {
-    if (
-      !this.fix ||
-      this.fixQuality !== "current" ||
-      quality(this.fix) !== "current"
-    )
-      throw new Error(
+    if (!this.hasCurrentLocation)
+      throw new LocationError(
+        "unusable",
         "Kein aktueller, genauer Standort. Standort erneut anfragen.",
       );
-    return this.fix;
+    return this.fix!;
   }
   private remainingStops(afterCurrent = false) {
     const engine = this.engine!;
@@ -221,6 +229,9 @@ export class NavigationSession {
     };
   }
   private abortTasks() {
+    this.locationGeneration++;
+    this.locating = false;
+    this.locationError = undefined;
     this.pendingAlternativeLocation = undefined;
     this.generation++;
     this.controller?.abort();
@@ -282,8 +293,7 @@ export class NavigationSession {
       validateNavigationGeometry(journey);
       const locationHint = setTimeout(() => {
         if (signal.aborted) return;
-        this.message =
-          "Warte auf einen genauen Standort … Bitte Standortzugriff im Browser und in den Systemeinstellungen erlauben.";
+        this.message = "Warte auf einen genauen Standort …";
         this.emit();
       }, 3000);
       let fix: LocationFix;
@@ -294,7 +304,8 @@ export class NavigationSession {
       }
       signal.throwIfAborted();
       if (quality(fix) !== "current")
-        throw new Error(
+        throw new LocationError(
+          "unusable",
           "Standort ist zu ungenau oder veraltet. Bitte erneut versuchen.",
         );
       this.fix = fix;
@@ -421,7 +432,8 @@ export class NavigationSession {
     if (prepared.generation !== this.generation) return false;
     if (!this.fix || quality(this.fix) !== "current") {
       this.needsLocation = true;
-      throw new Error(
+      throw new LocationError(
+        "unusable",
         "Standort ist zu ungenau oder veraltet. Bitte erneut versuchen.",
       );
     }
@@ -461,6 +473,8 @@ export class NavigationSession {
     settings = this.settings!,
   ) {
     validateNavigationGeometry(journey);
+    this.locationGeneration++;
+    this.locating = false;
     if (this.engine) this.routeChanged = true;
     this.settings = structuredClone(settings);
     this.engine = new NavigationEngine(navigationJourney(journey), progress);
@@ -482,10 +496,17 @@ export class NavigationSession {
     this.timer = setInterval(() => this.tick(), 1000);
     this.persist();
   }
-  updateLocation(fix?: LocationFix, state?: LocationQuality) {
+  updateLocation(
+    fix?: LocationFix,
+    state?: LocationQuality,
+    error?: LocationError,
+  ) {
     if (fix && fix.timestamp < this.requiredFixAfter) state = "stale";
+    if (fix && state === "current") state = quality(fix);
     this.fix = fix;
     this.fixQuality = state;
+    if (this.hasCurrentLocation) this.locationError = undefined;
+    else if (error) this.locationError = error;
     if (!this.engine || !this.foreground) return;
     if (this.busy) {
       this.emit();
@@ -502,6 +523,51 @@ export class NavigationSession {
     this.discardChangedAlternative();
     this.persist();
     this.emit();
+  }
+  async retryLocation() {
+    const engine = this.engine;
+    if (
+      !engine ||
+      !this.foreground ||
+      this.locating ||
+      this.busy ||
+      engine.phase === "arrived"
+    )
+      return;
+    const generation = this.generation,
+      request = ++this.locationGeneration;
+    const current = () =>
+      generation === this.generation &&
+      request === this.locationGeneration &&
+      this.engine === engine &&
+      this.foreground;
+    this.locating = true;
+    this.locationError = undefined;
+    this.emit();
+    let located = false;
+    try {
+      const fix = await this.deps.locate();
+      if (!current()) return;
+      this.updateLocation(fix, "current");
+      this.usableFix();
+      located = true;
+    } catch (error) {
+      if (
+        current() &&
+        !this.hasCurrentLocation &&
+        !(error instanceof DOMException && error.name === "AbortError")
+      )
+        this.locationError =
+          error instanceof LocationError
+            ? error
+            : new LocationError("unavailable", errorText(error));
+    } finally {
+      if (current()) {
+        this.locating = false;
+        this.emit();
+      }
+    }
+    if (located && current()) await this.resumeAlternativeAfterLocation();
   }
   private discardChangedAlternative() {
     if (
@@ -523,6 +589,8 @@ export class NavigationSession {
     if (value === this.foreground) return;
     this.foreground = value;
     if (!value) {
+      this.locationGeneration++;
+      this.locating = false;
       this.persist(true);
       this.requiredFixAfter = Date.now();
       this.fixQuality = "stale";
@@ -663,7 +731,11 @@ export class NavigationSession {
         this.retryAvailable = true;
       }
       if (!controller.signal.aborted && this.engine === engine) {
-        this.message = `${errorText(error)} Bisherige Route bleibt erhalten.`;
+        if (error instanceof LocationError) {
+          this.locationError = error;
+          this.message = "";
+        } else
+          this.message = `${errorText(error)} Bisherige Route bleibt erhalten.`;
         this.retryAvailable = true;
       }
     } finally {
