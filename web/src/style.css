@@ -2572,12 +2572,6 @@ body[data-navigation="active"] .app-tabs {
   color: var(--panel-text);
   border-color: var(--panel-line);
 }
-.navigation-panel small {
-  display: block;
-  margin-top: 12px;
-  color: var(--panel-muted);
-  font-size: 11px;
-}
 #navigation-location-status,
 #navigation-network-status,
 #navigation-disruption {
