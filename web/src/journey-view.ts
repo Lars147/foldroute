@@ -1,4 +1,7 @@
-import { renderJourneyDetails } from "./journey-detail";
+import {
+  renderJourneyDetails,
+  type JourneyPresentation,
+} from "./journey-detail";
 import {
   type Journey,
   bikeDistance,
@@ -43,7 +46,10 @@ export class JourneyView {
   };
   private readonly desktop = matchMedia("(min-width: 900px)");
   private readonly detailPanel = el("panel-details");
-  constructor(private select: (id: string) => void) {
+  constructor(
+    private select: (id: string) => void,
+    private readonly presentation: JourneyPresentation = "live",
+  ) {
     el("panel-map-toggle").onclick = () => this.requestScreen("map");
     el("result-back").onclick = () => {
       if (this.onBack) this.onBack();
@@ -145,6 +151,9 @@ export class JourneyView {
   get screen() {
     return this.navigation.screen;
   }
+  private get example() {
+    return this.presentation === "example";
+  }
   get mapVisible() {
     return this.desktop.matches || this.screen === "map";
   }
@@ -219,15 +228,17 @@ export class JourneyView {
     this.detailPanel.hidden = !this.displayedID || (mobile && !detail);
     this.detailPanel.inert = this.detailPanel.hidden;
     el("result-back").hidden = !mobile || this.screen === "list";
-    el("result-back").textContent = map
-      ? this.savedOrigin
-        ? "‹ Strecken"
-        : "‹ Alle Verbindungen"
-      : this.savedOrigin === "history"
-        ? "‹ Strecken"
-        : this.savedOrigin === "search"
-          ? "‹ Zur Suche"
-          : "‹ Alle Verbindungen";
+    el("result-back").textContent = this.example
+      ? "‹ Beispielroute"
+      : map
+        ? this.savedOrigin
+          ? "‹ Strecken"
+          : "‹ Alle Verbindungen"
+        : this.savedOrigin === "history"
+          ? "‹ Strecken"
+          : this.savedOrigin === "search"
+            ? "‹ Zur Suche"
+            : "‹ Alle Verbindungen";
     const mapToggle = el<HTMLButtonElement>("panel-map-toggle");
     const mapToggleParent = el(
       mobile && this.screen === "list"
@@ -257,7 +268,26 @@ export class JourneyView {
       if (map) replanParent.insertBefore(replan, el("map-open-details"));
       else replanParent.append(replan);
     }
-    el("map-open-details").className = this.restored ? "secondary" : "primary";
+    el("map-open-details").className =
+      this.restored || this.example ? "secondary" : "primary";
+    if (this.example) {
+      const ownRoute = el("example-plan-own");
+      const actions = document.querySelector<HTMLElement>(".panel-actions")!;
+      actions.hidden = map;
+      const parent = map ? el("map-preview") : actions;
+      if (ownRoute.parentElement !== parent)
+        parent.insertBefore(ownRoute, map ? el("map-open-details") : null);
+      ownRoute.hidden = false;
+      for (const id of [
+        "adjust-route",
+        "route-more",
+        "map-location",
+        "navigation-start",
+        "route-start-summary",
+      ])
+        el(id).hidden = true;
+      el<HTMLButtonElement>("navigation-start").disabled = true;
+    }
     const mapError = el("map-error");
     const errorParent = map ? el("map-preview") : el("panel-content");
     if (mapError.parentElement !== errorParent)
@@ -266,7 +296,7 @@ export class JourneyView {
         map ? el("map-open-details") : this.detailPanel,
       );
     el("result-context").hidden = detail || map;
-    el("result-freshness").hidden = false;
+    el("result-freshness").hidden = this.example;
     el("close-route").hidden = mobile && this.screen !== "list";
     for (const element of [
       el("map"),
@@ -304,15 +334,21 @@ export class JourneyView {
         : (request?.origin.name ?? "Start");
     el("route-origin").textContent = originName;
     el("route-destination").textContent = request?.destination.name ?? "Ziel";
-    el("route-request-meta").textContent = request
-      ? `${request.timing === "now" ? "Abfahrt jetzt" : `${request.timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`}${request.stops?.length ? ` · ${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}` : ""}`
-      : "Route bearbeiten";
+    el("route-request-meta").textContent = this.example
+      ? "Beispielroute"
+      : request
+        ? `${request.timing === "now" ? "Abfahrt jetzt" : `${request.timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`}${request.stops?.length ? ` · ${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}` : ""}`
+        : "Route bearbeiten";
     const selected = state.selected;
-    el("route-start-duration").textContent = selected
-      ? duration(selected.arrival - selected.departure)
-      : "";
+    el("route-start-duration").textContent = this.example
+      ? "Gesamtdauer"
+      : selected
+        ? duration(selected.arrival - selected.departure)
+        : "";
     el("route-start-arrival").textContent = selected
-      ? `${journeyEndpointTime(selected, "arrival")} an`
+      ? this.example
+        ? duration(selected.arrival - selected.departure)
+        : `${journeyEndpointTime(selected, "arrival")} an`
       : "";
     cyclingLimit = state.resultSettings?.maxCyclingMinutes ?? cyclingLimit;
     el("status").textContent = state.message;
@@ -322,7 +358,7 @@ export class JourneyView {
       ? "Erneut versuchen"
       : "Aktualisieren";
     el("refresh-route").hidden =
-      state.busy || !!state.recovery || state.restored;
+      this.example || state.busy || !!state.recovery || state.restored;
     el<HTMLButtonElement>("refresh-route").disabled =
       !state.request || !navigator.onLine;
     el<HTMLButtonElement>("adjust-route").disabled =
@@ -336,9 +372,10 @@ export class JourneyView {
     el("result-context").textContent = state.request
       ? `${originName} → ${state.request.destination.name}`
       : "Verbindungen";
-    el("result-stand").textContent = state.queriedAt
-      ? `${state.restored ? "Gespeichert" : "Stand"}: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}`
-      : "";
+    el("result-stand").textContent =
+      !this.example && state.queriedAt
+        ? `${state.restored ? "Gespeichert" : "Stand"}: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}`
+        : "";
     const mapStatus = el("map-preview-status");
     mapStatus.textContent = state.recovery
       ? state.message
@@ -381,7 +418,7 @@ export class JourneyView {
     el("cycling-comparison").hidden =
       !j || cyclingExcess(j, cyclingLimit) === 0;
     const delay =
-      j && !state.busy && !state.restored && !state.staleReason
+      j && !this.example && !state.busy && !state.restored && !state.staleReason
         ? lateDepartureDelay(j, state.request)
         : undefined;
     el("late-departure").hidden = delay === undefined;
@@ -389,8 +426,9 @@ export class JourneyView {
       delay === undefined
         ? ""
         : `Start erst ${clock(j!.departure)} – ${duration(delay)} nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.`;
-    const recommendation =
-      state.request?.timing === "arrive"
+    const recommendation = this.example
+      ? "Beispielroute"
+      : state.request?.timing === "arrive"
         ? "Späteste Abfahrt"
         : "Früheste Ankunft";
     const recommended = state.journeys
@@ -447,7 +485,9 @@ export class JourneyView {
       button.setAttribute("aria-pressed", String(journey.id === j?.id));
       button.setAttribute(
         "aria-label",
-        `${comparison ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: Ankunft ${dateLabel(journey.arrival)} ${clock(journey.arrival)}, Abfahrt ${dateLabel(journey.departure)} ${clock(journey.departure)}, Gesamtdauer ${duration(journey.arrival - journey.departure)}, ${effortText}. ${outline}`,
+        this.example
+          ? `Beispielroute: Gesamtdauer ${duration(journey.arrival - journey.departure)}, ${effortText}. ${outline}`
+          : `${comparison ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: Ankunft ${dateLabel(journey.arrival)} ${clock(journey.arrival)}, Abfahrt ${dateLabel(journey.departure)} ${clock(journey.departure)}, Gesamtdauer ${duration(journey.arrival - journey.departure)}, ${effortText}. ${outline}`,
       );
       button.onclick = () => {
         this.savePosition();
@@ -458,7 +498,9 @@ export class JourneyView {
       details.dataset.detailJourney = journey.id;
       details.setAttribute(
         "aria-label",
-        `Details: Abfahrt ${clock(journey.departure)}, Ankunft ${clock(journey.arrival)}`,
+        this.example
+          ? "Details zur Beispielroute"
+          : `Details: Abfahrt ${clock(journey.departure)}, Ankunft ${clock(journey.arrival)}`,
       );
       details.disabled = journey.id !== j?.id;
       details.inert = details.disabled;
@@ -474,7 +516,9 @@ export class JourneyView {
     });
     if (j) {
       this.details(j, state.restored);
-      const summary = `${journeyTimeRange(j)} · ${duration(j.arrival - j.departure)}`;
+      const summary = this.example
+        ? `${duration(j.arrival - j.departure)} gesamt`
+        : `${journeyTimeRange(j)} · ${duration(j.arrival - j.departure)}`;
       el("journey-heading").textContent = summary;
       const effort = journeyEffort(j);
       el("journey-effort").textContent =
@@ -518,7 +562,9 @@ export class JourneyView {
     const heading = node("span", "", "route-choice-time");
     const arrival = node(
       "strong",
-      `${journeyEndpointTime(journey, "arrival")} an`,
+      this.example
+        ? `${duration(journey.arrival - journey.departure)} gesamt`
+        : `${journeyEndpointTime(journey, "arrival")} an`,
       "route-choice-arrival",
     );
     const schedule = node(
@@ -530,7 +576,9 @@ export class JourneyView {
       arrival.style.setProperty("--stage-color", routeSymbolColor("bike"));
       arrival.prepend(icon("bike"), node("span", " · ", "visually-hidden"));
     }
-    heading.append(arrival, node("span", " · ", "visually-hidden"), schedule);
+    if (this.example) heading.append(arrival);
+    else
+      heading.append(arrival, node("span", " · ", "visually-hidden"), schedule);
     const effort = journeyEffort(journey);
     const accessible = node(
       "span",
@@ -611,7 +659,7 @@ export class JourneyView {
   }
 
   private details(j: Journey, restored: boolean) {
-    const list = renderJourneyDetails(j, restored);
+    const list = renderJourneyDetails(j, restored, this.presentation);
     el("journey-detail").replaceChildren(
       node(
         "p",

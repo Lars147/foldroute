@@ -17,10 +17,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-Dfb28wxr.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BkOqIjqg.css">
+    <script type="module" crossorigin src="./assets/index-C3gHyLXs.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CTmVc1F-.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
-  <body data-view="search">
+  <body data-view="search" data-starting>
     <a class="skip" href="#main">Zum Inhalt</a>
     <header class="app-header">
       <a class="brand" href="../" aria-label="FoldRoute Projekt"
@@ -34,7 +34,7 @@
     </header>
     <span id="connection" role="status" hidden>Offline</span>
     <noscript><p>Für die Routenplanung wird JavaScript benötigt.</p></noscript>
-    <main id="main">
+    <main id="main" inert>
       <dialog
         id="navigation-resume-dialog"
         aria-labelledby="navigation-resume-title"
@@ -314,6 +314,9 @@
             >
               <span data-icon="location"></span>Los
             </button>
+            <a id="example-plan-own" class="primary example-plan-own" href="./" hidden>
+              Eigene Route planen
+            </a>
           </div>
         </article>
       </section>
@@ -461,7 +464,7 @@
         </details>
       </section>
     </main>
-    <nav class="app-tabs" aria-label="Hauptbereiche">
+    <nav class="app-tabs" aria-label="Hauptbereiche" inert>
       <button id="tab-route" aria-current="page">
         <span data-icon="map"></span>Route</button
       ><button id="tab-history"><span data-icon="wait"></span>Strecken</button

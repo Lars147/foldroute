@@ -22,7 +22,11 @@ Der Build ersetzt ausschließlich `docs/plan/`. Landingpage und deren Assets ble
 
 ## Gesamte Website lokal ansehen
 
-Die Landingpage liegt in `docs/index.html` und benötigt selbst keinen Build. Logo, HTML, CSS und JavaScript liegen lokal; die Karten und klickbaren Reiseabschnitte sind Illustrationen. Für echte Planung führt der Link zu `plan/`.
+Die Landingpage liegt in `docs/index.html` und benötigt selbst keinen Build. Logo, HTML, CSS, JavaScript und Vorschaubild liegen lokal. Die Karten sind Illustrationen; die Webplaner-Vorschau zeigt die echte Oberfläche mit Beispieldaten. Für echte Planung führt der Link zu `plan/`.
+
+„Beispiel öffnen“ führt zu `plan/?example=bike-transfer`. Dieser getrennte Einstieg lädt eine feste, interaktive Verbindung mit S8, Radfahrt zwischen Unterföhring und Freimann und U6 nach Fröttmaning. Karte und Etappendetails verwenden dieselben Ansichten wie der normale Planer. Die Beispielansicht zeigt ausschließlich Dauern, fragt weder Routing noch Standort ab und liest oder verändert keine persönlichen Einstellungen, Strecken oder Navigationsstände. „Eigene Route planen“ öffnet den normalen Planer ohne vorbelegte Route.
+
+Die vollständige Aufzeichnung liegt in `src/data/bike-transfer.json`: am 16.10.2026 über Transitous mit den damaligen Standardeinstellungen für Abfahrt am 19.10.2026 um 08:00 Uhr in München geprüft. Die ausgewählte Verbindung dauert 57 Minuten; die Radetappe zwischen Unterföhring und Freimann ist rund 3,8 km lang und dauert 17 Minuten. Das JSON enthält Herkunft, Abfrage, Einstellungen, alle Etappen und ihre Geometrien; flüchtige Echtzeit- und Fahrtkennungen wurden entfernt. Eine Aktualisierung erfolgt bewusst durch Ersetzen dieser Aufzeichnung nach erneuter Prüfung. Die Beispieladresse führt keine neue Suche aus und verspricht keine aktuelle oder schnellste Verbindung. Die Straßenkarte nutzt wie sonst OpenStreetMap; ohne Kacheln bleiben Verlauf und Etappen verfügbar.
 
 Aus dem Repository-Hauptverzeichnis den Webplaner bauen und anschließend die Website ausliefern:
 
@@ -38,6 +42,14 @@ python3 -m http.server 4174 --bind 127.0.0.1 --directory docs
 - Gebauter Webplaner: [http://127.0.0.1:4174/plan/](http://127.0.0.1:4174/plan/)
 
 Bei reinem Landingpage-Text- oder CSS-Ändern genügt Neuladen. Änderungen am Webquellcode erfordern für diese Vorschau einen neuen Build. Der Entwicklungsserver auf Port 4173 liefert dagegen direkt den Planer unter `/` mit automatischer Aktualisierung.
+
+Die Landingpage zeigt unterhalb des Vergleichs einen Screenshot der echten mobilen Verbindungsliste mit Beispieldaten. Zum Erneuern zuerst den Web-Entwicklungsserver starten und in einem zweiten Terminal unter `web/` ausführen:
+
+```sh
+node scripts/capture-landing-preview.mjs
+```
+
+Das Skript benötigt Playwright Chromium und ersetzt `docs/assets/webplaner-vorschau.png`. Es verwendet die vorhandenen Routing-Testdaten, eine feste Uhrzeit und einen leeren Browserkontext mit heller Farbschema-Präferenz bei 390 × 844 px und doppelter Pixeldichte. Routinganfragen werden abgefangen, Kartenabrufe blockiert. Eine andere lokale Planer-Adresse kann als Argument übergeben werden.
 
 ## Tests
 

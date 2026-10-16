@@ -4,28 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#FFD43B">
-  <meta name="description" content="Plane Wege mit Klapprad, Bus und Bahn – auch mit Radetappen zwischen zwei Linien und passenden Faltzeiten. Direkt im Browser ausprobieren. iPhone-App in Entwicklung.">
-  <meta property="og:title" content="FoldRoute – Dein Routenplaner für Klapprad und ÖPNV.">
-  <meta property="og:description" content="Plane Wege mit Klapprad, Bus und Bahn – auch mit Radetappen zwischen zwei Linien und passenden Faltzeiten. Direkt im Browser ausprobieren. iPhone-App in Entwicklung.">
+  <meta name="description" content="FoldRoute kombiniert Klapprad, Bus und Bahn – mit Radetappen zum Bahnhof, zwischen Linien und bis ans Ziel. Plane deine Route direkt im Browser.">
+  <meta property="og:title" content="FoldRoute – ÖPNV kann mehr. Mit deinem Klapprad.">
+  <meta property="og:description" content="FoldRoute kombiniert Klapprad, Bus und Bahn – mit Radetappen zum Bahnhof, zwischen Linien und bis ans Ziel. Plane deine Route direkt im Browser.">
   <meta property="og:type" content="website">
-  <title>FoldRoute – Dein Routenplaner für Klapprad und ÖPNV.</title>
+  <title>FoldRoute – ÖPNV kann mehr. Mit deinem Klapprad.</title>
   <link rel="icon" href="assets/foldroute-mark.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261016-2">
   <script src="script.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Zum Inhalt</a>
   <header class="header wrap">
     <a class="brand" href="#" aria-label="FoldRoute Startseite"><span class="brand-icon"><img src="assets/foldroute-mark.svg" alt="" width="42" height="42"></span>FoldRoute</a>
-    <nav aria-label="Hauptnavigation"><a href="#idee">Die Idee</a><a href="#reise">iPhone-Prototyp</a><a class="nav-cta" href="plan/">Route planen</a></nav>
+    <nav aria-label="Hauptnavigation"><a href="#idee">Die Idee</a><a href="#reise">Webplaner</a><a class="nav-cta" href="plan/">Route planen</a></nav>
   </header>
   <main id="main">
     <section class="hero wrap" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <h1 id="hero-title">Dein<br>Routenplaner<br>für Klapprad<br>und ÖPNV.</h1>
-        <p class="intro">Mit dem Rad zum Bahnhof, nach dem Aussteigen weiter – oder zwischen zwei Linien abkürzen. FoldRoute kombiniert Rad, Bus und Bahn und rechnet deine Faltzeiten mit ein.</p>
-        <a class="button primary" href="plan/">Route online planen</a>
-        <div class="hero-availability"><p><strong>Jetzt: Webplaner</strong> direkt im Browser – auch als App auf dem Home-Bildschirm. <a href="plan/hilfe.html#installation">So installierst du ihn.</a></p><p><strong>In Entwicklung: iPhone-App</strong> mit Navigation, Sprache und Haptik.</p></div>
+        <h1 id="hero-title">ÖPNV kann mehr.<br>Mit deinem Klapprad.</h1>
+        <p class="intro">FoldRoute kombiniert Rad, Bus und Bahn – mit Radetappen zum Bahnhof, zwischen Linien und bis ans Ziel.</p>
+        <a class="button primary" href="plan/">Route planen</a>
+        <div class="hero-availability"><p>Ohne Konto. Direkt im Browser.</p></div>
       </div>
       <div class="route-art" role="img" aria-label="Schematische Reise mit Klapprad und ÖPNV: mit dem Rad zum Bahnhof, Rad falten, mit der Bahn weiterfahren, entfalten und mit dem Rad ans Ziel. Keine echte Routenkarte.">
         <div class="map-scene">
@@ -45,38 +45,35 @@
                 <path class="bike-path" d="M 240 230 H 190 Q 180 230 180 240 V 330"/>
               </g>
             </g>
-            <g class="district-labels"><text x="100" y="54">Wohnviertel</text><text x="30" y="240">Stadtpark</text><text x="340" y="318">Zentrum</text><text x="459" y="275" transform="rotate(-65 459 275)">Fluss</text></g>
             <g class="diagram-pin"><circle class="" cx="85.497" cy="164.724" r="13"/><circle class="fold-pin" cx="339.321" cy="144.759" r="13"/><circle class="fold-pin" cx="257.134" cy="230.609" r="13"/><circle class="end-pin" cx="242.995" cy="346.368" r="13"/></g>
             <g class="pin-symbols">
-              <text x="85.497" y="164.724" fill="white">●</text>
+              <circle cx="85.497" cy="164.724" r="4" fill="white"/>
               <g transform="translate(339.321 144.759)" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M-7-7-2-2M-6-2H-2V-6M7 7 2 2M6 2H2V6"/>
               </g>
               <g transform="translate(257.134 230.609)" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M-2-2-7-7M-7-3V-7H-3M2 2 7 7M3 7H7V3"/>
               </g>
-              <text x="242.995" y="346.368" fill="white">✓</text>
+              <path d="m237 346 4 5 8-10" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
             </g>
-            <g class="stop-labels"><text x="64" y="136">Los geht’s.</text><text x="315" y="126" text-anchor="end">Falten &amp;</text><text x="315" y="146" text-anchor="end">einsteigen.</text><text x="257" y="203" text-anchor="middle">Entfalten.</text><text x="268" y="352">Du bist da.</text></g>
+            <g class="stop-labels"><text x="64" y="132">Start</text><text x="315" y="112" text-anchor="end">Falten</text><text x="257" y="199" text-anchor="middle">Entfalten</text><text x="268" y="352">Ziel</text></g>
           </svg>
         </div>
-        <div class="ticket"><span class="ticket-top">Eine Reise. Alle Wege.</span><div class="ticket-modes"><span>Rad</span><i></i><span>Falten</span><i></i><span>Bahn</span><i></i><span>Entfalten</span><i></i><span>Rad</span></div><div class="ticket-bottom"><span>Deine Wege, neu verbunden.</span><img src="assets/foldroute-mark.svg" width="38" height="38" alt=""></div></div>
+        <div class="ticket"><span class="ticket-top">Eine Reise. Alle Wege.</span><div class="ticket-modes"><span>Rad</span><i></i><span>ÖPNV</span><i></i><span>Rad</span></div></div>
         <span class="map-caption">Schematische Darstellung</span>
       </div>
     </section>
     <div class="mode-strip" aria-hidden="true"><div class="wrap"><span>Radeln.</span><span class="fold-word">Falten.</span><span>Weiterfahren.</span></div></div>
     <section class="comparison wrap" id="idee" aria-labelledby="comparison-heading">
-      <div class="comparison-heading"><h2 id="comparison-heading">Mit dem Faltrad<br>Zeit gewinnen.</h2><p>FoldRoute plant dein Faltrad als Teil der Verbindung ein – auch für den Wechsel zwischen Bus- und Bahnlinien. Eine kurze Radetappe kann Umwege verkürzen; deine Falt- und Entfaltzeiten zählen dabei mit.</p></div>
+      <div class="comparison-heading"><h2 id="comparison-heading">Dein Klapprad<br>verbindet die Linien.</h2><p>Radetappen zwischen Linien eröffnen neue Verbindungen und können Umwege verkürzen.</p></div>
       <div class="comparison-panel">
-        <p class="comparison-context">Gleicher Start. Gleiches Ziel. Anders geplant.</p>
-        <p class="comparison-note">Schematisches Beispiel, keine berechnete Verbindung. Ob du Zeit sparst, hängt von Strecke, Fahrplan und deinen eingestellten Faltzeiten ab.</p>
         <div class="comparison-controls" role="group" aria-label="Planungsvarianten vergleichen" hidden>
           <button type="button" data-comparison="classic" aria-controls="comparison-classic" aria-pressed="false">Ohne Radetappe</button>
           <button type="button" data-comparison="foldroute" aria-controls="comparison-foldroute" aria-pressed="true">Mit Faltrad</button>
         </div>
         <div class="comparison-columns">
           <article class="comparison-option" id="comparison-classic">
-            <h3>ÖPNV-Planung ohne Radetappe</h3>
+            <h3>Ohne Radetappe</h3>
             <svg class="comparison-map" viewBox="0 0 500 400" role="img" aria-labelledby="comparison-classic-title"><title id="comparison-classic-title">Beispiel einer ÖPNV-Planung ohne Radetappe: vom Start mit der Bahn zum gemeinsamen Umsteigepunkt fahren und auf einer anderen Linie zum Ziel weiterfahren.</title>
               <rect width="500" height="400" rx="16" fill="#eef0eb"/>
               <g class="comparison-city" aria-hidden="true">
@@ -96,21 +93,19 @@
                   <path d="M0 244H500M256 0V244"/>
                 </g>
                 <path class="comparison-city-park" d="M22 263Q62 245 94 266L120 322Q109 355 64 366L19 348Z"/>
-                <g class="comparison-district-labels"><text x="267" y="40" text-anchor="middle">Nordviertel</text><text x="429" y="314" text-anchor="middle">Ostviertel</text><text x="75" y="306" text-anchor="middle">Stadtpark</text><text x="226" y="374" text-anchor="middle">Südviertel</text></g>
+
               </g>
               <g class="comparison-rails" fill="none" stroke-linecap="round"><path d="M50 60 250 220 450 60M35 220H460M110 365 250 220 390 365"/></g>
               <g class="comparison-network-stations"><circle cx="150" cy="140" r="5"/><circle cx="140" cy="220" r="5"/><circle cx="180" cy="292.5" r="5"/><circle cx="320" cy="292.5" r="5"/><circle cx="350" cy="140" r="5"/><circle cx="370" cy="220" r="5"/></g>
               <path class="comparison-transit" d="M430 76 250 220H440" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
               <g class="comparison-stations"><circle cx="350" cy="140" r="6"/><circle cx="370" cy="220" r="6"/><circle cx="250" cy="220" r="13"/></g><circle cx="250" cy="220" r="5" fill="#7667e8"/>
               <g class="comparison-endpoints"><circle cx="430" cy="76" r="10"/><circle cx="440" cy="220" r="10"/></g>
-              <g class="comparison-map-labels"><text x="430" y="46" text-anchor="middle">Start</text><text x="440" y="256" text-anchor="middle">Ziel</text><text x="250" y="282" text-anchor="middle">Umstieg</text></g>
+              <g class="comparison-map-labels"><text x="430" y="46" text-anchor="middle">Start</text><text x="440" y="256" text-anchor="middle">Ziel</text><text x="250" y="295" text-anchor="middle">Umstieg</text></g>
             </svg>
-            <div class="comparison-caption"><span class="comparison-mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="3" width="14" height="15" rx="4"/><path d="M5 11h14M12 3v8m-4 7-3 3m11-3 3 3M9 21h6"/><path d="M8 14h1m6 0h1"/></svg></span><h4>Der Verbindung zum Umstieg folgen.</h4></div>
-            <p>Das Beispiel zeigt eine ÖPNV-Planung ohne Radetappe: Die Verbindung führt über einen gemeinsamen Umsteigepunkt. Eine Radetappe zwischen den Linien ist hier nicht eingeplant.</p>
-            <ol class="comparison-sequence" aria-label="Reiseabschnitt bei ÖPNV-Planung ohne Radetappe"><li>Bahn</li><li>Umsteigen</li><li>Bahn</li></ol>
+            <div class="comparison-caption"><span class="comparison-mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="3" width="14" height="15" rx="4"/><path d="M5 11h14M12 3v8m-4 7-3 3m11-3 3 3M9 21h6"/><path d="M8 14h1m6 0h1"/></svg></span><h4>Mit der Bahn zum Umstieg.</h4></div>
           </article>
           <article class="comparison-option" id="comparison-foldroute">
-            <h3>FoldRoute</h3>
+            <h3>Mit Faltrad</h3>
             <svg class="comparison-map" viewBox="0 0 500 400" role="img" aria-labelledby="comparison-foldroute-title"><title id="comparison-foldroute-title">Dasselbe Netz mit FoldRoute: vom gleichen Start mit der Bahn fahren, früher aussteigen und entfalten, per Rad zur nächsten Linie wechseln, falten und mit der Bahn zum gleichen Ziel fahren. Die Radetappe verkürzt den Weg zwischen den Linien.</title>
               <rect width="500" height="400" rx="16" fill="#eef0eb"/>
               <g class="comparison-city" aria-hidden="true">
@@ -130,7 +125,7 @@
                   <path d="M0 244H500M256 0V244"/>
                 </g>
                 <path class="comparison-city-park" d="M22 263Q62 245 94 266L120 322Q109 355 64 366L19 348Z"/>
-                <g class="comparison-district-labels"><text x="267" y="40" text-anchor="middle">Nordviertel</text><text x="429" y="314" text-anchor="middle">Ostviertel</text><text x="75" y="306" text-anchor="middle">Stadtpark</text><text x="226" y="374" text-anchor="middle">Südviertel</text></g>
+
               </g>
               <g class="comparison-rails" fill="none" stroke-linecap="round"><path d="M50 60 250 220 450 60M35 220H460M110 365 250 220 390 365"/></g>
               <g class="comparison-network-stations"><circle cx="150" cy="140" r="5"/><circle cx="140" cy="220" r="5"/><circle cx="180" cy="292.5" r="5"/><circle cx="320" cy="292.5" r="5"/><circle cx="350" cy="140" r="5"/><circle cx="370" cy="220" r="5"/></g>
@@ -139,122 +134,56 @@
               <g class="comparison-folds"><g transform="translate(350 140)"><circle class="comparison-fold-disc" r="16"/><svg x="-11" y="-11" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 9-6-6m0 6V3h6m6 12 6 6m-6 0h6v-6"/></svg></g><g transform="translate(370 220)"><circle class="comparison-fold-disc" r="16"/><svg x="-11" y="-11" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 3 6 6M3 9h6V3m12 18-6-6m6 0h-6v6"/></svg></g></g>
               <g class="comparison-map-labels comparison-fold-labels"><text x="330" y="115" text-anchor="end">Entfalten</text><text x="358" y="252" text-anchor="end">Falten</text></g>
               <g class="comparison-endpoints"><circle cx="430" cy="76" r="10"/><circle cx="440" cy="220" r="10"/></g>
-              <g class="comparison-map-labels"><text x="430" y="46" text-anchor="middle">Start</text><text x="440" y="256" text-anchor="middle">Ziel</text><text x="250" y="282" text-anchor="middle">Umstieg</text></g>
+              <g class="comparison-map-labels"><text x="430" y="46" text-anchor="middle">Start</text><text x="440" y="256" text-anchor="middle">Ziel</text></g>
             </svg>
-            <div class="comparison-caption"><span class="comparison-mode-icon" aria-hidden="true"><svg viewBox="130 230 760 620" fill="none" stroke="currentColor" stroke-width="42" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="280" cy="690" r="125"/><circle cx="740" cy="690" r="125"/><path d="M280 690 430 615 520 545 685 550M430 615 395 505 520 545M395 505 380 300M685 550 650 300H735M685 550 740 690M322 285H448"/><path d="m520 503 42 42-42 42-42-42Z" fill="currentColor" stroke="none"/></svg></span><h4>Mit dem Faltrad den Weg verkürzen.</h4></div>
-            <p>Früher aussteigen, eine kurze Strecke radeln und auf der nächsten Linie weiterfahren. Das kann Reisezeit sparen – wenn Radetappe und Faltzeiten zusammen günstiger sind als der ÖPNV-Umweg.</p>
-            <ol class="comparison-sequence" aria-label="Reiseabschnitt mit FoldRoute"><li>Bahn</li><li class="fold-phase">Entfalten</li><li>Rad</li><li class="fold-phase">Falten</li><li>Bahn</li></ol>
+            <div class="comparison-caption"><span class="comparison-mode-icon" aria-hidden="true"><svg viewBox="130 230 760 620" fill="none" stroke="currentColor" stroke-width="42" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="280" cy="690" r="125"/><circle cx="740" cy="690" r="125"/><path d="M280 690 430 615 520 545 685 550M430 615 395 505 520 545M395 505 380 300M685 550 650 300H735M685 550 740 690M322 285H448"/><path d="m520 503 42 42-42 42-42-42Z" fill="currentColor" stroke="none"/></svg></span><h4>Mit dem Rad zur nächsten Linie.</h4></div>
           </article>
         </div>
-        <ul class="comparison-legend" aria-label="Kartenlegende"><li><span class="legend-line legend-transit" aria-hidden="true"></span>Bahn</li><li><span class="legend-line legend-cycle" aria-hidden="true"></span>Rad</li><li><span class="legend-fold" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 9-6-6m0 6V3h6m6 12 6 6m-6 0h6v-6"/></svg></span>Entfalten</li><li><span class="legend-fold" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 3 6 6M3 9h6V3m12 18-6-6m6 0h-6v6"/></svg></span>Falten</li></ul>
-      </div>
-    </section>
-    <section class="journey-section" id="reise" aria-labelledby="journey-heading">
-      <div class="wrap">
-        <div class="section-heading"><div><p class="section-kicker">Navigation im iPhone-Prototyp</p><h2 id="journey-heading">Jeder Wechsel.<br>Schon mitgedacht.</h2></div><p>Der iPhone-Prototyp ist in Entwicklung.<br>Wähle einen Abschnitt für einen Einblick.</p></div>
-        <div class="journey-layout">
-          <div class="journey-stage">
-            <button class="step" id="journey-step-0" type="button" data-step="0" aria-expanded="true" aria-controls="guidance-0" disabled><span class="step-icon bike" aria-hidden="true"><svg viewBox="130 230 760 620" fill="none" stroke="currentColor" stroke-width="42" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="280" cy="690" r="125"/><circle cx="740" cy="690" r="125"/><path d="M280 690 430 615 520 545 685 550M430 615 395 505 520 545M395 505 380 300M685 550 650 300H735M685 550 740 690M322 285H448"/><path d="m520 503 42 42-42 42-42-42Z" fill="currentColor" stroke="none"/></svg></span><span><strong>Mit dem Rad los</strong><small>Die erste Etappe gehört dir.</small></span></button>
-            <div class="guidance" id="guidance-0" role="region" aria-labelledby="journey-step-0">
-              <div class="guidance-top">Einblick in den iPhone-Prototyp</div>
-              <div class="guidance-symbol bike-tone" aria-hidden="true"><svg viewBox="130 230 760 620" fill="none" stroke="currentColor" stroke-width="42" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="280" cy="690" r="125"/><circle cx="740" cy="690" r="125"/><path d="M280 690 430 615 520 545 685 550M430 615 395 505 520 545M395 505 380 300M685 550 650 300H735M685 550 740 690M322 285H448"/><path d="m520 503 42 42-42 42-42-42Z" fill="currentColor" stroke="none"/></svg></div>
-              <h3>Aufsteigen.<br>Orientierung inklusive.</h3>
-              <p>Karte, Abbiegehinweise, Sprache und Haptik begleiten deine Radetappe. Bei wiederholter Abweichung wird die Route neu geplant.</p>
-              <div class="guidance-foot"><span class="live-dot" aria-hidden="true"></span><span>Navigation bis zum nächsten Wechsel</span></div>
-            </div>
-          </div>
-          <div class="journey-stage">
-            <button class="step" id="journey-step-1" type="button" data-step="1" aria-expanded="true" aria-controls="guidance-1" disabled><span class="step-icon fold" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 3 6 6M3 9h6V3m12 18-6-6m6 0h-6v6"/></svg></span><span><strong>Falten & einsteigen</strong><small>Mit Zeit für den kleinen Handgriff.</small></span></button>
-            <div class="guidance" id="guidance-1" role="region" aria-labelledby="journey-step-1">
-              <div class="guidance-top">Einblick in den iPhone-Prototyp</div>
-              <div class="guidance-symbol fold-tone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 3 6 6M3 9h6V3m12 18-6-6m6 0h-6v6"/></svg></div>
-              <h3>Kleiner Handgriff.<br>Fest eingeplant.</h3>
-              <p>Dein Rad braucht einen Moment. FoldRoute berücksichtigt deine eingestellte Faltzeit und den Fußweg zur Bahn. Du legst fest, wie viel Zeit du zum Falten brauchst.</p>
-              <div class="guidance-foot"><span class="live-dot" aria-hidden="true"></span><span>Faltzeit individuell einstellbar</span></div>
-            </div>
-          </div>
-          <div class="journey-stage">
-            <button class="step" id="journey-step-2" type="button" data-step="2" aria-expanded="true" aria-controls="guidance-2" disabled><span class="step-icon transit" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="3" width="14" height="15" rx="4"/><path d="M5 11h14M12 3v8m-4 7-3 3m11-3 3 3M9 21h6"/><path d="M8 14h1m6 0h1"/></svg></span><span><strong>Mit der Bahn weiter</strong><small>Den Anschluss im Blick.</small></span></button>
-            <div class="guidance" id="guidance-2" role="region" aria-labelledby="journey-step-2">
-              <div class="guidance-top">Einblick in den iPhone-Prototyp</div>
-              <div class="guidance-symbol transit-tone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="3" width="14" height="15" rx="4"/><path d="M5 11h14M12 3v8m-4 7-3 3m11-3 3 3M9 21h6"/><path d="M8 14h1m6 0h1"/></svg></div>
-              <h3>Einsteigen.<br>Den Anschluss im Blick.</h3>
-              <p>Linie, Richtung und verfügbare Gleisinformationen begleiten deine ÖPNV-Etappe. Zeitwarnungen und lokale Erinnerungen helfen dir beim nächsten Wechsel.</p>
-              <div class="guidance-foot"><span class="live-dot" aria-hidden="true"></span><span>Verbindungsdaten von Transitous / MOTIS</span></div>
-            </div>
-          </div>
-          <div class="journey-stage">
-            <button class="step" id="journey-step-3" type="button" data-step="3" aria-expanded="true" aria-controls="guidance-3" disabled><span class="step-icon fold" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 9-6-6m0 6V3h6m6 12 6 6m-6 0h6v-6"/></svg></span><span><strong>Entfalten & ankommen</strong><small>Weiter bis zu deinem Ziel.</small></span></button>
-            <div class="guidance" id="guidance-3" role="region" aria-labelledby="journey-step-3">
-              <div class="guidance-top">Einblick in den iPhone-Prototyp</div>
-              <div class="guidance-symbol bike-tone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 9-6-6m0 6V3h6m6 12 6 6m-6 0h6v-6"/></svg></div>
-              <h3>Wieder aufs Rad.<br>Bis ganz ans Ziel.</h3>
-              <p>Nach der Bahn berücksichtigt FoldRoute deine eingestellte Entfaltzeit. Danach geht es auf der nächsten Etappe weiter – mit dem Rad oder zu Fuß bis zu deinem Ziel.</p>
-              <div class="guidance-foot"><span class="live-dot" aria-hidden="true"></span><span>Entfaltzeit individuell einstellbar</span></div>
-            </div>
-          </div>
+        <div class="comparison-footer">
+          <ul class="comparison-legend" aria-label="Kartenlegende"><li><span class="legend-line legend-transit" aria-hidden="true"></span>Bahn</li><li><span class="legend-line legend-cycle" aria-hidden="true"></span>Rad</li><li><span class="legend-fold" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 9-6-6m0 6V3h6m6 12 6 6m-6 0h6v-6"/></svg></span>Entfalten</li><li><span class="legend-fold" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m3 3 6 6M3 9h6V3m12 18-6-6m6 0h-6v6"/></svg></span>Falten</li></ul>
+          <a class="button primary" id="example-route" href="plan/?example=bike-transfer">Beispiel öffnen</a>
         </div>
       </div>
     </section>
-    <section class="features wrap" aria-label="Was FoldRoute ausmacht">
-      <article><span class="feature-symbol" aria-hidden="true"><svg aria-hidden="true" focusable="false"
-  xmlns="http://www.w3.org/2000/svg"
-  width="32"
-  height="32"
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
-  stroke-width="1.5"
-  stroke-linecap="round"
-  stroke-linejoin="round"
->
-  <circle cx="12" cy="12" r="10" />
-  <path d="M12 6v6l4 2" />
-</svg></span><h3>Faltzeit ist Reisezeit.</h3><p>Du bestimmst, wie viel Zeit du zum Falten und Entfalten brauchst. FoldRoute berücksichtigt deine Einstellungen bei der Reiseplanung.</p></article>
-      <article><span class="feature-symbol" aria-hidden="true"><svg aria-hidden="true" focusable="false"
-  xmlns="http://www.w3.org/2000/svg"
-  width="32"
-  height="32"
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
-  stroke-width="1.5"
-  stroke-linecap="round"
-  stroke-linejoin="round"
->
-  <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" />
-  <path d="M16 9a5 5 0 0 1 0 6" />
-  <path d="M19.364 18.364a9 9 0 0 0 0-12.728" />
-</svg></span><h3>Weniger aufs Display.</h3><p>Im iPhone-Prototyp begleiten dich Sprachansagen, Haptik und Zeitwarnungen. Damit du deinen Weg im Blick behältst.</p></article>
-      <article><span class="feature-symbol" aria-hidden="true"><svg aria-hidden="true" focusable="false"
-  xmlns="http://www.w3.org/2000/svg"
-  width="32"
-  height="32"
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
-  stroke-width="1.5"
-  stroke-linecap="round"
-  stroke-linejoin="round"
->
-  <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
-  <path d="m9 12 2 2 4-4" />
-</svg></span><h3>Deine Wege bleiben deine.</h3><p>Kein Konto, keine Cloud-Synchronisation, keine gespeicherten GPS-Spuren. Einstellungen, Favoriten und letzte Orte bleiben lokal. Der Webplaner speichert standardmäßig bis zu 20 geplante Strecken auf deinem Gerät; du kannst diese Speicherung ausschalten.</p></article>
+    <section class="planner-section" id="reise" aria-labelledby="planner-heading">
+      <div class="planner-layout wrap">
+        <div class="planner-copy">
+          <h2 id="planner-heading">Deine nächste Route.<br>Direkt im Browser.</h2>
+          <ol class="planner-steps" role="list">
+            <li><h3>Ziel wählen.</h3><p>Lege Start, Ziel und Zeitpunkt fest.</p></li>
+            <li><h3>Verbindungen vergleichen.</h3><p>Finde deine passende Kombination aus Rad, Bus und Bahn.</p></li>
+            <li><h3>Losfahren.</h3><p>Mit Navigation und Sprachansagen – bei geöffneter App und eingeschaltetem Bildschirm.</p></li>
+          </ol>
+          <p class="planner-storage">Favoriten und gespeicherte Strecken bleiben auf deinem Gerät.</p>
+        </div>
+        <figure class="planner-preview">
+          <img src="assets/webplaner-vorschau.png" alt="Mobile Verbindungsliste im FoldRoute-Webplaner mit ausgewählter Route, Ankunft, Dauer und Rad- und ÖPNV-Etappen." width="780" height="1688" loading="lazy" decoding="async">
+        </figure>
+      </div>
     </section>
-    <section class="project wrap" id="projekt">
-      <div class="project-copy"><p class="project-status">Work in Progress</p><h2>Neue Wege.<br>Noch im Werden.</h2><p>Die iPhone-App von FoldRoute ist ein früher Prototyp für unterwegs mit Klapprad und ÖPNV. Sie wird aktiv entwickelt und getestet – Funktionen können sich ändern, Fehler auftreten.</p><p>Noch keine fertige App und noch nicht im App Store. Wer jetzt einsteigt, probiert einen Entwicklungsstand aus.</p><a class="button primary" href="https://github.com/Lars147/foldroute/blob/main/ios/README.md">Prototyp selbst bauen</a><p class="project-web-link"><a href="plan/">Jetzt im Webplaner eine Route planen</a></p></div>
-      <div class="project-details"><img src="assets/foldroute-mark.svg" alt="FoldRoute Klappradlogo" width="120" height="120"><dl><div><dt>iPhone-Prototyp</dt><dd>iOS 18+</dd></div><div><dt>Unterwegs mit</dt><dd>Klapprad &amp; ÖPNV</dd></div><div><dt>Gebaut mit</dt><dd>SwiftUI & MapKit</dd></div><div><dt>Routenplanung</dt><dd>Transitous / MOTIS</dd></div><div><dt>Lizenz</dt><dd>MIT</dd></div></dl></div>
+    <section class="project wrap" id="projekt" aria-labelledby="project-heading">
+      <div class="project-copy">
+        <h2 id="project-heading">Auch fürs iPhone.<br>Noch in Entwicklung.</h2>
+        <p>iPhone-Prototyp mit Navigation, Sprache und Haptik. Noch in Entwicklung und nicht im App Store.</p>
+      </div>
+      <a class="standalone-link" href="https://github.com/Lars147/foldroute/blob/main/ios/README.md">Prototyp selbst bauen</a>
     </section>
     <section class="faq wrap" id="selbst-bauen"><h2>Noch kurz vor<br>der Abfahrt.</h2><div class="questions">
-      <details open><summary>Wie kann ich FoldRoute ausprobieren?</summary><p>Öffne den <a href="plan/">Webplaner</a> und plane deine Route direkt im Browser – ohne Installation. Die iPhone-App ist noch in Entwicklung.</p></details>
-      <details><summary>Wie kann ich den iPhone-Prototyp selbst bauen?</summary><p>Du brauchst einen Mac mit Xcode 26 oder neuer. Lade den <a href="https://github.com/Lars147/foldroute/archive/refs/heads/main.zip">Quellcode als ZIP</a> herunter und entpacke ihn. Öffne darin <code>ios/FoldRoute.xcodeproj</code>, wähle ein iPhone oder einen Simulator und starte die App mit „Run“. Für dein eigenes iPhone brauchst du iOS 18 oder neuer und ein Apple-Entwicklerteam. Die <a href="https://github.com/Lars147/foldroute/blob/main/ios/README.md">vollständige Bauanleitung</a> erklärt auch die Gerätesignierung. Den Code findest du im <a href="https://github.com/Lars147/foldroute">GitHub-Repository</a>.</p></details>
-      <details><summary>Kann ich ohne App eine Route planen?</summary><p>Ja. Im <a href="plan/">Webplaner</a> vergleichst du Rad- und ÖPNV-Verbindungen mit deinen Faltzeiten und Einstellungen. Die PWA bietet Navigation bei geöffneter App mit Abbiegehinweisen, Karte in Fahrtrichtung, Sprachansagen und aktuellen ÖPNV-Daten. Haptik gehört zum iPhone-Prototyp. Den Webplaner kannst du <a href="plan/hilfe.html#installation">zum Home-Bildschirm hinzufügen</a> und bis zu 20 gespeicherte Strecken offline ansehen. Ihre Zeiten entsprechen der damaligen Abfrage. Neue Routen, Ortssuche, aktuelle Verbindungsdaten und Straßenkarten benötigen Internet. Eine direkte Übernahme der Webroute in die iPhone-App gibt es noch nicht.</p></details>
-      <details><summary>Wo kann ich FoldRoute nutzen?</summary><p>Gib Start und Ziel in deiner Region ein. Verbindungen und Echtzeitinformationen hängen von den verfügbaren <a href="https://transitous.org/sources/">Verkehrsdaten bei Transitous</a> ab und können sich regional unterscheiden. FoldRoute ist noch nicht flächendeckend erprobt.</p><p>Zum Ausprobieren: <a id="example-route" href="plan/?v=1&amp;from=48.150097%2C11.461955&amp;fromName=M%C3%BCnchen-Pasing&amp;to=48.128056%2C11.603646&amp;toName=M%C3%BCnchen+Ostbahnhof&amp;showCyclingComparison=true&amp;timing=now&amp;cyclingSpeedKilometersPerHour=15&amp;maxCyclingMinutes=30&amp;maxWalkingMinutes=2&amp;foldingDuration=180&amp;maxBikeTransfers=2&amp;excludedTransitModes=">Beispielroute München-Pasing → München Ostbahnhof öffnen</a>. Der Webplaner berechnet Verbindungen mit Abfahrt jetzt. Ergebnisse ändern sich mit dem Fahrplan; eine Zeitersparnis ist nicht garantiert.</p></details>
-      <details><summary>Ist das hier eine echte Routenplanung?</summary><p>Diese Landingpage stellt das Projekt vor. Ihre Karten und Reiseabschnitte sind Illustrationen. Im <a href="plan/">Webplaner</a> und im iPhone-Prototyp werden echte Routen ab deinem Standort oder einem gewählten Startpunkt berechnet.</p></details>
-      <details><summary>Welche Daten werden beim Planen übertragen?</summary><p>Der iPhone-Prototyp sendet Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen an Transitous. MapKit verarbeitet Ortssuchen. Einstellungen, Favoriten, letzte Orte und Fahrten bleiben lokal, ohne GPS-Spuren. Im Webplaner gehen Ortssuchen und dieselben Planungsangaben an Transitous; OpenStreetMap liefert die Kartenkacheln. Einstellungen, Favoriten und letzte Orte bleiben auf deinem Gerät. Standardmäßig speichert der Webplaner außerdem bis zu 20 unterschiedliche geplante Strecken mit Zwischenzielen, Streckenverlauf und damaligen Zeiten. Aktive Navigation speichert Abschnitt und Manöver zur bestätigten Wiederaufnahme. Fahrtkennungen werden für Live-Daten an Transitous übertragen; Neuberechnungen verwenden den aktuellen Standort. Browserstimmen können online arbeiten. Ausschalten von „Fahrten auf diesem Gerät speichern“ löscht den Fahrtenverlauf und die Wiederaufnahme; Orte und Einstellungen bleiben erhalten. Einzelne Fahrten lassen sich im Tab „Fahrten“ löschen. „Alle lokalen Daten löschen“ entfernt auch Einstellungen, Favoriten und letzte Orte. Der Browser kann lokale Daten ebenfalls entfernen. <a href="plan/hilfe.html#offline">Mehr zur Offline-Nutzung</a>. Landingpage und Webplaner verwenden keine Analyse-Tools und keine extern geladenen Schriften.</p></details>
+      <details><summary>Wie kann ich FoldRoute ausprobieren?</summary><p>Öffne den <a href="plan/">Webplaner</a> und wähle dein Ziel. Eine Installation ist nicht nötig.</p></details>
+      <details><summary>Wie wird mein Klapprad eingeplant?</summary><p>FoldRoute vergleicht Rad- und ÖPNV-Etappen für deine ganze Reise, auch zwischen zwei Linien. Radtempo, maximale Radzeit und die Zeit zum Falten und Entfalten stellst du selbst ein.</p></details>
+      <details><summary>Kann ich FoldRoute als App nutzen?</summary><p>Ja. Füge den Webplaner zum Home-Bildschirm hinzu. <a href="plan/hilfe.html#installation">So installierst du ihn.</a></p><p>Die native iPhone-App ist ein eigenes Projekt und noch in Entwicklung. Eine direkte Übernahme der Webroute in die iPhone-App gibt es noch nicht.</p></details>
+      <details><summary>Wie kann ich den iPhone-Prototyp selbst bauen?</summary><p>Du brauchst einen Mac mit Xcode 26 oder neuer.</p><p>Lade den <a href="https://github.com/Lars147/foldroute/archive/refs/heads/main.zip">Quellcode als ZIP</a> herunter und entpacke ihn. Öffne darin <code>ios/FoldRoute.xcodeproj</code>, wähle ein iPhone oder einen Simulator und starte die App mit „Run“.</p><p>Für dein eigenes iPhone brauchst du iOS 18 oder neuer und ein Apple-Entwicklerteam. Die <a href="https://github.com/Lars147/foldroute/blob/main/ios/README.md">vollständige Bauanleitung</a> erklärt auch die Gerätesignierung. Den Code findest du im <a href="https://github.com/Lars147/foldroute">GitHub-Repository</a>.</p></details>
+      <details><summary>Kann ich ohne App eine Route planen?</summary><p>Ja. Im <a href="plan/">Webplaner</a> vergleichst du Rad- und ÖPNV-Verbindungen mit deinen Faltzeiten und Einstellungen. Die PWA bietet Navigation bei geöffneter App mit Abbiegehinweisen, Karte in Fahrtrichtung, Sprachansagen und aktuellen ÖPNV-Daten. Haptik gehört zum iPhone-Prototyp.</p><p>Den Webplaner kannst du <a href="plan/hilfe.html#installation">zum Home-Bildschirm hinzufügen</a> und bis zu 20 gespeicherte Strecken offline ansehen. Ihre Zeiten entsprechen der damaligen Abfrage. Neue Routen, Ortssuche, aktuelle Verbindungsdaten und Straßenkarten benötigen Internet. </p></details>
+      <details><summary>Wo kann ich FoldRoute nutzen?</summary><p>Gib Start und Ziel in deiner Region ein. Verbindungen und Echtzeitinformationen hängen von den verfügbaren <a href="https://transitous.org/sources/">Verkehrsdaten bei Transitous</a> ab und können sich regional unterscheiden. FoldRoute ist noch nicht flächendeckend erprobt.</p></details>
+      <details><summary>Ist das hier eine echte Routenplanung?</summary><p>Diese Landingpage stellt das Projekt vor. Die Karten sind Illustrationen; die Webplaner-Vorschau zeigt die echte Oberfläche mit Beispieldaten. Im <a href="plan/">Webplaner</a> und im iPhone-Prototyp werden echte Routen ab deinem Standort oder einem gewählten Startpunkt berechnet.</p></details>
+      <details><summary>Welche Daten werden beim Planen übertragen?</summary><p>Der iPhone-Prototyp sendet Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen an Transitous. MapKit verarbeitet Ortssuchen. Einstellungen, Favoriten, letzte Orte und Fahrten bleiben lokal, ohne GPS-Spuren.</p><p>Im Webplaner gehen Ortssuchen und dieselben Planungsangaben an Transitous; OpenStreetMap liefert die Kartenkacheln. Einstellungen, Favoriten und letzte Orte bleiben auf deinem Gerät. Standardmäßig speichert der Webplaner außerdem bis zu 20 unterschiedliche geplante Strecken mit Zwischenzielen, Streckenverlauf und damaligen Zeiten. Aktive Navigation speichert Abschnitt und Manöver zur bestätigten Wiederaufnahme.</p><p>Fahrtkennungen werden für Live-Daten an Transitous übertragen; Neuberechnungen verwenden den aktuellen Standort. Browserstimmen können online arbeiten.</p><p>Ausschalten von „Fahrten auf diesem Gerät speichern“ löscht den Fahrtenverlauf und die Wiederaufnahme; Orte und Einstellungen bleiben erhalten. Einzelne Fahrten lassen sich im Tab „Fahrten“ löschen. „Alle lokalen Daten löschen“ entfernt auch Einstellungen, Favoriten und letzte Orte. Der Browser kann lokale Daten ebenfalls entfernen.</p><p><a href="plan/hilfe.html#offline">Mehr zur Offline-Nutzung</a>. Landingpage und Webplaner verwenden keine Analyse-Tools und keine extern geladenen Schriften.</p></details>
       <details><summary>Was kann der Prototyp noch nicht?</summary><p>Ticketkauf, Offline-Karten, Apple Watch und CarPlay sind nicht enthalten. Transitous ist ein Best-Effort-Dienst; Verbindungen und Navigation müssen noch im Alltag auf einem echten Gerät erprobt werden.</p></details>
     </div></section>
+    <section class="closing wrap" aria-labelledby="closing-heading">
+      <h2 id="closing-heading">Wohin geht’s als Nächstes?</h2>
+      <a class="button primary" href="plan/">Route planen</a>
+    </section>
   </main>
-  <footer class="footer wrap"><a class="brand" href="#"><span class="brand-icon"><img src="assets/foldroute-mark.svg" alt="" width="32" height="32"></span>FoldRoute</a><span>Für kleine Räder. Große Möglichkeiten.</span><a href="https://github.com/Lars147/foldroute">Quellcode auf GitHub</a><a href="plan/hilfe.html">Hilfe &amp; FAQ</a><a href="plan/licenses.html">Lizenzen &amp; Datenquellen</a></footer>
+  <footer class="footer wrap"><a class="brand" href="#"><span class="brand-icon"><img src="assets/foldroute-mark.svg" alt="" width="32" height="32"></span>FoldRoute</a><span>ÖPNV kann mehr. Mit deinem Klapprad.</span><a href="https://github.com/Lars147/foldroute">Quellcode auf GitHub</a><a href="plan/hilfe.html">Hilfe &amp; FAQ</a><a href="plan/licenses.html">Lizenzen &amp; Datenquellen</a></footer>
 </body>
 </html>
