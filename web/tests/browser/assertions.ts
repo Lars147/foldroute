@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page, type Locator } from "@playwright/test";
 
 export async function expectPlanningComplete(page: Page) {
   await expect(page.locator(".route-choice").first()).toBeAttached();
@@ -68,4 +68,27 @@ export async function expectSelectedJourneySaved(page: Page) {
       ),
     )
     .toBe(selectedID);
+}
+
+// Open the offline copy explicitly when a test exercises archived results or navigation.
+export async function openCachedJourney(page: Page, trigger: Locator) {
+  await expect(trigger).toBeVisible();
+  const target = await trigger.evaluate((button: HTMLElement) => ({
+    id: button.id,
+    historyId: (button.closest(".history-row") as HTMLElement | null)?.dataset
+      .historyId,
+  }));
+  const online = await page.evaluate(() => navigator.onLine);
+  if (online) await page.context().setOffline(true);
+  // Offline events rerender the list; resolve the same entry again in the current DOM.
+  await page.evaluate(({ id, historyId }) => {
+    const button = id
+      ? document.getElementById(id)
+      : [...document.querySelectorAll<HTMLElement>(".history-row")]
+          .find((row) => row.dataset.historyId === historyId)
+          ?.querySelector<HTMLElement>(".history-open");
+    if (button && button.getClientRects().length) button.click();
+  }, target);
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  if (online) await page.context().setOffline(false);
 }

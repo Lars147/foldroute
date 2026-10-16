@@ -327,7 +327,7 @@ async function* planRawRoutes(
   signal.throwIfAborted();
   if (!all.length)
     throw new PlannerError(
-      "empty",
+      issues.length ? "service" : "empty",
       issues.length
         ? [...new Set(issues)].join(" ")
         : "Keine passende Route gefunden. Ändere Start, Ziel, Zeit oder Einstellungen.",

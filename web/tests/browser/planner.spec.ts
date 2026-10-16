@@ -1,3 +1,4 @@
+import { openCachedJourney } from "./assertions";
 import { openSettingsSection } from "./assertions";
 import { openSelectedDetails, showMap } from "./assertions";
 import {
@@ -292,9 +293,8 @@ for (const width of [320, 390, 768, 1479])
     await expect(page.locator("#map-location")).toBeVisible();
     if (width < 900) {
       await page.locator("#result-back").click();
-      await expect(page.locator("#panel-details")).toBeVisible();
-      await page.locator("#result-back").click();
       await expect(page.locator("#choices")).toBeVisible();
+      await expect(page.locator("#panel-details")).toBeHidden();
     }
   });
 test("destination selection calculates automatically, never on opening or typing", async ({
@@ -1288,14 +1288,13 @@ test("settings errors retain old results and their original offline snapshot", a
     "Anfrage nicht beantworten",
   );
   await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
-  await page.locator("#route-more").click();
-  await page.locator("#refresh-route").click();
+  await page.locator("#recover-planning").click();
   await expect(page.locator("#status")).toContainText(
     "Anfrage nicht beantworten",
   );
   await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
   await page.locator("#close-route").click();
-  await page.locator("#open-saved").click();
+  await openCachedJourney(page, page.locator("#open-saved"));
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
@@ -2143,7 +2142,7 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   ).toContainText("50 min");
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-open").first()).toContainText("Café");
-  await page.locator(".history-open").first().click();
+  await openCachedJourney(page, page.locator(".history-open").first());
   await expect(page.locator("#journey-detail")).toContainText(
     "Geplanter Aufenthalt: 10 min",
   );
@@ -2181,7 +2180,7 @@ test("history deduplicates routes, restores without requests and replans from fi
       throw new Error("Archive must not request location");
     };
   });
-  await page.locator(".history-open").last().click();
+  await openCachedJourney(page, page.locator(".history-open").last());
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(page.locator("#route-origin")).toHaveText("Startpunkt");
   await page.goBack();
@@ -2191,13 +2190,12 @@ test("history deduplicates routes, restores without requests and replans from fi
   expect(requests).toBe(0);
   await context.setOffline(true);
   await page.locator("#tab-history").click();
-  await page.locator(".history-open").first().click();
+  await openCachedJourney(page, page.locator(".history-open").first());
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(page.locator("#replan-saved")).toBeDisabled();
   expect(requests).toBe(0);
   await context.setOffline(false);
   const queried = page.waitForRequest("**/api/v6/plan?*");
-  await page.locator("#route-more").click();
   await page.locator("#replan-saved").click();
   const url = new URL((await queried).url());
   expect(url.searchParams.get("fromPlace")?.split(",").map(Number)).toEqual([
@@ -2264,7 +2262,7 @@ for (const width of [320, 393, 1280]) {
     await page.locator("#history-undo-button").click();
     await expect(page.locator(".history-open")).toBeFocused();
     await expect(page.locator("#history-undo")).toBeHidden();
-    await page.locator(".history-open").click();
+    await openCachedJourney(page, page.locator(".history-open"));
     await expect(page.locator("#history-view")).toBeHidden();
   });
 }
@@ -2402,7 +2400,7 @@ test("small itinerary screens keep archived actions reachable", async ({
   await setup(page);
   await plan(page);
   await page.locator("#tab-history").click();
-  await page.locator(".history-open").first().click();
+  await openCachedJourney(page, page.locator(".history-open").first());
   for (const [width, height, fontSize] of [
     [844, 390, 16],
     [390, 844, 24],
@@ -2413,8 +2411,12 @@ test("small itinerary screens keep archived actions reachable", async ({
       fontSize,
     );
     await page.locator("#route-more").scrollIntoViewIfNeeded();
-    await page.locator("#route-more").click();
+    await page.locator("#replan-saved").scrollIntoViewIfNeeded();
     await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
+    await page.locator("#route-more").click();
+    await expect(page.locator("#navigation-start")).toBeInViewport({
+      ratio: 1,
+    });
     await page.keyboard.press("Escape");
     for (const id of ["adjust-route", "result-back"]) {
       await page.locator(`#${id}`).scrollIntoViewIfNeeded();
@@ -2842,7 +2844,7 @@ test("route markers identify endpoints and ordered stops with accessible popups"
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-open")).toHaveCount(2);
   await context.setOffline(true);
-  await page.locator(".history-open").first().click();
+  await openCachedJourney(page, page.locator(".history-open").first());
   await showMap(page);
   await expect(page.locator("#map")).toHaveClass(/offline-map/);
   await expect(page.locator("#map .route-marker")).toHaveCount(5);
@@ -3163,7 +3165,7 @@ test("route fit overrides a pending location response and works offline with sto
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-open")).toHaveCount(1);
   await context.setOffline(true);
-  await page.locator(".history-open").click();
+  await openCachedJourney(page, page.locator(".history-open"));
   await showMap(page);
   await expect(page.locator("#map")).toHaveClass(/offline-map/);
   await page.locator("#map-route").focus();
@@ -3182,7 +3184,7 @@ for (const width of [390, 1479]) {
       await plan(page);
       if (archived) {
         await page.locator("#tab-history").click();
-        await page.locator(".history-open").first().click();
+        await openCachedJourney(page, page.locator(".history-open").first());
       }
       await showMap(page);
       const panel = page.locator("#journey-panel");
@@ -3285,7 +3287,7 @@ test("new GPS planning enriches history without renaming the active origin", asy
   await expect(page.locator(".history-open").first()).toContainText(
     "Marienplatz 22, München",
   );
-  await page.locator(".history-open").first().click();
+  await openCachedJourney(page, page.locator(".history-open").first());
   await expect(page.locator("#route-origin")).toHaveText(
     "Marienplatz 22, München",
   );
@@ -3386,7 +3388,7 @@ for (const width of [320, 390]) {
 }
 
 for (const origin of ["history", "search"]) {
-  test(`saved map returns to Fahrten from ${origin}`, async ({ page }) => {
+  test(`saved map returns to Strecken from ${origin}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setup(page);
     await plan(page);
@@ -3394,14 +3396,14 @@ for (const origin of ["history", "search"]) {
     await expect(page.locator(".history-open")).toHaveCount(1);
     if (origin === "search") {
       await page.goto("/");
-      await page.locator("#open-saved").click();
-    } else await page.locator(".history-open").click();
+      await openCachedJourney(page, page.locator("#open-saved"));
+    } else await openCachedJourney(page, page.locator(".history-open"));
     let requests = 0;
     page.on("request", (request) => {
       if (request.url().includes("/api/v6/plan?")) requests++;
     });
     await showMap(page);
-    await expect(page.locator("#result-back")).toHaveText("‹ Fahrten");
+    await expect(page.locator("#result-back")).toHaveText("‹ Strecken");
     await page.locator("#result-back").click();
     await expect(page.locator("#history-view")).toBeVisible();
     await expect(page.locator(".history-open")).toBeFocused();

@@ -1,3 +1,4 @@
+import { SettingsValidation } from "./settings-validation";
 import { HistorySwipe } from "./history-swipe";
 import { HistoryUndo } from "./history-undo";
 import { HistoryNameQueue } from "./history-names";
@@ -68,6 +69,10 @@ let currentSaveSuppressed = false;
 let sharingPlan = false;
 let planningWasBusy = false;
 let navigationRevision = 0;
+let historyPosition = Number.isSafeInteger(history.state?.position)
+  ? (history.state.position as number)
+  : 0;
+let restoringSettingsPosition: number | undefined;
 let view: View = "search",
   settings: RoutingSettings = structuredClone(defaults);
 let settingsReplanPending = false;
@@ -94,6 +99,7 @@ const api = new ApiClient(),
   store = new OfflineStore(),
   book = new PlaceBook(),
   dialog = el<HTMLDialogElement>("adjust-dialog");
+const settingsValidation = new SettingsValidation(el("settings-form"));
 const screenAwakeKey = "foldroute.screenAwake";
 let keepScreenAwake = true;
 const storageKey = "foldroute.routing.v3";
@@ -355,7 +361,7 @@ async function launchNavigation(replan = false, restored?: NavigationSnapshot) {
     document.body.dataset.navigation = "active";
     el("map-view").hidden = true;
     history.pushState(
-      { ...history.state, navigation: true },
+      { ...history.state, navigation: true, position: ++historyPosition },
       "",
       location.href,
     );
@@ -418,7 +424,11 @@ async function endNavigation() {
   syncLiveLocation();
   writeHistory();
   renderPlanning(session.state);
-  el("navigation-start").focus({ preventScroll: true });
+  const primary = el<HTMLButtonElement>(
+    session.state.restored ? "replan-saved" : "navigation-start",
+  );
+  if (primary.disabled || primary.hidden) journeyView.focusSelection();
+  else primary.focus({ preventScroll: true });
 }
 el("navigation-start").onclick = () => void launchNavigation();
 
@@ -431,8 +441,10 @@ function writeHistory(
   push = false,
   resultDepth = push ? 0 : (history.state?.resultDepth ?? 0),
 ) {
+  if (restoringSettingsPosition !== undefined) return;
   history[push ? "pushState" : "replaceState"](
     {
+      position: push ? ++historyPosition : historyPosition,
       view,
       planId: activePlanId,
       historyId: openedHistoryId,
@@ -535,7 +547,10 @@ async function restoreLink(
   if (request.timing !== "now" && request.time < Date.now() / 1000) {
     const message =
       "Der Zeitpunkt dieses Links liegt in der Vergangenheit. Bitte einen neuen Zeitpunkt wählen.";
-    session.stop(message);
+    session.stop(message, {
+      action: "adjust",
+      request: structuredClone(request),
+    });
     if (view === "map") {
       openAdjust(request.destination);
       el("adjust-status").textContent = message;
@@ -545,6 +560,13 @@ async function restoreLink(
   if (navigator.onLine) await session.calculate(request, settings, false);
 }
 function show(next: View, push = true) {
+  if (restoringSettingsPosition !== undefined) return false;
+  if (
+    view === "settings" &&
+    next !== "settings" &&
+    !settingsValidation.validate()
+  )
+    return false;
   el<HTMLDialogElement>("route-actions-dialog").close();
   if (navigationView?.visible) {
     navigationView.confirmEnd();
@@ -593,16 +615,36 @@ function show(next: View, push = true) {
   if (replan) void refreshRoute(false);
 }
 window.addEventListener("popstate", async (event) => {
+  const position = Number.isSafeInteger(event.state?.position)
+    ? (event.state.position as number)
+    : historyPosition - 1;
+  if (restoringSettingsPosition !== undefined) {
+    if (position !== restoringSettingsPosition) {
+      history.go(restoringSettingsPosition - position);
+      return;
+    }
+    historyPosition = position;
+    restoringSettingsPosition = undefined;
+    writeHistory();
+    settingsValidation.validate();
+    return;
+  }
+  if (view === "settings" && !settingsValidation.validate()) {
+    restoringSettingsPosition = historyPosition;
+    history.go(historyPosition - position);
+    return;
+  }
+  historyPosition = position;
   const revision = ++navigationRevision;
   const navigation = event.state?.journeyNavigation as
     JourneyNavigation | undefined;
   if (navigationView?.visible) {
     history.pushState(
-      { ...history.state, navigation: true },
+      { ...history.state, navigation: true, position: ++historyPosition },
       "",
       location.href,
     );
-    navigationView.confirmEnd();
+    if (!navigationView.dismissConfirmation()) navigationView.confirmEnd();
     return;
   }
   if (dialog.open) closeAdjust();
@@ -631,7 +673,7 @@ window.addEventListener("popstate", async (event) => {
       journeyView.restoreNavigation(navigation, next === "map");
     } else {
       show("history", false);
-      toast("Diese gespeicherte Fahrt ist nicht mehr vorhanden.");
+      toast("Diese gespeicherte Strecke ist nicht mehr vorhanden.");
     }
     return;
   }
@@ -659,7 +701,7 @@ function historyUI() {
   el("history-list").replaceChildren();
   el("history-empty").hidden = historyEntries.length > 0;
   el("history-empty").textContent = offlineEnabled
-    ? "Noch keine Fahrten. Erfolgreiche Planungen werden hier automatisch gespeichert."
+    ? "Noch keine Strecken. Erfolgreiche Planungen werden hier automatisch gespeichert."
     : "Speicherung ausgeschaltet. Aktiviere sie in den Einstellungen, um deine nächsten Planungen zu behalten.";
   el<HTMLButtonElement>("delete-saved").disabled = !historyEntries.length;
   for (const entry of historyEntries) {
@@ -676,9 +718,9 @@ function historyUI() {
       open.type = "button";
       open.setAttribute(
         "aria-label",
-        `Gespeicherte Planung öffnen: ${description}`,
+        `${navigator.onLine ? "Strecke erneut planen" : "Gespeicherten Stand ansehen"}: ${description}`,
       );
-      open.onclick = () => openSnapshot(entry.snapshot, entry.id);
+      open.onclick = () => void openStoredRoute(entry.snapshot, entry.id);
     }
     const originLine = node("span", "", "history-origin");
     const marker = node("span", "", "route-origin-marker");
@@ -695,6 +737,7 @@ function historyUI() {
         node(
           "small",
           `Über ${request.stops.map((stop) => stop.place.name).join(" · ")}`,
+          "history-via",
         ),
       );
     const plannedAt = new Date(entry.snapshot.savedAt * 1000);
@@ -712,9 +755,9 @@ function historyUI() {
       icon("trash"),
       node("span", "Löschen", "history-remove-label"),
     );
-    remove.title = "Fahrt löschen";
+    remove.title = "Strecke löschen";
     remove.type = "button";
-    remove.setAttribute("aria-label", `Fahrt löschen: ${description}`);
+    remove.setAttribute("aria-label", `Strecke löschen: ${description}`);
     remove.onclick = () => void deleteHistoryEntry(entry.id);
     const chevron = icon("chevron");
     chevron.classList.add("history-chevron");
@@ -771,16 +814,16 @@ async function deleteHistoryEntry(id: string) {
               .find((row) => row.dataset.historyId === id)
               ?.querySelector<HTMLButtonElement>(".history-open")
               ?.focus({ preventScroll: true });
-          toast("Fahrt wiederhergestellt.");
+          toast("Strecke wiederhergestellt.");
         } else
           toast(
             result === "newer"
               ? "Diese Strecke ist bereits gespeichert. Die aktuelle Planung bleibt erhalten."
-              : "Fahrt konnte nicht wiederhergestellt werden. Der Verlauf ist voll oder wurde geändert.",
+              : "Strecke konnte nicht wiederhergestellt werden. Der Verlauf ist voll oder wurde geändert.",
           );
       } catch {
         toast(
-          "Fahrt konnte nicht wiederhergestellt werden. Speicher nicht verfügbar.",
+          "Strecke konnte nicht wiederhergestellt werden. Speicher nicht verfügbar.",
         );
       } finally {
         historyMutationPending = false;
@@ -794,7 +837,7 @@ async function deleteHistoryEntry(id: string) {
       ).focus({ preventScroll: true });
     }
   } catch {
-    toast("Fahrt konnte nicht gelöscht werden. Bitte erneut versuchen.");
+    toast("Strecke konnte nicht gelöscht werden. Bitte erneut versuchen.");
   } finally {
     historyMutationPending = false;
   }
@@ -808,6 +851,9 @@ function suppressCurrentSave() {
 function savedUI() {
   historyUI();
   el("open-saved").hidden = !saved;
+  el("open-saved").querySelector("strong")!.textContent = navigator.onLine
+    ? "Letzte Strecke erneut planen"
+    : "Letzte Strecke ansehen";
   el("saved-description").textContent = saved
     ? `${saved.journey.destination.name} · ${dateLabel(saved.savedAt)}, ${clock(saved.savedAt)}`
     : "";
@@ -845,7 +891,7 @@ function showRouteMap(state: PlanningState) {
   );
 }
 function renderPlanning(state: PlanningState) {
-  if (activePlanId && activePlan && state.selected) {
+  if (activePlanId && activePlan && (state.request || state.pendingRequest)) {
     planResults.set(activePlanId, {
       ...structuredClone({ plan: activePlan, state }),
       settingsReplanPending:
@@ -885,7 +931,7 @@ function renderPlanning(state: PlanningState) {
       if (offlineEnabled) void persist(activeSnapshot, state.calculationId);
     }
   }
-  el("replan-saved").hidden = !state.restored;
+  el("replan-saved").hidden = !state.restored || !state.selected;
   el<HTMLButtonElement>("replan-saved").disabled =
     !navigator.onLine || state.busy;
   el<HTMLButtonElement>("update-now").disabled =
@@ -1168,7 +1214,10 @@ async function refreshRoute(interactive = true) {
   if (!request) return;
   if (request.timing !== "now" && request.time < Date.now() / 1000) {
     const message = "Bitte einen aktuellen oder zukünftigen Zeitpunkt wählen.";
-    session.stop(message);
+    session.stop(message, {
+      action: "adjust",
+      request: structuredClone(request),
+    });
     if (interactive && view === "map") {
       openAdjust(request.destination);
       el("adjust-status").textContent = message;
@@ -1318,6 +1367,7 @@ function settingsUI() {
     }
     value.append(input, unit);
     label.append(copy, value);
+    settingsValidation.bind(input, label);
     el(
       k === "maxWalkingMinutes" || k === "maxBikeTransfers"
         ? "settings-extra-fields"
@@ -1421,14 +1471,15 @@ function applySettings(next: RoutingSettings) {
   settingsSummary();
 }
 function openSettings() {
-  beforeSettings = view === "settings" ? beforeSettings : view;
+  if (view === "settings") return;
+  beforeSettings = view;
   settingsUI();
   show("settings");
 }
 el("tab-history").onclick = () => {
-  show("history");
+  if (show("history") === false) return;
   void reloadHistory().catch(() =>
-    toast("Fahrten konnten nicht geladen werden."),
+    toast("Strecken konnten nicht geladen werden."),
   );
 };
 el("tab-settings").onclick = openSettings;
@@ -1463,17 +1514,6 @@ el("settings-form").addEventListener("focusin", (event) => {
 });
 el("settings-form").onsubmit = (event) => {
   event.preventDefault();
-  const invalid =
-    el("settings-form").querySelector<HTMLInputElement>("input:invalid");
-  if (invalid) {
-    const details = invalid.closest("details");
-    if (details) details.open = true;
-    // Reveal before validating: WebKit otherwise leaves focus on the submit button.
-    invalid.focus();
-    invalid.scrollIntoView({ block: "nearest" });
-    invalid.reportValidity();
-    return;
-  }
   show(
     beforeSettings === "history"
       ? "history"
@@ -1574,7 +1614,7 @@ el("offline-enabled").onchange = async () => {
       historyEntries = [];
       storageMessage(
         "disabled",
-        "Fahrten gelöscht. Speicherung ausgeschaltet.",
+        "Strecken gelöscht. Speicherung ausgeschaltet.",
       );
     } else {
       if (activeSnapshot && session.state.calculationId)
@@ -1615,7 +1655,7 @@ el("confirm-delete-history").onclick = async () => {
     await store.clear();
     await reloadHistory();
     el<HTMLDialogElement>("delete-history-dialog").close();
-    storageMessage("history", "Fahrtenverlauf gelöscht.");
+    storageMessage("history", "Streckenverlauf gelöscht.");
   } catch {
     el("delete-history-status").textContent =
       "Löschen fehlgeschlagen. Bitte erneut versuchen.";
@@ -1670,21 +1710,64 @@ function openSnapshot(
 function openSaved(focus = true) {
   if (saved) openSnapshot(saved, historyEntries[0]?.id, true, focus);
 }
-el("open-saved").onclick = () => openSaved();
-el("replan-saved").onclick = async () => {
-  if (!activePlan || !navigator.onLine) return;
-  journeyView.reset();
-  const request = structuredClone(activePlan.request);
+el("open-saved").onclick = () => {
+  if (saved) void openStoredRoute(saved, historyEntries[0]?.id);
+};
+async function openStoredRoute(snapshot: SavedJourney, id?: string) {
+  if (!navigator.onLine) {
+    openSnapshot(snapshot, id);
+    return;
+  }
+  const entry = historyEntries.find((item) => item.id === id);
+  await replanStoredRequest(
+    (entry ? historySnapshot(entry) : snapshot).request,
+  );
+}
+async function replanStoredRequest(original: RouteRequest) {
+  const request = structuredClone(original);
   request.timing = "now";
   request.time = Date.now() / 1000;
-  timing = "now";
-  time = request.time;
+  if (request.origin.name === "Aktueller Standort")
+    request.origin.name = "Startpunkt";
+  if (request.destination.name === "Aktueller Standort")
+    request.destination.name = "Zielpunkt";
+  const plan = { request, settings: structuredClone(settings) };
+  restorePlanContext(plan);
   openedHistoryId = undefined;
-  activePlanId = crypto.randomUUID();
-  activePlan = { request, settings: structuredClone(settings) };
-  writeHistory(true);
-  contextUI();
+  beginPlanning();
+  activePlan = plan;
+  session.prepare(request);
+  writeHistory();
   await session.calculate(request, settings, false);
+}
+el("replan-saved").onclick = () => {
+  if (activePlan && navigator.onLine)
+    void replanStoredRequest(activePlan.request);
+};
+el("recover-planning").onclick = async () => {
+  const recovery = session.state.recovery;
+  if (!recovery || session.state.busy) return;
+  if (
+    recovery.action === "adjust" ||
+    (recovery.request.timing !== "now" &&
+      recovery.request.time < Date.now() / 1000)
+  ) {
+    openAdjust(recovery.request.destination);
+    el("adjust-status").textContent = session.state.message;
+    return;
+  }
+  if (!navigator.onLine || (recovery.retryAt ?? 0) > Date.now() / 1000) return;
+  const request = structuredClone(recovery.request);
+  const result = await session.calculate(
+    request,
+    settings,
+    request.origin.name === "Aktueller Standort",
+  );
+  if (result === "location-error" && view === "map" && !dialog.open) {
+    openAdjust(request.destination);
+    el("adjust-status").textContent = session.state.message;
+    el("adjust-location-help").hidden = false;
+  }
 };
 function updateConnectionHeight() {
   document.documentElement.style.setProperty(
@@ -1771,7 +1854,7 @@ void store
     if (result.invalid)
       storageMessage(
         "load",
-        "Nicht lesbare gespeicherte Fahrten wurden entfernt.",
+        "Nicht lesbare gespeicherte Strecken wurden entfernt.",
       );
     if (
       !navigator.onLine &&

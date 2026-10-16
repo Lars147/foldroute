@@ -1,3 +1,4 @@
+import { openCachedJourney } from "./assertions";
 import { openSettingsSection } from "./assertions";
 import { openSelectedDetails } from "./assertions";
 import { expect, test, type Page } from "@playwright/test";
@@ -164,8 +165,7 @@ test("offline settings keep the previous result and reconnect never starts plann
   await page.context().setOffline(false);
   await expect(page.locator("#connection")).toBeHidden();
   expect(directRequests).toBe(0);
-  await page.locator("#route-more").click();
-  await page.locator("#refresh-route").click();
+  await page.locator("#recover-planning").click();
   await expectPlanningComplete(page);
   expect(directRequests).toBe(1);
   await expect(page.locator("#stale-notice")).toBeHidden();
@@ -177,7 +177,7 @@ test("archive edits have distinct browser history and retain their request on Ba
   await setup(page);
   await plan(page);
   await page.locator("#close-route").click();
-  await page.locator("#open-saved").click();
+  await openCachedJourney(page, page.locator("#open-saved"));
   const archive = await page.evaluate(() => ({
     state: history.state,
     url: location.href,
@@ -227,7 +227,7 @@ test("entry focus and archive timestamps remain stable without background focus 
   const timestamp = page.locator(".history-timestamp").first();
   const savedTime = await timestamp.getAttribute("datetime");
   await expect(timestamp).toContainText("Geplant heute, 10:00");
-  await page.locator(".history-open").first().click();
+  await openCachedJourney(page, page.locator(".history-open").first());
   await expect(page.locator(".route-choice[aria-pressed=true]")).toBeFocused();
   await page.locator("#tab-history").focus();
   await page.locator("#tab-history").press("Enter");
@@ -242,7 +242,7 @@ test("offline Back and Forward restore the matching old result with the edited r
   await plan(page);
   const before = await snapshot(page);
   await page.locator("#close-route").click();
-  await page.locator("#open-saved").click();
+  await openCachedJourney(page, page.locator("#open-saved"));
   await page.context().setOffline(true);
   await page.locator("#tab-settings").click();
   await page.locator("#maxCyclingMinutes").fill("20");
@@ -284,7 +284,6 @@ test("offline Back and Forward restore the matching old result with the edited r
       },
     }),
   );
-  await page.locator("#route-more").click();
   await page.locator("#replan-saved").click();
   await expectPlanningComplete(page);
   await expect(page.locator("#stale-notice")).toBeHidden();

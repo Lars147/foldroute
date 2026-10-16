@@ -129,7 +129,8 @@ export async function* planViaRoutes(
   };
   const issues = new Set<string>();
   let completed: Journey[] = [],
-    stopped = false;
+    stopped = false,
+    retryableFailure = false;
   const backward = request.timing === "arrive";
   try {
     // Complete the base itinerary before spending requests on additional bike transfers.
@@ -171,6 +172,10 @@ export async function* planViaRoutes(
             }
           } catch (error) {
             signal.throwIfAborted();
+            retryableFailure ||= !(
+              error instanceof PlannerError &&
+              ["input", "empty"].includes(error.code)
+            );
             issues.add(
               `Teilstrecke ${index + 1} (${places[index].name} → ${places[index + 1].name}): ${errorText(error)}`,
             );
@@ -266,7 +271,9 @@ export async function* planViaRoutes(
     );
     if (!journeys.length)
       throw new PlannerError(
-        "empty",
+        retryableFailure || combined.aborted || budget.stopped
+          ? "service"
+          : "empty",
         [...issues].join(" ") ||
           "Keine vollständige Verbindung über alle Zwischenziele gefunden.",
       );

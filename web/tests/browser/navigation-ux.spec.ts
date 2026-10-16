@@ -1,3 +1,4 @@
+import { openCachedJourney } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import { defaults, type Journey, type Leg, type Place } from "../../src/model";
 import { distance } from "../../src/geometry";
@@ -380,7 +381,8 @@ async function setup(page: Page, multimodal = false) {
     { journey: route(multimodal), settings: defaults, time: now },
   );
   await page.reload();
-  await page.locator("#open-saved").click();
+  await openCachedJourney(page, page.locator("#open-saved"));
+  await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
@@ -517,6 +519,174 @@ async function savedActive(page: Page) {
     return !!(await new NavigationStore().read());
   });
 }
+async function savedProgress(page: Page) {
+  return page.evaluate(async () => {
+    const { NavigationStore } = await import("/src/navigation-store.ts");
+    return (await new NavigationStore().read())?.progress;
+  });
+}
+for (const width of [390, 1280])
+  test(`ending confirmation preserves progress and restores focus at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await setup(page);
+    await expect.poll(() => savedActive(page)).toBe(true);
+    const progress = await savedProgress(page);
+    const end = page.locator("#navigation-end");
+    const dialog = page.getByRole("dialog", { name: "Navigation beenden?" });
+    const keepGoing = dialog.getByRole("button", { name: "Weiter navigieren" });
+    const finish = dialog.getByRole("button", { name: "Beenden", exact: true });
+    await end.focus();
+    await end.press("Enter");
+    await expect(dialog).toHaveAccessibleDescription(
+      "Die Route bleibt verfügbar.",
+    );
+    await expect(keepGoing).toBeFocused();
+    await expect(finish).toBeVisible();
+    const bounds = (await dialog.boundingBox())!;
+    if (width < 900) {
+      expect(844 - bounds.y - bounds.height).toBeCloseTo(12, 0);
+      expect((await keepGoing.boundingBox())!.y).toBeLessThan(
+        (await finish.boundingBox())!.y,
+      );
+    } else {
+      expect(bounds.y + bounds.height / 2).toBeCloseTo(422, 0);
+      expect((await keepGoing.boundingBox())!.x).toBeLessThan(
+        (await finish.boundingBox())!.x,
+      );
+    }
+    await page.screenshot({
+      path: test.info().outputPath("end-confirmation.png"),
+    });
+    // Enter initially continues instead of ending the active navigation.
+    await page.keyboard.press("Enter");
+    await expect(dialog).toBeHidden();
+    await expect(end).toBeFocused();
+    await end.press("Enter");
+    await keepGoing.click();
+    await expect(dialog).toBeHidden();
+    await expect(end).toBeFocused();
+    await end.press("Enter");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(end).toBeFocused();
+    expect(await savedProgress(page)).toEqual(progress);
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      "Links abbiegen auf Zweite Straße",
+    );
+    await end.press("Enter");
+    // The native modal keeps underlying controls inert in both browsers.
+    await end.evaluate((element) => element.focus());
+    await expect(keepGoing).toBeFocused();
+    await finish.focus();
+    await expect(finish).toBeFocused();
+    await finish.press("Enter");
+    await expect(page.locator("#navigation-view")).toBeHidden();
+    await expect.poll(() => savedActive(page)).toBe(false);
+    await expect(page.locator("#map-view")).toBeVisible();
+    await expect(page.locator("#replan-saved")).toBeFocused();
+  });
+
+test("browser back dismisses an open navigation confirmation without losing progress", async ({
+  page,
+}) => {
+  await setup(page);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  const progress = await savedProgress(page);
+  const historyLength = await page.evaluate(() => history.length);
+  const end = page.locator("#navigation-end");
+  const dialog = page.locator("#navigation-confirm");
+  await end.focus();
+  await page.goBack();
+  await expect(dialog).toBeVisible();
+  await expect(page.locator("#navigation-confirm-no")).toBeFocused();
+  await page.goBack();
+  await expect(dialog).toBeHidden();
+  await expect(end).toBeFocused();
+  await end.press("Enter");
+  await page.goBack();
+  await expect(dialog).toBeHidden();
+  await expect(end).toBeFocused();
+  await page.goBack();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  expect(await savedProgress(page)).toEqual(progress);
+  await expect(page.locator("#navigation-view")).toBeVisible();
+});
+
+test("section confirmation keeps its labels and placement after cancelling navigation end", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page, true);
+  await page.locator("#navigation-end").click();
+  await page.locator("#navigation-confirm-no").click();
+  await page.locator("#navigation-details-toggle").click();
+  const completeSection = page.locator("#navigation-complete");
+  await completeSection.focus();
+  await completeSection.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Abschnitt beenden?" });
+  await expect(
+    dialog.getByRole("button", { name: "Bestätigen" }),
+  ).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "Abbrechen" })).toBeVisible();
+  expect((await dialog.boundingBox())!.y).toBeCloseTo(12, 0);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(completeSection).toBeFocused();
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Links abbiegen auf Zweite Straße",
+  );
+});
+
+for (const [width, height, largeText] of [
+  [320, 320, true],
+  [844, 390, false],
+] as const)
+  test(`ending confirmation remains usable at ${width}x${height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: Math.max(height, 568) });
+    await setup(page);
+    await page.locator("#navigation-end").click();
+    // Resize an open dialog, including enlarged text in a very short viewport.
+    await page.setViewportSize({ width, height });
+    if (largeText)
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = "200%";
+      });
+    await page.clock.runFor(200);
+    const dialog = page.locator("#navigation-confirm");
+    await expect(page.locator("#navigation-confirm-no")).toBeFocused();
+    await expect
+      .poll(async () => {
+        const bounds = (await dialog.boundingBox())!;
+        return bounds.y + bounds.height;
+      })
+      .toBeCloseTo(height - 12, 0);
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(12);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(height - 11);
+    expect(
+      await dialog.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+    for (const id of ["navigation-confirm-no", "navigation-confirm-yes"]) {
+      const button = page.locator(`#${id}`);
+      await button.scrollIntoViewIfNeeded();
+      await expect(button).toBeInViewport();
+      expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.locator("#navigation-confirm-no").scrollIntoViewIfNeeded();
+    await page.locator("#navigation-confirm-no").click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("#navigation-view")).toBeVisible();
+  });
 for (const width of [390, 1280])
   test(`rotating navigation, speech, user camera and finish at ${width}`, async ({
     page,
@@ -720,9 +890,11 @@ test("browser back confirms ending and storage opt-out prevents recovery", async
   await page.goBack();
   await expect(page.locator("#navigation-confirm")).toBeVisible();
   await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#replan-saved")).toBeFocused();
   await page.locator("#tab-settings").click();
   await page.locator("#offline-enabled").uncheck();
   await page.locator("#tab-route").click();
+  await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
@@ -987,7 +1159,6 @@ test("ending resumed navigation restores stops without replacing personal prefer
     r.fulfill({ json: { direct: [], itineraries: [] } }),
   );
   const planned = page.waitForRequest("**/api/v6/plan?*");
-  await page.locator("#route-more").click();
   await page.locator("#replan-saved").click();
   const params = new URL((await planned).url()).searchParams;
   expect(params.get("cyclingSpeed")).toBe(

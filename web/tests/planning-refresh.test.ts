@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaults, type Journey, type RouteRequest } from "../src/model";
+import {
+  defaults,
+  PlannerError,
+  type Journey,
+  type RouteRequest,
+} from "../src/model";
 import { PlanningSession } from "../src/planning-state";
 import { planRoutes } from "../src/planner";
 import { locate } from "../src/search";
@@ -289,4 +294,29 @@ it("resolves current time after location once per calculation without lead", asy
     expect(queries.at(-1)?.time).toBe(request.time);
   }
   vi.restoreAllMocks();
+});
+
+describe("explicit planning recovery", () => {
+  for (const code of ["service", "empty", "input", "timeout", "429"])
+    it(`offers a typed recovery for ${code} without losing the failed request`, async () => {
+      const session = sessionWithArchive();
+      const failedRequest = {
+        ...changedRequest,
+        stops: [{ id: "pause", place: origin, stayMinutes: 15 }],
+      };
+      const retryAt = code === "429" ? Date.now() / 1000 + 30 : undefined;
+      vi.mocked(planRoutes).mockImplementation(async function* () {
+        throw new PlannerError(code, "Translated error", false, retryAt);
+      });
+      await session.calculate(failedRequest, changedSettings, false);
+      expect(session.state.recovery).toEqual({
+        action: ["empty", "input"].includes(code) ? "adjust" : "retry",
+        request: failedRequest,
+        retryAt,
+      });
+      expect(session.state.request).toEqual(request);
+      expect(session.state.selected?.id).toBe("archive");
+      session.stop("");
+      expect(session.state.recovery).toBeUndefined();
+    });
 });

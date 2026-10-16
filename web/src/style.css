@@ -2475,6 +2475,37 @@ body[data-navigation="active"] .app-tabs {
 #navigation-resume-dialog::backdrop {
   background: #171a1c88;
 }
+#navigation-confirm[data-kind="end"] {
+  top: calc(var(--visual-top, 0px) + var(--visual-height, 100dvh) / 2);
+  margin-block: 0;
+  transform: translateY(-50%);
+  max-height: calc(var(--visual-height, 100dvh) - 24px);
+}
+#navigation-confirm[data-kind="end"] h2 {
+  margin: 0 0 8px;
+}
+#navigation-confirm[data-kind="end"] p {
+  margin: 0;
+}
+@media (max-width: 899px) {
+  #navigation-confirm[data-kind="end"] {
+    top: calc(
+      var(--visual-top, 0px) + var(--visual-height, 100dvh) - 12px -
+        env(safe-area-inset-bottom, 0px)
+    );
+    max-height: calc(
+      var(--visual-height, 100dvh) - 24px - env(safe-area-inset-top, 0px) -
+        env(safe-area-inset-bottom, 0px)
+    );
+    transform: translateY(-100%);
+  }
+  #navigation-confirm[data-kind="end"] .navigation-actions {
+    flex-direction: column;
+  }
+  #navigation-confirm[data-kind="end"] .navigation-actions button {
+    flex: 0 0 auto;
+  }
+}
 @media (min-width: 900px) {
   .navigation-panel {
     width: min(540px, calc(100vw - 48px));
@@ -2845,4 +2876,60 @@ body[data-navigation="active"] .app-tabs {
     font-size: 1rem;
     font-weight: 650;
   }
+}
+
+.settings-screen .setting-row:has(.setting-error:not([hidden])) {
+  flex-wrap: wrap;
+}
+.settings-screen .setting-row .setting-error {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #b42332;
+}
+.settings-screen input[aria-invalid="true"] {
+  border-color: #b42332;
+}
+.planning-recovery {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+}
+.planning-recovery .text-button {
+  min-height: 44px;
+  padding-inline: 0;
+}
+.planning-recovery .message {
+  margin: 0;
+}
+.history-via {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+#map-preview > #replan-saved {
+  width: 100%;
+  margin-bottom: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  .settings-screen .setting-row .setting-error {
+    color: #ffb4ab;
+  }
+  .settings-screen input[aria-invalid="true"] {
+    border-color: #ffb4ab;
+  }
+}
+
+.panel-actions:not(:has(> button:not([hidden]))) {
+  display: none;
+}
+
+.journey-panel .planning-recovery .text-button {
+  color: #ffda39;
+}
+.settings-screen .setting-row {
+  scroll-margin-top: calc(
+    var(--settings-top-offset) + var(--settings-heading-height, 60px) + 8px
+  );
+  scroll-margin-bottom: calc(var(--tabs) + 8px);
 }

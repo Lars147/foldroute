@@ -187,8 +187,8 @@
         </details>
         <details id="routeneinstellungen">
           <summary>Für welche Planungen gelten meine Einstellungen?</summary>
-          <p>Deine Vorgaben gelten für jede neue Berechnung auf diesem Gerät: bei neuen Zielen, geteilten Links, vergangenen Fahrten und Neuberechnungen während der Navigation. Gültige Änderungen werden automatisch gespeichert. Wenn eine Route geöffnet ist, wird sie beim Verlassen der Einstellungen einmal neu berechnet.</p>
-          <p>Geteilte Links übertragen Start, Ziel, Zwischenstopps und Zeitpunkt. Empfänger planen mit ihren eigenen Vorgaben und können deshalb andere Verbindungen erhalten. Gespeicherte Fahrten behalten ihren bisherigen Stand, bis du erneut planst.</p>
+          <p>Deine Vorgaben gelten für jede neue Berechnung auf diesem Gerät: bei neuen Zielen, geteilten Links, bekannten Strecken und Neuberechnungen während der Navigation. Gültige Änderungen werden automatisch gespeichert. Ungültige Zahlen zeigen einen Hinweis am Feld; korrigiere sie vor dem Verlassen über „Fertig“, die Tabs oder Browser-Zurück innerhalb der PWA. Wenn eine Route geöffnet ist, wird sie beim Verlassen der Einstellungen einmal neu berechnet.</p>
+          <p>Geteilte Links übertragen Start, Ziel, Zwischenstopps und Zeitpunkt. Empfänger planen mit ihren eigenen Vorgaben und können deshalb andere Verbindungen erhalten. Gespeicherte Strecken behalten ihren bisherigen Stand, bis du erneut planst.</p>
         </details>
         <details>
           <summary>Wie aktuell sind die angezeigten Zeiten?</summary>
@@ -196,7 +196,7 @@
             „Stand“ zeigt den Zeitpunkt der Abfrage. „Aktualisieren“ sucht neue
             Verbindungen und führt zur Liste zurück. Bei Fehlern bleiben die
             bisherigen Ergebnisse mit einem Hinweis sichtbar. Gespeicherte
-            Fahrten werden als gespeicherter Stand gekennzeichnet; ihre Zeiten
+            Strecken werden als gespeicherter Stand gekennzeichnet; ihre Zeiten
             werden beim Öffnen nicht automatisch aktualisiert.
           </p>
         </details>
@@ -378,11 +378,9 @@
             benötigen Internet.
           </p>
           <p>
-            „Fahrten auf diesem Gerät speichern“ ist standardmäßig
-            eingeschaltet. Damit kannst du im Tab „Fahrten“ bis zu 20
-            unterschiedliche geplante Strecken samt Zwischenzielen und
-            Streckenverlauf ansehen. Zeiten sind der Stand der damaligen
-            Abfrage. Neue Routen, Ortssuche, Echtzeitdaten und Straßenkarten
+            „Strecken auf diesem Gerät speichern“ ist standardmäßig
+            eingeschaltet. Damit kannst du im Tab „Strecken“ bis zu 20
+            unterschiedliche Strecken samt Zwischenzielen erneut planen. Antippen sucht online direkt Verbindungen ab jetzt mit deinen aktuellen Vorgaben. Start, Ziel, Zwischenziele und Aufenthalte werden übernommen. Offline öffnet sich der gespeicherte Streckenverlauf mit dem damaligen Abfragezeitpunkt. Neue Routen, Ortssuche, Echtzeitdaten und Straßenkarten
             benötigen Internet.
           </p>
           <p>
@@ -394,7 +392,7 @@
             nach oben. Die Liste zeigt die Orte und unter „Zuletzt geplant“
             Datum und Uhrzeit der letzten Speicherung. Abfahrts- und
             Ankunftszeiten findest du direkt in den Routenkarten. Bei mehr als
-            20 Strecken entfällt die älteste. Einzelne Fahrten kannst du im Tab
+            20 Strecken entfällt die älteste. Einzelne Strecken kannst du im Tab
             löschen, den gesamten Verlauf in den Einstellungen. Ausschalten der
             Speicherung löscht ebenfalls den Verlauf; Favoriten, letzte Orte und
             Einstellungen bleiben erhalten. Generische Start- und Zielnamen im
@@ -406,11 +404,9 @@
             löschen.
           </p>
           <p>
-            „Jetzt neu planen“ berechnet aktuelle Verbindungen ab den
-            gespeicherten Startkoordinaten mit Abfahrt jetzt. Zwischenziele,
-            Aufenthalte werden übernommen. Jede neue Berechnung verwendet deine aktuellen persönlichen Routing-Einstellungen. Änderungen
+            „Letzte Strecke erneut planen“ auf der Startseite verwendet denselben Ablauf. Bei einer offline geöffneten Kopie ist „Jetzt neu planen“ direkt sichtbar und benötigt Internet. Die gespeicherte Route lässt sich über das Menü zur Navigation öffnen. Zwischenziele und Aufenthalte bleiben erhalten. Jede neue Berechnung verwendet deine aktuellen persönlichen Routing-Einstellungen. Änderungen
             sind über „Route anpassen“ möglich. Der Verlauf enthält Planungen,
-            keine aufgezeichneten Fahrten.
+            keine GPS-Aufzeichnungen.
           </p>
         </details>
       </section>
@@ -426,11 +422,11 @@
       </section>
       <section id="navigation">
         <h2>Navigation während der Fahrt</h2>
-        <p>Wähle eine Route und tippe unten auf „Los“. Daneben stehen Dauer und Ankunft. Tippe zum Bearbeiten auf Start/Ziel im Kopf. Im „…“-Menü findest du „Planung teilen“, „Aktualisieren“ und bei gespeicherten Reisen „Jetzt neu planen“. Die Karte folgt deinem Standort in Fahrtrichtung. Abbiegehinweise, Entfernung und aktuelle Etappe bleiben sichtbar. Nach Verschieben der Karte aktiviert „Standort folgen“ die Kameraführung wieder.</p>
+        <p>Wähle eine Route und tippe unten auf „Los“. Daneben stehen Dauer und Ankunft. Tippe zum Bearbeiten auf Start/Ziel im Kopf. Im „…“-Menü findest du „Planung teilen“ und „Aktualisieren“. Bei Fehlern steht die passende Aktion direkt am Hinweis. Bei gespeicherten Kopien ist „Jetzt neu planen“ direkt sichtbar; „Mit gespeicherter Route starten“ findest du im Menü. Die Karte folgt deinem Standort in Fahrtrichtung. Abbiegehinweise, Entfernung und aktuelle Etappe bleiben sichtbar. Nach Verschieben der Karte aktiviert „Standort folgen“ die Kameraführung wieder.</p>
         <p>„Ton an“ schaltet Sprachansagen stumm. „Abschnitt fertig“ beziehungsweise „Ausgestiegen“ bestätigt den nächsten Wechsel. An Zwischenstopps bestätigst du „Weiterfahren“; geplante Aufenthaltszeit und verbleibende Anschlüsse werden berücksichtigt.</p>
-        <p>ÖPNV-Fahrten werden im Vordergrund regelmäßig aktualisiert. Neue Verbindungen bei Ausfall oder gefährdetem Anschluss benötigen deine Bestätigung. Hinweise zeigen, wenn Daten veraltet oder nicht verfügbar sind. Prüfe bei einem ausgefallenen Halt zunächst den tatsächlichen Ausstieg vor Ort.</p>
+        <p>ÖPNV-Strecken werden im Vordergrund regelmäßig aktualisiert. Neue Verbindungen bei Ausfall oder gefährdetem Anschluss benötigen deine Bestätigung. Hinweise zeigen, wenn Daten veraltet oder nicht verfügbar sind. Prüfe bei einem ausgefallenen Halt zunächst den tatsächlichen Ausstieg vor Ort.</p>
         <p>Lass die PWA geöffnet und den Bildschirm eingeschaltet. App-Wechsel oder Bildschirmsperre pausiert die Navigation. Nach Rückkehr wartet sie auf einen aktuellen Standort. Bildschirm-Wachhalten kann vom Betriebssystem abgelehnt werden.</p>
-        <p>Bei eingeschalteter Fahrten-Speicherung werden Route, Abschnitt und Manöver lokal gespeichert, ohne GPS-Spur. Nach Neuladen fragt die App vor dem Fortsetzen nach. Beenden, Ankunft oder Ausschalten der Speicherung entfernt den Wiederaufnahmezustand. Ohne Internet bleibt der gespeicherte Streckenverlauf verfügbar; neue Routen, Fahrtdaten und Straßenkarten benötigen Internet. Browserstimmen können ebenfalls Internet benötigen.</p>
+        <p>Bei eingeschalteter Strecken-Speicherung werden Route, Abschnitt und Manöver lokal gespeichert, ohne GPS-Spur. Nach Neuladen fragt die App vor dem Fortsetzen nach. Beenden, Ankunft oder Ausschalten der Speicherung entfernt den Wiederaufnahmezustand. Ohne Internet bleibt der gespeicherte Streckenverlauf verfügbar; neue Routen, Fahrtdaten und Straßenkarten benötigen Internet. Browserstimmen können ebenfalls Internet benötigen.</p>
         <p>Zur Live-Aktualisierung gehen Fahrtkennungen an Transitous. Bei Neuberechnungen werden aktueller Start, Ziel, offene Zwischenstopps und Routing-Einstellungen übertragen. Sprachansagen verwenden die Stimmen deines Browsers beziehungsweise Betriebssystems.</p>
       </section>
       <footer>

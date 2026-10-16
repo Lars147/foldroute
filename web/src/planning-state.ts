@@ -3,11 +3,17 @@ import {
   type RouteRequest,
   type RoutingSettings,
   errorText,
+  PlannerError,
   retainSelectedJourney,
 } from "./model";
 import { planRoutes } from "./planner";
 import { ApiClient } from "./transitous";
 import { locate } from "./search";
+export interface PlanningRecovery {
+  action: "retry" | "adjust";
+  request: RouteRequest;
+  retryAt?: number;
+}
 export interface PlanningState {
   journeys: Journey[];
   selected?: Journey;
@@ -22,6 +28,7 @@ export interface PlanningState {
   calculationId?: string;
   pendingRequest?: RouteRequest;
   staleReason?: string;
+  recovery?: PlanningRecovery;
 }
 export class PlanningSession {
   state: PlanningState = {
@@ -48,11 +55,20 @@ export class PlanningSession {
   private emit() {
     this.change(this.state);
   }
-  stop(message = "Suche abgebrochen. Bisherige Ergebnisse bleiben verfügbar.") {
+  stop(
+    message = "Suche abgebrochen. Bisherige Ergebnisse bleiben verfügbar.",
+    recovery?: PlanningRecovery,
+  ) {
     this.generation++;
     this.controller?.abort();
     this.controller = undefined;
-    this.state = { ...this.state, busy: false, locating: false, message };
+    this.state = {
+      ...this.state,
+      busy: false,
+      locating: false,
+      message,
+      recovery,
+    };
     this.emit();
   }
   clear() {
@@ -168,6 +184,7 @@ export class PlanningSession {
         ? "Standort wird ermittelt …"
         : "Verbindungen werden gesucht …",
       issues: [],
+      recovery: undefined,
     };
     this.emit();
     let locating = false,
@@ -224,6 +241,14 @@ export class PlanningSession {
                   ? "Suche teilweise abgeschlossen."
                   : "",
             issues: update.issues,
+            recovery:
+              update.status === "partial"
+                ? {
+                    action: "retry",
+                    request: structuredClone(request),
+                    retryAt: this.client.retryAt || undefined,
+                  }
+                : undefined,
           };
           this.emit();
           continue;
@@ -260,11 +285,20 @@ export class PlanningSession {
                 ? "Suche teilweise abgeschlossen."
                 : "",
           issues: update.issues,
+          recovery:
+            update.status === "partial"
+              ? {
+                  action: "retry",
+                  request: structuredClone(request),
+                  retryAt: this.client.retryAt || undefined,
+                }
+              : undefined,
         };
         this.emit();
       }
       if (!received)
-        throw new Error(
+        throw new PlannerError(
+          this.state.issues.length ? "service" : "empty",
           this.state.issues.join(" ") ||
             "Keine passende Route gefunden. Ändere Start, Ziel, Zeit oder Einstellungen.",
         );
@@ -287,6 +321,19 @@ export class PlanningSession {
               "Die Aktualisierung ist nicht abgeschlossen. Diese Verbindung stammt aus der bisherigen Abfrage.")
             : undefined,
         message: errorText(error),
+        recovery: {
+          action:
+            locating ||
+            (error instanceof PlannerError &&
+              ["input", "empty"].includes(error.code))
+              ? "adjust"
+              : "retry",
+          request: structuredClone(request),
+          retryAt:
+            error instanceof PlannerError && error.retryAt
+              ? error.retryAt
+              : this.client.retryAt || undefined,
+        },
       };
       this.emit();
       if (locating) return "location-error";

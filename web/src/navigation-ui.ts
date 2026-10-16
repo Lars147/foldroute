@@ -15,6 +15,7 @@ export class NavigationView {
   private mobile = matchMedia("(max-width: 899px)");
   private detailsOpen = false;
   private dragY?: number;
+  private confirmationTrigger?: HTMLElement;
   private guidance = new NavigationGuidance((message) => {
     this.voiceMessage = message;
     el("navigation-audio-status").textContent = message;
@@ -55,7 +56,7 @@ export class NavigationView {
         <small>Navigation bei geöffneter App. Bildschirm eingeschaltet lassen.</small>
         </div>
       </article>
-      <dialog id="navigation-confirm"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary">Bestätigen</button><button id="navigation-confirm-no" class="secondary">Abbrechen</button></div></dialog>`;
+      <dialog id="navigation-confirm" aria-labelledby="navigation-confirm-title" aria-describedby="navigation-confirm-message"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary" type="button">Bestätigen</button><button id="navigation-confirm-no" class="secondary" type="button">Abbrechen</button></div></dialog>`;
     el("main").append(this.root);
     el("navigation-center").append(icon("crosshair"));
     const toggle = el("navigation-details-toggle");
@@ -252,6 +253,7 @@ export class NavigationView {
     this.root.hidden = true;
     this.guidance.reset();
     this.phaseKey = "";
+    this.confirmationTrigger = undefined;
     el<HTMLDialogElement>("navigation-confirm").close();
     this.map?.dispose();
     this.map = undefined;
@@ -266,20 +268,68 @@ export class NavigationView {
     }
     this.confirm(
       "Navigation beenden?",
-      "Die Route bleibt in der Übersicht verfügbar. Die aktive Navigation wird beendet.",
+      "Die Route bleibt verfügbar.",
       this.exit,
+      {
+        confirmLabel: "Beenden",
+        cancelLabel: "Weiter navigieren",
+        endNavigation: true,
+      },
     );
   }
-  private confirm(title: string, message: string, action: () => void) {
+  dismissConfirmation() {
+    const dialog = el<HTMLDialogElement>("navigation-confirm");
+    if (!dialog.open) return false;
+    const trigger = this.confirmationTrigger;
+    this.confirmationTrigger = undefined;
+    dialog.close();
+    if (this.visible) {
+      const target =
+        trigger &&
+        this.root.contains(trigger) &&
+        trigger.getClientRects().length > 0
+          ? trigger
+          : el("navigation-end");
+      target.focus({ preventScroll: true });
+    }
+    return true;
+  }
+  private confirm(
+    title: string,
+    message: string,
+    action: () => void,
+    options: {
+      confirmLabel?: string;
+      cancelLabel?: string;
+      endNavigation?: boolean;
+    } = {},
+  ) {
     const dialog = el<HTMLDialogElement>("navigation-confirm");
     if (dialog.open) return;
+    this.confirmationTrigger =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
+    dialog.dataset.kind = options.endNavigation ? "end" : "section";
     el("navigation-confirm-title").textContent = title;
     el("navigation-confirm-message").textContent = message;
-    el("navigation-confirm-yes").onclick = () => {
+    const yes = el<HTMLButtonElement>("navigation-confirm-yes");
+    const no = el<HTMLButtonElement>("navigation-confirm-no");
+    yes.textContent = options.confirmLabel ?? "Bestätigen";
+    no.textContent = options.cancelLabel ?? "Abbrechen";
+    if (options.endNavigation) yes.before(no);
+    else no.before(yes);
+    no.autofocus = !!options.endNavigation;
+    yes.onclick = () => {
+      this.confirmationTrigger = undefined;
       dialog.close();
       action();
     };
-    el("navigation-confirm-no").onclick = () => dialog.close();
+    no.onclick = () => this.dismissConfirmation();
+    dialog.oncancel = (event) => {
+      event.preventDefault();
+      this.dismissConfirmation();
+    };
     dialog.showModal();
   }
   render() {

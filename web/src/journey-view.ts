@@ -34,6 +34,8 @@ export class JourneyView {
   onPositionChange?: () => void;
   private key = "";
   private displayedID?: string;
+  private restored = false;
+  private recoveryTimer?: ReturnType<typeof setTimeout>;
   private navigation: JourneyNavigation = {
     screen: "list",
     mapReturn: "list",
@@ -70,6 +72,7 @@ export class JourneyView {
     };
     const actionsDialog = el<HTMLDialogElement>("route-actions-dialog");
     const closeActions = () => {
+      if (!actionsDialog.open) return;
       actionsDialog.close();
       el("route-more").focus({ preventScroll: true });
     };
@@ -79,7 +82,12 @@ export class JourneyView {
       event.preventDefault();
       closeActions();
     });
-    for (const id of ["share-plan", "refresh-route", "replan-saved"]) {
+    for (const id of [
+      "share-plan",
+      "refresh-route",
+      "replan-saved",
+      "navigation-start",
+    ]) {
       el(id).addEventListener("click", closeActions, { capture: true });
     }
     this.desktop.addEventListener("change", () => {
@@ -213,10 +221,10 @@ export class JourneyView {
     el("result-back").hidden = !mobile || this.screen === "list";
     el("result-back").textContent = map
       ? this.savedOrigin
-        ? "‹ Fahrten"
+        ? "‹ Strecken"
         : "‹ Alle Verbindungen"
       : this.savedOrigin === "history"
-        ? "‹ Fahrten"
+        ? "‹ Strecken"
         : this.savedOrigin === "search"
           ? "‹ Zur Suche"
           : "‹ Alle Verbindungen";
@@ -231,6 +239,25 @@ export class JourneyView {
     mapToggle.hidden = !mobile || map;
     mapToggle.disabled = !this.displayedID;
     el("map-preview").hidden = !map;
+    const recovery = el("planning-recovery");
+    const recoveryAnchor = el(map ? "map-preview-status" : "stale-notice");
+    if (recovery.previousElementSibling !== recoveryAnchor)
+      recoveryAnchor.after(recovery);
+    const start = el("navigation-start");
+    const startParent = this.restored
+      ? el("route-actions-dialog")
+      : document.querySelector<HTMLElement>(".panel-actions")!;
+    if (start.parentElement !== startParent) startParent.append(start);
+    const replan = el("replan-saved");
+    const replanParent =
+      this.restored && map
+        ? el("map-preview")
+        : document.querySelector<HTMLElement>(".panel-actions")!;
+    if (replan.parentElement !== replanParent) {
+      if (map) replanParent.insertBefore(replan, el("map-open-details"));
+      else replanParent.append(replan);
+    }
+    el("map-open-details").className = this.restored ? "secondary" : "primary";
     const mapError = el("map-error");
     const errorParent = map ? el("map-preview") : el("panel-content");
     if (mapError.parentElement !== errorParent)
@@ -267,6 +294,22 @@ export class JourneyView {
   }
   render(state: PlanningState, cyclingLimit = 30) {
     const request = state.request;
+    if (this.restored !== state.restored) {
+      const start = el("navigation-start");
+      start.className = state.restored ? "secondary" : "primary";
+      start.setAttribute(
+        "aria-label",
+        state.restored
+          ? "Mit gespeicherter Route starten"
+          : "Navigation starten",
+      );
+      start.replaceChildren(
+        ...(state.restored
+          ? [document.createTextNode("Mit gespeicherter Route starten")]
+          : [icon("location"), document.createTextNode("Los")]),
+      );
+    }
+    this.restored = state.restored;
     // Keep the internal GPS label intact: planning uses it to refresh location.
     const originName =
       request?.origin.name === "Aktueller Standort"
@@ -297,7 +340,8 @@ export class JourneyView {
     el("refresh-route").textContent = state.staleReason
       ? "Erneut versuchen"
       : "Aktualisieren";
-    el("refresh-route").hidden = state.busy;
+    el("refresh-route").hidden =
+      state.busy || !!state.recovery || state.restored;
     el<HTMLButtonElement>("refresh-route").disabled =
       !state.request || !navigator.onLine;
     el<HTMLButtonElement>("adjust-route").disabled =
@@ -315,10 +359,33 @@ export class JourneyView {
       ? `${state.restored ? "Gespeichert" : "Stand"}: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}`
       : "";
     const mapStatus = el("map-preview-status");
-    mapStatus.textContent = state.restored
-      ? `Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`
-      : (state.staleReason ?? (state.busy ? state.message : ""));
+    mapStatus.textContent = state.recovery
+      ? state.message
+      : state.restored
+        ? `Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`
+        : (state.staleReason ?? (state.busy ? state.message : ""));
     mapStatus.hidden = !mapStatus.textContent;
+    clearTimeout(this.recoveryTimer);
+    const recovery = state.recovery;
+    el("planning-recovery").hidden = !recovery || state.busy;
+    const recover = el<HTMLButtonElement>("recover-planning");
+    recover.textContent =
+      recovery?.action === "adjust" ? "Route anpassen" : "Erneut versuchen";
+    const wait = Math.max(0, (recovery?.retryAt ?? 0) - Date.now() / 1000);
+    recover.disabled =
+      recovery?.action === "retry" && (!navigator.onLine || wait > 0);
+    el("recovery-wait").hidden = !wait || recovery?.action !== "retry";
+    el("recovery-wait").textContent = wait
+      ? `Erneut möglich ab ${clock(recovery!.retryAt!)}.`
+      : "";
+    if (wait && recovery?.action === "retry")
+      this.recoveryTimer = setTimeout(
+        () => {
+          recover.disabled = !navigator.onLine;
+          el("recovery-wait").hidden = true;
+        },
+        Math.min(wait * 1000, 2147483647),
+      );
     const onlyComparison =
       state.journeys.length > 0 &&
       state.journeys.every(

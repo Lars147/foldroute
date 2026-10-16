@@ -1,3 +1,4 @@
+import { openCachedJourney } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 const match = {
@@ -101,7 +102,7 @@ test("backfills an old start address, keeps route data intact and opens it offli
     "Marienplatz 22, München",
   );
   await page.context().setOffline(true);
-  await page.locator(".history-open").click();
+  await openCachedJourney(page, page.locator(".history-open"));
   await expect(page.locator("#panel-details")).toContainText(
     "Marienplatz 22, München",
   );
