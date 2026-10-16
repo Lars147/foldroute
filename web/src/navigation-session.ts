@@ -14,6 +14,7 @@ import {
   quality,
   type LocationFix,
   type LocationQuality,
+  type LocationRequestOptions,
 } from "./live-location";
 import {
   NavigationEngine,
@@ -84,7 +85,7 @@ export interface PreparedNavigation {
 export interface NavigationDependencies {
   routingSettings?: () => RoutingSettings;
   changed: () => void;
-  locate: () => Promise<LocationFix>;
+  locate: (options?: LocationRequestOptions) => Promise<LocationFix>;
   storageEnabled: () => boolean;
   api: ApiClient;
   store?: NavigationStore;
@@ -543,10 +544,13 @@ export class NavigationSession {
       this.foreground;
     this.locating = true;
     this.locationError = undefined;
+    this.requiredFixAfter = Date.now();
+    this.fixQuality = "stale";
+    engine.invalidateLocation();
     this.emit();
     let located = false;
     try {
-      const fix = await this.deps.locate();
+      const fix = await this.deps.locate({ fresh: true });
       if (!current()) return;
       this.updateLocation(fix, "current");
       this.usableFix();

@@ -274,23 +274,26 @@ function cancelMapCenter() {
   el<HTMLButtonElement>("map-location").disabled = false;
 }
 routeMap.onManualMove = cancelMapCenter;
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    if (navigationChecking) cancelNavigationCheck(true);
-    cancelMapCenter();
-    navigationView?.pause();
-  }
-  syncLiveLocation();
-});
-window.addEventListener("pagehide", () => {
+function suspendPage() {
   pagePresent = false;
+  if (navigationChecking) cancelNavigationCheck(true);
   navigationView?.pause();
   cancelMapCenter();
   syncLiveLocation();
-});
-window.addEventListener("pageshow", () => {
+}
+function resumePage() {
+  if (document.hidden) return;
   pagePresent = true;
   syncLiveLocation();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) suspendPage();
+  else resumePage();
+});
+window.addEventListener("pagehide", suspendPage);
+window.addEventListener("pageshow", resumePage);
+window.addEventListener("focus", () => {
+  if (!pagePresent) resumePage();
 });
 const journeyView = new JourneyView((id) => {
   cancelNavigationCheck();
@@ -363,7 +366,7 @@ journeyView.onBack = () => {
 navigation = new NavigationSession({
   api,
   store: navigationStore,
-  locate: () => liveLocation.center(true),
+  locate: (options) => liveLocation.center(true, options),
   storageEnabled: () => offlineEnabled,
   routingSettings: () => settings,
   changed: () => {
@@ -379,7 +382,23 @@ navigationView = new NavigationView(
   () => void endNavigation(),
   (replan) => void launchNavigation(replan),
 );
+navigationView.root.addEventListener("click", (event) => {
+  if (
+    !navigationView?.visible ||
+    !(event.target instanceof Element) ||
+    !event.target.closest(".navigation-credit a") ||
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  )
+    return;
+  suspendPage();
+});
 el("navigation-locate").onclick = async () => {
+  resumePage();
   if (!navigation!.engine) {
     await launchNavigation();
     return;

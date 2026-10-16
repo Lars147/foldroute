@@ -9,6 +9,9 @@ export interface LocationFix {
   speed?: number;
 }
 export type LocationQuality = "current" | "inaccurate" | "stale";
+export interface LocationRequestOptions {
+  fresh?: boolean;
+}
 export class LocationError extends Error {
   constructor(
     readonly reason:
@@ -92,6 +95,7 @@ export class LiveLocation {
   private active = false;
   private watch?: number;
   private generation = 0;
+  private requiredFixAfter = 0;
   private permission?: PermissionStatus;
   private sessionAllowed = false;
   private fix?: LocationFix;
@@ -120,6 +124,7 @@ export class LiveLocation {
     if (active === this.active) return;
     this.active = active;
     this.generation++;
+    if (!active || this.requiredFixAfter) this.requiredFixAfter = Date.now();
     if (!active) {
       this.stop();
       if (this.permission) this.permission.onchange = null;
@@ -198,7 +203,11 @@ export class LiveLocation {
         this.publish();
         this.fail(this.failure);
       },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 12000 },
+      {
+        enableHighAccuracy: true,
+        maximumAge: this.requiredFixAfter ? 0 : 5000,
+        timeout: 12000,
+      },
     );
   }
   private accept(position: GeolocationPosition) {
@@ -210,6 +219,7 @@ export class LiveLocation {
     if (
       this.active &&
       this.pending &&
+      fix.timestamp >= this.requiredFixAfter &&
       quality(fix) !== "stale" &&
       (!this.pending.accurate || quality(fix) === "current")
     ) {
@@ -222,7 +232,11 @@ export class LiveLocation {
   private publish() {
     this.changed(
       this.fix,
-      this.fix ? (this.failure ? "stale" : quality(this.fix)) : undefined,
+      this.fix
+        ? this.failure || this.fix.timestamp < this.requiredFixAfter
+          ? "stale"
+          : quality(this.fix)
+        : undefined,
       this.failure,
     );
   }
@@ -242,18 +256,32 @@ export class LiveLocation {
       new DOMException("Standortzentrierung abgebrochen", "AbortError"),
     );
   }
-  center(accurate = false): Promise<LocationFix> {
+  center(
+    accurate = false,
+    options: LocationRequestOptions = {},
+  ): Promise<LocationFix> {
     this.cancelCenter();
     if (!this.active)
       return Promise.reject(
         new DOMException("Karte nicht sichtbar", "AbortError"),
       );
-    if (this.permission && this.permission.state !== "granted") {
-      this.fix = undefined;
+    if (
+      options.fresh ||
+      (this.permission && this.permission.state !== "granted")
+    ) {
+      if (this.permission && this.permission.state !== "granted")
+        this.fix = undefined;
       this.stop();
     }
+    if (options.fresh) {
+      this.requiredFixAfter = Date.now();
+      this.failure = undefined;
+      this.publish();
+    }
     if (
+      !options.fresh &&
       this.fix &&
+      this.fix.timestamp >= this.requiredFixAfter &&
       !this.failure &&
       quality(this.fix) !== "stale" &&
       (!accurate || quality(this.fix) === "current")
@@ -287,7 +315,11 @@ export class LiveLocation {
               this.accept(position);
           },
           () => {}, // The watch and our deadline own failure reporting.
-          { enableHighAccuracy: false, maximumAge: 5000, timeout: 5000 },
+          {
+            enableHighAccuracy: false,
+            maximumAge: this.requiredFixAfter ? 0 : 5000,
+            timeout: 5000,
+          },
         );
     });
   }

@@ -301,6 +301,14 @@ async function setup(
     };
     const probe = {
       started: 0,
+      stopped: 0,
+      quickLookups: 0,
+      cachedAt: undefined as number | undefined,
+      lastWatchOptions: undefined as PositionOptions | undefined,
+      lastQuickOptions: undefined as PositionOptions | undefined,
+      get active() {
+        return watchers.size;
+      },
       silent: false,
       spoken: [] as string[],
       cancelled: 0,
@@ -308,10 +316,19 @@ async function setup(
         for (const error of errors.values())
           error({ code } as GeolocationPositionError);
       },
-      push(latitude: number, longitude: number, heading = 90, accuracy = 10) {
+      push(
+        latitude: number,
+        longitude: number,
+        heading = 90,
+        accuracy = 10,
+        age = 0,
+      ) {
         coords = { ...coords, latitude, longitude, heading, accuracy };
         for (const success of watchers.values())
-          success({ coords, timestamp: Date.now() } as GeolocationPosition);
+          success({
+            coords,
+            timestamp: Date.now() - age,
+          } as GeolocationPosition);
       },
       hide(hidden: boolean) {
         Object.defineProperty(document, "hidden", {
@@ -329,11 +346,16 @@ async function setup(
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: {
-        watchPosition(success: PositionCallback, error: PositionErrorCallback) {
+        watchPosition(
+          success: PositionCallback,
+          error: PositionErrorCallback,
+          options?: PositionOptions,
+        ) {
           const key = ++id;
           watchers.set(key, success);
           errors.set(key, error);
           probe.started++;
+          probe.lastWatchOptions = options;
           setTimeout(() => {
             if (!probe.silent)
               success({ coords, timestamp: Date.now() } as GeolocationPosition);
@@ -341,12 +363,22 @@ async function setup(
           return key;
         },
         clearWatch(key: number) {
+          probe.stopped++;
           watchers.delete(key);
           errors.delete(key);
         },
-        getCurrentPosition(success: PositionCallback) {
-          if (!probe.silent)
-            success({ coords, timestamp: Date.now() } as GeolocationPosition);
+        getCurrentPosition(
+          success: PositionCallback,
+          _error?: PositionErrorCallback,
+          options?: PositionOptions,
+        ) {
+          probe.quickLookups++;
+          probe.lastQuickOptions = options;
+          if (probe.cachedAt !== undefined || !probe.silent)
+            success({
+              coords,
+              timestamp: probe.cachedAt ?? Date.now(),
+            } as GeolocationPosition);
         },
       },
     });
@@ -715,6 +747,161 @@ test("denied permission explains recovery only in location details", async ({
   await page.clock.runFor(10);
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
   await expect(page.locator("#navigation-location-status")).toBeEmpty();
+});
+
+async function openNavigationCredit(page: Page, index = 1) {
+  await page.evaluate(() => {
+    (window as any).navProbe.silent = true;
+    // Model Safari's overlay without navigating the test page away.
+    document.addEventListener("click", (event) => {
+      if ((event.target as Element).closest(".navigation-credit a"))
+        event.preventDefault();
+    });
+  });
+  await page.locator(".navigation-credit a").nth(index).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).navProbe.active))
+    .toBe(0);
+  await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
+}
+
+for (const [creditIndex, returned] of [
+  [1, "focus"],
+  [0, "visibility"],
+  [1, "pageshow"],
+] as const)
+  test(`navigation location resumes once after a credit overlay returns through ${returned}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page, true);
+    const instruction = await page
+      .locator("#navigation-instruction")
+      .innerText();
+    const phase = await page.locator(".navigation-phase.current").innerText();
+    const started = await page.evaluate(() => (window as any).navProbe.started);
+    let planned = 0;
+    await page.route("**/api/v6/plan?*", (route) => {
+      planned++;
+      return route.fulfill({ json: { direct: [], itineraries: [] } });
+    });
+    await openNavigationCredit(page, creditIndex);
+    if (returned === "pageshow")
+      await page.evaluate(() =>
+        window.dispatchEvent(
+          new PageTransitionEvent("pagehide", { persisted: true }),
+        ),
+      );
+    if (returned === "visibility")
+      await page.evaluate(() => (window as any).navProbe.hide(true));
+    await page.clock.runFor(1000);
+    await page.evaluate((event) => {
+      if (event === "visibility") (window as any).navProbe.hide(false);
+      else if (event === "pageshow")
+        window.dispatchEvent(
+          new PageTransitionEvent("pageshow", { persisted: true }),
+        );
+      else window.dispatchEvent(new Event("focus"));
+    }, returned);
+    await expect
+      .poll(() => page.evaluate(() => (window as any).navProbe.active))
+      .toBe(1);
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(
+        new PageTransitionEvent("pageshow", { persisted: true }),
+      );
+      (window as any).navProbe.hide(false);
+    });
+    await page.clock.runFor(10);
+    expect(await page.evaluate(() => (window as any).navProbe.started)).toBe(
+      started + 1,
+    );
+    expect(
+      await page.evaluate(
+        () => (window as any).navProbe.lastWatchOptions.maximumAge,
+      ),
+    ).toBe(0);
+    await expect(page.locator("#navigation-gps-status")).toBeVisible();
+    await page.evaluate(() =>
+      (window as any).navProbe.push(48, 11, 90, 10, 1000),
+    );
+    await expect(page.locator("#navigation-gps-status")).toBeVisible();
+    await page.evaluate(() => (window as any).navProbe.push(48, 11));
+    await expect(page.locator("#navigation-gps-status")).toBeHidden();
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      instruction,
+    );
+    await expect(page.locator(".navigation-phase.current")).toHaveText(phase);
+    expect(planned).toBe(0);
+  });
+
+test("location retry recovers a credit overlay without return events and replaces each silent watch", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.evaluate(() => {
+    (window as any).navProbe.cachedAt = Date.now();
+  });
+  await openNavigationCredit(page);
+  await page.clock.runFor(1000);
+  await page.locator("#navigation-details-toggle").click();
+  const retry = page.locator("#navigation-locate");
+  await expect(retry).toBeEnabled();
+  await retry.click();
+  await expect(retry).toBeDisabled();
+  await expect(retry).toHaveText("Standort wird gesucht …");
+  expect(
+    await page.evaluate(
+      () => (window as any).navProbe.lastQuickOptions.maximumAge,
+    ),
+  ).toBe(0);
+  await expect(page.locator("#navigation-gps-status")).toBeVisible();
+  await page.clock.runFor(12100);
+  await expect(retry).toBeEnabled();
+  await expect(page.locator("#navigation-location-status")).toContainText(
+    "dauert zu lange",
+  );
+  const started = await page.evaluate(() => (window as any).navProbe.started);
+  await retry.click();
+  await expect(retry).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).navProbe.started)).toBe(
+    started + 1,
+  );
+  expect(await page.evaluate(() => (window as any).navProbe.active)).toBe(1);
+  await page.evaluate(() => (window as any).navProbe.push(48, 11));
+  await expect(page.locator("#navigation-gps-status")).toBeHidden();
+  await expect(page.locator("#navigation-location-status")).toBeEmpty();
+  await expect(page.locator("#navigation-location")).toBeHidden();
+});
+
+test("overlay return without permission queries waits for an explicit fresh retry", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: {
+        query: async () => {
+          throw new Error("unsupported");
+        },
+      },
+    });
+  });
+  await openNavigationCredit(page);
+  await page.clock.runFor(1000);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.clock.runFor(10);
+  expect(await page.evaluate(() => (window as any).navProbe.active)).toBe(0);
+  await page.locator("#navigation-details-toggle").click();
+  await page.locator("#navigation-locate").click();
+  await expect(page.locator("#navigation-locate")).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).navProbe.active)).toBe(1);
+  await page.evaluate(() => (window as any).navProbe.push(48, 11));
+  await expect(page.locator("#navigation-gps-status")).toBeHidden();
 });
 
 test("mobile details resize without recentering a manually moved map and keep stop actions visible", async ({

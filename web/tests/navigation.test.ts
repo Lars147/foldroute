@@ -544,14 +544,28 @@ it("clears a location timeout on reliable GPS while preserving other messages du
   await session.stop();
 });
 it("keeps route messages after a successful explicit location retry", async () => {
-  const { session } = sessionHarness();
+  const { session, locate } = sessionHarness();
   await session.start(journey(), request, defaults);
   session.updateLocation(undefined);
   session.message = "Route konnte nicht berechnet werden.";
   await session.retryLocation();
+  expect(locate).toHaveBeenLastCalledWith({ fresh: true });
   expect(session.hasCurrentLocation).toBe(true);
   expect(session.locationError).toBeUndefined();
   expect(session.message).toBe("Route konnte nicht berechnet werden.");
+  await session.stop();
+});
+it("requires a measurement from the retry even without a foreground gap", async () => {
+  const { session, locate } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  vi.setSystemTime((now + 10) * 1000);
+  locate.mockResolvedValueOnce(fix(a, 1));
+  await session.retryLocation();
+  expect(session.locationQuality).toBe("stale");
+  expect(session.locationError?.reason).toBe("unusable");
+  session.updateLocation(fix(a, 11), "current");
+  expect(session.hasCurrentLocation).toBe(true);
+  expect(session.locationError).toBeUndefined();
   await session.stop();
 });
 it.each(["resolve", "reject"] as const)(

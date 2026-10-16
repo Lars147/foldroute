@@ -298,3 +298,148 @@ it("ignores a quick fix received after cancelling the request", async () => {
   success(position());
   expect(changed).not.toHaveBeenCalled();
 });
+
+it("keeps recent cached locations stale until a new measurement after returning", async () => {
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  const cached = position();
+  callbacks.get(1)!.success(cached);
+  service.setActive(false);
+  vi.advanceTimersByTime(1000);
+  service.setActive(true);
+  await flush();
+  expect(changed).toHaveBeenLastCalledWith(readFix(cached), "stale", undefined);
+  expect(watch.mock.calls[1][2].maximumAge).toBe(0);
+  const resolved = vi.fn();
+  const pending = service.center().then(resolved);
+  callbacks.get(2)!.success(cached);
+  await flush();
+  expect(resolved).not.toHaveBeenCalled();
+  callbacks.get(2)!.success(position());
+  await pending;
+  expect(resolved).toHaveBeenCalledWith(readFix(position()));
+});
+
+it("fresh requests replace a silent watch and reject cached quick fixes", async () => {
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  const cached = position();
+  callbacks.get(1)!.success(cached);
+  const single = vi.fn((success: PositionCallback) => success(cached));
+  Object.assign(navigator.geolocation, { getCurrentPosition: single });
+  vi.advanceTimersByTime(1000);
+  const resolved = vi.fn();
+  const pending = service.center(true, { fresh: true }).then(resolved);
+  await flush();
+  expect(clear).toHaveBeenCalledWith(1);
+  expect(watch).toHaveBeenCalledTimes(2);
+  expect(watch.mock.calls[1][2].maximumAge).toBe(0);
+  expect(single.mock.calls[0][2].maximumAge).toBe(0);
+  expect(resolved).not.toHaveBeenCalled();
+  expect(changed).toHaveBeenLastCalledWith(readFix(cached), "stale", undefined);
+  changed.mockClear();
+  callbacks.get(1)!.success(position(10, Date.now(), 49));
+  expect(changed).not.toHaveBeenCalled();
+  callbacks.get(2)!.success(position(500));
+  await flush();
+  expect(resolved).not.toHaveBeenCalled();
+  callbacks.get(2)!.success(position());
+  await pending;
+  expect(resolved).toHaveBeenCalledWith(readFix(position()));
+});
+
+it("fresh retries work without permission queries after returning", async () => {
+  query.mockRejectedValue(new Error("unsupported"));
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  const first = service.center(true);
+  callbacks.get(1)!.success(position());
+  await first;
+  service.setActive(false);
+  vi.advanceTimersByTime(1000);
+  service.setActive(true);
+  await flush();
+  expect(watch).toHaveBeenCalledTimes(1);
+  const retry = service.center(true, { fresh: true });
+  expect(watch).toHaveBeenCalledTimes(2);
+  callbacks.get(2)!.success(position());
+  expect(await retry).toEqual(readFix(position()));
+});
+
+it("restarts another watch after a timeout and ignores old one-shot replies", async () => {
+  const singles: PositionCallback[] = [];
+  Object.assign(navigator.geolocation, {
+    getCurrentPosition: (success: PositionCallback) => singles.push(success),
+  });
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  const first = expect(
+    service.center(true, { fresh: true }),
+  ).rejects.toMatchObject({
+    reason: "timeout",
+  });
+  await vi.advanceTimersByTimeAsync(12000);
+  await first;
+  const resolved = vi.fn();
+  const retry = service.center(true, { fresh: true }).then(resolved);
+  expect(clear.mock.calls.map(([id]) => id)).toEqual([1, 2]);
+  expect(watch).toHaveBeenCalledTimes(3);
+  singles[0](position(10, Date.now(), 49));
+  await flush();
+  expect(resolved).not.toHaveBeenCalled();
+  singles[1](position());
+  await retry;
+  expect(resolved).toHaveBeenCalledWith(readFix(position()));
+});
+
+it("cancels a fresh request when hidden and ignores its late reply after return", async () => {
+  let single!: PositionCallback;
+  Object.assign(navigator.geolocation, {
+    getCurrentPosition: (success: PositionCallback) => (single = success),
+  });
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  const pending = expect(
+    service.center(true, { fresh: true }),
+  ).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  service.setActive(false);
+  await pending;
+  vi.advanceTimersByTime(1000);
+  service.setActive(true);
+  await flush();
+  changed.mockClear();
+  single(position(10, Date.now(), 49));
+  callbacks.get(2)!.success(position(10, Date.now(), 49));
+  expect(changed).not.toHaveBeenCalled();
+  callbacks.get(3)!.success(position());
+  expect(changed).toHaveBeenLastCalledWith(
+    readFix(position()),
+    "current",
+    undefined,
+  );
+});
+
+it("does not let a delayed permission query interrupt an explicit fresh request", async () => {
+  let resolve!: (status: unknown) => void;
+  query.mockImplementation(() => new Promise((done) => (resolve = done)));
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  const pending = service.center(true, { fresh: true });
+  permission.state = "prompt";
+  resolve(permission);
+  await flush();
+  expect(clear).not.toHaveBeenCalled();
+  expect(watch).toHaveBeenCalledTimes(1);
+  callbacks.get(1)!.success(position());
+  expect(await pending).toEqual(readFix(position()));
+});
