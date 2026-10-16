@@ -146,11 +146,11 @@ for (const mobile of [false, true])
     await expect(page.locator("#navigation-status")).toContainText(
       "Bitte zum Übernehmen bestätigen",
     );
-    await expect(page.locator("#navigation-phases")).toContainText("ÖPNV");
+    await expect(page.getByRole("tab", { name: /^S1 nach/ })).toHaveCount(1);
     await page.locator("#navigation-accept").click();
     await expect(page.locator("#navigation-status")).toBeEmpty();
     await expect(page.locator("#navigation-alternative")).toBeHidden();
-    await expect(page.locator("#navigation-phases")).not.toContainText("ÖPNV");
+    await expect(page.getByRole("tab", { name: /^S1 nach/ })).toHaveCount(0);
     if (mobile) await expect(page.locator("#navigation-details")).toBeHidden();
     await expect
       .poll(() =>
@@ -613,6 +613,472 @@ async function complete(page: Page) {
   await page.locator("#navigation-confirm-yes").click();
 }
 
+async function expectTabVisible(
+  page: Page,
+  selector = '[aria-selected="true"]',
+) {
+  await expect
+    .poll(() =>
+      page.locator("#navigation-phases").evaluate((strip, selector) => {
+        const bounds = strip.getBoundingClientRect();
+        const selected = strip.querySelector(selector)!.getBoundingClientRect();
+        return (
+          selected.left >= bounds.left - 1 && selected.right <= bounds.right + 1
+        );
+      }, selector),
+    )
+    .toBe(true);
+}
+
+async function expectCurrentTabAligned(page: Page) {
+  await expectTabVisible(page, '[aria-current="step"]');
+  await expect
+    .poll(() =>
+      page.locator("#navigation-phases").evaluate((strip) => {
+        const current = strip.querySelector('[aria-current="step"]')!;
+        const gap =
+          current.getBoundingClientRect().left -
+          strip.getBoundingClientRect().left;
+        const atEnd =
+          strip.scrollWidth - strip.clientWidth - strip.scrollLeft <= 1;
+        return (
+          Math.abs(gap - 24) <= 1 ||
+          atEnd ||
+          (current === strip.firstElementChild && strip.scrollLeft <= 1)
+        );
+      }),
+    )
+    .toBe(true);
+}
+
+for (const width of [320, 390, 1280])
+  test(`section tabs preview details independently of live navigation at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page, true);
+    const tabs = page.getByRole("tab");
+    const fold = tabs.nth(1),
+      train = tabs.nth(2),
+      unfold = tabs.nth(3),
+      lastBike = tabs.nth(6);
+    await expect(tabs).toHaveCount(7);
+    await expect(page.locator("#navigation-transit-status")).toContainText(
+      "Echtzeit",
+    );
+    await expect(tabs.nth(0)).toHaveAttribute("aria-current", "step");
+    const accentColor = await tabs
+      .nth(0)
+      .locator(".navigation-phase-symbol")
+      .evaluate((symbol) => getComputedStyle(symbol).color);
+    const instruction = await page
+      .locator("#navigation-instruction")
+      .innerText();
+    const spoken = await page.evaluate(() => [
+      ...(window as any).navProbe.spoken,
+    ]);
+    const progress = await savedProgress(page);
+    await train.click();
+    await expect(page.getByRole("tabpanel")).toBeVisible();
+    await expect(train).toHaveAttribute("aria-selected", "true");
+    await expect(tabs.nth(0)).toHaveAttribute("aria-current", "step");
+    await expect(tabs.nth(0).locator(".navigation-phase-symbol")).toHaveCSS(
+      "border-top-color",
+      accentColor,
+    );
+    await expect(train.locator(".navigation-phase-symbol")).toHaveCSS(
+      "border-top-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await expect(page.locator("#navigation-stage")).toHaveText(
+      "S1 · Abschnitt 3 von 7",
+    );
+    const detail = page.locator("#navigation-section-content");
+    await expect(
+      detail.locator('[data-kind="fold"], [data-kind="unfold"]'),
+    ).toHaveCount(0);
+    await expect(detail).toContainText("Richtung Altstadt");
+    await expect(detail).toContainText("Bahnhof");
+    await expect(detail).toContainText("Ausstieg");
+    await expect(detail).toContainText("Gleis / Steig 4");
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await page
+      .locator("#navigation-complete")
+      .evaluate((button: HTMLButtonElement) => button.click());
+    await expect(page.locator("#navigation-confirm")).not.toBeVisible();
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      instruction,
+    );
+    expect(await savedProgress(page)).toEqual(progress);
+    expect(await page.evaluate(() => (window as any).navProbe.spoken)).toEqual(
+      spoken,
+    );
+    await train.click();
+    await expect(page.getByRole("tabpanel")).toBeVisible();
+
+    // Actual folding gets its own current marker while the train preview stays open.
+    await page.clock.runFor(10000);
+    await page.evaluate(() => (window as any).navProbe.push(48, 11.002));
+    await page.clock.runFor(12000);
+    await page.evaluate(() => (window as any).navProbe.push(48.002, 11.002, 0));
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      "Rad jetzt falten",
+    );
+    await expect(fold).toHaveAttribute("aria-current", "step");
+    await expectCurrentTabAligned(page);
+    await expect(train).toHaveAttribute("aria-selected", "true");
+    await expect(fold.locator(".navigation-phase-symbol")).toHaveCSS(
+      "border-top-color",
+      accentColor,
+    );
+    await expect(tabs.nth(0).locator(".navigation-phase-symbol")).toHaveCSS(
+      "border-top-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await fold.click();
+    await expect(detail).toContainText("Falten");
+    await expect(detail).toContainText("Bahnhof");
+    await expect(detail.locator('[data-kind="transit"]')).toHaveCount(0);
+    await expect(page.locator("#navigation-complete")).toHaveText(
+      "Rad gefaltet",
+    );
+    await complete(page);
+    await expect(train).toHaveAttribute("aria-current", "step");
+    await expect(train).toHaveAttribute("aria-selected", "true");
+    await expectCurrentTabAligned(page);
+    await expect(page.locator("#navigation-complete")).toHaveText(
+      "Ausgestiegen",
+    );
+
+    await lastBike.click();
+    await expect(detail).toContainText("Rad bis Ziel");
+    await expect(detail).toContainText("169 m");
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await page.evaluate(() =>
+      setInterval(() => (window as any).navProbe.push(48.003, 11.004), 10000),
+    );
+    await page.clock.runFor(600000);
+    await expect(unfold).toHaveAttribute("aria-current", "step");
+    await expect(lastBike).toHaveAttribute("aria-selected", "true");
+    await expect(lastBike).toBeFocused();
+    await expectCurrentTabAligned(page);
+    await expect(unfold.locator(".navigation-phase-symbol")).toHaveCSS(
+      "border-top-color",
+      accentColor,
+    );
+    await expect(lastBike.locator(".navigation-phase-symbol")).toHaveCSS(
+      "border-top-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await expect(detail).toContainText("Rad bis Ziel");
+    if (width < 900) {
+      await page.locator("#navigation-details-toggle").click();
+      await expect(page.locator("#navigation-details")).toBeHidden();
+      await expect(unfold).toHaveAttribute("aria-selected", "true");
+      await expect(lastBike).toHaveAttribute("aria-selected", "false");
+      await expectTabVisible(page);
+      await expectCurrentTabAligned(page);
+    }
+    await unfold.click();
+    await expect(unfold).toBeFocused();
+    await expect(detail).toContainText("Entfalten");
+    await expect(detail.locator('[data-kind="walk"]')).toHaveCount(0);
+    await expect(page.locator("#navigation-complete")).toHaveText(
+      "Rad entfaltet",
+    );
+    await tabs.nth(4).click();
+    await expect(detail).toContainText("Zu Fuß bis Café");
+    await expect(detail.locator('[data-kind="unfold"]')).toHaveCount(0);
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+  });
+
+for (const width of [320, 390])
+  test(`section tabs align current progress on resume and stop at the natural end at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    const journey = route(true);
+    journey.legs = journey.legs.slice(0, 5);
+    journey.legs[4].kind = "bike";
+    journey.destination = e;
+    journey.arrival = journey.legs.at(-1)!.end;
+    await setup(page, true, true, {}, journey);
+    const tabs = page.getByRole("tab");
+    const strip = page.locator("#navigation-phases");
+    await expectCurrentTabAligned(page);
+    expect(await strip.evaluate((element) => element.scrollLeft)).toBe(0);
+    await complete(page);
+    await complete(page);
+    await expect(tabs.nth(2)).toHaveAttribute("aria-current", "step");
+    await expectCurrentTabAligned(page);
+
+    await tabs.last().click();
+    await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
+    await page.locator("#navigation-details-toggle").click();
+    await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
+    await expectCurrentTabAligned(page);
+
+    await expect.poll(() => savedProgress(page)).toMatchObject({ legIndex: 2 });
+    await page.reload();
+    await page.locator("#navigation-resume").click();
+    await expect(tabs.nth(2)).toHaveAttribute("aria-current", "step");
+    await expectCurrentTabAligned(page);
+    await complete(page);
+    await complete(page);
+    await expect(tabs.last()).toHaveAttribute("aria-current", "step");
+    await expectCurrentTabAligned(page);
+    await expect
+      .poll(() =>
+        strip.evaluate((element) =>
+          Math.abs(
+            element.getBoundingClientRect().right -
+              element.lastElementChild!.getBoundingClientRect().right -
+              parseFloat(getComputedStyle(element).paddingRight),
+          ),
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+  });
+
+test("section tabs support keyboard navigation, collapsed summary order and resume", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await setup(page, true);
+  const tabs = page.getByRole("tab");
+  await expect(page.locator("#navigation-details")).toBeHidden();
+  const summary = await page.locator("#navigation-summary").boundingBox();
+  const strip = await page.getByRole("tablist").boundingBox();
+  expect(strip!.y).toBeGreaterThanOrEqual(summary!.y + summary!.height);
+  expect(
+    await tabs.evaluateAll((elements) =>
+      elements.every((element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.width >= 48 && bounds.height >= 48;
+      }),
+    ),
+  ).toBe(true);
+  await expect(tabs.nth(0)).toHaveAttribute("tabindex", "0");
+  await tabs.nth(0).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(tabs.nth(1)).toBeFocused();
+  await expect(page.getByRole("tabpanel")).toHaveAttribute(
+    "aria-labelledby",
+    (await tabs.nth(1).getAttribute("id")) as string,
+  );
+  await page.keyboard.press("End");
+  await expect(tabs.nth(6)).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(tabs.nth(0)).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(tabs.nth(6)).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(tabs.nth(0)).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("End");
+  await expect(tabs.nth(6)).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#navigation-details")).toBeHidden();
+  await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.nth(0)).toBeFocused();
+  await expectTabVisible(page);
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("tabpanel")).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("tabpanel")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#navigation-details-toggle")).toBeFocused();
+
+  await tabs.nth(1).click();
+  await expect.poll(() => savedActive(page)).toBe(true);
+  await page.reload();
+  await page.locator("#navigation-resume").click();
+  await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#navigation-details")).toBeHidden();
+});
+
+test("section tabs present folding and unfolding as five peer sections", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const journey = route(true);
+  journey.legs = journey.legs.slice(0, 5);
+  journey.legs[4].kind = "bike";
+  journey.destination = e;
+  journey.arrival = journey.legs.at(-1)!.end;
+  await setup(page, true, true, {}, journey);
+  const tabs = page.getByRole("tab");
+  const detail = page.locator("#navigation-section-content");
+  await expect(tabs).toHaveCount(5);
+  await expect(tabs).toHaveText(["Rad", "Falten", "S1", "Entfalten", "Rad"]);
+  await expect(
+    tabs.locator('.navigation-phase-symbol[aria-hidden="true"]'),
+  ).toHaveCount(5);
+  await expect(tabs.nth(0).locator('[data-icon="bike"] svg')).toBeVisible();
+  await expect(tabs.nth(1).locator('[data-icon="fold"] svg')).toBeVisible();
+  await expect(tabs.nth(2).locator('[data-icon="transit"] svg')).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("five-tabs-collapsed.png"),
+  });
+  await tabs.nth(1).click();
+  await expect(detail.locator('[data-kind="fold"]')).toBeVisible();
+  await expect(detail.locator('[data-kind="transit"]')).toHaveCount(0);
+  await expect(page.locator("#navigation-stage")).toHaveText(
+    "Falten · Abschnitt 2 von 5",
+  );
+  await expect(page.locator("#navigation-complete")).toBeHidden();
+  await tabs.nth(2).click();
+  await expect(
+    detail.locator('[data-kind="fold"], [data-kind="unfold"]'),
+  ).toHaveCount(0);
+  await tabs.nth(3).click();
+  await expect(tabs.nth(3).locator('[data-icon="unfold"] svg')).toBeVisible();
+  await expect(detail.locator('[data-kind="unfold"]')).toBeVisible();
+  await expect(detail.locator('[data-kind="bike"]')).toHaveCount(0);
+  await expect(page.locator("#navigation-stage")).toHaveText(
+    "Entfalten · Abschnitt 4 von 5",
+  );
+  await tabs.nth(4).click();
+  await expect(detail.locator('[data-kind="unfold"]')).toHaveCount(0);
+  await expect(detail).toContainText("Rad bis Café");
+});
+
+test("section tabs keep separate train details", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const journey = route(true);
+  const second = {
+    ...structuredClone(journey.legs[2]),
+    from: d,
+    to: f,
+    line: "U3",
+    headsign: "Fürstenried West",
+    platform: "1",
+    arrivalPlatform: "8",
+    realtime: false,
+    start: now + 900,
+    end: now + 1020,
+    transitReference: undefined,
+  };
+  journey.legs = [
+    ...journey.legs.slice(0, 3),
+    second,
+    ...journey.legs
+      .slice(3)
+      .map((leg) => ({ ...leg, start: leg.start + 420, end: leg.end + 420 })),
+  ];
+  journey.arrival = journey.legs.at(-1)!.end;
+  await setup(page, true, true, {}, journey);
+  await page.getByRole("tab", { name: /^U3 nach/ }).click();
+  const details = page.locator("#navigation-section-content");
+  await expect(details).toContainText("Richtung Fürstenried West");
+  await expect(details).toContainText("Gleis / Steig 8");
+  await expect(page.locator("#navigation-transit-status")).toContainText("U3");
+  await expect(details).not.toContainText("Altstadt");
+  await page.getByRole("tab", { name: /^S1 nach/ }).click();
+  await expect(details).toContainText("Richtung Altstadt");
+  await expect(details).not.toContainText("Fürstenried West");
+});
+
+for (const mode of ["BUS", "COACH"])
+  test(`section tabs retain the line label alongside the bus symbol for ${mode}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const journey = route(true);
+    journey.legs[2].mode = mode;
+    journey.legs[2].line = mode === "BUS" ? "52" : "X35";
+    await setup(page, true, true, {}, journey);
+    const tab = page.getByRole("tab", {
+      name: new RegExp(`^${journey.legs[2].line} nach`),
+    });
+    await expect(tab).toHaveText(journey.legs[2].line!);
+    await expect(tab.locator('[data-icon="bus"] svg')).toBeVisible();
+    await tab.click();
+    await expect(page.locator("#navigation-section-content")).toContainText(
+      journey.legs[2].line!,
+    );
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      "Links abbiegen auf Zweite Straße",
+    );
+  });
+
+for (const colorScheme of ["light", "dark"] as const)
+  test(`section tabs retain focus and scrolling through live updates (${colorScheme})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.emulateMedia({ colorScheme });
+    await setup(page, true);
+    await page.evaluate(
+      () => (document.documentElement.style.fontSize = "24px"),
+    );
+    const current = page.getByRole("tab", { name: /^Rad nach Bahnhof/ });
+    const train = page.getByRole("tab", { name: /^S1 nach/ });
+    const activeColor = await current.evaluate(
+      (tab) => getComputedStyle(tab).color,
+    );
+    const inactiveColor = await train.evaluate(
+      (tab) => getComputedStyle(tab).color,
+    );
+    expect(activeColor).not.toBe(inactiveColor);
+    await train.click();
+    await expect(train).toBeFocused();
+    await expect(train).toHaveCSS("color", activeColor);
+    await expect(train).toHaveCSS("font-weight", "650");
+    await expect(train).toHaveCSS("border-bottom-color", activeColor);
+    await expect(current).toHaveAttribute("aria-current", "step");
+    await expect(current).toHaveCSS("color", inactiveColor);
+    await expect(current).toHaveCSS("font-weight", "500");
+    await expect(current).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
+    const currentSymbol = current.locator(".navigation-phase-symbol");
+    const journeyColor = await currentSymbol.evaluate(
+      (symbol) => getComputedStyle(symbol).color,
+    );
+    expect(journeyColor).not.toBe(activeColor);
+    await expect(currentSymbol).toHaveCSS("border-top-color", journeyColor);
+    await expect(train.locator(".navigation-phase-symbol")).toHaveCSS(
+      "border-top-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await expect(page.locator("#navigation-end")).toBeVisible();
+    await expectMobileCredit(page);
+    const scroll = await page.evaluate(() => {
+      const details = document.getElementById("navigation-details")!;
+      details.scrollTop = 45;
+      return {
+        details: details.scrollTop,
+        tabs: document.getElementById("navigation-phases")!.scrollLeft,
+      };
+    });
+    await page.clock.runFor(61000);
+    await expect(train).toBeFocused();
+    await expect(train).toHaveAttribute("aria-selected", "true");
+    expect(
+      await page.locator("#navigation-details").evaluate((e) => e.scrollTop),
+    ).toBe(scroll.details);
+    expect(
+      await page.locator("#navigation-phases").evaluate((e) => e.scrollLeft),
+    ).toBe(scroll.tabs);
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "onLine", {
+        configurable: true,
+        get: () => false,
+      });
+      window.dispatchEvent(new Event("offline"));
+    });
+    await expect(page.locator("#navigation-network-status")).toContainText(
+      "Offline",
+    );
+    await expect(train).toBeFocused();
+    await expect(page.locator("#navigation-section-content")).toContainText(
+      "S1",
+    );
+    await page.screenshot({
+      path: test.info().outputPath(`section-tabs-${colorScheme}.png`),
+    });
+  });
+
 async function expectMobileCredit(page: Page) {
   await expect
     .poll(() =>
@@ -714,7 +1180,7 @@ for (const [width, height] of [
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
     });
-    expect(bounds.panelHeight).toBeLessThanOrEqual(88);
+    expect(bounds.panelHeight).toBeLessThanOrEqual(140);
     expect(bounds.endWidth).toBeGreaterThanOrEqual(44);
     expect(bounds.endHeight).toBeGreaterThanOrEqual(44);
     expect(bounds.overflow).toBe(false);

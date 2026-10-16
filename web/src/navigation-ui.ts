@@ -2,8 +2,17 @@ import type { NavigationSession } from "./navigation-session";
 import type { NavigationMap } from "./navigation-map";
 import { NavigationGuidance } from "./navigation-guidance";
 import { clock, duration, el, node, icon } from "./ui";
-import { kindNames } from "./model";
+import type { Leg } from "./model";
 import { movement, freshTransit } from "./navigation-engine";
+import { renderJourneyDetails } from "./journey-detail";
+import {
+  navigationSections,
+  sectionLabel,
+  type NavigationSection,
+} from "./navigation-sections";
+
+const transitStatus = (transit: Leg) =>
+  `${transit.transitStatus?.failure === "network" ? "Abruf fehlgeschlagen" : transit.transitStatus?.failure === "unavailable" ? "Aktualisierung nicht verfügbar" : !freshTransit(transit, Date.now() / 1000) ? "Fahrtdaten veraltet" : transit.realtime ? "Echtzeit" : "Fahrplan"}${transit.transitStatus?.updatedAt ? ` · Stand ${clock(transit.transitStatus.updatedAt)}` : ""}`;
 
 export class NavigationView {
   readonly root: HTMLElement;
@@ -14,6 +23,11 @@ export class NavigationView {
   private phaseKey = "";
   private mobile = matchMedia("(max-width: 899px)");
   private detailsOpen = false;
+  private sections: NavigationSection[] = [];
+  private selectedSectionId?: string;
+  private currentSectionId?: string;
+  private tabsKey = "";
+  private sectionDetailKey = "";
   private dragY?: number;
   private confirmationTrigger?: HTMLElement;
   private guidance = new NavigationGuidance((message) => {
@@ -30,7 +44,7 @@ export class NavigationView {
     this.root.setAttribute("aria-label", "Aktive Navigation");
     this.root.innerHTML = `
       <div id="navigation-map" tabindex="0" aria-label="Navigationskarte in Fahrtrichtung"></div>
-      <div class="navigation-top" id="navigation-top"><div id="navigation-phases" aria-label="Reiseabschnitte"></div></div>
+      <div class="navigation-top" id="navigation-top"><div id="navigation-phases" role="tablist" aria-label="Reiseabschnitte"></div></div>
       <div id="navigation-gps-status" role="status" aria-live="polite" aria-atomic="true" hidden></div>
       <div class="navigation-map-controls" role="group" aria-label="Kartensteuerung">
         <button id="navigation-audio" class="navigation-icon-button secondary" type="button" aria-label="Ton ausschalten" title="Ton ausschalten"></button>
@@ -44,10 +58,13 @@ export class NavigationView {
           <button id="navigation-details-toggle" type="button" aria-expanded="false" aria-controls="navigation-details"><span class="navigation-grip" aria-hidden="true"></span><strong id="navigation-remaining"></strong><span id="navigation-summary-arrival"></span><span class="navigation-expand" aria-hidden="true">⌃</span></button>
           <div id="navigation-end-slot"></div>
         </div>
+        <div id="navigation-phases-slot"></div>
         <div id="navigation-quick-actions" class="navigation-actions"></div>
         <div id="navigation-details">
-        <div id="navigation-phases-slot"></div>
-        <div class="navigation-arrival"><span id="navigation-stage"></span><strong id="navigation-arrival"></strong></div>
+        <div id="navigation-section-detail" role="tabpanel" tabindex="0">
+          <div class="navigation-arrival"><span id="navigation-stage"></span><strong id="navigation-arrival"></strong></div>
+          <div id="navigation-section-content"></div>
+        </div>
         <div id="navigation-location" hidden><p id="navigation-location-status" role="status"></p><div class="navigation-actions"><button id="navigation-locate" class="secondary" hidden>Standort erneut anfragen</button></div></div>
         <p id="navigation-network-status"></p>
         <p id="navigation-transit-status"></p><p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
@@ -96,6 +113,28 @@ export class NavigationView {
         this.setDetails(false);
       }
     };
+    el("navigation-phases").onkeydown = (event) => {
+      if (event.key === "Escape" && this.mobile.matches) {
+        event.preventDefault();
+        this.setDetails(false);
+        return;
+      }
+      const tab = (event.target as Element).closest('[role="tab"]');
+      const index = Array.from(el("navigation-phases").children).indexOf(tab!);
+      const next =
+        event.key === "ArrowRight"
+          ? (index + 1) % this.sections.length
+          : event.key === "ArrowLeft"
+            ? (index + this.sections.length - 1) % this.sections.length
+            : event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? this.sections.length - 1
+                : undefined;
+      if (next === undefined || !this.sections[next]) return;
+      event.preventDefault();
+      this.selectSection(this.sections[next].id, true);
+    };
     el("navigation-alert-open").onclick = () => this.setDetails(true);
     this.mobile.addEventListener("change", () => this.render());
     el("navigation-audio").onclick = () => {
@@ -120,7 +159,13 @@ export class NavigationView {
     };
     el("navigation-complete").onclick = () => {
       const engine = this.session?.engine;
-      if (!engine) return;
+      if (
+        !engine ||
+        !this.sections
+          .find((section) => section.id === this.selectedSectionId)
+          ?.legs.some((leg) => leg.navigationId === engine.leg.navigationId)
+      )
+        return;
       if (engine.leg.kind === "stop") {
         void this.session!.continueStop();
         return;
@@ -142,9 +187,160 @@ export class NavigationView {
   private setDetails(open: boolean) {
     this.detailsOpen = open;
     const details = el("navigation-details");
+    const focusedTab = el("navigation-phases").contains(document.activeElement);
+    if (!open) this.selectedSectionId = this.currentSectionId;
     if (!open && details.contains(document.activeElement))
       el("navigation-details-toggle").focus({ preventScroll: true });
     this.render();
+    if (!open) {
+      const tab = this.selectedTab();
+      if (focusedTab) tab?.focus({ preventScroll: true });
+      this.alignCurrentTab();
+    }
+  }
+  private selectedTab() {
+    return el("navigation-phases").querySelector<HTMLButtonElement>(
+      '[aria-selected="true"]',
+    );
+  }
+  private alignCurrentTab() {
+    const strip = el("navigation-phases");
+    const tab = strip.querySelector('[aria-current="step"]');
+    if (!tab) return;
+    // Keep a glimpse of the previous step and leave room for upcoming steps.
+    const left =
+      strip.scrollLeft +
+      tab.getBoundingClientRect().left -
+      strip.getBoundingClientRect().left -
+      24;
+    strip.scrollLeft = Math.max(
+      0,
+      Math.min(left, strip.scrollWidth - strip.clientWidth),
+    );
+  }
+  private selectSection(id: string, focus = false) {
+    this.selectedSectionId = id;
+    this.detailsOpen = true;
+    this.render();
+    const tab = this.selectedTab();
+    if (focus) tab?.focus({ preventScroll: true });
+    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  private renderSections() {
+    const engine = this.session?.engine;
+    this.sections = engine ? navigationSections(engine.journey) : [];
+    const current = this.sections.find((s) => s.legs.includes(engine!.leg));
+    const following =
+      !this.selectedSectionId ||
+      this.selectedSectionId === this.currentSectionId;
+    if (
+      following ||
+      !this.sections.some((s) => s.id === this.selectedSectionId)
+    )
+      this.selectedSectionId = current?.id;
+    const currentChanged = this.currentSectionId !== current?.id;
+    this.currentSectionId = current?.id;
+    const selected = this.sections.find((s) => s.id === this.selectedSectionId);
+    const phases = el("navigation-phases");
+    const key = JSON.stringify(this.sections.map((s) => s.id));
+    const scrollLeft = phases.scrollLeft;
+    const tabsChanged = key !== this.tabsKey;
+    if (tabsChanged) {
+      this.tabsKey = key;
+      const focused = phases.contains(document.activeElement);
+      phases.replaceChildren(
+        ...this.sections.map((section, index) => {
+          const tab = node("button", "", "navigation-phase");
+          tab.type = "button";
+          tab.id = `navigation-tab-${index}`;
+          tab.setAttribute("role", "tab");
+          tab.setAttribute("aria-controls", "navigation-section-detail");
+          const symbol = node("span", "", "navigation-phase-symbol");
+          symbol.setAttribute("aria-hidden", "true");
+          tab.append(symbol, node("span", "", "navigation-phase-label"));
+          tab.onclick = () => this.selectSection(section.id);
+          return tab;
+        }),
+      );
+      // A replan may remove the focused section. Keep focus in the tab strip.
+      if (focused)
+        (
+          phases.children[this.sections.findIndex((s) => s === selected)] as
+            HTMLElement | undefined
+        )?.focus({ preventScroll: true });
+    }
+    this.sections.forEach((section, index) => {
+      const tab = phases.children[index] as HTMLButtonElement;
+      const isCurrent = section === current,
+        isSelected = section === selected;
+      tab.classList.toggle("current", isCurrent);
+      tab.setAttribute("aria-selected", String(isSelected));
+      tab.tabIndex = isSelected ? 0 : -1;
+      if (isCurrent) tab.setAttribute("aria-current", "step");
+      else tab.removeAttribute("aria-current");
+      const symbol = tab.querySelector<HTMLElement>(
+        ".navigation-phase-symbol",
+      )!;
+      const symbolName =
+        section.main.kind === "transit" &&
+        ["BUS", "COACH"].includes(section.main.mode ?? "")
+          ? "bus"
+          : section.main.kind;
+      if (symbol.dataset.icon !== symbolName) {
+        symbol.dataset.icon = symbolName;
+        symbol.replaceChildren(icon(symbolName));
+      }
+      tab.querySelector(".navigation-phase-label")!.textContent =
+        sectionLabel(section);
+      tab.setAttribute(
+        "aria-label",
+        `${sectionLabel(section)} nach ${section.main.to.name} · Abschnitt ${index + 1} von ${this.sections.length}`,
+      );
+    });
+    if (tabsChanged) phases.scrollLeft = scrollLeft;
+    el("navigation-stage").textContent = selected
+      ? `${sectionLabel(selected)} · Abschnitt ${this.sections.indexOf(selected) + 1} von ${this.sections.length}`
+      : "";
+    const panel = el("navigation-section-detail");
+    if (selected) panel.setAttribute("aria-labelledby", this.selectedTab()!.id);
+    else panel.removeAttribute("aria-labelledby");
+    const detailKey = JSON.stringify([
+      engine?.journey.departure,
+      engine?.journey.arrival,
+      selected,
+    ]);
+    if (detailKey !== this.sectionDetailKey) {
+      const scrollTop = el("navigation-details").scrollTop;
+      const selectionChanged =
+        el("navigation-section-content").dataset.section !== selected?.id;
+      this.sectionDetailKey = detailKey;
+      const content = el("navigation-section-content");
+      content.replaceChildren();
+      content.dataset.section = selected?.id ?? "";
+      if (engine && selected) {
+        const list = renderJourneyDetails(
+          { ...engine.journey, legs: selected.legs },
+          false,
+        );
+        if (["fold", "unfold"].includes(selected.main.kind))
+          list
+            .querySelector(`[data-kind="${selected.main.kind}"]`)!
+            .classList.remove("detail-preparation");
+        if (movement(selected.main)) {
+          const meters = selected.main.distance;
+          list
+            .querySelector(
+              '[data-kind="bike"] .detail-meta, [data-kind="walk"] .detail-meta',
+            )
+            ?.append(
+              ` · ${meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`}`,
+            );
+        }
+        content.append(list);
+      }
+      el("navigation-details").scrollTop = selectionChanged ? 0 : scrollTop;
+    }
+    return { current, selected, revealCurrent: currentChanged || tabsChanged };
   }
   private layout() {
     const mobile = this.mobile.matches;
@@ -209,7 +405,11 @@ export class NavigationView {
     return !this.root.hidden;
   }
   async show(session: NavigationSession) {
-    if (!this.visible) this.detailsOpen = false;
+    if (!this.visible) {
+      this.detailsOpen = false;
+      this.selectedSectionId = undefined;
+      this.currentSectionId = undefined;
+    }
     this.session = session;
     this.root.hidden = false;
     this.phaseKey = "";
@@ -379,9 +579,7 @@ export class NavigationView {
               !engine?.hasManeuverGuidance
             ? "Keine Abbiegehinweise für diesen Abschnitt. Folge dem Streckenverlauf."
             : (leg?.to.name ?? "");
-    el("navigation-stage").textContent = engine
-      ? `${kindNames[engine.leg.kind]} · Abschnitt ${engine.progress.legIndex + 1} von ${engine.journey.legs.length}`
-      : "";
+    const { current, selected, revealCurrent } = this.renderSections();
     el("navigation-arrival").textContent = engine
       ? `Ankunft ${clock(engine.journey.arrival)}`
       : "";
@@ -420,18 +618,27 @@ export class NavigationView {
     const transit = engine?.journey.legs
       .slice(engine.progress.legIndex)
       .find((l) => l.kind === "transit");
-    el("navigation-transit-status").textContent = transit
-      ? `${transit.transitStatus?.failure === "network" ? "Abruf fehlgeschlagen" : transit.transitStatus?.failure === "unavailable" ? "Aktualisierung nicht verfügbar" : !freshTransit(transit, Date.now() / 1000) ? "Fahrtdaten veraltet" : transit.realtime ? "Echtzeit" : "Fahrplan"}${transit.transitStatus?.updatedAt ? ` · Stand ${clock(transit.transitStatus.updatedAt)}` : ""}`
+    const viewedTransit =
+      selected?.legs.find((l) => l.kind === "transit") ??
+      (selected === current ? transit : undefined);
+    el("navigation-transit-status").textContent = viewedTransit
+      ? `${viewedTransit.line || "ÖPNV"} · ${transitStatus(viewedTransit)}`
       : "";
     const complete = el<HTMLButtonElement>("navigation-complete");
-    complete.hidden = !engine || arrived === true;
+    complete.hidden = !engine || arrived === true || selected !== current;
     complete.disabled = session.busy;
     complete.textContent =
       leg?.kind === "stop"
         ? "Weiterfahren"
         : leg?.kind === "transit"
           ? "Ausgestiegen"
-          : "Abschnitt fertig";
+          : leg?.kind === "fold"
+            ? "Rad gefaltet"
+            : leg?.kind === "unfold"
+              ? "Rad entfaltet"
+              : leg?.kind === "wait"
+                ? "Warten beenden"
+                : "Abschnitt fertig";
     const locationRetry = !engine && session.needsLocation;
     el("navigation-retry").hidden =
       !session.retryAvailable ||
@@ -507,7 +714,7 @@ export class NavigationView {
         : "",
       session.alternative ? "" : session.message,
       transit && !freshTransit(transit, Date.now() / 1000)
-        ? el("navigation-transit-status").textContent
+        ? `${transit.line || "ÖPNV"} · ${transitStatus(transit)}`
         : "",
       session.storageMessage,
       this.voiceMessage,
@@ -524,25 +731,12 @@ export class NavigationView {
         ? `${notices.length} Hinweise ansehen`
         : "Details ansehen";
     this.layout();
+    // Reveal progress after placing the strip, even while previewing another step.
+    if (revealCurrent) this.alignCurrentTab();
     if (!engine) return;
     const phaseKey = `${engine.journey.legs.map((l) => l.navigationId).join("|")}-${engine.leg.navigationId}-${engine.phase}`;
     if (this.phaseKey !== phaseKey) {
       this.phaseKey = phaseKey;
-      const phases = el("navigation-phases");
-      phases.replaceChildren();
-      engine.journey.legs.forEach((l, index) => {
-        const part = node(
-          "span",
-          kindNames[l.kind],
-          `navigation-phase ${index === engine.progress.legIndex ? "current" : ""}`,
-        );
-        if (index === engine.progress.legIndex)
-          part.setAttribute("aria-current", "step");
-        phases.append(part);
-      });
-      phases
-        .querySelector(".current")
-        ?.scrollIntoView({ block: "nearest", inline: "center" });
       this.guidance.speak(
         engine.maneuver && (engine.distanceToNext ?? Infinity) <= 100
           ? `${phaseKey}-turn-${engine.guidanceKey}`

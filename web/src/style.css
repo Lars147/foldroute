@@ -2456,21 +2456,60 @@ body[data-navigation="active"] .app-tabs {
   display: flex;
   align-items: center;
   overflow-x: auto;
-  gap: 14px;
-  padding: 10px 14px;
+  gap: 4px;
+  padding: 0 8px;
   background: var(--panel);
   border-radius: 16px;
   flex: 1;
   scrollbar-width: none;
 }
 .navigation-phase {
-  font-size: 12px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 500;
   white-space: nowrap;
   color: var(--panel-muted);
 }
-.navigation-phase.current {
+.navigation-phase[aria-selected="true"] {
+  border-bottom-color: currentColor;
+  color: var(--panel-text);
+  font-weight: 650;
+}
+.navigation-phase-symbol {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+.navigation-phase-symbol .icon {
+  width: 20px;
+  height: 20px;
+}
+.navigation-phase[aria-current="step"] .navigation-phase-symbol {
   color: var(--accent);
-  font-weight: 750;
+  border-color: currentColor;
+}
+.navigation-phase:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+  border-radius: 6px;
+}
+#navigation-section-content {
+  padding-block: 12px;
 }
 .navigation-map-controls button {
   background: var(--panel);
@@ -2820,8 +2859,13 @@ body[data-navigation="active"] .app-tabs {
     padding: 0 16px 16px;
     border-top: 1px solid var(--panel-line);
   }
+  #navigation-phases-slot {
+    flex: 0 0 auto;
+    min-width: 0;
+    border-top: 1px solid var(--panel-line);
+  }
   #navigation-phases {
-    padding: 12px 0;
+    padding: 0 4px;
     background: transparent;
     border-radius: 0;
   }
