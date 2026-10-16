@@ -1,23 +1,3 @@
-const journey = document.querySelector('.journey-layout');
-const steps = [...journey.querySelectorAll('[data-step]')];
-
-function selectStep(selected) {
-  for (const button of steps) {
-    const expanded = button === selected;
-    button.classList.toggle('active', expanded);
-    button.setAttribute('aria-expanded', String(expanded));
-    button.setAttribute('aria-disabled', String(expanded));
-    document.getElementById(button.getAttribute('aria-controls')).hidden = !expanded;
-  }
-}
-
-for (const button of steps) {
-  button.disabled = false;
-  button.addEventListener('click', () => selectStep(button));
-}
-selectStep(steps[0]);
-journey.classList.add('journey-ready');
-
 const comparisonControls = document.querySelector('.comparison-controls');
 comparisonControls.closest('.comparison-panel').classList.add('comparison-ready');
 const comparisons = [...comparisonControls.querySelectorAll('[data-comparison]')];

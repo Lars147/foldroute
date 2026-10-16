@@ -2,6 +2,7 @@ import { type Journey, type Leg, kindNames, transition } from "./model";
 import { clock, dateLabel, duration, icon, legColors, node } from "./ui";
 
 const preparation = (leg: Leg) => ["fold", "unfold", "wait"].includes(leg.kind);
+export type JourneyPresentation = "live" | "example";
 
 /** Group preparation with the next movement without crossing a planned stop. */
 export function detailGroups(journey: Journey): Leg[][] {
@@ -99,7 +100,9 @@ function renderTransitTime(
 export function renderJourneyDetails(
   journey: Journey,
   restored: boolean,
+  presentation: JourneyPresentation = "live",
 ): HTMLOListElement {
+  const example = presentation === "example";
   const list = node("ol", "", "journey-legs");
   for (const group of detailGroups(journey)) {
     const section = node("li", "", "journey-section");
@@ -115,10 +118,18 @@ export function renderJourneyDetails(
       const symbol = icon(leg.kind);
       symbol.classList.add("leg-symbol");
       const copy = node("div", "", "detail-copy");
-      const start = detailTime(journey, leg.start),
-        end = detailTime(journey, leg.end);
+      const start = example ? "" : detailTime(journey, leg.start),
+        end = example ? "" : detailTime(journey, leg.end);
+      const interval = example
+        ? duration(leg.end - leg.start)
+        : `${start} – ${end} · ${duration(leg.end - leg.start)}`;
       if (leg.kind === "transit") {
-        copy.append(...renderTransitTime(journey, leg, "departure", restored));
+        if (example)
+          copy.append(node("strong", leg.line || "ÖPNV", "detail-heading"));
+        else
+          copy.append(
+            ...renderTransitTime(journey, leg, "departure", restored),
+          );
         copy.append(node("p", leg.from.name, "detail-place"));
         if (leg.headsign)
           copy.append(
@@ -130,7 +141,9 @@ export function renderJourneyDetails(
           );
         const arrival = node("div", "", "detail-arrival");
         arrival.append(
-          ...renderTransitTime(journey, leg, "arrival", restored),
+          ...(example
+            ? [node("strong", "Ausstieg")]
+            : renderTransitTime(journey, leg, "arrival", restored)),
           node("p", leg.to.name, "detail-place"),
         );
         if (leg.arrivalPlatform)
@@ -149,25 +162,22 @@ export function renderJourneyDetails(
             "detail-meta",
           ),
         );
-        copy.append(
-          node(
-            "small",
-            restored
-              ? "Gespeicherte Fahrplanangabe"
-              : leg.realtime
-                ? "Echtzeitdaten zum Zeitpunkt der Abfrage"
-                : "Fahrplanzeit",
-            "detail-source",
-          ),
-        );
+        if (!example)
+          copy.append(
+            node(
+              "small",
+              restored
+                ? "Gespeicherte Fahrplanangabe"
+                : leg.realtime
+                  ? "Echtzeitdaten zum Zeitpunkt der Abfrage"
+                  : "Fahrplanzeit",
+              "detail-source",
+            ),
+          );
       } else if (preparation(leg)) {
         copy.append(
           node("strong", kindNames[leg.kind], "detail-heading"),
-          node(
-            "small",
-            `${start} – ${end} · ${duration(leg.end - leg.start)}`,
-            "detail-meta",
-          ),
+          node("small", interval, "detail-meta"),
         );
         // The following step names the same place; retain a different location.
         const next = group[group.indexOf(leg) + 1];
@@ -176,10 +186,14 @@ export function renderJourneyDetails(
       } else if (leg.kind === "stop") {
         copy.append(
           node("strong", `Zwischenziel: ${leg.to.name}`, "detail-heading"),
-          node("small", `${start} – ${end}`, "detail-meta"),
+          node(
+            "small",
+            example ? duration(leg.end - leg.start) : `${start} – ${end}`,
+            "detail-meta",
+          ),
           node(
             "p",
-            `Geplanter Aufenthalt: ${leg.stop?.stayMinutes ?? Math.ceil((leg.end - leg.start) / 60)} min · Weiterfahrt ${end}`,
+            `Geplanter Aufenthalt: ${leg.stop?.stayMinutes ?? Math.ceil((leg.end - leg.start) / 60)} min${example ? "" : ` · Weiterfahrt ${end}`}`,
             "detail-place",
           ),
         );
@@ -190,11 +204,7 @@ export function renderJourneyDetails(
             `${kindNames[leg.kind]} bis ${leg.to.name}`,
             "detail-heading",
           ),
-          node(
-            "small",
-            `${start} – ${end} · ${duration(leg.end - leg.start)}`,
-            "detail-meta",
-          ),
+          node("small", interval, "detail-meta"),
           node("p", `Von ${leg.from.name}`, "detail-place"),
         );
       }
