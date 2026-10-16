@@ -58,11 +58,13 @@ class AppearanceController {
           ? "dark"
           : "light"
         : this.preference;
+    const changed = document.documentElement.dataset.theme !== effective;
     document.documentElement.dataset.theme = effective;
     document.querySelector<HTMLMetaElement>(
       'meta[name="theme-color"]',
     )!.content = effective === "dark" ? "#101314" : "#f5f6f3";
     this.onChange?.();
+    if (changed) window.dispatchEvent(new Event("foldroute:appearance"));
   }
 }
 

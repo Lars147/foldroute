@@ -44,7 +44,7 @@ async function setup(page: Page, geolocation = true) {
     geo.watchPosition = (success, error, options) =>
       watch(stamped(success), error, options);
   });
-  await page.route("https://tile.openstreetmap.org/**", (r) => r.abort());
+  await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.route("**/api/v1/geocode?*", (r) =>
     r.fulfill({ headers: cors, json: places }),
   );
@@ -3842,12 +3842,15 @@ async function expectRouteFits(page: Page) {
           .getBoundingClientRect();
         const left = innerWidth >= 900 ? panel.right : map.left;
         const bottom = innerWidth >= 900 ? map.bottom : panel.top;
+        const controls = document
+          .getElementById("map-controls")!
+          .getBoundingClientRect();
         return [...document.querySelectorAll("#map .route-marker")].every(
           (element) => {
             const box = element.getBoundingClientRect();
             return (
               box.left >= left - 1 &&
-              box.right <= map.right + 1 &&
+              box.right <= controls.left - 8 + 1 &&
               box.top >= map.top - 1 &&
               box.bottom <= bottom + 1
             );
@@ -3884,6 +3887,7 @@ for (const [width, height] of [
       };
     });
     await showMap(page);
+    await expectRouteFits(page);
     for (let attempt = 0; attempt < 3; attempt++) {
       await page.locator("#map").focus();
       await page.keyboard.press("+");

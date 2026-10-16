@@ -399,7 +399,7 @@ async function setup(
       },
     });
   });
-  await page.route("https://tile.openstreetmap.org/**", (r) => r.abort());
+  await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.route("**/api/v6/trip?*", (r) =>
     r.fulfill({
       json: {
@@ -423,6 +423,7 @@ async function setup(
     }),
   );
   await page.goto("/");
+  await expect(page.locator("#main")).not.toHaveAttribute("inert");
   await page.evaluate(
     async ({ journey, settings, time, requestOverrides }) => {
       const { OfflineStore } = await import("/src/offline.ts");
@@ -667,10 +668,10 @@ for (const width of [320, 390, 1280])
       "Echtzeit",
     );
     await expect(tabs.nth(0)).toHaveAttribute("aria-current", "step");
-    const accentColor = await tabs
+    const currentBorder = await tabs
       .nth(0)
       .locator(".navigation-phase-symbol")
-      .evaluate((symbol) => getComputedStyle(symbol).color);
+      .evaluate((symbol) => getComputedStyle(symbol).borderTopColor);
     const instruction = await page
       .locator("#navigation-instruction")
       .innerText();
@@ -684,7 +685,7 @@ for (const width of [320, 390, 1280])
     await expect(tabs.nth(0)).toHaveAttribute("aria-current", "step");
     await expect(tabs.nth(0).locator(".navigation-phase-symbol")).toHaveCSS(
       "border-top-color",
-      accentColor,
+      currentBorder,
     );
     await expect(train.locator(".navigation-phase-symbol")).toHaveCSS(
       "border-top-color",
@@ -729,7 +730,7 @@ for (const width of [320, 390, 1280])
     await expect(train).toHaveAttribute("aria-selected", "true");
     await expect(fold.locator(".navigation-phase-symbol")).toHaveCSS(
       "border-top-color",
-      accentColor,
+      currentBorder,
     );
     await expect(tabs.nth(0).locator(".navigation-phase-symbol")).toHaveCSS(
       "border-top-color",
@@ -765,7 +766,7 @@ for (const width of [320, 390, 1280])
     await expectCurrentTabAligned(page);
     await expect(unfold.locator(".navigation-phase-symbol")).toHaveCSS(
       "border-top-color",
-      accentColor,
+      currentBorder,
     );
     await expect(lastBike.locator(".navigation-phase-symbol")).toHaveCSS(
       "border-top-color",
@@ -1032,11 +1033,15 @@ for (const colorScheme of ["light", "dark"] as const)
     await expect(current).toHaveCSS("font-weight", "500");
     await expect(current).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
     const currentSymbol = current.locator(".navigation-phase-symbol");
-    const journeyColor = await currentSymbol.evaluate(
-      (symbol) => getComputedStyle(symbol).color,
+    const brand = await currentSymbol.evaluate((symbol) => {
+      const style = getComputedStyle(symbol);
+      return { foreground: style.color, background: style.backgroundColor };
+    });
+    expect(brand.foreground).not.toBe(brand.background);
+    await expect(train.locator(".navigation-phase-symbol")).not.toHaveCSS(
+      "background-color",
+      brand.background,
     );
-    expect(journeyColor).not.toBe(activeColor);
-    await expect(currentSymbol).toHaveCSS("border-top-color", journeyColor);
     await expect(train.locator(".navigation-phase-symbol")).toHaveCSS(
       "border-top-color",
       "rgba(0, 0, 0, 0)",
@@ -1119,9 +1124,17 @@ async function expectMobileCredit(page: Page) {
 test("System appearance changes navigation panels without resetting progress", async ({
   page,
 }, info) => {
+  const mapStyles: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().startsWith("https://tiles.openfreemap.org/styles/"))
+      mapStyles.push(request.url());
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: "light" });
   await setup(page);
+  await expect.poll(() => mapStyles.length).toBeGreaterThan(0);
+  expect(mapStyles.every((url) => url.endsWith("/positron"))).toBe(true);
+  const initialStyles = [...mapStyles];
   const instruction = await page.locator("#navigation-instruction").innerText();
   const phase = await page.locator(".navigation-phase.current").innerText();
   await expect(page.locator(".navigation-panel")).toHaveCSS(
@@ -1134,6 +1147,11 @@ test("System appearance changes navigation panels without resetting progress", a
     "background-color",
     "rgb(23, 26, 28)",
   );
+  await expect(page.locator("#navigation-map")).toHaveCSS(
+    "background-color",
+    "rgb(238, 240, 235)",
+  );
+  expect(mapStyles).toEqual(initialStyles);
   await expect(page.locator("#navigation-instruction")).toHaveText(instruction);
   await expect(page.locator(".navigation-phase.current")).toHaveText(phase);
   await page.screenshot({ path: info.outputPath("navigation-dark.png") });
@@ -1142,6 +1160,84 @@ test("System appearance changes navigation panels without resetting progress", a
   await expect(page.locator(".navigation-panel")).toHaveCSS(
     "background-color",
     "rgb(255, 255, 255)",
+  );
+});
+
+test("map style selection keeps manual navigation camera and progress", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page, true);
+  await page.route("https://tiles.openfreemap.org/styles/**", (route) =>
+    route.fulfill({
+      json: {
+        version: 8,
+        sources: {},
+        layers: [
+          {
+            id: "background",
+            type: "background",
+            paint: { "background-color": "#eef0eb" },
+          },
+        ],
+      },
+    }),
+  );
+  await page.locator("#navigation-map").press("ArrowRight");
+  await expect(page.locator("#navigation-map")).toHaveAttribute(
+    "data-following",
+    "false",
+  );
+  await page.clock.runFor(1000);
+  const camera = await page.locator("#navigation-map").evaluate((element) => ({
+    center: element.dataset.center,
+    zoom: element.dataset.zoom,
+    bearing: element.dataset.bearing,
+  }));
+  const instruction = await page.locator("#navigation-instruction").innerText();
+  await page
+    .getByRole("button", { name: "Kartenstil wählen", exact: true })
+    .click();
+  const panel = page.getByRole("dialog", {
+    name: "Karte anpassen",
+    exact: true,
+  });
+  await expect(panel).toHaveCSS("left", "0px");
+  await expect(panel).toHaveCSS("bottom", "0px");
+  await expect(panel).toHaveCSS("width", "390px");
+  for (const [name, value] of [
+    ["Straßenkarte", "liberty"],
+    ["Dunkel", "dark"],
+    ["Positron", "positron"],
+  ]) {
+    await panel.getByRole("radio", { name, exact: true }).check();
+    await expect(panel).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-map-style", value);
+    await expect(page.locator("#navigation-map")).toHaveAttribute(
+      "data-following",
+      "false",
+    );
+    expect(
+      await page.locator("#navigation-map").evaluate((element) => ({
+        center: element.dataset.center,
+        zoom: element.dataset.zoom,
+        bearing: element.dataset.bearing,
+      })),
+    ).toEqual(camera);
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      instruction,
+    );
+  }
+  await panel
+    .getByRole("button", { name: "Kartenstile schließen", exact: true })
+    .click();
+  await expect(panel).toBeHidden();
+  await page
+    .getByRole("button", { name: "Standort folgen", exact: true })
+    .click();
+  await expect(page.locator("#navigation-map")).toHaveAttribute(
+    "data-following",
+    "true",
   );
 });
 
@@ -1554,12 +1650,20 @@ test("navigation credits move between mobile panel and desktop bottom right", as
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   const links = page.locator(".navigation-credit a");
-  await expect(links).toHaveCount(2);
+  await expect(links).toHaveCount(4);
   await expect(links.nth(0)).toHaveAttribute(
+    "href",
+    "https://openfreemap.org/",
+  );
+  await expect(links.nth(1)).toHaveAttribute(
+    "href",
+    "https://openmaptiles.org/",
+  );
+  await expect(links.nth(2)).toHaveAttribute(
     "href",
     "https://www.openstreetmap.org/copyright",
   );
-  await expect(links.nth(1)).toHaveAttribute(
+  await expect(links.nth(3)).toHaveAttribute(
     "href",
     "https://transitous.org/sources/",
   );

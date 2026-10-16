@@ -5,6 +5,7 @@ import { clock, duration, el, node, icon } from "./ui";
 import type { Leg } from "./model";
 import { movement, freshTransit } from "./navigation-engine";
 import { renderJourneyDetails } from "./journey-detail";
+import { closeMapStylePickers, mountMapStylePicker } from "./map-style-picker";
 import {
   navigationSections,
   sectionLabel,
@@ -49,6 +50,7 @@ export class NavigationView {
       <div class="navigation-map-controls" role="group" aria-label="Kartensteuerung">
         <button id="navigation-audio" class="navigation-icon-button secondary" type="button" aria-label="Ton ausschalten" title="Ton ausschalten"></button>
         <button id="navigation-center" class="navigation-center navigation-icon-button secondary" type="button" aria-label="Navigation zentrieren" title="Navigation zentrieren" aria-pressed="true"></button>
+        <div id="navigation-style-control"></div>
       </div>
       <div class="navigation-credit"><a href="https://www.openstreetmap.org/copyright">© OpenStreetMap-Mitwirkende</a> · <a href="https://transitous.org/sources/">Fahrtdaten</a></div>
       <article class="navigation-panel" id="navigation-panel" aria-label="Navigationshinweise">
@@ -75,6 +77,7 @@ export class NavigationView {
       </article>
       <dialog id="navigation-confirm" aria-labelledby="navigation-confirm-title" aria-describedby="navigation-confirm-message"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary" type="button">Bestätigen</button><button id="navigation-confirm-no" class="secondary" type="button">Abbrechen</button></div></dialog>`;
     el("main").append(this.root);
+    mountMapStylePicker(el("navigation-style-control"), "navigation");
     el("navigation-center").append(icon("crosshair"));
     const toggle = el("navigation-details-toggle");
     toggle.onclick = () => this.setDetails(!this.detailsOpen);
@@ -405,6 +408,7 @@ export class NavigationView {
     return !this.root.hidden;
   }
   async show(session: NavigationSession) {
+    closeMapStylePickers();
     if (!this.visible) {
       this.detailsOpen = false;
       this.selectedSectionId = undefined;
@@ -446,6 +450,7 @@ export class NavigationView {
     }
   }
   hide() {
+    closeMapStylePickers();
     this.root.hidden = true;
     this.guidance.reset();
     this.phaseKey = "";

@@ -154,9 +154,10 @@ test("mobile comparison changes routes in a fixed map viewport and desktop shows
 });
 
 test("landing remains readable without JavaScript", async ({ browser }) => {
-  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+  const context = await browser.newContext({ javaScriptEnabled: false, colorScheme: "dark", viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   await page.goto(landing);
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
   await expect(page.locator(".questions details[open]")).toHaveCount(0);
   await expect(page.locator(".comparison-option:visible")).toHaveCount(2);
   await expect(page.locator(".comparison-controls")).toBeHidden();

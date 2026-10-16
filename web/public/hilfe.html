@@ -8,12 +8,15 @@
       name="description"
       content="Hilfe zu Standortfreigaben, Installation, Updates und Offline-Nutzung des FoldRoute-Webplaners."
     />
+    <link rel="stylesheet" href="theme.css">
+    <meta name="theme-color" content="#f5f6f3">
+    <script src="appearance.js"></script>
     <style>
       :root {
-        color-scheme: light;
+
         font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
-        color: #171a1c;
-        background: #f5f6f3;
+        color: var(--color-text);
+        background: var(--color-canvas);
       }
       * {
         box-sizing: border-box;
@@ -40,7 +43,7 @@
         text-decoration-thickness: 2px;
       }
       :focus-visible {
-        outline: 3px solid #171a1c;
+        outline: 3px solid var(--color-selection-indicator);
         outline-offset: 5px;
       }
       .kicker {
@@ -67,12 +70,12 @@
         font-size: 1.15rem;
       }
       .sources {
-        background: #e9ede6;
+        background: var(--color-subtle);
         border-radius: 20px;
         padding: 4px 24px 20px;
       }
       details {
-        border-bottom: 1px solid #b7bfb7;
+        border-bottom: 1px solid var(--color-divider);
         padding: 20px 0;
       }
       summary {
@@ -96,7 +99,7 @@
       }
 
       :root {
-        color-scheme: light dark;
+
       }
       details {
         scroll-margin-top: 20px;
@@ -114,22 +117,10 @@
       }
       .note {
         padding: 16px 20px;
-        border-left: 4px solid #168d97;
-        background: #e9ede6;
+        border-left: 4px solid var(--color-control-border);
+        background: var(--color-subtle);
       }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          background: #101314;
-          color: #f5f6f3;
-        }
-        details {
-          border-color: #343c3f;
-        }
-        .note {
-          background: #1e2325;
-          border-color: #ffd43b;
-        }
-      }
+
     </style>
     <script src="hilfe.js" defer></script>
   </head>
@@ -428,9 +419,10 @@
         <h2 id="daten-heading">Datenschutz &amp; Daten</h2>
         <details id="datenschutz">
           <summary>Welche Daten verwendet und speichert FoldRoute?</summary>
-          <p><strong>Planung und Karten.</strong> Ortssuchen, Start, Ziel, Zwischenziele, Zeitpunkt und Routing-Einstellungen gehen an Transitous; Kartenabrufe an OpenStreetMap. Für Adressen im Verlauf werden gespeicherte Start- und Zielkoordinaten an Transitous gesendet. Die ermittelten Namen werden lokal gespeichert.</p>
+          <p><strong>Planung und Karten.</strong> Ortssuchen, Start, Ziel, Zwischenziele, Zeitpunkt und Routing-Einstellungen gehen an Transitous; Kartenabrufe einschließlich Kartenschriften an OpenFreeMap (Kartendaten von OpenStreetMap). Für Adressen im Verlauf werden gespeicherte Start- und Zielkoordinaten an Transitous gesendet. Die ermittelten Namen werden lokal gespeichert.</p>
           <p><strong>Auf deinem Gerät.</strong> Einstellungen, Favoriten und letzte Orte bleiben auf diesem Gerät. Der lokale Verlauf mit bis zu 20 Strecken ist standardmäßig eingeschaltet und lässt sich ausschalten und löschen. Auch der Browser kann lokale Daten löschen.</p>
           <p><strong>Während der Navigation.</strong> Aktive Navigation speichert zusätzlich Abschnitt und Manöver für bestätigte Wiederaufnahme. Fahrtkennungen werden zur Aktualisierung an Transitous übertragen; Neuberechnungen nutzen den aktuellen Standort. Sprachansagen nutzen Browserstimmen, die je nach Gerät online arbeiten. Ausschalten der Speicherung löscht auch die Wiederaufnahme. Keine Analyse-Tools, keine GPS-Spuren.</p>
+          <p><strong>Kartenstil.</strong> Über das Ebenen-Symbol auf der Karte wählst du Positron, Straßenkarte oder Dunkel. Das funktioniert auch in der Navigation. Die Wahl bleibt auf diesem Gerät gespeichert und gilt unabhängig von der hellen oder dunklen App-Darstellung.</p>
           <p><strong>Ohne Internet.</strong> Gespeicherte Zeiten sind der Stand der Abfrage. Neue Planung und Karten benötigen Internet; die Offline-Übersicht zeigt den gespeicherten Streckenverlauf ohne Straßenkarte.</p>
         </details>
       </section>

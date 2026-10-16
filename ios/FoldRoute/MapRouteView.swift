@@ -179,7 +179,7 @@ struct RouteMapView: View {
                                 if leg.coordinates.count > 1 {
                                     MapPolyline(coordinates: leg.coordinates.map(\.clCoordinate))
                                         .stroke(
-                                            FoldRouteColor.cloud.opacity(0.26),
+                                            FoldRouteColor.panelMuted.opacity(0.5),
                                             style: StrokeStyle(
                                                 lineWidth: 5,
                                                 lineCap: .round,
@@ -194,6 +194,9 @@ struct RouteMapView: View {
                         ForEach(journey.legs) { leg in
                             if leg.coordinates.count > 1 {
                                 MapPolyline(coordinates: leg.coordinates.map(\.clCoordinate))
+                                    .stroke(FoldRouteColor.routeHalo, lineWidth: highlightedLegID == leg.id ? 13 : 10)
+                                    .mapOverlayLevel(level: .aboveRoads)
+                                MapPolyline(coordinates: leg.coordinates.map(\.clCoordinate))
                                     .stroke(
                                         leg.kind.color.opacity(
                                             highlightedLegID == nil || highlightedLegID == leg.id
@@ -202,7 +205,7 @@ struct RouteMapView: View {
                                             lineWidth: highlightedLegID == leg.id ? 9 : 6,
                                             lineCap: .round,
                                             lineJoin: .round,
-                                            dash: leg.kind == .approach ? [10, 8] : []
+                                            dash: leg.kind == .approach || leg.kind == .walk ? [6, 8] : []
                                         )
                                     )
                                     .mapOverlayLevel(level: .aboveRoads)
@@ -224,16 +227,16 @@ struct RouteMapView: View {
 
                         ForEach(Array(journey.stops.enumerated()), id: \.element.id) { index, stop in
                             Marker("\(index+1): \(stop.place.name)", coordinate: stop.place.coordinate.clCoordinate)
-                                .tint(FoldRouteColor.signalYellow)
+                                .tint(FoldRouteColor.panelText)
                         }
                         Marker("Start", coordinate: journey.origin.coordinate.clCoordinate)
-                            .tint(FoldRouteColor.routeCyan)
+                            .tint(FoldRouteColor.panelText)
                         if let waypoint = journey.waypoint {
                             Marker("Geplanter Start", coordinate: waypoint.coordinate.clCoordinate)
                                 .tint(FoldRouteColor.signalYellow)
                         }
                         Marker("Ziel", coordinate: journey.destination.coordinate.clCoordinate)
-                            .tint(FoldRouteColor.alertCoral)
+                            .tint(FoldRouteColor.panelText)
                     }
                 }
                 .mapStyle(.standard(elevation: .realistic, emphasis: .muted))
@@ -242,6 +245,7 @@ struct RouteMapView: View {
                         MapCompass()
                     }
                 }
+                .environment(\.colorScheme, .light)
                 .onChange(of: journey?.id) { _, _ in
                     if navigationCamera != nil { updateNavigationCamera(animated: true) }
                 }
@@ -359,7 +363,7 @@ struct RouteMapView: View {
                             } label: {
                                 Image(systemName: navigationState.isFollowing ? "location.fill" : "location")
                                     .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(FoldRouteColor.accent)
+                                    .foregroundStyle(FoldRouteColor.actionText)
                                     .frame(width: 44, height: 44)
                                     .background(.ultraThinMaterial, in: Circle())
                             }
@@ -390,7 +394,7 @@ struct RouteMapView: View {
                                 } label: {
                                     Image(systemName: centersPlanningLocation ? "location.fill" : "location")
                                         .font(.system(size: 20, weight: .semibold))
-                                        .foregroundStyle(FoldRouteColor.accent)
+                                        .foregroundStyle(FoldRouteColor.actionText)
                                         .frame(width: 48, height: 48)
                                         .background(FoldRouteColor.panel, in: Circle())
                                         .contentShape(Circle())
@@ -408,7 +412,7 @@ struct RouteMapView: View {
                                     } label: {
                                         Image(systemName: "viewfinder")
                                             .font(.system(size: 20, weight: .semibold))
-                                            .foregroundStyle(FoldRouteColor.accent)
+                                            .foregroundStyle(FoldRouteColor.actionText)
                                             .frame(width: 48, height: 48)
                                             .background(FoldRouteColor.panel, in: Circle())
                                             .contentShape(Circle())

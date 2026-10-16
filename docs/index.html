@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#FFD43B">
+  <meta name="theme-color" content="#f5f6f3">
   <meta name="description" content="FoldRoute kombiniert Klapprad, Bus und Bahn – mit Radetappen zum Bahnhof, zwischen Linien und bis ans Ziel. Plane deine Route direkt im Browser.">
   <meta property="og:title" content="FoldRoute – ÖPNV kann mehr. Mit deinem Klapprad.">
   <meta property="og:description" content="FoldRoute kombiniert Klapprad, Bus und Bahn – mit Radetappen zum Bahnhof, zwischen Linien und bis ans Ziel. Plane deine Route direkt im Browser.">
   <meta property="og:type" content="website">
   <title>FoldRoute – ÖPNV kann mehr. Mit deinem Klapprad.</title>
   <link rel="icon" href="assets/foldroute-mark.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=20261016-2">
+  <link rel="stylesheet" href="styles.css?v=20261016-4">
   <script src="script.js" defer></script>
 </head>
 <body>
@@ -35,8 +35,8 @@
               <path class="map-streets" d="M 40 -150 V 550 M 110 -150 V 550 M 180 -150 V 550 M 260 -150 V 550 M 350 -150 V 550 M 430 -150 V 550 M 510 -150 V 550 M -150 20 H 650 M -150 100 H 650 M -150 165 H 650 M -150 230 H 650 M -150 330 H 650 M -150 410 H 650"/>
             </g>
             <g fill="none" stroke-linecap="square">
-              <path d="M 530 190 L 435 410" stroke="#dfebe7" stroke-width="78"/>
-              <path d="M 530 190 L 435 410" stroke="#abd9df" stroke-width="54"/>
+              <path d="M 530 190 L 435 410" class="map-water-bank" stroke-width="78"/>
+              <path d="M 530 190 L 435 410" class="map-water" stroke-width="54"/>
             </g>
             <g transform="rotate(-24 250 190)" fill="none" stroke-linejoin="round">
               <g stroke-width="9" stroke-linecap="round">
@@ -47,14 +47,14 @@
             </g>
             <g class="diagram-pin"><circle class="" cx="85.497" cy="164.724" r="13"/><circle class="fold-pin" cx="339.321" cy="144.759" r="13"/><circle class="fold-pin" cx="257.134" cy="230.609" r="13"/><circle class="end-pin" cx="242.995" cy="346.368" r="13"/></g>
             <g class="pin-symbols">
-              <circle cx="85.497" cy="164.724" r="4" fill="white"/>
+              <circle cx="85.497" cy="164.724" r="4" fill="var(--color-surface)"/>
               <g transform="translate(339.321 144.759)" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M-7-7-2-2M-6-2H-2V-6M7 7 2 2M6 2H2V6"/>
               </g>
               <g transform="translate(257.134 230.609)" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M-2-2-7-7M-7-3V-7H-3M2 2 7 7M3 7H7V3"/>
               </g>
-              <path d="m237 346 4 5 8-10" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="m237 346 4 5 8-10" fill="none" stroke="var(--color-surface)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
             </g>
             <g class="stop-labels"><text x="64" y="132">Start</text><text x="315" y="112" text-anchor="end">Falten</text><text x="257" y="199" text-anchor="middle">Entfalten</text><text x="268" y="352">Ziel</text></g>
           </svg>
@@ -75,7 +75,7 @@
           <article class="comparison-option" id="comparison-classic">
             <h3>Ohne Radetappe</h3>
             <svg class="comparison-map" viewBox="0 0 500 400" role="img" aria-labelledby="comparison-classic-title"><title id="comparison-classic-title">Beispiel einer ÖPNV-Planung ohne Radetappe: vom Start mit der Bahn zum gemeinsamen Umsteigepunkt fahren und auf einer anderen Linie zum Ziel weiterfahren.</title>
-              <rect width="500" height="400" rx="16" fill="#eef0eb"/>
+              <rect width="500" height="400" rx="16" class="comparison-map-background"/>
               <g class="comparison-city" aria-hidden="true">
                 <g class="comparison-neighborhoods">
                   <path d="M18 28 174 18 209 98 164 177 22 163Z"/>
@@ -98,7 +98,7 @@
               <g class="comparison-rails" fill="none" stroke-linecap="round"><path d="M50 60 250 220 450 60M35 220H460M110 365 250 220 390 365"/></g>
               <g class="comparison-network-stations"><circle cx="150" cy="140" r="5"/><circle cx="140" cy="220" r="5"/><circle cx="180" cy="292.5" r="5"/><circle cx="320" cy="292.5" r="5"/><circle cx="350" cy="140" r="5"/><circle cx="370" cy="220" r="5"/></g>
               <path class="comparison-transit" d="M430 76 250 220H440" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-              <g class="comparison-stations"><circle cx="350" cy="140" r="6"/><circle cx="370" cy="220" r="6"/><circle cx="250" cy="220" r="13"/></g><circle cx="250" cy="220" r="5" fill="#7667e8"/>
+              <g class="comparison-stations"><circle cx="350" cy="140" r="6"/><circle cx="370" cy="220" r="6"/><circle cx="250" cy="220" r="13"/></g><circle cx="250" cy="220" r="5" fill="var(--color-transit-stroke)"/>
               <g class="comparison-endpoints"><circle cx="430" cy="76" r="10"/><circle cx="440" cy="220" r="10"/></g>
               <g class="comparison-map-labels"><text x="430" y="46" text-anchor="middle">Start</text><text x="440" y="256" text-anchor="middle">Ziel</text><text x="250" y="295" text-anchor="middle">Umstieg</text></g>
             </svg>
@@ -107,7 +107,7 @@
           <article class="comparison-option" id="comparison-foldroute">
             <h3>Mit Faltrad</h3>
             <svg class="comparison-map" viewBox="0 0 500 400" role="img" aria-labelledby="comparison-foldroute-title"><title id="comparison-foldroute-title">Dasselbe Netz mit FoldRoute: vom gleichen Start mit der Bahn fahren, früher aussteigen und entfalten, per Rad zur nächsten Linie wechseln, falten und mit der Bahn zum gleichen Ziel fahren. Die Radetappe verkürzt den Weg zwischen den Linien.</title>
-              <rect width="500" height="400" rx="16" fill="#eef0eb"/>
+              <rect width="500" height="400" rx="16" class="comparison-map-background"/>
               <g class="comparison-city" aria-hidden="true">
                 <g class="comparison-neighborhoods">
                   <path d="M18 28 174 18 209 98 164 177 22 163Z"/>
@@ -176,7 +176,7 @@
       <details><summary>Kann ich ohne App eine Route planen?</summary><p>Ja. Im <a href="plan/">Webplaner</a> vergleichst du Rad- und ÖPNV-Verbindungen mit deinen Faltzeiten und Einstellungen. Die PWA bietet Navigation bei geöffneter App mit Abbiegehinweisen, Karte in Fahrtrichtung, Sprachansagen und aktuellen ÖPNV-Daten. Haptik gehört zum iPhone-Prototyp.</p><p>Den Webplaner kannst du <a href="plan/hilfe.html#installation">zum Home-Bildschirm hinzufügen</a> und bis zu 20 gespeicherte Strecken offline ansehen. Ihre Zeiten entsprechen der damaligen Abfrage. Neue Routen, Ortssuche, aktuelle Verbindungsdaten und Straßenkarten benötigen Internet. </p></details>
       <details><summary>Wo kann ich FoldRoute nutzen?</summary><p>Gib Start und Ziel in deiner Region ein. Verbindungen und Echtzeitinformationen hängen von den verfügbaren <a href="https://transitous.org/sources/">Verkehrsdaten bei Transitous</a> ab und können sich regional unterscheiden. FoldRoute ist noch nicht flächendeckend erprobt.</p></details>
       <details><summary>Ist das hier eine echte Routenplanung?</summary><p>Diese Landingpage stellt das Projekt vor. Die Karten sind Illustrationen; die Webplaner-Vorschau zeigt die echte Oberfläche mit Beispieldaten. Im <a href="plan/">Webplaner</a> und im iPhone-Prototyp werden echte Routen ab deinem Standort oder einem gewählten Startpunkt berechnet.</p></details>
-      <details><summary>Welche Daten werden beim Planen übertragen?</summary><p>Der iPhone-Prototyp sendet Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen an Transitous. MapKit verarbeitet Ortssuchen. Einstellungen, Favoriten, letzte Orte und Fahrten bleiben lokal, ohne GPS-Spuren.</p><p>Im Webplaner gehen Ortssuchen und dieselben Planungsangaben an Transitous; OpenStreetMap liefert die Kartenkacheln. Einstellungen, Favoriten und letzte Orte bleiben auf deinem Gerät. Standardmäßig speichert der Webplaner außerdem bis zu 20 unterschiedliche geplante Strecken mit Zwischenzielen, Streckenverlauf und damaligen Zeiten. Aktive Navigation speichert Abschnitt und Manöver zur bestätigten Wiederaufnahme.</p><p>Fahrtkennungen werden für Live-Daten an Transitous übertragen; Neuberechnungen verwenden den aktuellen Standort. Browserstimmen können online arbeiten.</p><p>Ausschalten von „Fahrten auf diesem Gerät speichern“ löscht den Fahrtenverlauf und die Wiederaufnahme; Orte und Einstellungen bleiben erhalten. Einzelne Fahrten lassen sich im Tab „Fahrten“ löschen. „Alle lokalen Daten löschen“ entfernt auch Einstellungen, Favoriten und letzte Orte. Der Browser kann lokale Daten ebenfalls entfernen.</p><p><a href="plan/hilfe.html#offline">Mehr zur Offline-Nutzung</a>. Landingpage und Webplaner verwenden keine Analyse-Tools und keine extern geladenen Schriften.</p></details>
+      <details><summary>Welche Daten werden beim Planen übertragen?</summary><p>Der iPhone-Prototyp sendet Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen an Transitous. MapKit verarbeitet Ortssuchen. Einstellungen, Favoriten, letzte Orte und Fahrten bleiben lokal, ohne GPS-Spuren.</p><p>Im Webplaner gehen Ortssuchen und dieselben Planungsangaben an Transitous; OpenFreeMap liefert die Karten auf Basis von OpenStreetMap. Einstellungen, Favoriten und letzte Orte bleiben auf deinem Gerät. Standardmäßig speichert der Webplaner außerdem bis zu 20 unterschiedliche geplante Strecken mit Zwischenzielen, Streckenverlauf und damaligen Zeiten. Aktive Navigation speichert Abschnitt und Manöver zur bestätigten Wiederaufnahme.</p><p>Fahrtkennungen werden für Live-Daten an Transitous übertragen; Neuberechnungen verwenden den aktuellen Standort. Browserstimmen können online arbeiten.</p><p>Ausschalten von „Fahrten auf diesem Gerät speichern“ löscht den Fahrtenverlauf und die Wiederaufnahme; Orte und Einstellungen bleiben erhalten. Einzelne Fahrten lassen sich im Tab „Fahrten“ löschen. „Alle lokalen Daten löschen“ entfernt auch Einstellungen, Favoriten und letzte Orte. Der Browser kann lokale Daten ebenfalls entfernen.</p><p><a href="plan/hilfe.html#offline">Mehr zur Offline-Nutzung</a>. Landingpage und Webplaner verwenden keine Analyse-Tools und keine extern geladenen Oberflächenschriften. Die Kartendarstellung lädt Kartendaten und Kartenschriften von OpenFreeMap.</p></details>
       <details><summary>Was kann der Prototyp noch nicht?</summary><p>Ticketkauf, Offline-Karten, Apple Watch und CarPlay sind nicht enthalten. Transitous ist ein Best-Effort-Dienst; Verbindungen und Navigation müssen noch im Alltag auf einem echten Gerät erprobt werden.</p></details>
     </div></section>
     <section class="closing wrap" aria-labelledby="closing-heading">

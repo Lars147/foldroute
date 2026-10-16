@@ -2,13 +2,13 @@
 
 [Projektübersicht](../README.md) · [Routingdetails und Plattformgrenzen](../documentation/routing.md)
 
-Browserbasierte Routenplanung für Faltrad und ÖPNV. Vite/TypeScript, Leaflet und direkte Transitous-Anfragen; kein eigener Server, keine Konten, keine Analyse-Tools. Gültige Routing-Einstellungen werden in `localStorage` gespeichert. Die standardmäßig eingeschaltete Strecken-Speicherung hält bis zu 20 unterschiedliche geplante Strecken einschließlich Start, Ziel, Zwischenzielen, Etappen, Geometrie, Einstellungen und Abfragezeit in IndexedDB. Ausschalten löscht diesen Verlauf; Favoriten, bis zu 20 zuletzt ausgewählte Orte und Einstellungen bleiben lokal erhalten. „Alle lokalen Daten löschen“ entfernt auch diese Daten. Abgesehen von ausdrücklich geteilten, noch nicht übernommenen Zielen werden keine eingegebenen Suchtexte und keine GPS-Spuren gespeichert. Ortssuchen und Planungsangaben einschließlich gewählter Zwischenziele gehen an Transitous; Kartenabrufe an OpenStreetMap.
+Browserbasierte Routenplanung für Faltrad und ÖPNV. Vite/TypeScript, Leaflet und direkte Transitous-Anfragen; kein eigener Server, keine Konten, keine Analyse-Tools. Gültige Routing-Einstellungen werden in `localStorage` gespeichert. Die standardmäßig eingeschaltete Strecken-Speicherung hält bis zu 20 unterschiedliche geplante Strecken einschließlich Start, Ziel, Zwischenzielen, Etappen, Geometrie, Einstellungen und Abfragezeit in IndexedDB. Ausschalten löscht diesen Verlauf; Favoriten, bis zu 20 zuletzt ausgewählte Orte und Einstellungen bleiben lokal erhalten. „Alle lokalen Daten löschen“ entfernt auch diese Daten. Abgesehen von ausdrücklich geteilten, noch nicht übernommenen Zielen werden keine eingegebenen Suchtexte und keine GPS-Spuren gespeichert. Ortssuchen und Planungsangaben einschließlich gewählter Zwischenziele gehen an Transitous; Kartenabrufe einschließlich Kartenschriften an OpenFreeMap (Kartendaten von OpenStreetMap).
 
 Die Einstellungen zeigen Radtempo, Radzeit und Faltzeit direkt. Verkehrsmittel, weitere Routenoptionen, Datenverwaltung und Hilfe lassen sich unabhängig aufklappen. „Fertig“ oben rechts führt zurück; gültige Änderungen gelten sofort, eine bestehende Route wird erst beim Verlassen einmal neu berechnet. Persönliche Vorgaben gelten für jede neue Berechnung, auch aus Links, Verlauf und Navigation. Das Öffnen einer alten Reise verändert sie nicht.
 
 ## Darstellung
 
-Unter **Einstellungen → App & Speicher → Darstellung** stehen **System**, **Hell** und **Dunkel** zur Wahl. Standard ist **System**, das auch während der Nutzung auf Änderungen der Geräteinstellung reagiert. Die Auswahl gilt sofort für Oberfläche, Routen- und Navigationspanels und wird separat unter `foldroute.appearance` in `localStorage` gespeichert. Sie verändert keine Routen und löst keine Neuberechnung aus. Ohne Speicherzugriff gilt sie für die laufende Sitzung. „Alle lokalen Daten löschen“ setzt sie auf **System**; „Routeneinstellungen zurücksetzen“ erhält sie. Die Straßenkarte nutzt weiterhin die vorhandenen OSM-Kacheln. Die öffentliche Beispielroute folgt ausschließlich der Systemdarstellung und liest keine persönlichen Einstellungen.
+Unter **Einstellungen → App & Speicher → Darstellung** stehen **System**, **Hell** und **Dunkel** zur Wahl. Standard ist **System**, das auch während der Nutzung auf Änderungen der Geräteinstellung reagiert. Die Auswahl gilt sofort für Oberfläche, Routen- und Navigationspanels und wird separat unter `foldroute.appearance` in `localStorage` gespeichert. Sie verändert keine Routen und löst keine Neuberechnung aus. Ohne Speicherzugriff gilt sie für die laufende Sitzung. „Alle lokalen Daten löschen“ setzt sie auf **System**; „Routeneinstellungen zurücksetzen“ erhält sie. Die Bedienflächen des Planers unterstützen Hell und Dunkel. Über das Ebenen-Symbol direkt auf der Karte stehen **Positron**, **Straßenkarte** und **Dunkel** zur Wahl, auch während der Navigation. Standard ist Positron. Die Wahl gilt unabhängig vom App-Modus und wird separat unter `foldroute.mapStyle` gespeichert und zwischen Tabs synchronisiert. Kartenwechsel erhalten Route und Ausschnitt. Routen, Standort und Kartenmarker passen sich dem gewählten Kartenstil an. „Alle lokalen Daten löschen“ stellt Positron wieder her; ohne Speicherzugriff gilt die Auswahl für die Sitzung. Die Landingpage bleibt immer hell und liest oder verändert die Darstellungswahl nicht. Die öffentliche Beispielroute liest ausschließlich Darstellungswahl und Kartenstil, keine persönlichen Routing-Einstellungen oder gespeicherten Fahrten.
 
 ## Entwickeln und bauen
 
@@ -26,11 +26,13 @@ Der Build ersetzt ausschließlich `docs/plan/`. Landingpage und deren Assets ble
 
 ## Gesamte Website lokal ansehen
 
+Im Dev-Modus (`npm run dev`) liegen Landingpage und Planer auf demselben Server: [Landingpage](http://127.0.0.1:4173/landing/) und [Planer](http://127.0.0.1:4173/). Änderungen werden automatisch aktualisiert. Die Landingpage bleibt hell; die Darstellungswahl in den App-Einstellungen gilt für den Planer und die interaktive Beispielroute.
+
 Die Landingpage liegt in `docs/index.html` und benötigt selbst keinen Build. Logo, HTML, CSS, JavaScript und Vorschaubild liegen lokal. Die Karten sind Illustrationen; die Webplaner-Vorschau zeigt die echte Oberfläche mit Beispieldaten. Für echte Planung führt der Link zu `plan/`.
 
-„Beispiel öffnen“ führt zu `plan/?example=bike-transfer`. Dieser getrennte Einstieg lädt eine feste, interaktive Verbindung mit S8, Radfahrt zwischen Unterföhring und Freimann und U6 nach Fröttmaning. Karte und Etappendetails verwenden dieselben Ansichten wie der normale Planer. Die Beispielansicht zeigt ausschließlich Dauern, fragt weder Routing noch Standort ab und liest oder verändert keine persönlichen Einstellungen, Strecken oder Navigationsstände. „Eigene Route planen“ öffnet den normalen Planer ohne vorbelegte Route.
+„Beispiel öffnen“ führt zu `plan/?example=bike-transfer`. Dieser getrennte Einstieg lädt eine feste, interaktive Verbindung mit S8, Radfahrt zwischen Unterföhring und Freimann und U6 nach Fröttmaning. Karte und Etappendetails verwenden dieselben Ansichten wie der normale Planer. Die Beispielansicht zeigt ausschließlich Dauern und fragt weder Routing noch Standort ab. Sie übernimmt nur Darstellungswahl und Kartenstil und liest oder verändert keine Routing-Einstellungen, Strecken oder Navigationsstände. „Eigene Route planen“ öffnet den normalen Planer ohne vorbelegte Route.
 
-Die vollständige Aufzeichnung liegt in `src/data/bike-transfer.json`: am 16.10.2026 über Transitous mit den damaligen Standardeinstellungen für Abfahrt am 19.10.2026 um 08:00 Uhr in München geprüft. Die ausgewählte Verbindung dauert 57 Minuten; die Radetappe zwischen Unterföhring und Freimann ist rund 3,8 km lang und dauert 17 Minuten. Das JSON enthält Herkunft, Abfrage, Einstellungen, alle Etappen und ihre Geometrien; flüchtige Echtzeit- und Fahrtkennungen wurden entfernt. Eine Aktualisierung erfolgt bewusst durch Ersetzen dieser Aufzeichnung nach erneuter Prüfung. Die Beispieladresse führt keine neue Suche aus und verspricht keine aktuelle oder schnellste Verbindung. Die Straßenkarte nutzt wie sonst OpenStreetMap; ohne Kacheln bleiben Verlauf und Etappen verfügbar.
+Die vollständige Aufzeichnung liegt in `src/data/bike-transfer.json`: am 16.10.2026 über Transitous mit den damaligen Standardeinstellungen für Abfahrt am 19.10.2026 um 08:00 Uhr in München geprüft. Die ausgewählte Verbindung dauert 57 Minuten; die Radetappe zwischen Unterföhring und Freimann ist rund 3,8 km lang und dauert 17 Minuten. Das JSON enthält Herkunft, Abfrage, Einstellungen, alle Etappen und ihre Geometrien; flüchtige Echtzeit- und Fahrtkennungen wurden entfernt. Eine Aktualisierung erfolgt bewusst durch Ersetzen dieser Aufzeichnung nach erneuter Prüfung. Die Beispieladresse führt keine neue Suche aus und verspricht keine aktuelle oder schnellste Verbindung. Die Straßenkarte nutzt wie sonst OpenFreeMap mit OpenStreetMap-Daten; ohne Kacheln bleiben Verlauf und Etappen verfügbar.
 
 Aus dem Repository-Hauptverzeichnis den Webplaner bauen und anschließend die Website ausliefern:
 
@@ -53,7 +55,7 @@ Die Landingpage zeigt unterhalb des Vergleichs einen Screenshot der echten mobil
 node scripts/capture-landing-preview.mjs
 ```
 
-Das Skript benötigt Playwright Chromium und ersetzt `docs/assets/webplaner-vorschau.png`. Es verwendet die vorhandenen Routing-Testdaten, eine feste Uhrzeit und einen leeren Browserkontext mit heller Farbschema-Präferenz bei 390 × 844 px und doppelter Pixeldichte. Routinganfragen werden abgefangen, Kartenabrufe blockiert. Eine andere lokale Planer-Adresse kann als Argument übergeben werden.
+Das Skript benötigt Playwright Chromium und ersetzt `docs/assets/webplaner-vorschau.png`. Es verwendet die vorhandenen Routing-Testdaten, eine feste Uhrzeit und einen leeren Browserkontext in Hell bei 390 × 844 px und doppelter Pixeldichte. Routinganfragen werden abgefangen, Kartenabrufe blockiert. Eine andere lokale Planer-Adresse kann als Argument übergeben werden.
 
 ## Tests
 
@@ -100,7 +102,8 @@ Quellen:
 - [Transitous API und Nutzung](https://transitous.org/api/)
 - [MOTIS API-Spezifikation](https://github.com/motis-project/motis/blob/v2.10.2/openapi.yaml)
 - [Leaflet 1.9.4](https://leafletjs.com/reference.html)
-- [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)
+- [OpenFreeMap: Integration und Attribution](https://openfreemap.org/quick_start/)
+- [OpenFreeMap: Datenschutz](https://openfreemap.org/privacy/)
 
 Leaflet ist unter BSD-2-Clause lizenziert; siehe `public/leaflet-LICENSE.txt`. Karten und Routingdaten besitzen eigene Quellen und Nutzungsbedingungen.
 

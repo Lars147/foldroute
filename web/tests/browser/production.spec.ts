@@ -15,7 +15,7 @@ async function production(page: Page) {
   await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
   await page.context().grantPermissions(["geolocation"]);
   await page.context().setGeolocation({ latitude: 48.132, longitude: 11.5756 });
-  await page.route("https://tile.openstreetmap.org/**", (r) => r.abort());
+  await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.route("**/api/v1/geocode?*", (r) =>
     r.fulfill({
       headers: cors,
@@ -91,6 +91,7 @@ test("license page and original notices remain accessible offline", async ({
   page,
   context,
 }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
   await page.goto(new URL("../", root).href);
   await page
     .getByRole("link", { name: "Lizenzen & Datenquellen", exact: true })
@@ -107,6 +108,8 @@ test("license page and original notices remain accessible offline", async ({
     .getByRole("link", { name: "Lizenzen & Datenquellen", exact: true })
     .click();
   await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(16, 19, 20)");
   await expect(
     page.getByRole("heading", { name: "Lizenzen & Datenquellen" }),
   ).toBeVisible();
@@ -353,6 +356,7 @@ test("help topics and links work offline under the deployment subpath", async ({
   page,
   context,
 }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
   await page.goto(new URL("../", root).href);
   await page.getByRole("link", { name: "Hilfe & FAQ", exact: true }).click();
   await expect(page).toHaveURL(new URL("hilfe.html", root).href);
@@ -364,6 +368,8 @@ test("help topics and links work offline under the deployment subpath", async ({
     .getByRole("link", { name: "Datenschutz & Daten", exact: true })
     .click();
   await expect(page.locator("#datenschutz")).toHaveAttribute("open", "");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(16, 19, 20)");
   await expect(page.locator("#datenschutz summary")).toBeInViewport();
   for (const topic of [
     "standort-pwa",

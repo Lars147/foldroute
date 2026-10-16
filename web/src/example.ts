@@ -4,7 +4,7 @@ import { RouteMap } from "./map-view";
 import type { PlanningState } from "./planning-state";
 import { el, icon, node } from "./ui";
 
-// This entrypoint deliberately does not initialize planning, location or storage.
+// This entrypoint deliberately does not initialize planning, location or journey storage.
 document.title = "FoldRoute · Beispielroute";
 document.body.dataset.view = "map";
 document.body.dataset.example = "bike-transfer";
@@ -96,7 +96,9 @@ document.querySelector(".map-credit")!.append(sources);
 el("map-route").onclick = () => routeMap.fitRoute();
 el("close-route").setAttribute("aria-label", "Zur Landingpage");
 el("close-route").onclick = () =>
-  location.assign(new URL("../#idee", location.href));
+  location.assign(
+    import.meta.env.DEV ? "/landing/#idee" : new URL("../#idee", location.href),
+  );
 
 journeyView.render(state, settings.maxCyclingMinutes);
 journeyView.restoreNavigation(

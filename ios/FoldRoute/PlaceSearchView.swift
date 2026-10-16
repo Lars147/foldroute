@@ -275,7 +275,7 @@ struct PlaceSearchContent: View {
             .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
             .padding(.horizontal, 20)
             .padding(.top, 12)
-            .tint(FoldRouteColor.routeCyan)
+            .tint(FoldRouteColor.actionText)
 
             if let favoriteError {
                 Text(favoriteError)
@@ -566,8 +566,9 @@ struct PlaceSearchContent: View {
                 } label: {
                     Image(systemName: isFavorite ? "star.fill" : "star")
                         .font(.system(size: 22))
-                        .foregroundStyle(isFavorite ? FoldRouteColor.signalYellow : Color.secondary)
+                        .foregroundStyle(isFavorite ? FoldRouteColor.asphalt : Color.secondary)
                         .frame(minWidth: 44, minHeight: 44)
+                        .background(isFavorite ? FoldRouteColor.signalYellow : Color.clear, in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
                 .disabled(search.isResolving)

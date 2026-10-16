@@ -61,7 +61,7 @@ function polyline(points: number[][]): string {
 }
 async function setup(page: Page) {
   await page.clock.setFixedTime(new Date(now * 1000));
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
+  await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
   await page.route("**/api/v1/reverse-geocode?*", (route) =>
