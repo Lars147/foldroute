@@ -2594,7 +2594,7 @@ body[data-navigation="active"] .app-tabs {
 .navigation-credit {
   position: absolute;
   bottom: 5px;
-  left: 12px;
+  right: max(12px, env(safe-area-inset-right, 0px));
   font-size: 10px;
   color: #171a1c;
   background: #fffffff0;
@@ -2719,7 +2719,7 @@ body[data-navigation="active"] .app-tabs {
   .navigation-panel {
     left: max(12px, env(safe-area-inset-left));
     right: max(12px, env(safe-area-inset-right));
-    bottom: max(28px, env(safe-area-inset-bottom));
+    bottom: max(12px, env(safe-area-inset-bottom));
     padding: 0;
     border-radius: 20px;
     max-height: calc(100dvh - var(--navigation-header-bottom, 120px) - 60px);
@@ -2838,7 +2838,18 @@ body[data-navigation="active"] .app-tabs {
     margin-bottom: 12px;
   }
   .navigation-credit {
-    max-width: calc(100% - 24px);
+    top: calc(var(--navigation-panel-top, 100%) - 6px);
+    bottom: auto;
+    right: calc(
+      max(12px, env(safe-area-inset-right, 0px)) +
+        var(--navigation-credit-offset, 0px)
+    );
+    transform: translateY(-100%);
+    max-width: calc(
+      100% - max(12px, env(safe-area-inset-left, 0px)) -
+        max(12px, env(safe-area-inset-right, 0px)) -
+        var(--navigation-credit-offset, 0px)
+    );
   }
 }
 

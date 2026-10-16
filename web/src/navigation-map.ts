@@ -239,9 +239,25 @@ export class NavigationMap {
       top = this.top.getBoundingClientRect(),
       panel = this.panel.getBoundingClientRect();
     if (!bounds.width || !bounds.height) return;
-    this.target.parentElement!.style.setProperty(
+    const screen = this.target.parentElement!;
+    screen.style.setProperty(
       "--navigation-header-bottom",
       `${Math.max(0, top.bottom - bounds.top)}px`,
+    );
+    screen.style.setProperty(
+      "--navigation-panel-top",
+      `${Math.max(0, panel.top - bounds.top)}px`,
+    );
+    const controls = screen
+        .querySelector(".navigation-map-controls")!
+        .getBoundingClientRect(),
+      credit = screen
+        .querySelector(".navigation-credit")!
+        .getBoundingClientRect(),
+      creditBottom = panel.top - 6;
+    screen.style.setProperty(
+      "--navigation-credit-offset",
+      `${creditBottom > controls.top && creditBottom - credit.height < controls.bottom ? controls.width + 8 : 0}px`,
     );
     if (!this.following || !this.lastFix || this.target.hidden) return;
     const upper = Math.max(0, top.bottom - bounds.top + 12),

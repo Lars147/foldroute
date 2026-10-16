@@ -427,6 +427,43 @@ async function complete(page: Page) {
   await page.locator("#navigation-confirm-yes").click();
 }
 
+async function expectMobileCredit(page: Page) {
+  await expect
+    .poll(() =>
+      page.locator(".navigation-credit").evaluate((credit) => {
+        const bounds = credit.getBoundingClientRect();
+        const panel = document
+          .getElementById("navigation-panel")!
+          .getBoundingClientRect();
+        const controls = document
+          .querySelector(".navigation-map-controls")!
+          .getBoundingClientRect();
+        const overlapsControls =
+          bounds.top < controls.bottom && bounds.bottom > controls.top;
+        return {
+          gapWithinTolerance: Math.abs(panel.top - bounds.bottom - 6) <= 1,
+          rightAligned:
+            Math.abs(
+              bounds.right -
+                (overlapsControls ? controls.left - 8 : panel.right),
+            ) <= 1,
+          inViewport:
+            bounds.top >= 0 &&
+            bounds.left >= 0 &&
+            bounds.right <= innerWidth &&
+            bounds.bottom <= innerHeight,
+        };
+      }),
+    )
+    .toEqual({
+      gapWithinTolerance: true,
+      rightAligned: true,
+      inViewport: true,
+    });
+  for (const link of await page.locator(".navigation-credit a").all())
+    await link.click({ trial: true });
+}
+
 test("System appearance changes navigation panels without resetting progress", async ({
   page,
 }, info) => {
@@ -470,6 +507,8 @@ for (const [width, height] of [
     await expect(page.locator("#navigation-details")).toBeHidden();
     await expect(page.locator("#navigation-complete")).toBeHidden();
     await expect(page.locator("#navigation-alert")).toBeHidden();
+    await expect(page.locator(".navigation-panel")).toHaveCSS("bottom", "12px");
+    await expectMobileCredit(page);
     const bounds = await page.evaluate(() => {
       const top = document
         .getElementById("navigation-top")!
@@ -501,6 +540,7 @@ for (const [width, height] of [
     await page.locator("#navigation-details-toggle").press("Enter");
     await expect(page.locator("#navigation-details")).toBeVisible();
     await expect(page.locator("#navigation-complete")).toBeVisible();
+    await expectMobileCredit(page);
     await page.locator("#navigation-details-toggle").press("Escape");
     await expect(page.locator("#navigation-details")).toBeHidden();
     const grip = await page.locator("#navigation-details-toggle").boundingBox();
@@ -517,9 +557,17 @@ for (const [width, height] of [
     await expect(page.locator("#navigation-alert-summary")).toContainText(
       "Standort ungenau",
     );
+    await expectMobileCredit(page);
+    await page.screenshot({
+      path: test.info().outputPath("warning-credits.png"),
+    });
     await expect(page.locator("#navigation-details")).toBeHidden();
     await page.locator("#navigation-alert-open").click();
     await expect(page.locator("#navigation-location-status")).toBeVisible();
+    await expectMobileCredit(page);
+    await page.screenshot({
+      path: test.info().outputPath("expanded-credits.png"),
+    });
   });
 
 test("mobile details resize without recentering a manually moved map and keep stop actions visible", async ({
@@ -539,6 +587,7 @@ test("mobile details resize without recentering a manually moved map and keep st
     "data-center",
     center!,
   );
+  await expectMobileCredit(page);
   for (let index = 0; index < 5; index++) await complete(page);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Zwischenziel erreicht",
@@ -550,6 +599,48 @@ test("mobile details resize without recentering a manually moved map and keep st
   await page.locator("#navigation-complete").click();
   await expect(page.locator("#navigation-instruction")).not.toHaveText(
     "Zwischenziel erreicht",
+  );
+});
+
+test("navigation credits move between mobile panel and desktop bottom right", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  const links = page.locator(".navigation-credit a");
+  await expect(links).toHaveCount(2);
+  await expect(links.nth(0)).toHaveAttribute(
+    "href",
+    "https://www.openstreetmap.org/copyright",
+  );
+  await expect(links.nth(1)).toHaveAttribute(
+    "href",
+    "https://transitous.org/sources/",
+  );
+  await expectMobileCredit(page);
+  await page.locator("#navigation-map").press("ArrowRight");
+  await expect(page.locator("#navigation-map")).toHaveAttribute(
+    "data-following",
+    "false",
+  );
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await expect(page.locator("#navigation-details")).toBeVisible();
+  const credit = page.locator(".navigation-credit");
+  await expect(credit).toHaveCSS("bottom", "5px");
+  await expect(credit).toHaveCSS("right", "12px");
+  await expect(credit).toHaveCSS("transform", "none");
+  await expect(credit).toBeInViewport();
+  for (const link of await links.all()) await link.click({ trial: true });
+  await expect(page.locator(".navigation-panel")).toHaveCSS("bottom", "28px");
+  await page.screenshot({
+    path: test.info().outputPath("desktop-credits.png"),
+  });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(page.locator("#navigation-details")).toBeHidden();
+  await expectMobileCredit(page);
+  await expect(page.locator("#navigation-map")).toHaveAttribute(
+    "data-following",
+    "false",
   );
 });
 
