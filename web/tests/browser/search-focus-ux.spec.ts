@@ -1,5 +1,176 @@
 import { test, expect } from "@playwright/test";
 
+const cafes = [
+  {
+    name: "sweet spot kaffee",
+    type: "PLACE",
+    lat: 48.1357968,
+    lon: 11.5776163,
+    zip: "80331",
+    country: "DE",
+    areas: [
+      { name: "München", unique: true, adminLevel: 6 },
+      { name: "Altstadt-Lehel", unique: false, adminLevel: 9 },
+    ],
+  },
+  {
+    name: "sweet spot kaffee",
+    type: "PLACE",
+    lat: 48.129031,
+    lon: 11.5755194,
+    zip: "80469",
+    country: "DE",
+    areas: [
+      { name: "München", unique: true, adminLevel: 6 },
+      { name: "Ludwigsvorstadt-Isarvorstadt", unique: false, adminLevel: 9 },
+    ],
+  },
+];
+const cors = { "Access-Control-Allow-Origin": "*" };
+
+for (const width of [320, 390, 1280])
+  test(`districts distinguish equal place names and wrap without hiding controls at ${width}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.route("**/api/v1/geocode?*", (route) =>
+      route.fulfill({ headers: cors, json: cafes }),
+    );
+    await page.goto("/");
+    if (width === 320)
+      await page.addStyleTag({ content: "html { font-size: 24px; }" });
+    await page.locator("#destination").fill("sweet");
+    const results = page.locator("#destination-options .place-select");
+    await expect(results).toHaveCount(2);
+    await expect(results.locator("strong")).toHaveText([
+      "sweet spot kaffee",
+      "sweet spot kaffee",
+    ]);
+    await expect(results.locator("small")).toHaveText([
+      "80331, München, Altstadt-Lehel, DE",
+      "80469, München, Ludwigsvorstadt-Isarvorstadt, DE",
+    ]);
+    for (const row of await page
+      .locator("#destination-options li")
+      .filter({ has: page.locator(".place-select") })
+      .all()) {
+      expect(
+        await row.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      ).toBe(true);
+      for (const action of [".place-favorite", ".place-prefill"]) {
+        const button = row.locator(action);
+        await button.scrollIntoViewIfNeeded();
+        await expect(button).toBeInViewport();
+        const bounds = (await button.boundingBox())!;
+        expect(bounds.width).toBeGreaterThanOrEqual(44);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+      }
+    }
+    await page.screenshot({ path: info.outputPath("district-results.png") });
+  });
+
+test("district details are shared by origin, destination and stop searches", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/geocode?*", (route) =>
+    route.fulfill({ headers: cors, json: cafes }),
+  );
+  await page.goto("/");
+  await page.locator("#search-adjust").click();
+  for (const id of ["origin", "adjust-destination", "via-0"]) {
+    if (id === "via-0") await page.locator("#add-stop").click();
+    await page.locator(`#${id}`).fill("sweet");
+    const results = page.locator(`#${id}-options .place-select`);
+    await expect(results).toHaveCount(2);
+    await expect(results.last()).toHaveAccessibleName(
+      /Ludwigsvorstadt-Isarvorstadt/,
+    );
+    await results.last().click();
+    await expect(page.locator(`#${id}`)).toHaveValue("sweet spot kaffee");
+  }
+});
+
+test("fresh district details enrich a favorite without moving focus or writing until selection, then remain offline", async ({
+  page,
+  context,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => (release = resolve));
+  let searches = 0;
+  await page.route("**/api/v1/geocode?*", async (route) => {
+    searches++;
+    await pending;
+    await route.fulfill({ headers: cors, json: cafes });
+  });
+  await page.goto("/");
+  const legacy = {
+    name: cafes[0].name,
+    detail: "80331, München, DE",
+    latitude: cafes[0].lat,
+    longitude: cafes[0].lon,
+  };
+  await page.evaluate(async (place) => {
+    const path = "/src/places.ts";
+    const { PlaceBook } = await import(path);
+    await new PlaceBook().change(place, "favorite");
+  }, legacy);
+  await page.reload();
+  const storedFavorite = () =>
+    page.evaluate(async () => {
+      const path = "/src/places.ts";
+      const { PlaceBook } = await import(path);
+      const book = new PlaceBook();
+      await book.load();
+      return book.favorites[0]?.place;
+    });
+  const query = page.waitForRequest("**/api/v1/geocode?*");
+  await page.locator("#destination").fill("sweet");
+  await query;
+  const favorite = page.locator("#destination-options .place-select").first();
+  await expect(favorite.locator("small")).toHaveText(legacy.detail);
+  await favorite.focus();
+  release();
+  await expect(favorite.locator("small")).toHaveText(
+    "80331, München, Altstadt-Lehel, DE",
+  );
+  await expect(favorite).toBeFocused();
+  await expect(page.locator("#destination-options .place-select")).toHaveCount(
+    2,
+  );
+  expect(await storedFavorite()).toEqual(legacy);
+  await page.locator(".search-focus-back").click();
+  await page.locator("#search-adjust").click();
+  await page.locator("#origin").fill("sweet");
+  const enriched = page
+    .locator("#origin-options .place-select")
+    .filter({ hasText: "Altstadt-Lehel" });
+  await expect(enriched).toBeVisible();
+  await enriched.click();
+  await expect
+    .poll(storedFavorite)
+    .toEqual({ ...legacy, detail: "80331, München, Altstadt-Lehel, DE" });
+  await page.locator("#cancel-adjust").click();
+  await page.reload();
+  await context.setOffline(true);
+  const count = searches;
+  await page.locator("#destination").fill("Altstadt");
+  const offline = page.locator("#destination-options .place-select");
+  await expect(offline).toHaveCount(1);
+  await expect(offline.locator("small")).toHaveText(
+    "80331, München, Altstadt-Lehel, DE",
+  );
+  await expect(
+    page.locator("#destination-options .place-favorite"),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(searches).toBe(count);
+  await page.screenshot({
+    path: info.outputPath("district-favorite-offline.png"),
+  });
+});
+
 test("mobile search uses visual viewport and returns to the unchanged adjustment draft", async ({
   page,
 }) => {

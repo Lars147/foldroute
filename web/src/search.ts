@@ -260,6 +260,11 @@ export class PlaceSearch {
       select = node("button", "", "place-select");
     li.setAttribute("role", "row");
     const name = place?.name ?? "Aktueller Standort";
+    li.dataset.placeKey = JSON.stringify([
+      name,
+      place?.latitude,
+      place?.longitude,
+    ]);
     const copy = node("span");
     copy.append(
       node("strong", name),
@@ -322,24 +327,35 @@ export class PlaceSearch {
   }
   private render() {
     const focused = this.list.contains(document.activeElement)
-      ? document.activeElement?.getAttribute("aria-label")
+      ? {
+          key: (document.activeElement as HTMLElement).closest("li")?.dataset
+            .placeKey,
+          action: (document.activeElement as HTMLElement).className,
+        }
       : undefined;
     this.list.replaceChildren();
     this.buttons = [];
     this.active = -1;
     this.input.removeAttribute("aria-activedescendant");
     const query = this.input.value.trim().toLocaleLowerCase("de");
-    const favorites = this.book.favorites.filter(
-      (e) =>
-        !query ||
-        `${e.place.name} ${e.place.detail}`
-          .toLocaleLowerCase("de")
-          .includes(query),
-    );
+    const favorites = this.book.favorites
+      .map(({ place }) => {
+        const detail = this.options.find((option) =>
+          samePlace(place, option),
+        )?.detail;
+        return detail ? { ...place, detail } : place;
+      })
+      .filter(
+        (place) =>
+          !query ||
+          `${place.name} ${place.detail}`
+            .toLocaleLowerCase("de")
+            .includes(query),
+      );
     if (!query && this.showCurrentLocation) this.row();
     if (favorites.length) {
       this.heading("Favoriten");
-      favorites.forEach((e) => this.row(e.place));
+      favorites.forEach((place) => this.row(place));
     }
     if (!query && this.book.recent.length) {
       this.heading("Zuletzt verwendet");
@@ -347,7 +363,7 @@ export class PlaceSearch {
     }
     const results = this.options.filter(
       (p, i, all) =>
-        !favorites.some((e) => samePlace(e.place, p)) &&
+        !favorites.some((place) => samePlace(place, p)) &&
         all.findIndex((other) => samePlace(other, p)) === i,
     );
     if (query && results.length) {
@@ -358,7 +374,11 @@ export class PlaceSearch {
     this.input.setAttribute("aria-expanded", String(!this.list.hidden));
     if (focused)
       Array.from(this.list.querySelectorAll<HTMLButtonElement>("button"))
-        .find((b) => b.getAttribute("aria-label") === focused)
+        .find(
+          (b) =>
+            b.className === focused.action &&
+            b.closest("li")?.dataset.placeKey === focused.key,
+        )
         ?.focus({ preventScroll: true });
   }
 }

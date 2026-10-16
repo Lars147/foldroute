@@ -426,6 +426,42 @@ export interface RequestBudget {
   take(): void;
   stopped?: boolean;
 }
+function geocodeDetail(place: {
+  zip?: unknown;
+  areas?: unknown;
+  country?: unknown;
+}): string {
+  const clean = (value: unknown) =>
+    typeof value === "string" ? value.trim() : "";
+  const areas: Array<{
+    name?: string;
+    unique?: boolean;
+    adminLevel?: number;
+  } | null> = Array.isArray(place.areas) ? place.areas : [];
+  const district = areas.find(
+    (area) =>
+      Number.isFinite(area?.adminLevel) &&
+      (area?.adminLevel ?? 0) >= 9 &&
+      clean(area?.name),
+  );
+  const parts = [
+    place.zip,
+    ...areas.filter((area) => area?.unique).map((area) => area?.name),
+    district?.name,
+    place.country,
+  ]
+    .map(clean)
+    .filter(Boolean);
+  const seen = new Set<string>();
+  return parts
+    .filter((part) => {
+      const key = part.toLocaleLowerCase("de");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(", ");
+}
 export class ApiClient {
   retryAt = 0;
   constructor(
@@ -584,17 +620,7 @@ export class ApiClient {
       .slice(0, 12)
       .map((p) => ({
         name: p.name,
-        detail: [
-          p.zip,
-          ...(Array.isArray(p.areas)
-            ? p.areas
-                .filter((a: { unique?: boolean }) => a.unique)
-                .map((a: { name?: string }) => a.name)
-            : []),
-          p.country,
-        ]
-          .filter(Boolean)
-          .join(", "),
+        detail: geocodeDetail(p),
         latitude: p.lat,
         longitude: p.lon,
         stopId: p.type === "STOP" ? p.id : undefined,
