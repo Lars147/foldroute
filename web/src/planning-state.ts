@@ -31,6 +31,26 @@ export interface PlanningState {
   staleReason?: string;
   recovery?: PlanningRecovery;
 }
+function routingContext(request: RouteRequest, settings: RoutingSettings) {
+  const place = (value: RouteRequest["origin"]) => [
+    value.latitude,
+    value.longitude,
+    value.stopId,
+  ];
+  return JSON.stringify([
+    place(request.origin),
+    place(request.destination),
+    request.timing,
+    request.time,
+    (request.stops ?? []).map((stop) => [place(stop.place), stop.stayMinutes]),
+    Object.entries(settings)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [
+        key,
+        Array.isArray(value) ? [...value].sort() : value,
+      ]),
+  ]);
+}
 export class PlanningSession {
   state: PlanningState = {
     journeys: [],
@@ -147,6 +167,43 @@ export class PlanningSession {
       message: context.busy
         ? "Bisherige Ergebnisse dieser Planung. Bei Bedarf erneut versuchen."
         : context.message,
+    };
+    this.emit();
+  }
+  returnFromNavigation(
+    journey: Journey,
+    request: RouteRequest,
+    resultSettings: RoutingSettings,
+    routeChanged = false,
+  ) {
+    this.stop("");
+    const previous = this.state;
+    const sameContext =
+      !routeChanged &&
+      previous.selected?.id === journey.id &&
+      previous.request &&
+      previous.resultSettings &&
+      routingContext(previous.request, previous.resultSettings) ===
+        routingContext(request, resultSettings);
+    const selected = structuredClone(journey);
+    this.explicitlySelectedID = selected.id;
+    this.selectionHeld = false;
+    this.state = {
+      journeys: sameContext
+        ? previous.journeys.map((item) =>
+            item.id === selected.id ? selected : item,
+          )
+        : [selected],
+      selected,
+      request: structuredClone(request),
+      resultSettings: structuredClone(resultSettings),
+      queriedAt: previous.queriedAt,
+      calculationId: sameContext ? previous.calculationId : undefined,
+      busy: false,
+      locating: false,
+      restored: false,
+      message: "",
+      issues: sameContext ? previous.issues : [],
     };
     this.emit();
   }

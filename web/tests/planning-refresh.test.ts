@@ -62,6 +62,117 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("returning from navigation", () => {
+  it("keeps the explicit selection, alternatives and query time with updated journey data", async () => {
+    const session = sessionWithArchive();
+    vi.spyOn(Date, "now").mockReturnValue(123_000);
+    vi.mocked(planRoutes).mockImplementation(async function* () {
+      yield {
+        journeys: [journey("first"), journey("chosen"), journey("third")],
+        status: "complete",
+        issues: [],
+      };
+    });
+    await session.calculate(request, defaults, false);
+    session.select("chosen");
+    const calculationId = session.state.calculationId;
+    const updated = journey("chosen", 2100);
+    const renamed = {
+      ...request,
+      origin: { ...origin, name: "Aktueller Standort" },
+    };
+    vi.spyOn(Date, "now").mockReturnValue(456_000);
+    session.returnFromNavigation(updated, renamed, defaults);
+    expect(session.state.journeys.map((item) => item.id)).toEqual([
+      "first",
+      "chosen",
+      "third",
+    ]);
+    expect(session.state.selected).toEqual(updated);
+    expect(session.state.journeys[1]).toBe(session.state.selected);
+    expect(session.state.queriedAt).toBe(123);
+    expect(session.state.calculationId).toBe(calculationId);
+    expect(session.state.restored).toBe(false);
+    expect(session.state.message).toBe("");
+    expect(session.state.request).toEqual(renamed);
+    expect(planRoutes).toHaveBeenCalledOnce();
+    updated.arrival = 9999;
+    expect(session.state.selected?.arrival).toBe(2100);
+  });
+
+  for (const change of [
+    "origin",
+    "destination",
+    "stops",
+    "settings",
+    "time",
+    "replacement",
+  ] as const)
+    it(`does not mix old alternatives with a changed ${change}`, () => {
+      const session = sessionWithArchive();
+      session.restoreContext({
+        ...session.state,
+        journeys: [journey("archive"), journey("other")],
+        calculationId: "old",
+      });
+      const nextRequest = structuredClone(request);
+      let nextSettings = defaults;
+      if (change === "origin") nextRequest.origin.latitude += 0.01;
+      if (change === "destination") nextRequest.destination.longitude += 0.01;
+      if (change === "stops")
+        nextRequest.stops = [{ id: "via", place: origin, stayMinutes: 5 }];
+      if (change === "settings") nextSettings = changedSettings;
+      if (change === "time") nextRequest.time += 60;
+      session.returnFromNavigation(
+        journey("archive"),
+        nextRequest,
+        nextSettings,
+        change === "replacement",
+      );
+      expect(session.state.journeys.map((item) => item.id)).toEqual([
+        "archive",
+      ]);
+      expect(session.state.request).toEqual(nextRequest);
+      expect(session.state.resultSettings).toEqual(nextSettings);
+      expect(session.state.calculationId).toBeUndefined();
+      expect(session.state.queriedAt).toBe(100);
+      expect(session.state.restored).toBe(false);
+      expect(planRoutes).not.toHaveBeenCalled();
+    });
+
+  it("clears a pending search and recovery without letting a late result replace the navigated journey", async () => {
+    const session = sessionWithArchive();
+    const pending = gate();
+    vi.mocked(planRoutes).mockImplementation(async function* () {
+      await pending.promise;
+      yield { journeys: [journey("late")], status: "complete", issues: [] };
+    });
+    const task = session.calculate(changedRequest, defaults, false);
+    session.returnFromNavigation(journey("archive"), request, defaults);
+    expect(session.state.pendingRequest).toBeUndefined();
+    expect(session.state.pendingRequestResolved).toBeUndefined();
+    expect(session.state.staleReason).toBeUndefined();
+    expect(session.state.recovery).toBeUndefined();
+    expect(session.state.busy).toBe(false);
+    pending.release();
+    await task;
+    expect(session.state.selected?.id).toBe("archive");
+  });
+
+  it("leaves archive copies archived until navigation actually returns, including offline", () => {
+    const session = sessionWithArchive();
+    expect(session.state.restored).toBe(true);
+    vi.stubGlobal("navigator", { onLine: false });
+    session.returnFromNavigation(journey("archive"), request, defaults);
+    expect(session.state.restored).toBe(false);
+    expect(session.state.queriedAt).toBe(100);
+    expect(session.state.resultSettings).toEqual(defaults);
+    expect(planRoutes).not.toHaveBeenCalled();
+    session.restore(journey("archive"), request, 100, defaults);
+    expect(session.state.restored).toBe(true);
+  });
+});
+
 describe("pending search time", () => {
   it("resolves now after location and retains that time across stop and context restore", async () => {
     const session = sessionWithArchive();

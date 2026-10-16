@@ -1128,6 +1128,7 @@ it("offers rerouted multimodal journeys without replacing the active selection",
   );
   await session.start(connection(now + 900), request, defaults);
   const original = session.engine;
+  expect(session.routeChanged).toBe(false);
   await session.reroute();
   expect(session.engine).toBe(original);
   expect(session.alternative?.journey.id).toBe("new");
@@ -1135,10 +1136,15 @@ it("offers rerouted multimodal journeys without replacing the active selection",
   expect(session.alternative?.reason).toBe("reroute");
   session.dismissAlternative();
   expect(session.engine).toBe(original);
+  expect(session.routeChanged).toBe(false);
   await session.reroute();
   await session.acceptAlternative();
   expect(session.engine?.journey.id).toBe("new");
+  expect(session.routeChanged).toBe(true);
   expect(plan).toHaveBeenCalledTimes(2);
+  await session.stop();
+  await session.start(connection(now + 900), request, defaults);
+  expect(session.routeChanged).toBe(false);
   await session.stop();
 });
 

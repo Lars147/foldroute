@@ -161,6 +161,19 @@ for (const mobile of [false, true])
         }),
       )
       .toBe(false);
+    const acceptedID = await page.evaluate(async () => {
+      const { NavigationStore } = await import("/src/navigation-store.ts");
+      return (await new NavigationStore().read())!.journey.id;
+    });
+    await page.locator("#navigation-end").click();
+    await page.locator("#navigation-confirm-yes").click();
+    await expect(page.locator("#navigation-start")).toBeFocused();
+    await expect(page.locator("#choices .route-choice")).toHaveCount(1);
+    await expect(page.locator("#choices .route-choice")).toHaveAttribute(
+      "data-journey",
+      acceptedID,
+    );
+    await expect(page.locator("#saved-notice")).toBeHidden();
   });
 function route(multimodal = false): Journey {
   const legs: Leg[] = [
@@ -604,8 +617,131 @@ for (const width of [390, 1280])
     await expect(page.locator("#navigation-view")).toBeHidden();
     await expect.poll(() => savedActive(page)).toBe(false);
     await expect(page.locator("#map-view")).toBeVisible();
-    await expect(page.locator("#replan-saved")).toBeFocused();
+    await expect(page.locator("#navigation-start")).toBeFocused();
+    await expect(page.locator("#navigation-start")).toHaveText("Los");
+    await expect(page.locator("#saved-notice")).toBeHidden();
   });
+
+for (const failure of ["offline", "storage"] as const)
+  test(`ending navigation retains Los and the selected route despite ${failure}`, async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page);
+    await expect.poll(() => savedActive(page)).toBe(true);
+    let searches = 0;
+    page.on("request", (r) => {
+      if (r.url().includes("/v6/plan")) searches++;
+    });
+    if (failure === "offline") await context.setOffline(true);
+    else
+      await page.evaluate(async () => {
+        const path = "/src/navigation-store.ts";
+        const { NavigationStore } = await import(path);
+        NavigationStore.prototype.clear = async () => {
+          throw new Error("Storage unavailable");
+        };
+      });
+    await page.locator("#navigation-end").click();
+    await page.locator("#navigation-confirm-yes").click();
+    await expect(page.locator("#navigation-start")).toBeFocused();
+    await expect(page.locator("#navigation-start")).toBeEnabled();
+    await expect(page.locator("#navigation-start")).toHaveText("Los");
+    await expect(page.locator("#saved-notice")).toBeHidden();
+    await expect(page.locator("#result-stand")).toContainText(
+      "Stand: 6. Okt., 12:00",
+    );
+    if (failure === "storage")
+      await expect(page.locator("#toast")).toContainText(
+        "Gespeicherter Zustand konnte nicht gelöscht werden",
+      );
+    else {
+      await expect.poll(() => savedActive(page)).toBe(false);
+      await page.locator("#navigation-start").click();
+      await expect(page.locator("#navigation-instruction")).toHaveText(
+        "Links abbiegen auf Zweite Straße",
+      );
+    }
+    expect(searches).toBe(0);
+  });
+
+test("ending navigation keeps updated transit predictions without an archive warning", async ({
+  page,
+}) => {
+  await setup(page, true, false);
+  await page.route("**/api/v6/trip?*", (r) =>
+    r.fulfill({
+      json: {
+        legs: [
+          {
+            from: {
+              stopId: "A",
+              scheduledDeparture: new Date((now + 300) * 1000).toISOString(),
+              departure: new Date((now + 360) * 1000).toISOString(),
+            },
+            to: {
+              stopId: "D",
+              scheduledArrival: new Date((now + 600) * 1000).toISOString(),
+              arrival: new Date((now + 660) * 1000).toISOString(),
+            },
+            realTime: true,
+          },
+        ],
+      },
+    }),
+  );
+  await startSelected(page);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  await page.locator("#navigation-end").click();
+  await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#navigation-start")).toBeFocused();
+  await expect(
+    page.locator("#journey-detail .detail-delay").first(),
+  ).toContainText("12:06 · +1 min");
+  await expect(page.locator("#saved-notice")).toBeHidden();
+});
+
+test("ending a cancelled connection offers explicit recovery instead of an archive replan", async ({
+  page,
+}) => {
+  await setup(page, true);
+  await page.route("**/api/v6/trip?*", (r) =>
+    r.fulfill({
+      json: {
+        legs: [
+          {
+            from: {
+              stopId: "A",
+              scheduledDeparture: new Date((now + 300) * 1000).toISOString(),
+            },
+            to: {
+              stopId: "D",
+              scheduledArrival: new Date((now + 600) * 1000).toISOString(),
+            },
+            cancelled: true,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/v6/plan?*", (r) =>
+    r.fulfill({ json: { direct: [], itineraries: [] } }),
+  );
+  await page.clock.runFor(60000);
+  await expect(page.locator("#navigation-disruption")).toContainText(
+    "fällt aus",
+  );
+  await page.locator("#navigation-end").click();
+  await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#navigation-search-now")).toBeFocused();
+  await expect(page.locator("#navigation-start")).toBeDisabled();
+  await expect(page.locator("#navigation-search-now")).toHaveText(
+    "Ab jetzt suchen",
+  );
+  await expect(page.locator("#saved-notice")).toBeHidden();
+  await expect(page.locator("#replan-saved")).toBeHidden();
+});
 
 test("browser back dismisses an open navigation confirmation without losing progress", async ({
   page,
@@ -908,12 +1044,11 @@ test("browser back confirms ending and storage opt-out prevents recovery", async
   await page.goBack();
   await expect(page.locator("#navigation-confirm")).toBeVisible();
   await page.locator("#navigation-confirm-yes").click();
-  await expect(page.locator("#replan-saved")).toBeFocused();
+  await expect(page.locator("#navigation-start")).toBeFocused();
   await page.locator("#tab-settings").click();
   await page.locator("#offline-enabled").uncheck();
   await page.locator("#tab-route").click();
-  await page.locator("#route-more").click();
-  await page.locator("#navigation-start").click();
+  await startSelected(page);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
@@ -1173,7 +1308,8 @@ test("ending resumed navigation restores stops without replacing personal prefer
     r.fulfill({ json: { direct: [], itineraries: [] } }),
   );
   const planned = page.waitForRequest("**/api/v6/plan?*");
-  await page.locator("#replan-saved").click();
+  await page.locator("#route-more").click();
+  await page.locator("#refresh-route").click();
   const params = new URL((await planned).url()).searchParams;
   expect(params.get("cyclingSpeed")).toBe(
     (defaults.cyclingSpeedKilometersPerHour / 3.6).toFixed(3),
@@ -1181,7 +1317,8 @@ test("ending resumed navigation restores stops without replacing personal prefer
 });
 
 async function startSelected(page: Page) {
-  await page.locator("#route-more").click();
+  if (!(await page.locator(".panel-actions #navigation-start").isVisible()))
+    await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
 }
 

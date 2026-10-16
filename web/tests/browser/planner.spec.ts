@@ -711,6 +711,66 @@ test("location denial keeps destination and allows a manual start", async ({
   ).toContainText("32 min");
   await expect(page.locator("#route-origin")).toHaveText("Start");
 });
+for (const width of [390, 1280])
+  test(`ending navigation keeps the chosen alternative and original data timestamp at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page);
+    await page.route("**/api/v6/trip?*", (route) =>
+      route.fulfill({ headers: cors, json: { legs: [] } }),
+    );
+    await page.locator("#tab-settings").click();
+    await page.locator("#maxCyclingMinutes").fill("30");
+    await page.locator("#save-settings").click();
+    await choose(page, "destination", "Ziel");
+    await expectPlanningComplete(page);
+    const choices = page.locator(".route-choice");
+    const ids = await choices.evaluateAll((buttons) =>
+      buttons.map((button) => (button as HTMLElement).dataset.journey),
+    );
+    expect(ids.length).toBeGreaterThan(1);
+    await choices.nth(1).click();
+    const originalStand = await page.locator("#result-stand").textContent();
+    let searches = 0;
+    page.on("request", (r) => {
+      if (r.url().includes("/v6/plan")) searches++;
+    });
+    const activeJourney = () =>
+      page.evaluate(async () => {
+        const path = "/src/navigation-store.ts";
+        const { NavigationStore } = await import(path);
+        return (await new NavigationStore().read())?.journey.id;
+      });
+    await page.locator("#navigation-start").click();
+    await expect.poll(activeJourney).toBe(ids[1]);
+    await page.locator("#navigation-end").click();
+    await page.locator("#navigation-confirm-yes").click();
+    const start = page.locator(".panel-actions #navigation-start");
+    await expect(start).toBeFocused();
+    await expect(start).toHaveText("Los");
+    await expect(start).toBeEnabled();
+    await expect(page.locator("#saved-notice")).toBeHidden();
+    await expect(page.locator("#replan-saved")).toBeHidden();
+    await expect(page.locator("#result-stand")).toHaveText(originalStand!);
+    await expect(
+      page.locator(".route-choice[aria-pressed=true]"),
+    ).toHaveAttribute("data-journey", ids[1]!);
+    expect(
+      await choices.evaluateAll((buttons) =>
+        buttons.map((button) => (button as HTMLElement).dataset.journey),
+      ),
+    ).toEqual(ids);
+    await page.screenshot({ path: info.outputPath("navigation-return.png") });
+    if (width < 900) {
+      await page.locator("#result-back").click();
+      await expect(page.locator("#choices")).toBeVisible();
+    }
+    await start.click();
+    await expect.poll(activeJourney).toBe(ids[1]);
+    expect(searches).toBe(0);
+  });
+
 test("adjustments are drafts and cancellation preserves results", async ({
   page,
 }) => {

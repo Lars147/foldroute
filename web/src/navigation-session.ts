@@ -111,6 +111,7 @@ export class NavigationSession {
   foreground = true;
   resumeNeedsConfirmation = false;
   assessment?: ConnectionAssessment;
+  routeChanged = false;
   private requiredFixAfter = 0;
   private generation = 0;
   private controller?: AbortController;
@@ -264,6 +265,7 @@ export class NavigationSession {
   ) {
     this.abortTasks();
     this.engine = undefined;
+    this.routeChanged = replan;
     this.assessment = undefined;
     this.settings = structuredClone(settings);
     this.request = structuredClone(request);
@@ -459,6 +461,7 @@ export class NavigationSession {
     settings = this.settings!,
   ) {
     validateNavigationGeometry(journey);
+    if (this.engine) this.routeChanged = true;
     this.settings = structuredClone(settings);
     this.engine = new NavigationEngine(navigationJourney(journey), progress);
     this.request = {

@@ -606,6 +606,7 @@ async function endNavigation() {
   const journey = navigation?.engine?.journey;
   const request = navigation?.request;
   const options = navigation?.settings;
+  const routeChanged = navigation?.routeChanged ?? false;
   navigationView!.hide();
   delete document.body.dataset.navigation;
   try {
@@ -617,24 +618,34 @@ async function endNavigation() {
   }
   if (journey && request && options) {
     activePlan = structuredClone({ request, settings: options });
-    restorePlanContext(activePlan);
-    session.restore(
+    openedHistoryId = undefined;
+    activePlanId ??= crypto.randomUUID();
+    restorePlanContext(activePlan, false);
+    session.returnFromNavigation(
       journey,
       activePlan.request,
-      Date.now() / 1000,
       activePlan.settings,
+      routeChanged,
     );
     settingsUI();
   }
   el("map-view").hidden = false;
   showRouteMap(session.state);
-  journeyView.showScreen("detail", false);
+  const resultNavigation = journeyView.snapshot();
+  delete resultNavigation.savedOrigin;
+  journeyView.restoreNavigation({
+    ...resultNavigation,
+    screen: "detail",
+    mapReturn: "list",
+  });
   syncLiveLocation();
-  writeHistory();
+  writeHistory(false, 0);
   renderPlanning(session.state);
   cancelNavigationCheck();
   const primary = el<HTMLButtonElement>(
-    session.state.restored ? "replan-saved" : "navigation-start",
+    !el("navigation-search-now").hidden
+      ? "navigation-search-now"
+      : "navigation-start",
   );
   if (primary.disabled || primary.hidden) journeyView.focusSelection();
   else primary.focus({ preventScroll: true });
@@ -1856,9 +1867,11 @@ el("confirm-delete-history").onclick = async () => {
     button.disabled = false;
   }
 };
-function restorePlanContext(plan: RouteLink) {
+function restorePlanContext(plan: RouteLink, freezeLocation = true) {
   // Restored endpoints stay fixed even if their original label came from GPS.
-  for (const place of [plan.request.origin, plan.request.destination]) {
+  for (const place of freezeLocation
+    ? [plan.request.origin, plan.request.destination]
+    : []) {
     if (place.name === "Aktueller Standort")
       place.name = place === plan.request.origin ? "Startpunkt" : "Zielpunkt";
   }
