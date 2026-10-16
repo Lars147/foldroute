@@ -888,6 +888,15 @@ dialog::backdrop {
   background: #1118;
   backdrop-filter: blur(3px);
 }
+.shared-pending {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 12px;
+  z-index: 1200;
+}
+#shared-dialog .dialog-body > input:not(.search-focus-input) {
+  width: 100%;
+}
 dialog form {
   display: flex;
   flex-direction: column;

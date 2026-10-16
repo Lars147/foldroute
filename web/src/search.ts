@@ -147,7 +147,11 @@ export class PlaceSearch {
     this.visible = true;
     this.render();
   }
-  private search() {
+  searchShared(query: string) {
+    this.input.value = query;
+    this.search(true);
+  }
+  private search(autoSelectSingle = false) {
     this.value = undefined;
     this.cancel(true);
     this.visible = true;
@@ -176,6 +180,10 @@ export class PlaceSearch {
         );
         if (version !== this.version) return;
         this.options = results;
+        if (autoSelectSingle && results.length === 1) {
+          this.choose(results[0]);
+          return;
+        }
         this.render();
         this.message.textContent = this.buttons.length
           ? "Ort auswählen."

@@ -1,4 +1,11 @@
 import { SettingsValidation } from "./settings-validation";
+import {
+  parseSharedDestination,
+  readShareURL,
+  shareKeys,
+  unsupportedShare,
+  type SharePayload,
+} from "./shared-destination";
 import { HistorySwipe } from "./history-swipe";
 import { HistoryUndo } from "./history-undo";
 import { HistoryNameQueue } from "./history-names";
@@ -88,6 +95,40 @@ const planResults = new Map<
 >();
 const navigationRestoreRequested = history.state?.navigation === true;
 const initialLink = readRouteURL(new URL(location.href));
+const initialShare = readShareURL(new URL(location.href));
+const sharedStorageKey = "foldroute.sharedDestination.v1";
+let pendingShared: { id: string; payload: SharePayload } | undefined;
+let sharedResume: NavigationSnapshot | undefined;
+let sharedInitialized = false;
+try {
+  const raw = localStorage.getItem(sharedStorageKey);
+  if (raw) {
+    const item = JSON.parse(raw);
+    if (
+      typeof item.id === "string" &&
+      item.payload &&
+      ["title", "text", "url"].every(
+        (key) =>
+          item.payload[key] === undefined ||
+          typeof item.payload[key] === "string",
+      )
+    )
+      pendingShared = item;
+  }
+} catch {
+  /* An incoming share remains usable without persistent storage. */
+}
+if (initialShare) {
+  pendingShared = { id: crypto.randomUUID(), payload: initialShare };
+  try {
+    localStorage.setItem(sharedStorageKey, JSON.stringify(pendingShared));
+  } catch {
+    /* Session-only import. */
+  }
+  const cleanURL = new URL(location.href);
+  for (const key of shareKeys) cleanURL.searchParams.delete(key);
+  history.replaceState(history.state, "", cleanURL);
+}
 let originOverride: Place | undefined,
   timing: Timing = "now",
   time = Date.now() / 1000;
@@ -1162,6 +1203,121 @@ const destination = new PlaceSearch(
   toast,
   false,
 );
+const sharedDialog = el<HTMLDialogElement>("shared-dialog");
+const sharedNavigationDialog = el<HTMLDialogElement>(
+  "shared-navigation-dialog",
+);
+const sharedSearch = new PlaceSearch(
+  "shared-destination",
+  api,
+  el("shared-status"),
+  (place) => void acceptSharedPlace(place),
+  book,
+  toast,
+  false,
+);
+function sharedUI() {
+  el("shared-pending").hidden =
+    !pendingShared || sharedDialog.open || sharedNavigationDialog.open;
+}
+function forgetShared() {
+  const id = pendingShared?.id;
+  pendingShared = undefined;
+  try {
+    if (JSON.parse(localStorage.getItem(sharedStorageKey) ?? "null")?.id === id)
+      localStorage.removeItem(sharedStorageKey);
+  } catch {
+    /* Import is already held in the editable planning context. */
+  }
+  sharedUI();
+}
+function presentSharedDestination() {
+  if (!pendingShared) return;
+  const parsed = parseSharedDestination(pendingShared.payload);
+  if (parsed.kind === "place") {
+    void acceptSharedPlace(parsed.place);
+    return;
+  }
+  sharedSearch.set();
+  el("shared-error").textContent =
+    parsed.kind === "query"
+      ? ""
+      : parsed.kind === "invalid"
+        ? "Geteiltes Ziel ungültig. Bitte Ziel eingeben."
+        : unsupportedShare;
+  sharedDialog.showModal();
+  sharedUI();
+  if (parsed.kind === "query") {
+    sharedSearch.searchShared(parsed.query);
+    sharedSearch.input.focus();
+  }
+}
+function openSharedDestination() {
+  if (!pendingShared) return;
+  if (navigationView?.visible || sharedResume) {
+    const parsed = parseSharedDestination(pendingShared.payload);
+    const label =
+      parsed.kind === "place"
+        ? parsed.place.name
+        : parsed.kind === "query"
+          ? parsed.query
+          : "das geteilte Ziel";
+    el("shared-navigation-description").textContent =
+      `Neue Route zu ${label} planen? Die laufende Navigation wird beendet.`;
+    sharedNavigationDialog.showModal();
+    sharedUI();
+  } else presentSharedDestination();
+}
+async function acceptSharedPlace(place: Place) {
+  sharedSearch.cancel();
+  sharedDialog.close();
+  destination.set(place);
+  originOverride = undefined;
+  stops = [];
+  timing = "now";
+  time = Date.now() / 1000;
+  contextUI();
+  forgetShared();
+  updateSearchEmpty();
+  await start(place);
+}
+el("shared-pending").onclick = openSharedDestination;
+el("shared-cancel").onclick = () => sharedDialog.close();
+el("shared-discard").onclick = () => {
+  forgetShared();
+  sharedDialog.close();
+};
+sharedDialog.addEventListener("close", () => {
+  sharedSearch.cancel();
+  sharedUI();
+});
+sharedNavigationDialog.addEventListener("close", sharedUI);
+const keepSharedNavigation = () => {
+  sharedNavigationDialog.close();
+  const snapshot = sharedResume;
+  sharedResume = undefined;
+  if (snapshot) void launchNavigation(false, snapshot);
+};
+el("shared-navigation-keep").onclick = keepSharedNavigation;
+sharedNavigationDialog.oncancel = (event) => {
+  event.preventDefault();
+  keepSharedNavigation();
+};
+el("shared-navigation-replace").onclick = async () => {
+  sharedNavigationDialog.close();
+  if (navigationView?.visible) await endNavigation();
+  else if (sharedResume) {
+    try {
+      await navigationStore.clear();
+    } catch {
+      toast("Gespeicherte Navigation konnte nicht gelöscht werden.");
+      return;
+    }
+  }
+  sharedResume = undefined;
+  presentSharedDestination();
+};
+sharedUI();
 function updateSearchEmpty() {
   el("search-empty").hidden =
     destination.input.value.trim().length > 0 || book.entries.length > 0;
@@ -1752,6 +1908,8 @@ el("confirm-delete-data").onclick = async () => {
   clearSearchLocation();
   try {
     await localDatabase.clearAll();
+    forgetShared();
+    localStorage.removeItem(sharedStorageKey);
     historySwipe.resetHint();
     localStorage.removeItem(storageKey);
     localStorage.removeItem(legacyStorageKey);
@@ -2012,6 +2170,11 @@ void store
     savedUI();
     if (storageGeneration === 0 && result.enabled) {
       const snapshot = await navigationStore.read();
+      if (snapshot && initialShare && navigationLaunchGeneration === 0) {
+        sharedResume = snapshot;
+        initializeLink();
+        return;
+      }
       const sameLink =
         snapshot &&
         initialLink.kind === "plan" &&
@@ -2064,6 +2227,7 @@ void store
       saved &&
       view === "search" &&
       initialLink.kind === "none" &&
+      !initialShare &&
       !activePlan
     )
       openSaved(false);
@@ -2160,7 +2324,10 @@ visualViewportChanged();
 // never replace an explicitly linked planning request with an unrelated trip.
 function initializeLink() {
   if (navigationLaunchGeneration > 0) return;
-  if (initialLink.kind !== "none") void restoreLink(initialLink);
+  if (initialShare && !sharedInitialized) {
+    sharedInitialized = true;
+    openSharedDestination();
+  } else if (initialLink.kind !== "none") void restoreLink(initialLink);
   else writeHistory();
 }
 el("share-plan").onclick = async () => {

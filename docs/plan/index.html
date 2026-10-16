@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-C3gHyLXs.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CTmVc1F-.css">
+    <script type="module" crossorigin src="./assets/index-D4xTy5zr.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BMTfUCpl.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search" data-starting>
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -34,6 +34,56 @@
     </header>
     <span id="connection" role="status" hidden>Offline</span>
     <noscript><p>Für die Routenplanung wird JavaScript benötigt.</p></noscript>
+    <button id="shared-pending" class="secondary shared-pending" hidden>
+      Geteiltes Ziel
+    </button>
+    <dialog
+      id="shared-navigation-dialog"
+      aria-labelledby="shared-navigation-heading"
+    >
+      <div class="dialog-body">
+        <h2 id="shared-navigation-heading">Neue Route planen?</h2>
+        <p id="shared-navigation-description"></p>
+        <div class="form-actions">
+          <button id="shared-navigation-replace" class="primary">
+            Neue Route planen
+          </button>
+          <button id="shared-navigation-keep" class="secondary">
+            Navigation fortsetzen
+          </button>
+        </div>
+      </div>
+    </dialog>
+    <dialog id="shared-dialog" aria-labelledby="shared-heading">
+      <div class="dialog-heading">
+        <button id="shared-cancel" class="text-button">Abbrechen</button>
+        <h2 id="shared-heading">Geteiltes Ziel</h2>
+      </div>
+      <div class="dialog-body">
+        <p id="shared-error" class="message" role="status"></p>
+        <label for="shared-destination">Ziel suchen</label>
+        <input
+          id="shared-destination"
+          type="search"
+          autocomplete="off"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="shared-destination-options"
+          aria-expanded="false"
+          placeholder="Adresse, Ort oder Haltestelle"
+        />
+        <p id="shared-status" class="message" role="status"></p>
+        <ul
+          id="shared-destination-options"
+          class="suggestions"
+          aria-label="Geteiltes Ziel auswählen"
+          hidden
+        ></ul>
+        <button id="shared-discard" class="text-button">
+          Geteiltes Ziel verwerfen
+        </button>
+      </div>
+    </dialog>
     <main id="main" inert>
       <dialog
         id="navigation-resume-dialog"
@@ -314,7 +364,12 @@
             >
               <span data-icon="location"></span>Los
             </button>
-            <a id="example-plan-own" class="primary example-plan-own" href="./" hidden>
+            <a
+              id="example-plan-own"
+              class="primary example-plan-own"
+              href="./"
+              hidden
+            >
               Eigene Route planen
             </a>
           </div>

@@ -29,6 +29,11 @@ struct FoldRouteApp: App {
                 guidance: GuidanceService()
             )
             self.container = container
+            do {
+                model.sharedDestinationStore = try SharedDestinationStore.configured()
+            } catch {
+                model.dataMessage = error.localizedDescription
+            }
             _appModel = State(initialValue: model)
         } catch {
             fatalError("FoldRoute storage could not start: \(error)")

@@ -331,6 +331,8 @@ struct RouteAdjustmentView: View {
             }
         }
         .interactiveDismissDisabled(isSubmitting)
+        .onAppear { model.location.previewObscured = true }
+        .onDisappear { model.location.previewObscured = false }
     }
 
     private func moveStop(_ id: String, by offset: Int) {

@@ -16,6 +16,11 @@ export default defineConfig({
         lang: "de",
         start_url: "./",
         scope: "./",
+        share_target: {
+          action: "./",
+          method: "GET",
+          params: { title: "shareTitle", text: "shareText", url: "shareUrl" },
+        },
         display: "standalone",
         background_color: "#f5f6f3",
         theme_color: "#f5f6f3",

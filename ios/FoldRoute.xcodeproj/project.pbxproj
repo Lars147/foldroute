@@ -36,6 +36,13 @@
 		BF0000000000000000000030 /* BikeTransferSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000030 /* BikeTransferSearch.swift */; };
 		BF0000000000000000000031 /* BikeTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000031 /* BikeTransferTests.swift */; };
 		BF0000000000000000000032 /* FoldRoute-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000032 /* FoldRoute-LICENSE.txt */; };
+		EEE0E7145A9C5BE5A536A19C /* Shared app source */ = { isa = PBXBuildFile; fileRef = 45A74941522D5CB3954A4BB0;  };
+		A961C10B9F25512F9C6DE11F /* Shared extension source */ = { isa = PBXBuildFile; fileRef = 45A74941522D5CB3954A4BB0;  };
+		A951DBE2887356AC855D3079 /* Shared import view */ = { isa = PBXBuildFile; fileRef = 4A1BA113FC8C5E2F890D817C;  };
+		173BABF9C0795B76B1BBF824 /* Share controller */ = { isa = PBXBuildFile; fileRef = BEF5EC5B65245F7997AC20B8;  };
+		C8BA3713CDE15A70A6838C63 /* Share tests */ = { isa = PBXBuildFile; fileRef = A02F82F2EA7D53FDAB16E74F;  };
+		3F55705716C55B98987ECB40 /* Share fixtures */ = { isa = PBXBuildFile; fileRef = BDBB0646BE3F5D9093018BDF;  };
+		E3FC5F2FB8FC5B9BBCCFDE06 /* Embed share extension */ = { isa = PBXBuildFile; fileRef = 4FBCA00BB02C56849E3B30E5; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,7 +53,12 @@
 			remoteGlobalIDString = A00000000000000000000001;
 			remoteInfo = FoldRoute;
 		};
+		2E4C94C311BB55669A910E98 /* Share proxy */ = { isa = PBXContainerItemProxy; containerPortal = P00000000000000000000001; proxyType = 1; remoteGlobalIDString = 0A67EADDC772525D815A2471; remoteInfo = FoldRouteShare; };
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+        14934BD69538502F957C7BFF = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (E3FC5F2FB8FC5B9BBCCFDE06, ); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		F00000000000000000000001 /* FoldRouteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldRouteApp.swift; sourceTree = "<group>"; };
@@ -81,6 +93,14 @@
 		F00000000000000000000030 /* BikeTransferSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeTransferSearch.swift; sourceTree = "<group>"; };
 		F00000000000000000000031 /* BikeTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeTransferTests.swift; sourceTree = "<group>"; };
 		F00000000000000000000032 /* FoldRoute-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "FoldRoute-LICENSE.txt"; sourceTree = "<group>"; };
+		45A74941522D5CB3954A4BB0 /* SharedDestination.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDestination.swift"; sourceTree = "<group>"; };
+		4EECF920839F51098ED3172C /* Share.entitlements */ = { isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Share.entitlements"; sourceTree = "<group>"; };
+		4A1BA113FC8C5E2F890D817C /* SharedDestinationView.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDestinationView.swift"; sourceTree = "<group>"; };
+		BEF5EC5B65245F7997AC20B8 /* ShareViewController.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShareViewController.swift"; sourceTree = "<group>"; };
+		B34EFA14658256A7B7BA5815 /* Share Info.plist */ = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
+		A02F82F2EA7D53FDAB16E74F /* SharedDestinationTests.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDestinationTests.swift"; sourceTree = "<group>"; };
+		BDBB0646BE3F5D9093018BDF /* shared-destinations.json */ = { isa = PBXFileReference; lastKnownFileType = text.json; path = "../../web/tests/fixtures/shared-destinations.json"; sourceTree = "<group>"; };
+		4FBCA00BB02C56849E3B30E5 /* FoldRouteShare.appex */ = { isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FoldRouteShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +118,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		67B76C34FB2B598783C5957D /* Share frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -106,6 +127,8 @@
 			children = (
 				G00000000000000000000002 /* FoldRoute */,
 				G00000000000000000000003 /* FoldRouteTests */,
+				FA2B24552C5B5008A0C3856C /* Shared */,
+				2487618A81F951E3B7D4E65B /* FoldRouteShare */,
 				G00000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -134,6 +157,7 @@
 				F00000000000000000000016 /* HistoryView.swift */,
 				F00000000000000000000017 /* SettingsView.swift */,
 				F00000000000000000000018 /* RootView.swift */,
+				4A1BA113FC8C5E2F890D817C,
 				F00000000000000000000019 /* Assets.xcassets */,
 				F00000000000000000000020 /* PrivacyInfo.xcprivacy */,
 				F00000000000000000000032 /* FoldRoute-LICENSE.txt */,
@@ -146,6 +170,8 @@
 			isa = PBXGroup;
 			children = (
 				F00000000000000000000021 /* FoldRouteTests.swift */,
+				A02F82F2EA7D53FDAB16E74F,
+				BDBB0646BE3F5D9093018BDF,
 				F00000000000000000000028 /* TransitRefreshTests.swift */,
 				F00000000000000000000031 /* BikeTransferTests.swift */,
 				F00000000000000000000022 /* MockURLProtocol.swift */,
@@ -159,10 +185,13 @@
 			children = (
 				F00000000000000000000025 /* FoldRoute.app */,
 				F00000000000000000000026 /* FoldRouteTests.xctest */,
+				4FBCA00BB02C56849E3B30E5,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
+		FA2B24552C5B5008A0C3856C /* Shared */ = { isa = PBXGroup; children = (45A74941522D5CB3954A4BB0, 4EECF920839F51098ED3172C, ); path = Shared; sourceTree = "<group>"; };
+		2487618A81F951E3B7D4E65B /* FoldRouteShare */ = { isa = PBXGroup; children = (BEF5EC5B65245F7997AC20B8, B34EFA14658256A7B7BA5815, ); path = FoldRouteShare; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -173,10 +202,12 @@
 				BP0000000000000000000003 /* Sources */,
 				BP0000000000000000000001 /* Frameworks */,
 				BP0000000000000000000005 /* Resources */,
+				14934BD69538502F957C7BFF,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				E19AF4DAA06B51FE90284FD6,
 			);
 			name = FoldRoute;
 			productName = FoldRoute;
@@ -201,6 +232,7 @@
 			productReference = F00000000000000000000026 /* FoldRouteTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		0A67EADDC772525D815A2471 /* Share target */ = { isa = PBXNativeTarget; buildConfigurationList = 14B4D0F945F8564C9C6CF85C; buildPhases = (B207B4535C8E5C52A61F5C49, 67B76C34FB2B598783C5957D, 0FBFB2981C375595BB317B79, ); buildRules = (); dependencies = (); name = FoldRouteShare; productName = FoldRouteShare; productReference = 4FBCA00BB02C56849E3B30E5; productType = "com.apple.product-type.app-extension"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -236,6 +268,7 @@
 			targets = (
 				A00000000000000000000001 /* FoldRoute */,
 				B00000000000000000000001 /* FoldRouteTests */,
+				0A67EADDC772525D815A2471,
 			);
 		};
 /* End PBXProject section */
@@ -255,9 +288,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3F55705716C55B98987ECB40,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0FBFB2981C375595BB317B79 /* Share resources */ = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -286,6 +321,8 @@
 				BF0000000000000000000016 /* HistoryView.swift in Sources */,
 				BF0000000000000000000017 /* SettingsView.swift in Sources */,
 				BF0000000000000000000018 /* RootView.swift in Sources */,
+				EEE0E7145A9C5BE5A536A19C,
+				A951DBE2887356AC855D3079,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -294,6 +331,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BF0000000000000000000021 /* FoldRouteTests.swift in Sources */,
+				C8BA3713CDE15A70A6838C63,
 				BF0000000000000000000028 /* TransitRefreshTests.swift in Sources */,
 				BF0000000000000000000031 /* BikeTransferTests.swift in Sources */,
 				BF0000000000000000000022 /* MockURLProtocol.swift in Sources */,
@@ -301,6 +339,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B207B4535C8E5C52A61F5C49 /* Share sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A961C10B9F25512F9C6DE11F, 173BABF9C0795B76B1BBF824, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -309,6 +348,7 @@
 			target = A00000000000000000000001 /* FoldRoute */;
 			targetProxy = C00000000000000000000001 /* PBXContainerItemProxy */;
 		};
+		E19AF4DAA06B51FE90284FD6 /* Share dependency */ = { isa = PBXTargetDependency; target = 0A67EADDC772525D815A2471; targetProxy = 2E4C94C311BB55669A910E98; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -323,6 +363,8 @@
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_OPTIMIZATION_LEVEL = 0;
+				FOLDROUTE_APP_BUNDLE_ID = com.example.FoldRoute;
+				FOLDROUTE_APP_GROUP = "group.$(FOLDROUTE_APP_BUNDLE_ID)";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
@@ -342,6 +384,8 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
+				FOLDROUTE_APP_BUNDLE_ID = com.example.FoldRoute;
+				FOLDROUTE_APP_GROUP = "group.$(FOLDROUTE_APP_BUNDLE_ID)";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
@@ -365,7 +409,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.FoldRoute;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(FOLDROUTE_APP_BUNDLE_ID)";
+				CODE_SIGN_ENTITLEMENTS = Shared/Share.entitlements;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -391,7 +436,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.FoldRoute;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(FOLDROUTE_APP_BUNDLE_ID)";
+				CODE_SIGN_ENTITLEMENTS = Shared/Share.entitlements;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -441,6 +487,44 @@
 			};
 			name = Release;
 		};
+		58D64DC5663A5E9282EF2D3B /* Share Debug */ = { isa = XCBuildConfiguration; buildSettings = {
+        APPLICATION_EXTENSION_API_ONLY = YES;
+        CODE_SIGN_ENTITLEMENTS = Shared/Share.entitlements;
+        CODE_SIGN_STYLE = Automatic;
+        CURRENT_PROJECT_VERSION = 1;
+        DEVELOPMENT_TEAM = H8W4N7H845;
+        GENERATE_INFOPLIST_FILE = NO;
+        INFOPLIST_FILE = FoldRouteShare/Info.plist;
+        IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+        LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+        MARKETING_VERSION = 0.1.0;
+        PRODUCT_BUNDLE_IDENTIFIER = "$(FOLDROUTE_APP_BUNDLE_ID).Share";
+        PRODUCT_NAME = "$(TARGET_NAME)";
+        SKIP_INSTALL = YES;
+        SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+        SUPPORTS_MACCATALYST = NO;
+        SWIFT_VERSION = 6.0;
+        TARGETED_DEVICE_FAMILY = 1;
+    }; name = Debug; };
+		8D4F84CAD7FA508D93B6D5E3 /* Share Release */ = { isa = XCBuildConfiguration; buildSettings = {
+        APPLICATION_EXTENSION_API_ONLY = YES;
+        CODE_SIGN_ENTITLEMENTS = Shared/Share.entitlements;
+        CODE_SIGN_STYLE = Automatic;
+        CURRENT_PROJECT_VERSION = 1;
+        DEVELOPMENT_TEAM = H8W4N7H845;
+        GENERATE_INFOPLIST_FILE = NO;
+        INFOPLIST_FILE = FoldRouteShare/Info.plist;
+        IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+        LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+        MARKETING_VERSION = 0.1.0;
+        PRODUCT_BUNDLE_IDENTIFIER = "$(FOLDROUTE_APP_BUNDLE_ID).Share";
+        PRODUCT_NAME = "$(TARGET_NAME)";
+        SKIP_INSTALL = YES;
+        SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+        SUPPORTS_MACCATALYST = NO;
+        SWIFT_VERSION = 6.0;
+        TARGETED_DEVICE_FAMILY = 1;
+    }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -471,6 +555,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		14B4D0F945F8564C9C6CF85C /* Share configurations */ = { isa = XCConfigurationList; buildConfigurations = (58D64DC5663A5E9282EF2D3B, 8D4F84CAD7FA508D93B6D5E3, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = P00000000000000000000001 /* Project object */;

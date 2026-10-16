@@ -10,10 +10,19 @@ Voraussetzungen: ein Mac mit Xcode 26 oder neuer, iOS 18 oder neuer, Apple-Entwi
 
 1. Den [Quellcode als ZIP herunterladen](https://github.com/Lars147/foldroute/archive/refs/heads/main.zip) und entpacken. Alternativ das [öffentliche Repository](https://github.com/Lars147/foldroute) klonen.
 2. Im entpackten beziehungsweise geklonten Ordner `ios/FoldRoute.xcodeproj` in Xcode öffnen.
-3. Für ein physisches iPhone im Target **FoldRoute** unter **Signing & Capabilities** eigenes Team und eine eigene eindeutige Bundle-ID wählen. Das Projekt enthält kein festes Entwicklerteam; `com.example.FoldRoute` und `com.example.FoldRouteTests` sind neutrale Platzhalter.
-4. iPhone oder kompatiblen Simulator auswählen und **Run** starten.
+3. Für ein physisches iPhone in den Targets **FoldRoute** und **FoldRouteShare** unter **Signing & Capabilities** das eigene Team wählen. Die enthaltene Team-ID durch die eigene ersetzen. In den Projekt-Build-Settings `FOLDROUTE_APP_BUNDLE_ID` auf eine eigene eindeutige Bundle-ID setzen; daraus entstehen die App-ID und die Extension-ID mit `.Share`. `com.example.FoldRoute` ist ein Platzhalter.
+4. In beiden Targets dieselbe **App Group** aktivieren und beim Entwicklerteam registrieren. Der gemeinsame Projektwert `FOLDROUTE_APP_GROUP` ist standardmäßig `group.$(FOLDROUTE_APP_BUNDLE_ID)`; bei Bedarf auf die registrierte Gruppe setzen. Beide Info.plists und Entitlements verwenden diesen Wert. App und Erweiterung brauchen dazu passende Provisioning-Profile.
+5. iPhone oder kompatiblen Simulator auswählen und **Run** starten.
 
 Kein API-Schlüssel und kein Backend nötig. Die App ist deutsch, metrisch und auf iPhone-Portrait optimiert. Eine fertige App-Store-Version steht noch nicht bereit.
+
+## Adressen aus anderen Apps übernehmen
+
+Im Teilen-Menü **FoldRoute** wählen, den Inhalt prüfen und **Ziel vormerken** antippen. Die Erweiterung öffnet die Haupt-App nicht automatisch. Beim nächsten Öffnen übernimmt FoldRoute das Ziel; bei mehreren Treffern erscheint die vorhandene Ortsauswahl. Eine laufende Navigation wird nur nach **Neue Route planen** beendet. **Navigation fortsetzen** und **Abbrechen** behalten das Ziel für später; über **Geteiltes Ziel** lässt es sich erneut öffnen oder verwerfen.
+
+Adressentext und direkte Apple-/Google-Maps-Links mit Zielkoordinaten oder einer Zieladresse werden ausgewertet. Kartenmittelpunkte gelten nicht als Ziel. Reine Kurzlinks benötigen eine manuell eingegebene Adresse; zusätzliche Ortsangaben im geteilten Text können für die Suche verwendet werden. Neue Verbindungen werden ab aktuellem Standort für **Jetzt** mit den eigenen Einstellungen gesucht. Die Erweiterung speichert genau ein vorgemerktes Ziel im App-Group-Container und ersetzt es bei einer neuen Freigabe. Sie greift nicht auf die SwiftData-Datenbank zu. **Alle lokalen Daten löschen** entfernt auch dieses Ziel.
+
+Geräteabnahme: Text aus Notizen sowie einen Ortslink aus Safari/Karten teilen; anschließend Haupt-App öffnen, eindeutiges/mehrdeutiges Ziel, Abbrechen, fehlende Standortfreigabe und vorhandene Navigation prüfen. Simulator-Builds ersetzen diese Prüfung der tatsächlichen Teilen-Integration und App-Group-Provisionierung nicht.
 
 Eine andere Bundle-ID installiert die App als separate Anwendung. Vorhandene lokale Daten der bisherigen Installation werden dabei nicht übernommen.
 

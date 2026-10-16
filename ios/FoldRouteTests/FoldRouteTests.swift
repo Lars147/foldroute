@@ -1672,6 +1672,51 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
         return SwiftDataJourneyStore(container: container)
     }
 
+    @MainActor
+    func testSharedDestinationKeepsOwnSettingsAndTargetWhenLocationFails() async throws {
+        let store = try makeHomeStore()
+        var settings = NavigationSettings.defaults
+        settings.foldingDuration = 180
+        try store.saveSettings(settings)
+        let model = try AppModel(planner: UnusedJourneyPlanner(), store: store,
+                                 location: LocationService(), guidance: GuidanceService(), planningLocationProvider: { nil })
+        model.routeStops = [RouteStop(place: Place.munichCenter, stayMinutes: 5)]
+        model.timingSelection = .arrive
+        let target = makeRequest().destination
+        await model.planSharedDestination(target)
+        XCTAssertEqual(model.destination, target)
+        XCTAssertEqual(model.settings, settings)
+        XCTAssertEqual(model.timingSelection, .now)
+        XCTAssertTrue(model.routeStops.isEmpty)
+        guard case .failed = model.planningState else { return XCTFail("Expected recoverable location failure") }
+    }
+
+    @MainActor
+    func testSharedDestinationCannotSilentlyReplaceNavigation() async throws {
+        let (model, _) = try makeReturnPlanningModel(planner: UnusedJourneyPlanner(), locationProvider: { nil })
+        let engine = model.navigation
+        let target = model.destination
+        await model.planSharedDestination(Place.munichCenter)
+        XCTAssertTrue(model.navigation === engine)
+        XCTAssertEqual(model.destination, target)
+        model.stopNavigation(discardRoute: true)
+    }
+
+    @MainActor
+    func testClearLocalDataAlsoRemovesSharedDestination() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedStore = SharedDestinationStore(directory: directory)
+        try sharedStore.save(PendingSharedDestination(payload: SharePayload(text: "Daglfing")))
+        let model = try AppModel(planner: UnusedJourneyPlanner(), store: makeHomeStore(),
+                                 location: LocationService(), guidance: GuidanceService())
+        model.sharedDestinationStore = sharedStore
+        model.clearLocalData()
+        XCTAssertNil(try sharedStore.read())
+        XCTAssertEqual(model.localDataRevision, 1)
+    }
+
     private func usablePlanningLocation(age: TimeInterval = 0, accuracy: CLLocationAccuracy = 10) -> CLLocation {
         CLLocation(
             coordinate: CLLocationCoordinate2D(latitude: 48.1372, longitude: 11.5756),

@@ -211,6 +211,8 @@ struct PlaceSearchContent: View {
     var showCurrentLocation = true
     var isDisabled = false
     var onFocusChanged: (Bool) -> Void = { _ in }
+    var initialQuery = ""
+    var autoSelectSingle = false
     let onSelect: (Place) -> Void
 
     @Environment(AppModel.self) private var model
@@ -221,6 +223,7 @@ struct PlaceSearchContent: View {
     @State private var favoriteError: String?
     @FocusState private var isFocused: Bool
     @State private var textSelection: TextSelection?
+    @State private var seededSharedQuery = false
 
     private var favorites: [StoredPlace] {
         recentPlaces.filter(\.isFavorite).sorted {
@@ -287,7 +290,15 @@ struct PlaceSearchContent: View {
         .background(Color(.systemBackground))
         .disabled(isDisabled || isLocating)
         .task(id: search.requestID) {
+            if !seededSharedQuery {
+                seededSharedQuery = true
+                if !initialQuery.isEmpty { search.edit(initialQuery); return }
+            }
             await search.search(near: PlaceSearchModel.searchCenter(location: model.location.currentLocation))
+            if autoSelectSingle, search.searchTerm == initialQuery, search.results.count == 1,
+               let suggestion = search.results.first, !Task.isCancelled {
+                await search.resolve(suggestion, action: .select) { place, _ in onSelect(place) }
+            }
         }
         .onChange(of: isFocused) { _, focused in onFocusChanged(focused) }
         .onDisappear { search.cancel(); onFocusChanged(false) }

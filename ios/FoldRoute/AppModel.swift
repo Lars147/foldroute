@@ -441,6 +441,17 @@ final class AppModel {
         await planRoute()
     }
 
+    var sharedDestinationStore: SharedDestinationStore?
+    private(set) var localDataRevision = 0
+
+    func planSharedDestination(_ place: Place) async {
+        guard navigation == nil else { return }
+        // A deliberate new destination invalidates an older in-flight search.
+        discardRoute()
+        select(place, for: .destination)
+        await planToDestination(place)
+    }
+
     func planRoute() async {
         guard !blockPausedPlanning() else { return }
         guard !planningState.isLoading else { return }
@@ -1050,6 +1061,7 @@ final class AppModel {
         stopNavigation()
         do {
             try store.clearAll()
+            try sharedDestinationStore?.remove()
             UserDefaults.standard.removeObject(forKey: "foldroute.screenAwake")
             planningGeneration += 1
             origin = nil
@@ -1061,6 +1073,7 @@ final class AppModel {
             journeyOptions = []
             planningState = .idle
             navigationStartState = .idle
+            localDataRevision += 1
             dataMessage = "Lokale Daten gelöscht."
         } catch {
             dataMessage = "Lokale Daten konnten nicht gelöscht werden."
