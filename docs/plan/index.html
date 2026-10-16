@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-9HMwPjdH.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BpXicCrq.css">
+    <script type="module" crossorigin src="./assets/index-DPw3gq68.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CWzMulhB.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search">
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -97,7 +97,7 @@
         <button id="open-saved" class="saved-button" hidden>
           <span data-icon="wait"></span
           ><span
-            ><strong>Letzte Reise öffnen</strong
+            ><strong>Letzte Strecke erneut planen</strong
             ><small id="saved-description"></small></span
           ><span data-icon="chevron"></span>
         </button>
@@ -112,7 +112,7 @@
         aria-labelledby="history-heading"
         hidden
       >
-        <h1 id="history-heading" tabindex="-1">Fahrten</h1>
+        <h1 id="history-heading" tabindex="-1">Strecken</h1>
         <p id="history-empty" class="message"></p>
         <ul id="history-list" class="history-list"></ul>
       </section>
@@ -250,6 +250,12 @@
             <p id="issues" class="notice" hidden></p>
             <p id="saved-notice" class="notice" hidden></p>
             <p id="stale-notice" class="notice" role="status" hidden></p>
+            <div id="planning-recovery" class="planning-recovery" hidden>
+              <button id="recover-planning" class="text-button" type="button">
+                Erneut versuchen
+              </button>
+              <span id="recovery-wait" class="message" hidden></span>
+            </div>
             <div
               id="choices"
               class="route-choices"
@@ -295,7 +301,7 @@
         <button id="refresh-route" type="button" class="secondary">
           Aktualisieren
         </button>
-        <button id="replan-saved" type="button" class="secondary" hidden>
+        <button id="replan-saved" type="button" class="primary" hidden>
           Jetzt neu planen
         </button>
         <button id="route-actions-close" type="button" class="secondary">
@@ -373,7 +379,7 @@
           </label>
           <label class="toggle-row">
             <span
-              >Fahrten auf diesem Gerät speichern<small
+              >Strecken auf diesem Gerät speichern<small
                 >Bis zu 20 Strecken, auch offline. Ausschalten löscht den
                 Verlauf.</small
               ></span
@@ -389,7 +395,7 @@
             type="button"
             class="text-button settings-delete"
           >
-            Fahrtenverlauf löschen
+            Streckenverlauf löschen
           </button>
           <button
             id="clear-data"
@@ -434,7 +440,7 @@
     <nav class="app-tabs" aria-label="Hauptbereiche">
       <button id="tab-route" aria-current="page">
         <span data-icon="map"></span>Route</button
-      ><button id="tab-history"><span data-icon="wait"></span>Fahrten</button
+      ><button id="tab-history"><span data-icon="wait"></span>Strecken</button
       ><button id="tab-settings">
         <span data-icon="settings"></span>Einstellungen
       </button>
@@ -632,7 +638,7 @@
       </form>
     </dialog>
     <dialog id="delete-history-dialog" aria-labelledby="delete-history-heading">
-      <h2 id="delete-history-heading">Fahrtenverlauf löschen?</h2>
+      <h2 id="delete-history-heading">Streckenverlauf löschen?</h2>
       <p>
         Alle gespeicherten Planungen werden von diesem Gerät entfernt. Favoriten
         und Einstellungen bleiben erhalten.
@@ -650,7 +656,7 @@
     <dialog id="delete-data-dialog" aria-labelledby="delete-data-heading">
       <h2 id="delete-data-heading">Alle lokalen Daten löschen?</h2>
       <p>
-        Favoriten, letzte Orte, Einstellungen und gespeicherte Fahrten werden
+        Favoriten, letzte Orte, Einstellungen und gespeicherte Strecken werden
         unwiderruflich entfernt.
       </p>
       <p id="delete-data-status" class="message" role="status"></p>
@@ -673,7 +679,7 @@
     <div class="history-feedback">
       <div id="toast" class="toast" role="status" hidden></div>
       <div id="history-undo" class="toast history-undo" hidden>
-        <span role="status">Fahrt gelöscht</span>
+        <span role="status">Strecke gelöscht</span>
         <button id="history-undo-button" class="text-button" type="button">
           Rückgängig
         </button>
