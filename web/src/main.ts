@@ -1445,6 +1445,11 @@ dialog.addEventListener("close", () => {
   draftOrigin.cancel();
   draftDestination.cancel();
   stopEditor.cancel();
+  if (view === "search") {
+    destination.activate();
+    updateSearchEmpty();
+    el("search-adjust").focus({ preventScroll: true });
+  }
   el<HTMLButtonElement>("update-now").disabled =
     session.state.busy || !!navigationView?.visible;
 });
