@@ -71,9 +71,8 @@ button {
 button:hover:not(:disabled) {
   filter: brightness(0.96);
 }
-:focus-visible {
-  outline: 3px solid #537ee6;
-  outline-offset: 3px;
+:focus {
+  outline: none;
 }
 [hidden] {
   display: none !important;
@@ -247,13 +246,6 @@ input[type="search"]::-webkit-search-cancel-button {
   border-radius: 0;
   background: none;
   padding: 12px 0;
-}
-.search-box:focus-within {
-  outline: 3px solid #537ee6;
-  outline-offset: 3px;
-}
-.search-box input:not(.search-focus-input):focus-visible {
-  outline: none;
 }
 .context-button {
   display: flex;
@@ -809,13 +801,6 @@ fieldset:after {
   background: var(--surface);
   border-color: var(--ink);
   font-weight: 700;
-}
-.appearance-segments input:focus-visible {
-  outline: none;
-}
-.appearance-segments input:focus-visible + span {
-  outline: 3px solid #537ee6;
-  outline-offset: 2px;
 }
 @container appearance (max-width: 12rem) {
   .appearance-segments {
@@ -1384,10 +1369,6 @@ dialog.compact .dialog-actions {
   font-weight: 700;
   padding-top: 16px;
 }
-.suggestions li.active {
-  outline: 2px solid currentColor;
-  outline-offset: -2px;
-}
 #late-departure {
   font-size: 13px;
 }
@@ -1530,9 +1511,6 @@ dialog.compact .dialog-actions {
   transform: translateX(var(--swipe-offset, 0px));
   transition: transform 250ms ease;
 }
-.history-open:focus-visible {
-  outline-offset: -3px;
-}
 .history-remove {
   position: absolute;
   inset: 0 0 0 auto;
@@ -1541,9 +1519,6 @@ dialog.compact .dialog-actions {
   background: #b42332;
   color: white;
   border-radius: 0;
-}
-.history-remove:focus-visible {
-  outline-offset: -4px;
 }
 .history-row.swipe-open,
 .history-row:has(.history-remove:focus-visible) {
@@ -1593,8 +1568,7 @@ dialog.compact .dialog-actions {
     opacity: 1;
     pointer-events: auto;
   }
-  .history-remove:hover,
-  .history-remove:focus-visible {
+  .history-remove:hover {
     background: #b42332;
     color: white;
   }
@@ -2071,10 +2045,6 @@ dialog.compact .dialog-actions {
   margin-bottom: 16px;
   padding: 8px 0 12px;
   border-bottom: 1px solid var(--panel-line);
-}
-.planning-context:has(#result-context:focus-visible) {
-  outline: 3px solid #537ee6;
-  outline-offset: 2px;
 }
 .planning-context-footer {
   display: flex;

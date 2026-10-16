@@ -221,8 +221,14 @@ test("entry focus and archive timestamps remain stable without background focus 
   await plan(page);
   // Empty-state heading retains focus when results arrive.
   await expect(page.locator("#result-context")).toBeFocused();
+  await expect(page.locator(".planning-context")).toHaveCSS(
+    "outline-style",
+    "none",
+  );
   await page.locator("#close-route").click();
   await expect(page.locator("#destination")).toBeFocused();
+  await expect(page.locator("#destination")).toHaveCSS("outline-style", "none");
+  await expect(page.locator(".search-box")).toHaveCSS("outline-style", "none");
   await page.locator("#tab-history").click();
   const timestamp = page.locator(".history-timestamp").first();
   const savedTime = await timestamp.getAttribute("datetime");

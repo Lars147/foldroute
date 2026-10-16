@@ -279,7 +279,8 @@ test("own-route action exits the example into the ordinary unfilled planner", as
   });
   await page.keyboard.press("Tab");
   await own.focus();
-  await expect(own).toHaveCSS("outline-style", "solid");
+  await expect(own).toBeFocused();
+  await expect(own).toHaveCSS("outline-style", "none");
   await own.press("Enter");
   await expect(page).toHaveURL(new URL("/", page.url()).href);
   await expect(
