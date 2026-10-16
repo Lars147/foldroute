@@ -46,6 +46,8 @@ Nach einer fehlgeschlagenen manuellen Aktualisierung werden die bisherigen Ergeb
 
 ## Einstellungen ändern
 
+Unter **Einstellungen → Bildschirm → Darstellung** wählst du **System**, **Hell** oder **Dunkel**. Standard ist **System**: Die App folgt der Geräteinstellung auch während einer geöffneten Route. Die Auswahl gilt sofort, einschließlich Routen- und Navigationspanels, und bleibt auf diesem Gerät gespeichert. Sie löst keine Neuberechnung aus. **Alle lokalen Daten löschen** setzt sie wieder auf **System**.
+
 Änderungen an Radtempo, Gehzeit, Faltzeiten, Verkehrsmitteln oder Rad-Umstiegen erhalten die bisherige Route mit einem Hinweis auf die vorherigen Einstellungen. „Fertig“ oder das Verlassen der Einstellungen startet eine Neuberechnung mit den letzten Werten; mehrere Änderungen werden zusammengefasst. Start, Ziel und Zeitwahl bleiben erhalten. „Aktueller Standort“ wird aktualisiert, „Jetzt“ neu ausgewertet; abgelaufene feste Zeiten erfordern eine Anpassung. Bei Fehlern bleibt die bisherige Route nutzbar. „Erneut versuchen“ erhält den Planungskontext; „Bisherige Route starten“ startet die gekennzeichnete Route.
 
 Sprachansagen und Haptik lösen keine neue Route aus. Ohne bisherige Planung werden nur die Einstellungen gespeichert. Eine bereits gestartete Navigation bleibt bestehen. Verspätete Ergebnisse abgebrochener Suchen können die aktuelle Planung nicht überschreiben.

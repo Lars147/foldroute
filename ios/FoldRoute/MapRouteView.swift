@@ -359,7 +359,7 @@ struct RouteMapView: View {
                             } label: {
                                 Image(systemName: navigationState.isFollowing ? "location.fill" : "location")
                                     .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(FoldRouteColor.signalYellow)
+                                    .foregroundStyle(FoldRouteColor.accent)
                                     .frame(width: 44, height: 44)
                                     .background(.ultraThinMaterial, in: Circle())
                             }
@@ -390,9 +390,9 @@ struct RouteMapView: View {
                                 } label: {
                                     Image(systemName: centersPlanningLocation ? "location.fill" : "location")
                                         .font(.system(size: 20, weight: .semibold))
-                                        .foregroundStyle(FoldRouteColor.signalYellow)
+                                        .foregroundStyle(FoldRouteColor.accent)
                                         .frame(width: 48, height: 48)
-                                        .background(FoldRouteColor.asphalt.opacity(0.88), in: Circle())
+                                        .background(FoldRouteColor.panel, in: Circle())
                                         .contentShape(Circle())
                                 }
                                 .buttonStyle(.plain)
@@ -408,9 +408,9 @@ struct RouteMapView: View {
                                     } label: {
                                         Image(systemName: "viewfinder")
                                             .font(.system(size: 20, weight: .semibold))
-                                            .foregroundStyle(FoldRouteColor.signalYellow)
+                                            .foregroundStyle(FoldRouteColor.accent)
                                             .frame(width: 48, height: 48)
-                                            .background(FoldRouteColor.asphalt.opacity(0.88), in: Circle())
+                                            .background(FoldRouteColor.panel, in: Circle())
                                             .contentShape(Circle())
                                     }
                                     .buttonStyle(.plain)

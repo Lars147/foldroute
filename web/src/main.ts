@@ -1,4 +1,5 @@
 import { SettingsValidation } from "./settings-validation";
+import { appearance, type AppearancePreference } from "./appearance";
 import {
   parseSharedDestination,
   readShareURL,
@@ -1915,6 +1916,7 @@ el("confirm-delete-data").onclick = async () => {
     localStorage.removeItem(legacyStorageKey);
     localStorage.removeItem(screenAwakeKey);
     localStorage.removeItem(audioPreferenceKey);
+    appearance.reset();
     keepScreenAwake = true;
     el<HTMLInputElement>("keep-screen-awake").checked = true;
     saved = undefined;
@@ -1944,6 +1946,25 @@ el("confirm-delete-data").onclick = async () => {
     button.disabled = false;
   }
 };
+function appearanceUI() {
+  for (const input of document.querySelectorAll<HTMLInputElement>(
+    'input[name="appearance"]',
+  ))
+    input.checked = input.value === appearance.preference;
+}
+appearance.onChange = appearanceUI;
+appearance.onStorageError = () =>
+  toast("Darstellung gilt nur für diese Sitzung.");
+appearanceUI();
+if (appearance.storageFailed)
+  storageMessage("settings", "Einstellungen gelten nur für diese Sitzung.");
+for (const input of document.querySelectorAll<HTMLInputElement>(
+  'input[name="appearance"]',
+))
+  input.onchange = () => {
+    if (input.checked) appearance.set(input.value as AppearancePreference);
+  };
+
 el<HTMLInputElement>("keep-screen-awake").checked = keepScreenAwake;
 el("keep-screen-awake").onchange = () => {
   keepScreenAwake = el<HTMLInputElement>("keep-screen-awake").checked;

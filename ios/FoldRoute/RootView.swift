@@ -55,7 +55,6 @@ struct RootView: View {
                 )
             }
         }
-        .preferredColorScheme(nil)
         .onAppear { syncRouteActivity(); checkSharedDestination() }
         .safeAreaInset(edge: .top) {
             if deferredShare != nil && sharedItem == nil && !confirmsSharedReplacement {

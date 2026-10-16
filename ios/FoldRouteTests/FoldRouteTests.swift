@@ -9,6 +9,90 @@ import XCTest
 
 final class FoldRouteTests: XCTestCase, @unchecked Sendable {
     @MainActor
+    func testAppearanceUpdatesAppWindowAndPresentedSheet() async throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: AppAppearance.storageKey)
+        let window = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow))
+        let root = try XCTUnwrap(window.rootViewController)
+        let sheet = UIHostingController(rootView: Text("Darstellung"))
+        defer {
+            root.dismiss(animated: false)
+            if let previous { defaults.set(previous, forKey: AppAppearance.storageKey) }
+            else { defaults.removeObject(forKey: AppAppearance.storageKey) }
+        }
+        for appearance in [AppAppearance.light, .dark, .system] {
+            defaults.set(appearance.rawValue, forKey: AppAppearance.storageKey)
+            let expected: UIUserInterfaceStyle = appearance == .system
+                ? window.windowScene!.traitCollection.userInterfaceStyle
+                : appearance == .dark ? .dark : .light
+            for _ in 0..<100 {
+                if window.traitCollection.userInterfaceStyle == expected { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(window.traitCollection.userInterfaceStyle, expected)
+            if appearance == .light {
+                root.present(sheet, animated: false)
+            }
+            for _ in 0..<100 {
+                if sheet.traitCollection.userInterfaceStyle == expected { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(sheet.traitCollection.userInterfaceStyle, expected)
+        }
+    }
+
+    @MainActor
+    func testAppearancePersistsSeparatelyAndLocalDeletionRestoresSystem() throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: AppAppearance.storageKey)
+        defer {
+            if let previous { defaults.set(previous, forKey: AppAppearance.storageKey) }
+            else { defaults.removeObject(forKey: AppAppearance.storageKey) }
+        }
+        let store = try makeHomeStore()
+        let model = try AppModel(planner: UnusedJourneyPlanner(), store: store,
+                                 location: LocationService(), guidance: GuidanceService())
+        let routingSettings = model.settings
+        defaults.set(AppAppearance.dark.rawValue, forKey: AppAppearance.storageKey)
+        let persisted = AppAppearance(storedValue: defaults.string(forKey: AppAppearance.storageKey)!)
+        XCTAssertEqual(persisted.colorScheme, .dark)
+        XCTAssertEqual(model.settings, routingSettings)
+        model.clearLocalData()
+        XCTAssertNil(defaults.object(forKey: AppAppearance.storageKey))
+        XCTAssertNil(AppAppearance(storedValue: "unknown").colorScheme)
+    }
+
+    @MainActor
+    func testPanelPaletteKeepsTextAndSymbolsReadableInBothAppearances() {
+        func luminance(_ color: Color, traits: UITraitCollection) -> Double {
+            let resolved = UIColor(color).resolvedColor(with: traits)
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            XCTAssertTrue(resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+            func linear(_ value: CGFloat) -> Double {
+                let value = Double(value)
+                return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+        }
+        for style: UIUserInterfaceStyle in [.light, .dark] {
+            let traits = UITraitCollection(userInterfaceStyle: style)
+            let backgrounds = [FoldRouteColor.panel, FoldRouteColor.panelSubtle]
+            let foregrounds = [FoldRouteColor.panelText, FoldRouteColor.panelMuted,
+                               FoldRouteColor.accent, FoldRouteColor.alertText]
+                + [JourneyLegKind.bike, .walk, .transit, .fold].map(\.textColor)
+            for background in backgrounds {
+                for foreground in foregrounds {
+                    let a = luminance(background, traits: traits)
+                    let b = luminance(foreground, traits: traits)
+                    XCTAssertGreaterThanOrEqual((max(a, b) + 0.05) / (min(a, b) + 0.05), 4.5)
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testSettingsSaveStaysQuietAndClearsOnlyItsOwnFailure() throws {
         let store = SettingsFailureStore(base: try makeHomeStore())
         let model = try AppModel(planner: UnusedJourneyPlanner(), store: store,
@@ -4747,8 +4831,15 @@ extension FoldRouteTests {
             progress: NavigationProgress(legIndex: 0, maneuverIndex: 0),
             fallbackNotice: "Neuberechnung nicht möglich – bisherige Route bleibt nutzbar."))
         let model = try AppModel(planner: UnusedJourneyPlanner(), store: store, location: LocationService(), guidance: GuidanceService())
-        for (name, size) in [("portrait", CGSize(width: 390, height: 760)), ("landscape", CGSize(width: 760, height: 340))] {
+        let layouts: [(String, CGSize, UIUserInterfaceStyle)] = [
+            ("light-portrait", CGSize(width: 390, height: 760), .light),
+            ("dark-portrait", CGSize(width: 390, height: 760), .dark),
+            ("light-landscape", CGSize(width: 760, height: 340), .light),
+            ("dark-landscape", CGSize(width: 760, height: 340), .dark)
+        ]
+        for (name, size, style) in layouts {
             let host = UIHostingController(rootView: ActiveNavigationView().environment(model))
+            host.overrideUserInterfaceStyle = style
             let window = UIWindow(frame: CGRect(origin: .zero, size: size))
             window.rootViewController = host
             window.isHidden = false
@@ -4762,7 +4853,7 @@ extension FoldRouteTests {
             attachment.name = "navigation-" + name
             attachment.lifetime = .keepAlways
             add(attachment)
-            if name == "landscape" {
+            if name.hasSuffix("landscape") {
                 func scrollViews(in view: UIView) -> [UIScrollView] {
                     (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
                 }
@@ -4773,7 +4864,7 @@ extension FoldRouteTests {
                     host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
                 }
                 let bottomAttachment = XCTAttachment(image: bottom)
-                bottomAttachment.name = "navigation-landscape-bottom"
+                bottomAttachment.name = "navigation-" + name + "-bottom"
                 bottomAttachment.lifetime = .keepAlways
                 add(bottomAttachment)
             }

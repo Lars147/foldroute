@@ -84,22 +84,29 @@ export const legColors: Record<LegKind, string> = {
   stop: "#ffd43b",
 };
 const transitModeColors: Record<string, string> = {
-  SUBURBAN: "#69d58a",
-  SUBWAY: "#79b8ff",
-  TRAM: "#c29bff",
-  BUS: "#ffaf70",
-  COACH: "#ffaf70",
-  REGIONAL_RAIL: "#ff8993",
-  HIGHSPEED_RAIL: "#ff8993",
-  LONG_DISTANCE: "#ff8993",
-  NIGHT_RAIL: "#ff8993",
+  SUBURBAN: "var(--green-text)",
+  SUBWAY: "var(--blue-text)",
+  TRAM: "var(--violet-text)",
+  BUS: "var(--orange-text)",
+  COACH: "var(--orange-text)",
+  REGIONAL_RAIL: "var(--red-text)",
+  HIGHSPEED_RAIL: "var(--red-text)",
+  LONG_DISTANCE: "var(--red-text)",
+  NIGHT_RAIL: "var(--red-text)",
+};
+export const legTextColors: Record<LegKind, string> = {
+  bike: "var(--cyan-text)",
+  transit: "var(--violet-text)",
+  fold: "var(--accent)",
+  unfold: "var(--accent)",
+  walk: "var(--green-text)",
+  wait: "var(--accent)",
+  stop: "var(--accent)",
 };
 export const routeSymbolColor = (kind: LegKind, mode?: string) =>
   kind === "transit"
-    ? (transitModeColors[mode ?? ""] ?? "#c29bff")
-    : kind === "walk"
-      ? "#e1d7bd"
-      : legColors[kind];
+    ? (transitModeColors[mode ?? ""] ?? legTextColors.transit)
+    : legTextColors[kind];
 
 export function historyPlannedAt(seconds: number, now = new Date()): string {
   const date = new Date(seconds * 1000);

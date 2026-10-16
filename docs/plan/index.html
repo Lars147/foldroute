@@ -17,8 +17,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-B8_SOXuf.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-Ci_BA9gG.css">
+    <script type="module" crossorigin src="./assets/index-Dg6vzARC.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-D5tipVHL.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search" data-starting>
     <a class="skip" href="#main">Zum Inhalt</a>
@@ -443,8 +443,31 @@
             Routeneinstellungen zurücksetzen
           </button>
         </form>
-        <section class="group">
+        <section class="group" id="app-settings">
           <h2>App &amp; Speicher</h2>
+          <fieldset class="appearance-picker">
+            <legend>Darstellung</legend>
+            <div class="appearance-segments">
+              <label
+                ><input
+                  type="radio"
+                  name="appearance"
+                  value="system"
+                  checked
+                /><span>System</span></label
+              >
+              <label
+                ><input type="radio" name="appearance" value="light" /><span
+                  >Hell</span
+                ></label
+              >
+              <label
+                ><input type="radio" name="appearance" value="dark" /><span
+                  >Dunkel</span
+                ></label
+              >
+            </div>
+          </fieldset>
           <label class="toggle-row">
             <span
               >Bildschirm eingeschaltet lassen<small

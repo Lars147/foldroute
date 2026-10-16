@@ -1,5 +1,5 @@
 import { type Journey, type Leg, kindNames, transition } from "./model";
-import { clock, dateLabel, duration, icon, legColors, node } from "./ui";
+import { clock, dateLabel, duration, icon, legTextColors, node } from "./ui";
 
 const preparation = (leg: Leg) => ["fold", "unfold", "wait"].includes(leg.kind);
 export type JourneyPresentation = "live" | "example";
@@ -114,7 +114,7 @@ export function renderJourneyDetails(
         `detail-step${preparation(leg) ? " detail-preparation" : ""}`,
       );
       item.dataset.kind = leg.kind;
-      item.style.setProperty("--leg-color", legColors[leg.kind]);
+      item.style.setProperty("--leg-color", legTextColors[leg.kind]);
       const symbol = icon(leg.kind);
       symbol.classList.add("leg-symbol");
       const copy = node("div", "", "detail-copy");

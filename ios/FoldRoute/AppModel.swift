@@ -1063,6 +1063,7 @@ final class AppModel {
             try store.clearAll()
             try sharedDestinationStore?.remove()
             UserDefaults.standard.removeObject(forKey: "foldroute.screenAwake")
+            UserDefaults.standard.removeObject(forKey: AppAppearance.storageKey)
             planningGeneration += 1
             origin = nil
             destination = nil

@@ -221,7 +221,7 @@ struct RouteAdjustmentView: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: destination?.name == "Aktueller Standort" ? "location.fill" : "flag.checkered")
-                                .foregroundStyle(destination?.name == "Aktueller Standort" ? FoldRouteColor.routeCyan : FoldRouteColor.signalYellow)
+                                .foregroundStyle(destination?.name == "Aktueller Standort" ? FoldRouteColor.cyanText : FoldRouteColor.accent)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(destination?.name ?? "Ziel wählen")
                                     .foregroundStyle(.primary)

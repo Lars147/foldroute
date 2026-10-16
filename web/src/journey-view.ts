@@ -641,7 +641,7 @@ export class JourneyView {
       metric.title = label;
       metric.style.setProperty(
         "--stage-color",
-        name === "transfer" ? "#c1c8cb" : routeSymbolColor(name),
+        name === "transfer" ? "var(--panel-muted)" : routeSymbolColor(name),
       );
       metric.append(icon(name), node("span", text));
       summary.append(metric);

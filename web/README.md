@@ -6,6 +6,10 @@ Browserbasierte Routenplanung für Faltrad und ÖPNV. Vite/TypeScript, Leaflet u
 
 Die Einstellungen zeigen Radtempo, Radzeit und Faltzeit direkt. Verkehrsmittel, weitere Routenoptionen, Datenverwaltung und Hilfe lassen sich unabhängig aufklappen. „Fertig“ oben rechts führt zurück; gültige Änderungen gelten sofort, eine bestehende Route wird erst beim Verlassen einmal neu berechnet. Persönliche Vorgaben gelten für jede neue Berechnung, auch aus Links, Verlauf und Navigation. Das Öffnen einer alten Reise verändert sie nicht.
 
+## Darstellung
+
+Unter **Einstellungen → App & Speicher → Darstellung** stehen **System**, **Hell** und **Dunkel** zur Wahl. Standard ist **System**, das auch während der Nutzung auf Änderungen der Geräteinstellung reagiert. Die Auswahl gilt sofort für Oberfläche, Routen- und Navigationspanels und wird separat unter `foldroute.appearance` in `localStorage` gespeichert. Sie verändert keine Routen und löst keine Neuberechnung aus. Ohne Speicherzugriff gilt sie für die laufende Sitzung. „Alle lokalen Daten löschen“ setzt sie auf **System**; „Routeneinstellungen zurücksetzen“ erhält sie. Die Straßenkarte nutzt weiterhin die vorhandenen OSM-Kacheln. Die öffentliche Beispielroute folgt ausschließlich der Systemdarstellung und liest keine persönlichen Einstellungen.
+
 ## Entwickeln und bauen
 
 Voraussetzung: Node.js 22.12+ und npm.

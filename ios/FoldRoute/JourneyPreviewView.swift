@@ -104,8 +104,8 @@ struct JourneyPreviewView: View {
                 }
                 .padding(16)
                 .frame(height: height)
-                .background(FoldRouteColor.asphalt.opacity(fullHeight ? 1 : 0.97), in: RoundedRectangle(cornerRadius: 24))
-                .foregroundStyle(.white)
+                .background(FoldRouteColor.panel, in: RoundedRectangle(cornerRadius: 24))
+                .foregroundStyle(FoldRouteColor.panelText)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
                     if mapMode || (!fullHeight && panel.size != .expanded) { cameraPanelHeight = measured }
                     else if cameraPanelHeight == 0 { cameraPanelHeight = min(measured, available * 0.65) }
@@ -159,7 +159,7 @@ struct JourneyPreviewView: View {
             reservedAlternativeContent(journey) { option in
                 VStack(alignment: .leading, spacing: 16) {
                     if let comparison = CyclingComparison.label(option, limit: model.resultCyclingLimit) {
-                        Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.signalYellow)
+                        Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.accent)
                     }
                     planningNotices(option)
                 }
@@ -182,7 +182,7 @@ struct JourneyPreviewView: View {
 
     private func panelHeader(fullHeight: Bool) -> some View {
         VStack(spacing: 0) {
-            Capsule().fill(.white.opacity(0.4)).frame(width: 38, height: 4)
+            Capsule().fill(FoldRouteColor.panelLine).frame(width: 38, height: 4)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 20).onEnded { value in
@@ -280,8 +280,8 @@ struct JourneyPreviewView: View {
                         .accessibilityIdentifier("journeyDetails-" + option.id)
                     }
                     .fixedSize(horizontal: false, vertical: true)
-                    .background(selected ? FoldRouteColor.signalYellow : .white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                    .foregroundStyle(selected ? FoldRouteColor.asphalt : .white)
+                    .background(selected ? FoldRouteColor.signalYellow : FoldRouteColor.panelSubtle, in: RoundedRectangle(cornerRadius: 12))
+                    .foregroundStyle(selected ? FoldRouteColor.asphalt : FoldRouteColor.panelText)
                     .id("routeChoice-" + option.id)
                     if open {
                         VStack(alignment: .leading, spacing: 16) {
@@ -291,7 +291,7 @@ struct JourneyPreviewView: View {
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white.opacity(0.03))
+                        .background(FoldRouteColor.panelSubtle)
                         .accessibilityIdentifier("journeyExpandedDetails-" + option.id)
                     }
                 }
@@ -462,20 +462,20 @@ struct JourneyLegRow: View {
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: leg.kind.symbol)
-                .foregroundStyle(leg.kind.color)
+                .foregroundStyle(leg.kind.textColor)
                 .frame(width: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                 Text(detail)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(FoldRouteColor.panelMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             Text(leg.startTime, format: .dateTime.hour().minute())
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.82))
+                .foregroundStyle(FoldRouteColor.panelMuted)
         }
     }
 

@@ -4,6 +4,8 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
     @AppStorage("foldroute.screenAwake") private var keepScreenAwake = true
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var confirmDelete = false
     @State private var showLicense = false
 
@@ -84,6 +86,14 @@ struct SettingsView: View {
             }
 
             Section("Bildschirm") {
+                if dynamicTypeSize.isAccessibilitySize {
+                    appearancePicker.pickerStyle(.inline)
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Darstellung")
+                        appearancePicker.pickerStyle(.segmented)
+                    }
+                }
                 Toggle("Bildschirm während der Route eingeschaltet lassen", isOn: $keepScreenAwake)
                 Text("Gilt für die sichtbare Routenvorschau und Navigation. Verbraucht mehr Akku; manuelles Sperren bleibt möglich.")
                     .font(.footnote)
@@ -100,7 +110,7 @@ struct SettingsView: View {
                 if model.location.isAuthorized, !model.location.hasPreciseLocation {
                     Label("Genaue Ortung ist ausgeschaltet. Abbiegehinweise können unpräzise sein.", systemImage: "location.slash")
                         .font(.footnote)
-                        .foregroundStyle(FoldRouteColor.alertCoral)
+                        .foregroundStyle(FoldRouteColor.alertText)
                 }
                 if let message = model.location.status.message { Text(message).font(.footnote) }
                 if model.location.status == .denied || model.location.status == .disabled {
@@ -160,6 +170,18 @@ struct SettingsView: View {
         case .notDetermined: "Noch nicht gefragt"
         @unknown default: "Unbekannt"
         }
+    }
+
+    private var appearancePicker: some View {
+        Picker("Darstellung", selection: Binding(
+            get: { AppAppearance(storedValue: appearance) },
+            set: { appearance = $0.rawValue }
+        )) {
+            ForEach(AppAppearance.allCases) { choice in
+                Text(choice.title).tag(choice)
+            }
+        }
+        .accessibilityIdentifier("appearancePicker")
     }
 
     private func transitModeBinding(for mode: TransitModePreference) -> Binding<Bool> {

@@ -426,6 +426,36 @@ async function complete(page: Page) {
   await page.locator("#navigation-complete").click();
   await page.locator("#navigation-confirm-yes").click();
 }
+
+test("System appearance changes navigation panels without resetting progress", async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "light" });
+  await setup(page);
+  const instruction = await page.locator("#navigation-instruction").innerText();
+  const phase = await page.locator(".navigation-phase.current").innerText();
+  await expect(page.locator(".navigation-panel")).toHaveCSS(
+    "background-color",
+    "rgb(255, 255, 255)",
+  );
+  await page.screenshot({ path: info.outputPath("navigation-light.png") });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator(".navigation-panel")).toHaveCSS(
+    "background-color",
+    "rgb(23, 26, 28)",
+  );
+  await expect(page.locator("#navigation-instruction")).toHaveText(instruction);
+  await expect(page.locator(".navigation-phase.current")).toHaveText(phase);
+  await page.screenshot({ path: info.outputPath("navigation-dark.png") });
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("#navigation-instruction")).toHaveText(instruction);
+  await expect(page.locator(".navigation-panel")).toHaveCSS(
+    "background-color",
+    "rgb(255, 255, 255)",
+  );
+});
+
 for (const [width, height] of [
   [320, 568],
   [390, 844],

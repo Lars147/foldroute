@@ -154,6 +154,7 @@ test("fresh district details enrich a favorite without moving focus or writing u
     .toEqual({ ...legacy, detail: "80331, München, Altstadt-Lehel, DE" });
   await page.locator("#cancel-adjust").click();
   await page.reload();
+  await expect(page.locator("#destination")).toBeVisible();
   await context.setOffline(true);
   const count = searches;
   await page.locator("#destination").fill("Altstadt");
@@ -170,6 +171,51 @@ test("fresh district details enrich a favorite without moving focus or writing u
     path: info.outputPath("district-favorite-offline.png"),
   });
 });
+
+for (const width of [320, 390]) {
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`mobile dialog search fills the viewport at ${width}px in ${colorScheme}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme });
+      await page.route("**/api/v1/geocode?*", (route) =>
+        route.fulfill({
+          headers: cors,
+          json: [{ name: "Testziel", lat: 48.15, lon: 11.6 }],
+        }),
+      );
+      await page.goto("/");
+      await page.locator("#search-adjust").click();
+      const dialog = page.locator("#adjust-dialog");
+      for (const id of ["origin", "adjust-destination", "via-0"]) {
+        if (id === "via-0") await page.locator("#add-stop").click();
+        const input = page.locator(`#${id}`);
+        await input.fill("Test");
+        await expect(
+          page.locator(`#${id}-options .place-select`).last(),
+        ).toBeVisible();
+        const bounds = (await dialog.boundingBox())!;
+        expect(bounds.x).toBe(0);
+        expect(bounds.y).toBe(0);
+        expect(bounds.width).toBe(width);
+        expect(bounds.height).toBe(844);
+        await expect(dialog).toHaveCSS("border-radius", "0px");
+        await expect(dialog).toHaveCSS("box-shadow", "none");
+        expect(
+          await dialog.evaluate(
+            (element) => getComputedStyle(element, "::backdrop").backdropFilter,
+          ),
+        ).toBe("none");
+        await page.screenshot({ path: info.outputPath(`search-${id}.png`) });
+        await page.locator(".search-focus-back").click();
+        await expect(input).toHaveValue("Test");
+        await expect(dialog).toHaveCSS("border-radius", "24px");
+        await expect(page.locator("#use-context")).toBeVisible();
+      }
+    });
+  }
+}
 
 test("mobile search uses visual viewport and returns to the unchanged adjustment draft", async ({
   page,

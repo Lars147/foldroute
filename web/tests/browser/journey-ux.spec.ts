@@ -495,7 +495,7 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
   await page.locator(".route-choice-row.selected .route-detail-link").click();
   await page.locator("#result-back").click();
   await expect(card).toHaveAttribute("aria-pressed", "true");
-  await expect(card).toHaveCSS("border-color", "rgb(255, 212, 59)");
+  await expect(card).toHaveCSS("border-color", "rgb(117, 87, 0)");
   await expect(page.locator('.route-choice[aria-pressed="true"]')).toHaveCount(
     1,
   );
@@ -883,7 +883,7 @@ for (const width of [320, 390, 1280]) {
     await expect(arrivalDelay.locator('[aria-hidden="true"]')).toHaveText(
       "15:09 · +5 min",
     );
-    await expect(departureDelay).toHaveCSS("color", "rgb(255, 138, 131)");
+    await expect(departureDelay).toHaveCSS("color", "rgb(180, 35, 50)");
     await expect(transit.locator(".detail-heading")).toHaveCSS(
       "text-decoration-line",
       "none",

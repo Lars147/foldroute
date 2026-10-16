@@ -42,9 +42,9 @@ struct ActiveNavigationView: View {
                         Button { model.setAudioEnabled(!model.settings.audioEnabled) } label: {
                             Image(systemName: model.settings.audioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
                                 .frame(width: 44, height: 44)
-                                .background(FoldRouteColor.asphalt.opacity(0.96), in: Circle())
+                                .background(FoldRouteColor.panel, in: Circle())
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(FoldRouteColor.panelText)
                         .accessibilityLabel(model.settings.audioEnabled ? "Ton ausschalten" : "Ton einschalten")
                         .accessibilityValue(model.settings.audioEnabled ? "Ton an" : "Stumm")
                         .accessibilityIdentifier("navigationAudio")
@@ -130,19 +130,19 @@ struct ActiveNavigationView: View {
             if let issue = model.transitDisruption {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(FoldRouteColor.signalYellow)
+                    .foregroundStyle(FoldRouteColor.accent)
             }
             if let message = engine.statusMessage {
                 Label(message, systemImage: engine.isReplanning ? "arrow.triangle.2.circlepath" : "exclamationmark.triangle")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(FoldRouteColor.signalYellow)
+                    .foregroundStyle(FoldRouteColor.accent)
                     .accessibilityLabel("Navigationsstatus: \(message)")
             }
 
             HStack(alignment: .top, spacing: 16) {
                 Image(systemName: engine.currentManeuver?.direction.symbol ?? engine.currentLeg?.kind.symbol ?? "location.north")
                     .font(.system(size: 34, weight: .heavy, design: .rounded))
-                    .foregroundStyle(engine.currentLeg?.kind.color ?? FoldRouteColor.signalYellow)
+                    .foregroundStyle(engine.currentLeg?.kind.textColor ?? FoldRouteColor.accent)
                     .frame(width: 52, height: 52)
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -155,7 +155,7 @@ struct ActiveNavigationView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Text(engine.detail)
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.64))
+                        .foregroundStyle(FoldRouteColor.panelMuted)
                 }
             }
 
@@ -163,7 +163,7 @@ struct ActiveNavigationView: View {
                 Text(message).font(.footnote).foregroundStyle(.secondary)
             }
             if model.isFindingAlternative {
-                ProgressView("Alternative wird gesucht …").tint(FoldRouteColor.signalYellow)
+                ProgressView("Alternative wird gesucht …").tint(FoldRouteColor.accent)
             } else if model.navigationAlternative != nil {
                 Button("Alternative ansehen") { showAlternative = true }
                     .buttonStyle(.borderedProminent)
@@ -172,7 +172,7 @@ struct ActiveNavigationView: View {
             } else if model.transitDisruption != nil || engine.journey.remainingTransit(from: engine.currentLegIndex).contains(where: { $0.reference == nil || $0.refreshFailure == .unavailable }) {
                 Button("Neue Verbindung suchen") { model.proposeNavigationAlternative() }
                     .buttonStyle(.bordered)
-                    .tint(FoldRouteColor.signalYellow)
+                    .tint(FoldRouteColor.accent)
             }
 
             if case .stop(let stop) = engine.currentLeg {
@@ -193,7 +193,7 @@ struct ActiveNavigationView: View {
                             .frame(maxWidth: .infinity, minHeight: 48)
                     }
                     .buttonStyle(.bordered)
-                    .tint(leg.kind.requiresCompletionConfirmation ? .white : FoldRouteColor.signalYellow)
+                    .tint(leg.kind.requiresCompletionConfirmation ? FoldRouteColor.panelText : FoldRouteColor.accent)
                     .disabled(engine.isReplanning)
                     .accessibilityIdentifier("completeNavigationLeg")
                 }
@@ -205,7 +205,7 @@ struct ActiveNavigationView: View {
                         .frame(width: 48, height: 48)
                 }
                 .buttonStyle(.bordered)
-                .tint(.white)
+                .tint(FoldRouteColor.panelText)
                 .accessibilityLabel("Navigation beenden")
             }
         }
@@ -234,7 +234,7 @@ struct ActiveNavigationView: View {
                 if minutes != 0 {
                     Text(minutes > 0 ? "+\(minutes) Min. Verspätung" : "\(-minutes) Min. früher")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(FoldRouteColor.signalYellow)
+                        .foregroundStyle(FoldRouteColor.accent)
                 }
             }
         }
@@ -285,11 +285,11 @@ struct ActiveNavigationView: View {
         VStack(spacing: 14) {
             Image(systemName: "flag.checkered.circle.fill")
                 .font(.system(size: 50))
-                .foregroundStyle(FoldRouteColor.signalYellow)
+                .foregroundStyle(FoldRouteColor.accent)
             Text("Ziel erreicht")
                 .font(.system(size: 32, weight: .heavy, design: .rounded))
             Text(model.journey?.destination.name ?? "")
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(FoldRouteColor.panelMuted)
             Button("Fahrt abschließen") {
                 model.stopNavigation(discardRoute: true)
             }
@@ -313,20 +313,20 @@ private struct NavigationPhaseStrip: View {
                 HStack(spacing: 0) {
                     if index > 0 {
                         Rectangle()
-                            .fill(index <= engine.currentLegIndex ? leg.kind.color : .white.opacity(0.2))
+                            .fill(index <= engine.currentLegIndex ? leg.kind.textColor : FoldRouteColor.panelLine)
                             .frame(height: 3)
                     }
                     Image(systemName: leg.kind.symbol)
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(index == engine.currentLegIndex ? FoldRouteColor.asphalt : .white.opacity(index < engine.currentLegIndex ? 0.85 : 0.45))
+                        .foregroundStyle(index == engine.currentLegIndex ? FoldRouteColor.asphalt : FoldRouteColor.panelMuted)
                         .frame(width: 28, height: 28)
-                        .background(index == engine.currentLegIndex ? leg.kind.color : .white.opacity(0.16), in: Circle())
+                        .background(index == engine.currentLegIndex ? leg.kind.color : FoldRouteColor.panelSubtle, in: Circle())
                 }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(FoldRouteColor.asphalt.opacity(0.93), in: Capsule())
+        .background(FoldRouteColor.panel, in: Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Abschnitt \(engine.currentLegIndex + 1) von \(engine.journey.legs.count): \(engine.currentLeg?.kind.title ?? "")")
     }

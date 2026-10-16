@@ -43,6 +43,7 @@ Die Anwendung trennt externe DTOs von UI und Navigation. Fehler sollen früh und
 - Kontaktkennung für Transitous: `TransitousContact` in `ios/FoldRoute/Info.plist`
 - Bundle-ID und Version: Build Settings im App-Target
 - Faltzeiten: in der App unter **Einstellungen → Klapprad**
+- Darstellung: **Einstellungen → Bildschirm → Darstellung** bietet **System**, **Hell** und **Dunkel**. Standard ist **System**. Die Auswahl gilt sofort auch für Routenpanels, Navigation und Dialoge und bleibt separat unter `foldroute.appearance` in UserDefaults gespeichert. Sie löst keine Routenberechnung aus. „Alle lokalen Daten löschen“ setzt sie auf **System** zurück. Bei großer Bedienungshilfe-Schrift erscheinen die Optionen als Liste statt als segmentierter Auswahl.
 
 ## Tests
 

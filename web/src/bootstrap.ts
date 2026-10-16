@@ -1,9 +1,10 @@
 import "./style.css";
+import { appearance } from "./appearance";
 
-const ready =
-  new URLSearchParams(location.search).get("example") === "bike-transfer"
-    ? import("./example")
-    : import("./main");
+const example =
+  new URLSearchParams(location.search).get("example") === "bike-transfer";
+appearance.initialize(!example);
+const ready = example ? import("./example") : import("./main");
 
 // Keep controls unavailable until their entrypoint has attached its handlers.
 void ready.then(() => {

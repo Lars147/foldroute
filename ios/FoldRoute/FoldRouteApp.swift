@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct FoldRouteApp: App {
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
     private let container: ModelContainer
     @State private var appModel: AppModel
 
@@ -44,6 +45,7 @@ struct FoldRouteApp: App {
         WindowGroup {
             RootView()
                 .environment(appModel)
+                .preferredColorScheme(AppAppearance(storedValue: appearance).colorScheme)
         }
         .modelContainer(container)
     }
