@@ -274,7 +274,31 @@
               <div id="journey-detail"></div>
             </div>
           </div>
-          <div class="panel-actions">
+          <div class="panel-actions" hidden>
+            <p
+              id="navigation-start-notice"
+              role="status"
+              tabindex="-1"
+              hidden
+            ></p>
+            <div id="navigation-start-recovery" hidden>
+              <button
+                id="navigation-search-now"
+                type="button"
+                class="primary"
+                hidden
+              >
+                Ab jetzt suchen
+              </button>
+              <button
+                id="navigation-start-retry"
+                type="button"
+                class="primary"
+                hidden
+              >
+                Erneut versuchen
+              </button>
+            </div>
             <div id="route-start-summary" aria-live="polite">
               <strong id="route-start-arrival"></strong
               ><span id="route-start-duration"></span>
@@ -623,9 +647,10 @@
               aria-label="Fünf Minuten später"
             >
               +</button
-            ><button id="time-now" type="button">Jetzt</button>
+            ><button id="time-now" class="secondary" type="button">
+              Jetzt
+            </button>
           </div>
-          <p id="time-hint" class="message"></p>
           <p id="time-error" role="status" class="message"></p>
         </div>
         <div class="dialog-actions">

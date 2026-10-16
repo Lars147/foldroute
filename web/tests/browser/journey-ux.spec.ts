@@ -82,6 +82,10 @@ async function preview(page: Page) {
     document.body.dataset.view = "map";
     document.getElementById("search-view")!.hidden = true;
     document.getElementById("map-view")!.hidden = false;
+    // Main owns start availability. Mount a ready footer for these isolated
+    // JourneyView layout checks; planner tests exercise the actual transitions.
+    document.querySelector<HTMLElement>(".panel-actions")!.hidden = false;
+    document.getElementById("navigation-start")!.hidden = false;
     view.render(state, 30);
   });
 }
@@ -823,5 +827,154 @@ for (const width of [320, 390, 1280]) {
         page.locator(".route-choice-row.selected .route-detail-link"),
       ).toBeFocused();
     }
+  });
+}
+
+for (const width of [320, 390, 1280]) {
+  test(`transit details show scheduled and delayed times at ${width}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await preview(page);
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      const selected = state.selected;
+      const start = Date.parse("2026-10-16T10:35:00Z") / 1000;
+      const end = Date.parse("2026-10-16T13:09:00Z") / 1000;
+      selected.departure = start;
+      selected.arrival = end;
+      selected.legs = [
+        {
+          kind: "transit",
+          from: { ...selected.origin, name: "München Hbf" },
+          to: { ...selected.destination, name: "Mannheim Hauptbahnhof" },
+          start,
+          end,
+          scheduledStart: start - 900,
+          scheduledEnd: end - 300,
+          line: "ICE 916",
+          headsign: "Dortmund Hbf",
+          platform: "13",
+          arrivalPlatform: "3",
+          realtime: true,
+          distance: 0,
+          coordinates: [selected.origin, selected.destination],
+        },
+      ];
+      state.request.time = start;
+      state.queriedAt = start;
+      view.render(state, 30);
+    });
+    await page.locator(".route-choice-row.selected .route-detail-link").click();
+    const transit = page.locator('.detail-step[data-kind="transit"]');
+    const departureDelay = transit.locator(
+      '.detail-delay[data-event="departure"]',
+    );
+    const arrivalDelay = transit.locator('.detail-delay[data-event="arrival"]');
+    await expect(transit.locator(".detail-heading")).toContainText(
+      "Ab 12:20 · ICE 916",
+    );
+    await expect(transit.locator(".detail-arrival strong")).toContainText(
+      "15:04 · Ausstieg",
+    );
+    await expect(departureDelay.locator('[aria-hidden="true"]')).toHaveText(
+      "12:35 · +15 min",
+    );
+    await expect(arrivalDelay.locator('[aria-hidden="true"]')).toHaveText(
+      "15:09 · +5 min",
+    );
+    await expect(departureDelay).toHaveCSS("color", "rgb(255, 138, 131)");
+    await expect(transit.locator(".detail-heading")).toHaveCSS(
+      "text-decoration-line",
+      "none",
+    );
+    await expect(departureDelay.locator(".sr-only")).toHaveText(
+      "Voraussichtlich Abfahrt 12:35, 15 Minuten Verspätung.",
+    );
+    await expect(transit.locator(".detail-source")).toHaveText(
+      "Echtzeitdaten zum Zeitpunkt der Abfrage",
+    );
+    await transit.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath("delayed-transit.png") });
+
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "200%";
+    });
+    expect(
+      await page
+        .locator("#journey-detail")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+    expect(
+      await transit
+        .locator(".detail-delay")
+        .evaluateAll((elements) =>
+          elements.every(
+            (element) => element.scrollWidth <= element.clientWidth,
+          ),
+        ),
+    ).toBe(true);
+    await transit.locator(".detail-heading").scrollIntoViewIfNeeded();
+    await expect(departureDelay).toBeInViewport();
+    await page.screenshot({
+      path: info.outputPath("delayed-transit-large-text.png"),
+    });
+
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "";
+      const { state, view } = (window as any).uxPreview;
+      const train = state.selected.legs[0];
+      train.start = train.scheduledStart + 300;
+      state.selected.departure = train.start;
+      view.render(state, 30);
+    });
+    await expect(departureDelay.locator('[aria-hidden="true"]')).toHaveText(
+      "12:25 · +5 min",
+    );
+    await expect(arrivalDelay.locator('[aria-hidden="true"]')).toHaveText(
+      "15:09 · +5 min",
+    );
+
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      const train = state.selected.legs[0];
+      train.transitReference = {
+        tripId: "trip",
+        fromId: "from",
+        toId: "to",
+        scheduledDeparture: train.scheduledStart,
+        scheduledArrival: train.scheduledEnd,
+      };
+      delete train.scheduledEnd;
+      state.restored = true;
+      view.render(state, 30);
+    });
+    await expect(transit.locator(".detail-source")).toHaveText(
+      "Gespeicherte Fahrplanangabe",
+    );
+    await expect(arrivalDelay.locator('[aria-hidden="true"]')).toHaveText(
+      "15:09 · +5 min",
+    );
+    await expect(departureDelay.locator(".sr-only")).toHaveText(
+      "Gespeicherte Prognose: Abfahrt 12:25, 5 Minuten Verspätung.",
+    );
+
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      const train = state.selected.legs[0];
+      train.start = train.scheduledStart;
+      train.end = train.transitReference.scheduledArrival;
+      state.selected.departure = train.start;
+      state.selected.arrival = train.end;
+      state.restored = false;
+      view.render(state, 30);
+    });
+    await expect(transit.locator(".detail-delay")).toHaveCount(0);
+    await expect(transit.locator(".detail-heading")).toHaveText(
+      "Ab 12:20 · ICE 916",
+    );
+    await expect(transit.locator(".detail-arrival strong")).toHaveText(
+      "15:04 · Ausstieg",
+    );
   });
 }

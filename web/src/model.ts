@@ -227,6 +227,7 @@ export interface Leg {
   realtime?: boolean;
   tripId?: string;
   scheduledStart?: number;
+  scheduledEnd?: number;
 }
 export interface Journey {
   id: string;
@@ -538,6 +539,9 @@ export function validNavigationLegData(value: Leg): boolean {
   const reference = value.transitReference,
     status = value.transitStatus;
   return (
+    [value.scheduledStart, value.scheduledEnd].every(
+      (time) => time === undefined || Number.isFinite(time),
+    ) &&
     (value.navigationId === undefined ||
       (typeof value.navigationId === "string" &&
         value.navigationId.length > 0)) &&

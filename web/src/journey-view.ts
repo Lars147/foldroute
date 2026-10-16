@@ -294,21 +294,6 @@ export class JourneyView {
   }
   render(state: PlanningState, cyclingLimit = 30) {
     const request = state.request;
-    if (this.restored !== state.restored) {
-      const start = el("navigation-start");
-      start.className = state.restored ? "secondary" : "primary";
-      start.setAttribute(
-        "aria-label",
-        state.restored
-          ? "Mit gespeicherter Route starten"
-          : "Navigation starten",
-      );
-      start.replaceChildren(
-        ...(state.restored
-          ? [document.createTextNode("Mit gespeicherter Route starten")]
-          : [icon("location"), document.createTextNode("Los")]),
-      );
-    }
     this.restored = state.restored;
     // Keep the internal GPS label intact: planning uses it to refresh location.
     const originName =
@@ -329,10 +314,6 @@ export class JourneyView {
     el("route-start-arrival").textContent = selected
       ? `${journeyEndpointTime(selected, "arrival")} an`
       : "";
-    el("route-start-summary").hidden = !selected;
-    el("navigation-start").hidden = !selected;
-    el<HTMLButtonElement>("navigation-start").disabled =
-      !selected || !state.request;
     cyclingLimit = state.resultSettings?.maxCyclingMinutes ?? cyclingLimit;
     el("status").textContent = state.message;
     el("stale-notice").textContent = state.staleReason ?? "";

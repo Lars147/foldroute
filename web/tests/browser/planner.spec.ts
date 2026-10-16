@@ -8,6 +8,7 @@ import {
 import { test, expect, type Page } from "@playwright/test";
 import { defaults, type Journey } from "../../src/model";
 import type { PlanningState } from "../../src/planning-state";
+import { routeURL } from "../../src/route-url";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -79,6 +80,377 @@ async function plan(page: Page) {
   ).toContainText("32 min");
   await expectPlanningComplete(page);
 }
+function shiftedTransitFixture(minutes: number) {
+  const response = structuredClone(fixture.multimodal);
+  for (const journey of response.itineraries) {
+    for (const item of [journey, ...journey.legs]) {
+      item.startTime = new Date(
+        Date.parse(item.startTime) - minutes * 60000,
+      ).toISOString();
+      item.endTime = new Date(
+        Date.parse(item.endTime) - minutes * 60000,
+      ).toISOString();
+    }
+  }
+  return response;
+}
+async function expectRecoveryButtons(page: Page, actionId: string) {
+  const action = page.locator(`#${actionId}`);
+  const start = page.locator(".panel-actions #navigation-start");
+  // Fractional layout pixels can clip a border by less than one CSS pixel.
+  await expect(action).toBeInViewport({ ratio: 0.99 });
+  await expect(start).toBeInViewport({ ratio: 0.99 });
+  const left = (await action.boundingBox())!;
+  const right = (await start.boundingBox())!;
+  expect(left.width).toBeCloseTo(right.width, 1);
+  expect(left.height).toBeCloseTo(right.height, 1);
+  expect(left.height).toBeGreaterThanOrEqual(48);
+  expect(left.y).toBeCloseTo(right.y, 1);
+  expect(left.x + left.width).toBeLessThan(right.x);
+  const tabs = (await page.locator(".app-tabs").boundingBox())!;
+  expect(left.y).toBeGreaterThanOrEqual(-1);
+  expect(left.y + left.height).toBeLessThanOrEqual(tabs.y + 1);
+  expect(right.y + right.height).toBeLessThanOrEqual(tabs.y + 1);
+  expect(
+    await action.evaluate((button) => button.scrollWidth <= button.clientWidth),
+  ).toBe(true);
+}
+
+for (const width of [390, 1280]) {
+  test(`start footer remains disabled through an empty initial search at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/api/v6/plan?*", async (r) => {
+      await gate;
+      await r.fulfill({ headers: cors, json: { direct: [], itineraries: [] } });
+    });
+    await choose(page, "destination", "Ziel");
+    const start = page.locator("#navigation-start");
+    await expect(start).toBeVisible();
+    await expect(start).toBeDisabled();
+    await expect(start).toHaveText("Los");
+    await expect(start).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#route-start-summary")).toBeHidden();
+    const initial = (await start.boundingBox())!;
+    release();
+    await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+    await expect(page.locator(".route-choice")).toHaveCount(0);
+    await expect(start).toBeVisible();
+    await expect(start).toBeDisabled();
+    await expect(page.locator("#status")).not.toBeEmpty();
+    await expect(page.locator("#navigation-start-notice")).toBeHidden();
+    const empty = (await start.boundingBox())!;
+    expect(empty.x).toBe(initial.x);
+    expect(empty.y).toBe(initial.y);
+    expect(empty.width).toBe(initial.width);
+  });
+}
+
+for (const width of [320, 390, 1280]) {
+  test(`a fresh past-departure result keeps Los and explicit recovery visible at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page);
+    const departed = shiftedTransitFixture(20);
+    await page.route("**/api/v6/plan?*", (r) =>
+      r.fulfill({
+        headers: cors,
+        json:
+          new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+            ? fixture.direct
+            : departed,
+      }),
+    );
+    const link = routeURL(page.url(), {
+      request: {
+        origin: {
+          name: "Start",
+          detail: "",
+          latitude: places[0].lat,
+          longitude: places[0].lon,
+        },
+        destination: {
+          name: "Ziel",
+          detail: "",
+          latitude: places[1].lat,
+          longitude: places[1].lon,
+        },
+        timing: "arrive",
+        time: Date.parse("2026-09-04T08:40:00Z") / 1000,
+      },
+    });
+    // Keep the longer direct ride as a comparison so the arrival search also
+    // retains the earlier transit departure instead of filtering it as slower.
+    await page.evaluate(
+      (value) =>
+        localStorage.setItem("foldroute.routing.v3", JSON.stringify(value)),
+      defaults,
+    );
+    await page.goto(link.href);
+    await expectPlanningComplete(page);
+    await page
+      .locator(".route-choice")
+      .filter({ hasText: "U6" })
+      .first()
+      .click();
+    const start = page.locator(".panel-actions #navigation-start");
+    const notice = page.locator("#navigation-start-notice");
+    const search = page.locator("#navigation-search-now");
+    await expect(start).toBeVisible();
+    await expect(start).toBeDisabled();
+    await expect(start).toHaveText("Los");
+    await expect(start).toHaveCSS("background-color", "rgb(52, 62, 65)");
+    await expect(start).toHaveAccessibleDescription(
+      /Abfahrt von U6.*liegt zurück/,
+    );
+    await expect(notice).toBeVisible();
+    await expect(search).toBeEnabled();
+    await expect(search).toHaveCSS("background-color", "rgb(255, 212, 59)");
+    await expect(search).toHaveCSS("color", "rgb(23, 26, 28)");
+    await expectRecoveryButtons(page, "navigation-search-now");
+    await expect(page.locator("#route-start-summary")).toBeHidden();
+    await expect(page.locator("#navigation-view-connection")).toHaveCount(0);
+    await expect(start).toBeInViewport({ ratio: 1 });
+    const original = (await start.boundingBox())!;
+    await page.screenshot({
+      path: test.info().outputPath("blocked-start-footer.png"),
+    });
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "24px";
+    });
+    await search.scrollIntoViewIfNeeded();
+    await expectRecoveryButtons(page, "navigation-search-now");
+    await page.screenshot({
+      path: test.info().outputPath("blocked-start-large-text.png"),
+    });
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "16px";
+    });
+    await openSelectedDetails(page);
+    await expect(start).toBeVisible();
+    if (width < 900) {
+      await showMap(page);
+      await expect(page.locator(".panel-actions")).toBeHidden();
+      await page.locator("#result-back").click();
+    }
+    await page.context().setOffline(true);
+    await expect(search).toBeDisabled();
+    await expect(search).toHaveCSS("background-color", "rgb(52, 62, 65)");
+    await expect(notice).toContainText("Internet");
+    await expect(start).toBeVisible();
+    await expect(start).toBeDisabled();
+    await page.context().setOffline(false);
+    await expect(search).toBeEnabled();
+    await expect(search).toHaveCSS("background-color", "rgb(255, 212, 59)");
+    await expect(notice).not.toContainText("Internet");
+    await page
+      .locator(".route-choice")
+      .filter({ hasNotText: "U6" })
+      .first()
+      .click();
+    await expect(start).toBeEnabled();
+    await expect(notice).toBeHidden();
+    await expect(search).toBeHidden();
+    await expect(page.locator("#route-start-summary")).toBeVisible();
+    const ready = (await start.boundingBox())!;
+    expect(ready.x).toBe(original.x);
+    expect(ready.width).toBe(original.width);
+    await page
+      .locator(".route-choice")
+      .filter({ hasText: "U6" })
+      .first()
+      .click();
+    const requests: URL[] = [];
+    await page.route("**/api/v6/plan?*", (r) => {
+      requests.push(new URL(r.request().url()));
+      return r.fulfill({
+        headers: cors,
+        json:
+          new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+            ? fixture.direct
+            : fixture.multimodal,
+      });
+    });
+    await search.click();
+    await expectPlanningComplete(page);
+    expect(requests.length).toBeGreaterThan(0);
+    expect(
+      requests.every((url) => url.searchParams.get("arriveBy") === "false"),
+    ).toBe(true);
+    await expect(start).toBeEnabled();
+    await expect(page.locator("#navigation-view")).toBeHidden();
+    await expect(page.locator("#route-origin")).toHaveText("Start");
+    await expect(page.locator("#route-destination")).toHaveText("Ziel");
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "24px";
+    });
+    await page.locator(".route-choice").last().scrollIntoViewIfNeeded();
+    await expect(page.locator(".route-choice").last()).toBeInViewport({
+      ratio: 0.99,
+    });
+    await start.scrollIntoViewIfNeeded();
+    await expect(start).toBeInViewport({ ratio: 1 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });
+}
+
+test("a fresh risky connection stays startable until checking confirms a cancellation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await setup(page);
+  await page.evaluate(
+    (value) =>
+      localStorage.setItem("foldroute.routing.v3", JSON.stringify(value)),
+    defaults,
+  );
+  await page.reload();
+  const multimodal = shiftedTransitFixture(10);
+  const train = multimodal.itineraries[0].legs.find(
+    (leg) => leg.mode === "SUBWAY",
+  )!;
+  Object.assign(train, {
+    tripId: "footer-train",
+    scheduledStartTime: train.startTime,
+    scheduledEndTime: train.endTime,
+    from: { ...train.from, stopId: "footer-start" },
+    to: { ...train.to, stopId: "footer-end" },
+  });
+  let searches = 0;
+  await page.route("**/api/v6/plan?*", (r) => {
+    searches++;
+    return r.fulfill({
+      headers: cors,
+      json:
+        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+          ? fixture.direct
+          : multimodal,
+    });
+  });
+  await page.route("**/api/v6/trip?*", (r) =>
+    r.fulfill({
+      headers: cors,
+      json: {
+        legs: [
+          {
+            from: {
+              stopId: "footer-start",
+              scheduledDeparture: train.startTime,
+            },
+            to: { stopId: "footer-end", scheduledArrival: train.endTime },
+            cancelled: true,
+          },
+        ],
+      },
+    }),
+  );
+  await choose(page, "destination", "Ziel");
+  await expectPlanningComplete(page);
+  await page.locator(".route-choice").filter({ hasText: "U6" }).first().click();
+  const start = page.locator("#navigation-start");
+  await expect(start).toBeEnabled();
+  await expect(page.locator("#navigation-start-notice")).toContainText(
+    "gefährdet",
+  );
+  const priorSearches = searches;
+  await start.click();
+  await expect(page.locator("#navigation-start-notice")).toContainText(
+    "fällt aus",
+  );
+  await expect(start).toBeVisible();
+  await expect(start).toBeDisabled();
+  await expect(start).toHaveText("Los");
+  await expect(page.locator("#navigation-search-now")).toBeEnabled();
+  await expect(page.locator("#navigation-view")).toBeHidden();
+  expect(searches).toBe(priorSearches);
+  await page.screenshot({
+    path: test.info().outputPath("cancelled-start-footer.png"),
+  });
+});
+
+for (const width of [320, 390, 1280]) {
+  test(`live start keeps Los disabled during location checking and retry at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page);
+    await plan(page);
+    await page.locator("#tab-settings").click();
+    await page.clock.setFixedTime(new Date("2026-09-04T08:02:00Z"));
+    await page.evaluate(() => {
+      (window as any).savedGeo = navigator.geolocation;
+      Object.defineProperty(navigator, "geolocation", {
+        configurable: true,
+        value: {
+          watchPosition(
+            _success: PositionCallback,
+            error: PositionErrorCallback,
+          ) {
+            (window as any).rejectStartLocation = () =>
+              error({ code: 1, message: "denied" } as GeolocationPositionError);
+            return 1;
+          },
+          clearWatch() {},
+        },
+      });
+    });
+    await page.locator("#save-settings").click();
+    const start = page.locator("#navigation-start");
+    const ready = (await start.boundingBox())!;
+    await start.click();
+    await expect(start).toBeVisible();
+    await expect(start).toBeDisabled();
+    await expect(start).toHaveText("Wird geprüft …");
+    await expect(start).toHaveAttribute("aria-busy", "true");
+    const checking = (await start.boundingBox())!;
+    expect(checking.width).toBe(ready.width);
+    expect(checking.height).toBe(ready.height);
+    await expect(page.locator("#navigation-start-notice")).toHaveText(
+      "Standort wird geprüft …",
+    );
+    await page.evaluate(() => (window as any).rejectStartLocation());
+    await expect(start).toHaveText("Los");
+    await expect(start).toBeDisabled();
+    await expect(start).toHaveAccessibleDescription(
+      /Standortzugriff blockiert/,
+    );
+    await expect(page.locator("#route-start-summary")).toBeHidden();
+    await expect(page.locator("#navigation-start-retry")).toBeVisible();
+    await expect(page.locator("#navigation-start-retry")).toHaveCSS(
+      "background-color",
+      "rgb(255, 212, 59)",
+    );
+    await expectRecoveryButtons(page, "navigation-start-retry");
+    await expect(page.locator("#navigation-view")).toBeHidden();
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "24px";
+    });
+    await page.locator("#navigation-start-retry").scrollIntoViewIfNeeded();
+    await expectRecoveryButtons(page, "navigation-start-retry");
+    await page.screenshot({
+      path: test.info().outputPath("retry-start-large-text.png"),
+    });
+    await page.evaluate(() =>
+      Object.defineProperty(navigator, "geolocation", {
+        configurable: true,
+        value: (window as any).savedGeo,
+      }),
+    );
+    await page.locator("#navigation-start-retry").click();
+    await expect(page.locator("#navigation-view")).toBeVisible();
+  });
+}
+
 for (const width of [320, 393, 1280]) {
   test(`route editor groups places and keeps swap reachable at ${width}px`, async ({
     page,
@@ -353,6 +725,119 @@ test("adjustments are drafts and cancellation preserves results", async ({
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
 });
+
+for (const width of [390, 1100])
+  test(`editing a now search preserves its minute when only places change at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page);
+    await page.clock.setFixedTime(new Date("2026-09-04T08:07:45Z"));
+    await plan(page);
+    await page.clock.setFixedTime(new Date("2026-09-04T08:10:45Z"));
+    await page.locator("#adjust-route").click();
+    await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:07");
+    await expect(page.locator("#timing")).toHaveValue("depart");
+    await expect(page.locator("#when")).toHaveValue("2026-09-04T10:07");
+    await page.locator("#time-trigger").click();
+    await expect(page.locator("#time-clock")).toHaveValue("10:07");
+    await page.locator("#time-now").click();
+    await expect(page.locator("#time-clock")).toHaveValue("10:10");
+    await page.locator("#time-cancel").click();
+    await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:07");
+    await choose(page, "origin", "Start");
+    const query = page.waitForRequest((r) =>
+      r.url().includes("directModes=BIKE"),
+    );
+    await page.locator("#calculate").click();
+    const params = new URL((await query).url()).searchParams;
+    expect(params.get("time")).toBe("2026-09-04T08:07:00Z");
+    expect(params.get("arriveBy")).toBe("false");
+    await expectPlanningComplete(page);
+    expect(new URL(page.url()).searchParams.get("timing")).toBe("depart");
+    await page.reload();
+    await expectPlanningComplete(page);
+    await page.locator("#adjust-route").click();
+    await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:07");
+  });
+
+test("editing across midnight keeps the original search day", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.clock.setFixedTime(new Date("2026-09-04T21:59:45Z"));
+  await plan(page);
+  await page.clock.setFixedTime(new Date("2026-09-04T22:01:45Z"));
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#time-summary")).not.toContainText("Heute");
+  await expect(page.locator("#when")).toHaveValue("2026-09-04T23:59");
+  await page.locator("#time-trigger").click();
+  await expect(
+    page.locator('[data-date="2026-09-04"]').locator(".."),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#time-clock")).toHaveValue("23:59");
+  await page.locator("#time-cancel").click();
+  await page.locator("#cancel-adjust").click();
+  expect(new URL(page.url()).searchParams.get("timing")).toBe("now");
+});
+
+test("editing pending and failed refreshes keeps the new search time and leaves drafts alone", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/v6/plan?*", async (route) => {
+    await pending;
+    await route.fulfill({ status: 503, headers: cors });
+  });
+  await page.clock.setFixedTime(new Date("2026-09-04T08:07:45Z"));
+  const query = page.waitForRequest((r) =>
+    r.url().includes("directModes=BIKE"),
+  );
+  await page.locator("#route-more").click();
+  await page.locator("#refresh-route").click();
+  await query;
+  await page.clock.setFixedTime(new Date("2026-09-04T08:10:45Z"));
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#when")).toHaveValue("2026-09-04T10:07");
+  await page.locator("#origin").fill("Mein Entwurf");
+  release();
+  await expect(page.locator("#status")).toContainText("nicht verfügbar");
+  await expect(page.locator("#origin")).toHaveValue("Mein Entwurf");
+  await expect(page.locator("#when")).toHaveValue("2026-09-04T10:07");
+  await page.locator("#cancel-adjust").click();
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:07");
+});
+
+test("a draft opened while locating stays now until reopened after time resolution", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const geo = navigator.geolocation;
+    geo.getCurrentPosition = (success) => {
+      (window as any).resolvePlanningLocation = () =>
+        success({
+          coords: { latitude: 48.132, longitude: 11.5756, accuracy: 10 },
+          timestamp: Date.now(),
+        } as GeolocationPosition);
+    };
+  });
+  await setup(page, false);
+  await choose(page, "destination", "Ziel");
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#time-summary")).toHaveText("Jetzt");
+  await page.clock.setFixedTime(new Date("2026-09-04T08:07:45Z"));
+  await page.evaluate(() => (window as any).resolvePlanningLocation());
+  await expectPlanningComplete(page);
+  await expect(page.locator("#time-summary")).toHaveText("Jetzt");
+  await page.locator("#cancel-adjust").click();
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:07");
+});
+
 test("settings persist immediately and replan once on leaving", async ({
   page,
 }) => {
@@ -1373,7 +1858,7 @@ test("late-departure notice appears only after search completes and opens settin
   await expect(page.locator("#settings-view")).toBeVisible();
 });
 
-test("an expired fixed departure requires adjustment and sends no new plan requests", async ({
+test("a past fixed departure survives settings recalculation and manual refresh", async ({
   page,
 }) => {
   await setup(page);
@@ -1384,18 +1869,32 @@ test("an expired fixed departure requires adjustment and sends no new plan reque
   await page.locator("#time-apply").click();
   await page.locator("#calculate").click();
   await expectPlanningComplete(page);
-  const priorChoices = await page.locator(".route-choice").count();
   await page.clock.setFixedTime(new Date("2026-09-04T08:01:00Z"));
-  let requests = 0;
+  const requests: URL[] = [];
   page.on("request", (r) => {
-    if (r.url().includes("/v6/plan")) requests++;
+    if (r.url().includes("/v6/plan")) requests.push(new URL(r.url()));
   });
   await page.locator("#tab-settings").click();
   await page.locator("#foldingDuration").fill("4");
   await page.locator("#tab-route").click();
-  await expect(page.locator("#status")).toContainText("zukünftigen Zeitpunkt");
-  await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
-  expect(requests).toBe(0);
+  await expectPlanningComplete(page);
+  expect(requests.length).toBeGreaterThan(0);
+  expect(
+    requests
+      .filter((url) => url.searchParams.get("directModes") === "BIKE")
+      .every((url) => url.searchParams.get("time") === "2026-09-04T08:00:00Z"),
+  ).toBe(true);
+  const count = requests.length;
+  await page.locator("#route-more").click();
+  await page.locator("#refresh-route").click();
+  await expectPlanningComplete(page);
+  expect(requests.length).toBeGreaterThan(count);
+  expect(
+    requests
+      .filter((url) => url.searchParams.get("directModes") === "BIKE")
+      .every((url) => url.searchParams.get("time") === "2026-09-04T08:00:00Z"),
+  ).toBe(true);
+  await expect(page.locator("#adjust-dialog")).toBeHidden();
 });
 
 test("long direct rides are labeled comparisons and suitable transit is preferred", async ({
@@ -1493,6 +1992,14 @@ test("planning URL reloads fixed endpoints without location access and keeps now
   await expectPlanningComplete(page);
   await expect(page.locator("#route-origin")).toHaveText("Startpunkt");
   await page.clock.setFixedTime(new Date("2026-09-04T08:05:00Z"));
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:00");
+  await page.locator("#time-trigger").click();
+  await page.locator("#time-now").click();
+  await page.locator("#time-apply").click();
+  await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:05");
+  await page.locator("#cancel-adjust").click();
+  expect(page.url()).toBe(link);
   const direct = page.waitForRequest((r) =>
     r.url().includes("directModes=BIKE"),
   );
@@ -1576,7 +2083,7 @@ test("Back and Forward restore distinct submitted plans without result history e
   expect(page.url()).toBe(second);
 });
 
-test("expired and invalid links never start API searches or change personal settings", async ({
+test("invalid links never start API searches or change personal settings", async ({
   page,
 }) => {
   await setup(page);
@@ -1586,18 +2093,183 @@ test("expired and invalid links never start API searches or change personal sett
   page.on("request", (r) => {
     if (r.url().includes("/v6/plan")) requests++;
   });
-  url.searchParams.set("timing", "depart");
-  url.searchParams.set("time", "2026-09-03T08:00:00Z");
-  await page.goto(url.href);
-  await expect(page.locator("#adjust-dialog")).toBeVisible();
-  await expect(page.locator("#adjust-status")).toContainText("Vergangenheit");
-  expect(requests).toBe(0);
+  const preferences = await page.evaluate(() =>
+    localStorage.getItem("foldroute.routing.v3"),
+  );
   url.searchParams.set("v", "999");
   await page.goto(url.href);
   await expect(page.locator("#place-status")).toContainText("ungültig");
   expect(requests).toBe(0);
   expect(new URL(page.url()).searchParams.has("v")).toBe(false);
+  url.searchParams.set("v", "3");
+  url.searchParams.set("timing", "depart");
+  url.searchParams.set("time", "not-a-date");
+  await page.goto(url.href);
+  await expect(page.locator("#place-status")).toContainText("ungültig");
+  expect(requests).toBe(0);
+  expect(
+    await page.evaluate(() => localStorage.getItem("foldroute.routing.v3")),
+  ).toBe(preferences);
 });
+
+for (const timing of ["depart", "arrive"] as const)
+  test(`a valid past ${timing} link preserves its time and can start cycling now`, async ({
+    page,
+  }) => {
+    await setup(page);
+    await plan(page);
+    const preferences = await page.evaluate(() =>
+      localStorage.getItem("foldroute.routing.v3"),
+    );
+    const url = new URL(page.url());
+    url.searchParams.set("timing", timing);
+    url.searchParams.set("time", "2026-09-03T08:00:00Z");
+    const direct = structuredClone(fixture.direct);
+    for (const item of [direct.direct[0], ...direct.direct[0].legs]) {
+      item.startTime = new Date(
+        Date.parse(item.startTime) - 86400000,
+      ).toISOString();
+      item.endTime = new Date(
+        Date.parse(item.endTime) - 86400000,
+      ).toISOString();
+    }
+    const transit = shiftedTransitFixture(1440);
+    const requests: URL[] = [];
+    await page.route("**/api/v6/plan?*", (r) => {
+      requests.push(new URL(r.request().url()));
+      return r.fulfill({
+        headers: cors,
+        json:
+          new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
+            ? direct
+            : transit,
+      });
+    });
+    await page.goto(url.href);
+    await expectPlanningComplete(page);
+    await expect(page.locator("#adjust-dialog")).toBeHidden();
+    expect(
+      requests
+        .find((r) => r.searchParams.get("directModes") === "BIKE")
+        ?.searchParams.get("time"),
+    ).toBe("2026-09-03T08:00:00Z");
+    expect(Date.parse(new URL(page.url()).searchParams.get("time")!)).toBe(
+      Date.parse("2026-09-03T08:00:00Z"),
+    );
+    if (timing === "arrive") {
+      await page
+        .locator(".route-choice")
+        .filter({ hasText: "U6" })
+        .first()
+        .click();
+      await expect(page.locator("#navigation-start")).toBeDisabled();
+      await expect(page.locator("#navigation-start-notice")).toContainText(
+        "liegt zurück",
+      );
+    }
+    await page.locator('.route-choice[data-journey="bike-1"]').click();
+    await expect(page.locator("#navigation-start")).toBeEnabled();
+    const count = requests.length;
+    await page.locator("#navigation-start").click();
+    await expect(page.locator("#navigation-view")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const { NavigationStore } = await import("/src/navigation-store.ts");
+          return new NavigationStore().read();
+        }),
+      )
+      .toMatchObject({
+        request: { timing, time: Date.parse("2026-09-03T08:00:00Z") / 1000 },
+        journey: { departure: Date.parse("2026-09-04T08:00:00Z") / 1000 },
+      });
+    expect(requests.length).toBe(count);
+    expect(
+      await page.evaluate(() => localStorage.getItem("foldroute.routing.v3")),
+    ).toBe(preferences);
+  });
+
+for (const problem of ["empty", "service"] as const)
+  test(`past ${problem} searches keep the chosen time through recovery`, async ({
+    page,
+  }) => {
+    await setup(page);
+    const url = routeURL(page.url(), {
+      request: {
+        origin: {
+          name: "Start",
+          detail: "",
+          latitude: places[0].lat,
+          longitude: places[0].lon,
+        },
+        destination: {
+          name: "Ziel",
+          detail: "",
+          latitude: places[1].lat,
+          longitude: places[1].lon,
+        },
+        timing: "arrive",
+        time: Date.parse("2026-09-03T08:00:00Z") / 1000,
+      },
+    });
+    let failing = true;
+    const requests: URL[] = [];
+    await page.route("**/api/v6/plan?*", (r) => {
+      const query = new URL(r.request().url());
+      requests.push(query);
+      return r.fulfill(
+        failing
+          ? {
+              status: problem === "service" ? 503 : 200,
+              headers: cors,
+              json: { direct: [], itineraries: [] },
+            }
+          : {
+              headers: cors,
+              json:
+                query.searchParams.get("directModes") === "BIKE"
+                  ? fixture.direct
+                  : fixture.multimodal,
+            },
+      );
+    });
+    await page.goto(url.href);
+    await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+    await expect(page.locator("#planning-recovery")).toBeVisible();
+    await expect(page.locator("#adjust-dialog")).toBeHidden();
+    if (problem === "empty") {
+      await expect(page.locator("#status")).toHaveText(
+        "Für diesen Zeitpunkt wurden keine passenden Verbindungen gefunden.",
+      );
+      await expect(page.locator("#recover-planning")).toHaveText(
+        "Route anpassen",
+      );
+    } else {
+      await expect(page.locator("#status")).toContainText(
+        "Routingdienst vorübergehend nicht verfügbar",
+      );
+      await expect(page.locator("#recover-planning")).toHaveText(
+        "Erneut versuchen",
+      );
+    }
+    failing = false;
+    await page.locator("#recover-planning").click();
+    if (problem === "empty") {
+      await expect(page.locator("#adjust-dialog")).toBeVisible();
+      await expect(page.locator("#when")).toHaveValue("2026-09-03T10:00");
+      await page.locator("#calculate").click();
+    }
+    await expectPlanningComplete(page);
+    expect(
+      requests
+        .filter((r) => r.searchParams.get("directModes") === "BIKE")
+        .every((r) => r.searchParams.get("time") === "2026-09-03T08:00:00Z"),
+    ).toBe(true);
+    await expect(page.locator("#adjust-dialog")).toBeHidden();
+    expect(Date.parse(new URL(page.url()).searchParams.get("time")!)).toBe(
+      Date.parse("2026-09-03T08:00:00Z"),
+    );
+  });
 
 test("copy planning link provides a selectable fallback when clipboard is denied", async ({
   page,
@@ -1690,6 +2362,43 @@ test("copy succeeds and planning details fit the desktop sidebar", async ({
   ).toBeLessThanOrEqual(900);
   await page.screenshot({ path: "test-results/planning-link-desktop.png" });
 });
+
+for (const mode of ["depart", "arrive"] as const)
+  test(`confirmed now fill keeps its fixed ${mode} minute through planning and refresh`, async ({
+    page,
+  }) => {
+    await setup(page);
+    await plan(page);
+    await page.clock.setFixedTime(new Date("2026-09-04T08:07:45Z"));
+    await page.locator("#adjust-route").click();
+    await page.locator("#time-trigger").click();
+    await page.locator(`#time-${mode}`).click();
+    await page.locator("#time-now").click();
+    await page.clock.setFixedTime(new Date("2026-09-04T08:09:45Z"));
+    await page.locator("#time-apply").click();
+    const query = page.waitForRequest((r) =>
+      r.url().includes("directModes=BIKE"),
+    );
+    await page.locator("#calculate").click();
+    const params = new URL((await query).url()).searchParams;
+    expect(params.get("time")).toBe("2026-09-04T08:07:00Z");
+    expect(params.get("arriveBy")).toBe(String(mode === "arrive"));
+    await expectPlanningComplete(page);
+    expect(new URL(page.url()).searchParams.get("timing")).toBe(mode);
+    expect(Date.parse(new URL(page.url()).searchParams.get("time")!)).toBe(
+      Date.parse("2026-09-04T08:07:00Z"),
+    );
+    await page.clock.setFixedTime(new Date("2026-09-04T08:12:45Z"));
+    const refreshed = page.waitForRequest((r) =>
+      r.url().includes("directModes=BIKE"),
+    );
+    await page.locator("#route-more").click();
+    await page.locator("#refresh-route").click();
+    const refreshedParams = new URL((await refreshed).url()).searchParams;
+    expect(refreshedParams.get("time")).toBe("2026-09-04T08:07:00Z");
+    expect(refreshedParams.get("arriveBy")).toBe(String(mode === "arrive"));
+    await expectPlanningComplete(page);
+  });
 
 for (const mode of ["depart", "arrive"] as const)
   test(`fixed ${mode} link preserves the chosen UTC instant and local form time`, async ({
@@ -1923,6 +2632,54 @@ async function setupVia(page: Page) {
     });
   });
 }
+
+test("adding only a stop preserves the original now search minute", async ({
+  page,
+}) => {
+  await setupVia(page);
+  await page.clock.setFixedTime(new Date("2026-09-04T08:07:45Z"));
+  await choose(page, "destination", "Ziel");
+  await expectPlanningComplete(page);
+  await page.clock.setFixedTime(new Date("2026-09-04T08:10:45Z"));
+  await page.locator("#adjust-route").click();
+  await page.locator("#add-stop").click();
+  await choose(page, "via-0", "Café");
+  const query = page.waitForRequest((r) =>
+    r.url().includes("directModes=BIKE"),
+  );
+  await page.locator("#calculate").click();
+  expect(new URL((await query).url()).searchParams.get("time")).toBe(
+    "2026-09-04T08:07:00Z",
+  );
+  await expectPlanningComplete(page);
+  const params = new URL(page.url()).searchParams;
+  expect(params.get("timing")).toBe("depart");
+  expect(params.get("via1Name")).toBe("Café");
+  expect(Date.parse(params.get("time")!)).toBe(
+    Date.parse("2026-09-04T08:07:00Z"),
+  );
+});
+
+test("editing a saved now result uses its original search time without starting a search", async ({
+  page,
+}) => {
+  await setup(page);
+  await plan(page);
+  await expectSelectedJourneySaved(page);
+  await page.clock.setFixedTime(new Date("2026-09-04T08:10:45Z"));
+  await page.locator("#tab-history").click();
+  await openCachedJourney(page, page.locator(".history-open").first());
+  let requests = 0;
+  page.on("request", (r) => {
+    if (r.url().includes("/v6/plan")) requests++;
+  });
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:00");
+  await expect(page.locator("#when")).toHaveValue("2026-09-04T10:00");
+  await page.locator("#cancel-adjust").click();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  expect(requests).toBe(0);
+});
 
 test("free stops edit, reorder, reverse and cancel without changing the active plan", async ({
   page,
@@ -3051,10 +3808,15 @@ for (const [width, height] of [
   }) => {
     await setup(page);
     await page.setViewportSize({ width, height });
+    // A fixed origin avoids unrelated, asynchronous history address lookups
+    // while this test asserts that map fitting makes no API requests.
+    await page.locator("#search-adjust").click();
+    await choose(page, "origin", "Start");
+    await page.locator("#use-context").click();
     await plan(page);
-    let requests = 0;
+    const requests: string[] = [];
     page.on("request", (request) => {
-      if (request.url().includes("/api/")) requests++;
+      if (request.url().includes("/api/")) requests.push(request.url());
     });
     await page.evaluate(() => {
       navigator.geolocation.getCurrentPosition = () => {
@@ -3119,7 +3881,7 @@ for (const [width, height] of [
     // Leaflet finishes its keyboard zoom on an animation frame after input.
     await page.waitForTimeout(350);
     await expectRouteFits(page);
-    expect(requests).toBe(0);
+    expect(requests).toEqual([]);
     await page.screenshot({
       path: `test-results/route-fit-${width}-${test.info().project.name}.png`,
     });
@@ -3904,7 +4666,8 @@ test("silent storage success preserves an unrelated settings warning", async ({
   await expect(page.locator("#storage-message")).toContainText(
     "nur für diese Sitzung",
   );
-  await plan(page);
+  await choose(page, "destination", "Ziel");
+  await expectPlanningComplete(page);
   await expectSelectedJourneySaved(page);
   await expect(page.locator("#storage-message")).toContainText(
     "nur für diese Sitzung",

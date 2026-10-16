@@ -1755,7 +1755,6 @@ dialog.compact .dialog-actions {
   min-height: 44px;
 }
 .time-modes [aria-pressed="true"],
-#time-now[aria-pressed="true"],
 #time-calendar [aria-selected="true"] button {
   background: var(--yellow);
   color: #171a1c;
@@ -2156,6 +2155,13 @@ dialog.compact .dialog-actions {
   font-size: 0.875rem;
   line-height: 1.5;
 }
+.detail-step .detail-delay {
+  margin-top: 2px;
+  color: #ff8a83;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
 .detail-meta,
 .detail-source {
   display: block;
@@ -2198,7 +2204,7 @@ dialog.compact .dialog-actions {
   font-size: 0.875rem;
 }
 .panel-actions {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 1fr);
   background: #171a1c;
 }
 #map-preview-summary {
@@ -2806,6 +2812,7 @@ body[data-navigation="active"] .app-tabs {
   border-left-color: #ffffff18;
 }
 #route-start-summary {
+  grid-column: 1;
   min-width: 0;
   text-align: left;
 }
@@ -2827,6 +2834,7 @@ body[data-navigation="active"] .app-tabs {
   justify-content: center;
   gap: 8px;
   min-width: 96px;
+  min-height: 48px;
   padding: 12px 20px;
   font-size: 1rem;
 }
@@ -2834,9 +2842,15 @@ body[data-navigation="active"] .app-tabs {
   width: 20px;
   height: 20px;
 }
-.journey-panel:not(.panel-map-only)
-  .panel-actions:has(#navigation-start[hidden]) {
-  display: none;
+.panel-actions > #navigation-start {
+  grid-column: 2;
+  align-self: stretch;
+}
+#navigation-start:disabled,
+#navigation-start-recovery button:disabled {
+  opacity: 1;
+  background: #343e41;
+  color: #c1c8cb;
 }
 #route-actions-dialog {
   width: min(360px, calc(100vw - 24px));
@@ -2920,10 +2934,6 @@ body[data-navigation="active"] .app-tabs {
   }
 }
 
-.panel-actions:not(:has(> button:not([hidden]))) {
-  display: none;
-}
-
 .journey-panel .planning-recovery .text-button {
   color: #ffda39;
 }
@@ -2932,4 +2942,36 @@ body[data-navigation="active"] .app-tabs {
     var(--settings-top-offset) + var(--settings-heading-height, 60px) + 8px
   );
   scroll-margin-bottom: calc(var(--tabs) + 8px);
+}
+
+#navigation-start-notice,
+#navigation-start-recovery {
+  min-width: 0;
+}
+#navigation-start-notice {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #ffd43b;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+#navigation-start-recovery {
+  grid-column: 1;
+  display: grid;
+  align-self: stretch;
+}
+#navigation-start-recovery button {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 10px;
+  font-size: 1rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+#navigation-start[aria-busy="true"] {
+  white-space: normal;
+}
+.panel-actions > #navigation-start[aria-busy="true"] {
+  padding-inline: 8px;
+  font-size: 0.875rem;
 }

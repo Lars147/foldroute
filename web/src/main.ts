@@ -3,13 +3,17 @@ import { HistorySwipe } from "./history-swipe";
 import { HistoryUndo } from "./history-undo";
 import { HistoryNameQueue } from "./history-names";
 import { historySnapshot } from "./offline";
-import { NavigationSession } from "./navigation-session";
+import {
+  NavigationSession,
+  type PreparedNavigation,
+} from "./navigation-session";
+import { assessConnection, blocksNavigation } from "./connection-assessment";
 import { NavigationView } from "./navigation-ui";
 import { NavigationStore, type NavigationSnapshot } from "./navigation-store";
 import { audioPreferenceKey } from "./navigation-guidance";
 import { ScreenAwake } from "./screen-awake";
 import { LiveLocation, fixPlace } from "./live-location";
-import { TimePicker, timeSummary } from "./time-picker";
+import { TimePicker, parseLocalMinute, timeSummary } from "./time-picker";
 import { StopEditor } from "./stop-editor";
 import "./style.css";
 import {
@@ -158,6 +162,10 @@ let navigation: NavigationSession | undefined;
 let navigationView: NavigationView | undefined;
 const navigationStore = new NavigationStore();
 let navigationLaunchGeneration = 0;
+let navigationChecking = false;
+let navigationCheckKey = "";
+let navigationCheckError = "";
+let preparedNavigation: PreparedNavigation | undefined;
 let navigationStart:
   | {
       journey: import("./model").Journey;
@@ -169,6 +177,7 @@ let navigationStart:
 const liveLocation = new LiveLocation((fix, quality) => {
   routeMap.updateLocation(fix, quality);
   navigation?.updateLocation(fix, quality);
+  if (navigation && !navigationView?.visible) renderNavigationCheck();
 });
 const historyAddressApi = new ApiClient();
 const historyNames = new HistoryNameQueue(
@@ -193,7 +202,9 @@ function syncLiveLocation() {
   const arrived =
     navigationView?.visible && navigation?.engine?.phase === "arrived";
   navigation?.setForeground(
-    pagePresent && !document.hidden && !!navigationView?.visible,
+    pagePresent &&
+      !document.hidden &&
+      (!!navigationView?.visible || navigationChecking),
   );
   screenAwake.setActive(
     keepScreenAwake &&
@@ -206,7 +217,9 @@ function syncLiveLocation() {
   liveLocation.setActive(
     pagePresent &&
       view === "map" &&
-      (journeyView.mapVisible || !!navigationView?.visible) &&
+      (journeyView.mapVisible ||
+        !!navigationView?.visible ||
+        navigationChecking) &&
       !document.hidden &&
       !dialog.open &&
       !arrived,
@@ -221,6 +234,7 @@ function cancelMapCenter() {
 routeMap.onManualMove = cancelMapCenter;
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    if (navigationChecking) cancelNavigationCheck(true);
     cancelMapCenter();
     navigationView?.pause();
   }
@@ -236,7 +250,10 @@ window.addEventListener("pageshow", () => {
   pagePresent = true;
   syncLiveLocation();
 });
-const journeyView = new JourneyView((id) => session.select(id));
+const journeyView = new JourneyView((id) => {
+  cancelNavigationCheck();
+  session.select(id);
+});
 const session = new PlanningSession(api, renderPlanning, (request, options) => {
   openedHistoryId = undefined;
   activePlan = structuredClone({ request, settings: options });
@@ -248,6 +265,7 @@ journeyView.onLayoutChange = () => {
   if (!journeyView.mapVisible) cancelMapCenter();
   syncLiveLocation();
   if (view === "map" && journeyView.mapVisible) showRouteMap(session.state);
+  renderNavigationCheck();
 };
 journeyView.onPositionChange = () => {
   if (view === "map" && history.state?.planId === activePlanId)
@@ -257,6 +275,7 @@ journeyView.onPositionChange = () => {
     );
 };
 journeyView.onNavigate = (screen, replace) => {
+  cancelNavigationCheck();
   navigationRevision++;
   if (
     replace &&
@@ -274,6 +293,7 @@ journeyView.onNavigate = (screen, replace) => {
   writeHistory(!replace, replace ? depth : depth + 1);
 };
 journeyView.onBack = () => {
+  cancelNavigationCheck();
   if (journeyView.screen === "map") {
     if (journeyView.savedOrigin) {
       navigationRevision++;
@@ -306,6 +326,7 @@ navigation = new NavigationSession({
   routingSettings: () => settings,
   changed: () => {
     navigationView?.render();
+    if (!navigationView?.visible) renderNavigationCheck();
     if (navigationView?.visible) {
       el<HTMLButtonElement>("update-now").disabled = true;
       if (navigation?.engine?.phase === "arrived") syncLiveLocation();
@@ -343,58 +364,245 @@ el("navigation-locate").onclick = async () => {
     navigationView!.render();
   }
 };
+function navigationContextKey() {
+  return JSON.stringify([
+    session.state.selected,
+    session.state.request,
+    session.state.resultSettings,
+  ]);
+}
+function cancelNavigationCheck(preserveResume = false) {
+  if (navigationView?.visible || !navigation) return;
+  navigationLaunchGeneration++;
+  navigationChecking = false;
+  preparedNavigation = undefined;
+  navigationCheckKey = "";
+  navigationCheckError = "";
+  if (!preserveResume) navigationStart = undefined;
+  else {
+    navigationCheckKey = navigationContextKey();
+    navigationCheckError =
+      "Navigationsstart unterbrochen. Bitte erneut versuchen.";
+  }
+  navigation.cancelStart();
+  liveLocation.cancelCenter();
+  syncLiveLocation();
+}
+function renderNavigationCheck() {
+  if (!navigation || navigationView?.visible) return;
+  const state = session.state;
+  const selected = state.selected;
+  const matching = navigationCheckKey === navigationContextKey();
+  const prepared = matching ? preparedNavigation : undefined;
+  const assessment = selected
+    ? assessConnection(
+        prepared?.journey ?? selected,
+        prepared?.progress?.legIndex ?? 0,
+        Date.now() / 1000,
+        {
+          fix: navigation.fix,
+          onboard:
+            !!prepared?.restored &&
+            prepared.journey.legs[prepared.progress?.legIndex ?? 0].kind ===
+              "transit",
+        },
+      )
+    : undefined;
+  const blocked =
+    !!assessment && blocksNavigation(assessment) && !prepared?.restored;
+  const error = matching ? navigationCheckError : "";
+  const distant = !!error && navigation.distantStart;
+  const unavailable = blocked || !!error;
+  const currentPlanning =
+    !state.restored && !!(state.request || state.pendingRequest);
+  el("route-start-summary").hidden = !selected || unavailable;
+  el("replan-saved").hidden =
+    !state.restored || !selected || navigationChecking || blocked || !!error;
+  const text = navigationChecking
+    ? navigation.message || "Verbindung wird geprüft …"
+    : error ||
+      (assessment?.status === "unknown" && !prepared
+        ? ""
+        : (assessment?.message ?? ""));
+  const notice = el("navigation-start-notice");
+  notice.textContent =
+    text +
+    ((blocked || distant) && !navigator.onLine
+      ? " Neue Verbindungen benötigen Internet."
+      : "");
+  notice.hidden = !notice.textContent;
+  const search = el<HTMLButtonElement>("navigation-search-now");
+  search.hidden = !selected || !(blocked || distant) || navigationChecking;
+  search.disabled = !navigator.onLine || navigationChecking;
+  search.textContent = distant ? "Ab hier suchen" : "Ab jetzt suchen";
+  const button = el<HTMLButtonElement>("navigation-start");
+  button.hidden = state.restored ? !selected || unavailable : !currentPlanning;
+  const retry = el<HTMLButtonElement>("navigation-start-retry");
+  retry.hidden =
+    !selected || !error || blocked || distant || navigationChecking;
+  retry.textContent = navigation.needsLocation
+    ? "Standort erneut anfragen"
+    : "Erneut versuchen";
+  const recovery = el("navigation-start-recovery");
+  recovery.hidden = search.hidden && retry.hidden;
+  button.disabled =
+    !selected || !state.request || navigationChecking || unavailable;
+  button.className = state.restored ? "secondary" : "primary";
+  button.setAttribute(
+    "aria-label",
+    navigationChecking
+      ? "Wird geprüft …"
+      : state.restored
+        ? "Mit gespeicherter Route starten"
+        : "Navigation starten",
+  );
+  button.setAttribute("aria-busy", String(navigationChecking));
+  if (notice.hidden) button.removeAttribute("aria-describedby");
+  else button.setAttribute("aria-describedby", notice.id);
+  button.replaceChildren(
+    ...(navigationChecking
+      ? [document.createTextNode("Wird geprüft …")]
+      : state.restored
+        ? [document.createTextNode("Mit gespeicherter Route starten")]
+        : [icon("location"), document.createTextNode("Los")]),
+  );
+  document.querySelector<HTMLElement>(".panel-actions")!.hidden =
+    !currentPlanning &&
+    notice.hidden &&
+    recovery.hidden &&
+    el("replan-saved").hidden;
+}
+setInterval(() => {
+  if (view === "map" && !document.hidden && !navigationView?.visible)
+    renderNavigationCheck();
+}, 5000);
 async function launchNavigation(replan = false, restored?: NavigationSnapshot) {
-  const generation = ++navigationLaunchGeneration;
-  if (!navigationView!.visible) {
-    const state = session.state;
-    if (!restored && (!state.selected || !state.request)) return;
-    navigationStart = restored
-      ? { ...restored, restored }
-      : {
-          journey: structuredClone(state.selected!),
-          request: structuredClone(state.request!),
-          settings: structuredClone(state.resultSettings ?? settings),
-        };
-    settingsReplanPending = false;
-    session.stop("");
+  if (navigationChecking) return;
+  if (navigationView?.visible && navigation?.engine) {
+    if (replan) await navigation.reroute();
+    return;
+  }
+  restored ??=
+    session.state.restored &&
+    navigationStart?.restored?.journey.id === session.state.selected?.id
+      ? navigationStart?.restored
+      : undefined;
+  if (restored) {
+    restorePlanContext({
+      request: restored.request,
+      settings: restored.settings,
+    });
+    session.restore(
+      restored.journey,
+      restored.request,
+      restored.savedAt,
+      restored.settings,
+    );
     show("map", false);
+    journeyView.showScreen("detail", false);
+  }
+  const state = session.state;
+  if (!restored && (!state.selected || !state.request)) return;
+  navigationStart = restored
+    ? { ...restored, restored }
+    : {
+        journey: structuredClone(state.selected!),
+        request: structuredClone(state.request!),
+        settings: structuredClone(state.resultSettings ?? settings),
+      };
+  const generation = ++navigationLaunchGeneration;
+  navigationCheckKey = navigationContextKey();
+  navigationCheckError = "";
+  preparedNavigation = undefined;
+  navigationChecking = true;
+  settingsReplanPending = false;
+  session.stop("");
+  syncLiveLocation();
+  renderNavigationCheck();
+  try {
+    const start = navigationStart;
+    const prepared = await navigation!.prepareStart(
+      start.journey,
+      start.request,
+      start.settings,
+      start.restored,
+      replan,
+    );
+    if (
+      generation !== navigationLaunchGeneration ||
+      navigationCheckKey !== navigationContextKey()
+    )
+      return;
+    preparedNavigation = prepared;
+    if (blocksNavigation(prepared.assessment) && !restored) {
+      el("navigation-start-notice").focus({ preventScroll: true });
+      return;
+    }
+    // Commit the checked selection only once it can actually be started.
+    const showing = navigationView!.show(navigation!);
     document.body.dataset.navigation = "active";
     el("map-view").hidden = true;
+    syncLiveLocation();
+    await showing;
+    if (generation !== navigationLaunchGeneration || !navigationView!.visible)
+      return;
+    if (!navigation!.activateStart(prepared)) {
+      navigationView!.hide();
+      delete document.body.dataset.navigation;
+      el("map-view").hidden = false;
+      return;
+    }
     history.pushState(
       { ...history.state, navigation: true, position: ++historyPosition },
       "",
       location.href,
     );
-  }
-  if (!navigationStart) return;
-  try {
-    const showing = navigationView!.show(navigation!);
-    syncLiveLocation();
-    await showing;
-    if (generation !== navigationLaunchGeneration || !navigationView!.visible)
-      return;
-    const start = navigationStart;
-    await navigation!.start(
-      start.journey,
-      start.request,
-      start.settings,
-      replan ? undefined : start.restored,
-      replan,
-    );
     navigationView!.render();
     el("navigation-instruction").focus({ preventScroll: true });
   } catch (error) {
     if (generation !== navigationLaunchGeneration) return;
-    navigation!.message =
+    navigationCheckError =
       error instanceof DOMException && error.name === "AbortError"
         ? "Navigationsstart unterbrochen. Bitte erneut versuchen."
         : errorText(error);
-    navigation!.retryAvailable = !navigation!.distantStart;
-    navigationView!.render();
+    if (navigationView?.visible && !navigation?.engine) {
+      navigationView.hide();
+      delete document.body.dataset.navigation;
+      el("map-view").hidden = false;
+    }
+  } finally {
+    if (generation === navigationLaunchGeneration) {
+      navigationChecking = false;
+      syncLiveLocation();
+      renderNavigationCheck();
+    }
   }
 }
+el("navigation-start-retry").onclick = () => void launchNavigation();
+el("navigation-search-now").onclick = async () => {
+  if (!navigator.onLine || !session.state.request) return;
+  const request = structuredClone(session.state.request);
+  const fromHere = navigation?.distantStart && navigation.fix;
+  if (fromHere) request.origin = fixPlace(fromHere);
+  request.timing = "now";
+  request.time = Date.now() / 1000;
+  cancelNavigationCheck();
+  writeHistory();
+  activePlanId = crypto.randomUUID();
+  openedHistoryId = undefined;
+  activePlan = { request, settings: structuredClone(settings) };
+  restorePlanContext(activePlan);
+  journeyView.showScreen("list", false);
+  writeHistory(true);
+  await session.calculate(
+    request,
+    settings,
+    request.origin.name === "Aktueller Standort",
+  );
+};
 async function endNavigation() {
   navigationLaunchGeneration++;
+  navigationStart = undefined;
   const journey = navigation?.engine?.journey;
   const request = navigation?.request;
   const options = navigation?.settings;
@@ -424,6 +632,7 @@ async function endNavigation() {
   syncLiveLocation();
   writeHistory();
   renderPlanning(session.state);
+  cancelNavigationCheck();
   const primary = el<HTMLButtonElement>(
     session.state.restored ? "replan-saved" : "navigation-start",
   );
@@ -464,6 +673,7 @@ function releasePlan() {
   settingsUI();
 }
 function beginPlanning() {
+  cancelNavigationCheck();
   navigationRevision++;
   activePlan = undefined;
   activePlanId = crypto.randomUUID();
@@ -544,22 +754,10 @@ async function restoreLink(
     settingsReplanPending = true;
     return;
   }
-  if (request.timing !== "now" && request.time < Date.now() / 1000) {
-    const message =
-      "Der Zeitpunkt dieses Links liegt in der Vergangenheit. Bitte einen neuen Zeitpunkt wählen.";
-    session.stop(message, {
-      action: "adjust",
-      request: structuredClone(request),
-    });
-    if (view === "map") {
-      openAdjust(request.destination);
-      el("adjust-status").textContent = message;
-    }
-    return;
-  }
   if (navigator.onLine) await session.calculate(request, settings, false);
 }
 function show(next: View, push = true) {
+  if (next !== view) cancelNavigationCheck();
   if (restoringSettingsPosition !== undefined) return false;
   if (
     view === "settings" &&
@@ -615,6 +813,7 @@ function show(next: View, push = true) {
   if (replan) void refreshRoute(false);
 }
 window.addEventListener("popstate", async (event) => {
+  cancelNavigationCheck();
   const position = Number.isSafeInteger(event.state?.position)
     ? (event.state.position as number)
     : historyPosition - 1;
@@ -891,6 +1090,8 @@ function showRouteMap(state: PlanningState) {
   );
 }
 function renderPlanning(state: PlanningState) {
+  if (navigationChecking && navigationCheckKey !== navigationContextKey())
+    cancelNavigationCheck();
   if (activePlanId && activePlan && (state.request || state.pendingRequest)) {
     planResults.set(activePlanId, {
       ...structuredClone({ plan: activePlan, state }),
@@ -936,6 +1137,7 @@ function renderPlanning(state: PlanningState) {
     !navigator.onLine || state.busy;
   el<HTMLButtonElement>("update-now").disabled =
     state.busy || dialog.open || !!navigationView?.visible;
+  renderNavigationCheck();
 }
 const destination = new PlaceSearch(
   "destination",
@@ -1021,6 +1223,7 @@ async function start(place: Place) {
   }
 }
 function openAdjust(target?: Place) {
+  cancelNavigationCheck();
   destination.cancel();
   const request = structuredClone(
     session.state.pendingRequest ?? session.state.request,
@@ -1034,13 +1237,17 @@ function openAdjust(target?: Place) {
   if (useLocation && !draftOrigin.value)
     draftOrigin.input.value = "Aktueller Standort";
   draftDestination.set(target ?? request?.destination ?? destination.value);
-  const draftTiming = request?.timing ?? timing;
+  const requestResolved = session.state.pendingRequest
+    ? session.state.pendingRequestResolved === true
+    : !!session.state.selected;
+  const requestedTiming = request?.timing ?? timing;
+  const draftTiming =
+    requestedTiming === "now" && requestResolved ? "depart" : requestedTiming;
   el<HTMLInputElement>("timing").value = draftTiming;
   el<HTMLInputElement>("when").value = localDate(
     new Date(
-      (draftTiming === "now"
-        ? Date.now() / 1000 + 3600
-        : (request?.time ?? time)) * 1000,
+      (draftTiming === "now" ? Date.now() / 1000 : (request?.time ?? time)) *
+        1000,
     ),
   );
   updateTiming();
@@ -1142,17 +1349,15 @@ function readContext(): boolean {
     return false;
   }
   const selectedTiming = el<HTMLInputElement>("timing").value as Timing,
-    date = new Date(el<HTMLInputElement>("when").value),
+    date = parseLocalMinute(el<HTMLInputElement>("when").value),
     seconds =
-      selectedTiming === "now" ? Date.now() / 1000 : date.getTime() / 1000;
-  if (
-    selectedTiming !== "now" &&
-    (!Number.isFinite(seconds) ||
-      localDate(date) !== el<HTMLInputElement>("when").value ||
-      seconds < Date.now() / 1000)
-  ) {
-    el("adjust-status").textContent =
-      "Bitte einen aktuellen oder zukünftigen Zeitpunkt wählen.";
+      selectedTiming === "now"
+        ? Date.now() / 1000
+        : date
+          ? date.getTime() / 1000
+          : NaN;
+  if (!Number.isFinite(seconds)) {
+    el("adjust-status").textContent = "Bitte einen gültigen Zeitpunkt wählen.";
     return false;
   }
   const draftStops = stopEditor.read();
@@ -1212,18 +1417,6 @@ async function refreshRoute(interactive = true) {
   }
   const request = activePlan?.request ?? session.state.request;
   if (!request) return;
-  if (request.timing !== "now" && request.time < Date.now() / 1000) {
-    const message = "Bitte einen aktuellen oder zukünftigen Zeitpunkt wählen.";
-    session.stop(message, {
-      action: "adjust",
-      request: structuredClone(request),
-    });
-    if (interactive && view === "map") {
-      openAdjust(request.destination);
-      el("adjust-status").textContent = message;
-    }
-    return;
-  }
   if (activePlan && openedHistoryId) {
     openedHistoryId = undefined;
     activePlanId = crypto.randomUUID();
@@ -1747,11 +1940,7 @@ el("replan-saved").onclick = () => {
 el("recover-planning").onclick = async () => {
   const recovery = session.state.recovery;
   if (!recovery || session.state.busy) return;
-  if (
-    recovery.action === "adjust" ||
-    (recovery.request.timing !== "now" &&
-      recovery.request.time < Date.now() / 1000)
-  ) {
+  if (recovery.action === "adjust") {
     openAdjust(recovery.request.destination);
     el("adjust-status").textContent = session.state.message;
     return;
@@ -1781,6 +1970,7 @@ function connectionChanged() {
   el("connection").hidden = navigator.onLine;
   updateConnectionHeight();
   navigationView?.render();
+  renderNavigationCheck();
   if (navigator.onLine) void navigation?.refresh();
   savedUI();
   el<HTMLButtonElement>("replan-saved").disabled =

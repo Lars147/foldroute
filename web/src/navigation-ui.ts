@@ -391,7 +391,8 @@ export class NavigationView {
       ? "Zeitpunkt dieses Abschnitts liegt zurück. Prüfe und bestätige deinen aktuellen Abschnitt."
       : session.message;
     el("navigation-storage-status").textContent = session.storageMessage;
-    el("navigation-disruption").textContent = session.disruption?.message ?? "";
+    el("navigation-disruption").textContent =
+      session.disruption?.message ?? session.assessment?.message ?? "";
     const invalidLocation = !session.fix || session.fixQuality !== "current";
     el("navigation-location-status").textContent =
       !engine || arrived
@@ -463,11 +464,21 @@ export class NavigationView {
       : "Navigation";
     el("navigation-summary-arrival").textContent =
       engine && !arrived ? `Ankunft ${clock(engine.journey.arrival)}` : "";
+    if (
+      engine &&
+      !arrived &&
+      session.request?.timing === "arrive" &&
+      engine.journey.arrival > session.request.time
+    ) {
+      const target = ` · Gewünscht bis ${clock(session.request.time)}`;
+      el("navigation-summary-arrival").textContent += target;
+      el("navigation-arrival").textContent += target;
+    }
     const notices = [
       engine && !arrived && invalidLocation
         ? "Standort ungenau oder veraltet · Fortschritt pausiert"
         : "",
-      session.disruption?.message ?? "",
+      session.disruption?.message ?? session.assessment?.message ?? "",
       !navigator.onLine ? "Offline · Neue Routen benötigen Internet" : "",
       session.resumeNeedsConfirmation
         ? el("navigation-status").textContent

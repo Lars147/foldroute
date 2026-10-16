@@ -25,6 +25,10 @@ import { NavigationSession } from "../src/navigation-session";
 import type { NavigationStore } from "../src/navigation-store";
 import { ApiClient } from "../src/transitous";
 import { clock } from "../src/ui";
+import {
+  assessConnection,
+  blocksNavigation,
+} from "../src/connection-assessment";
 const now = Date.parse("2026-10-06T10:00:00Z") / 1000;
 const place = (longitude: number, latitude = 48): Place => ({
   name: `Ort ${longitude}`,
@@ -112,6 +116,43 @@ const trip = () => ({
       realTime: true,
     },
   ],
+});
+it("preserves scheduled times when realtime predictions recover", () => {
+  let route = journey([
+    {
+      ...train(),
+      scheduledStart: ref.scheduledDeparture,
+      scheduledEnd: ref.scheduledArrival,
+    },
+  ]);
+  for (const minutes of [15, 5, 0]) {
+    route = applyTransit(
+      route,
+      0,
+      new Map([
+        [
+          route.legs[0].navigationId!,
+          {
+            kind: "updated",
+            update: {
+              departure: ref.scheduledDeparture + minutes * 60,
+              arrival: ref.scheduledArrival + minutes * 60,
+              realtime: true,
+              cancelled: false,
+              updatedAt: now,
+            },
+          },
+        ],
+      ]),
+    );
+    expect(route.legs[0]).toMatchObject({
+      start: ref.scheduledDeparture + minutes * 60,
+      end: ref.scheduledArrival + minutes * 60,
+      scheduledStart: ref.scheduledDeparture,
+      scheduledEnd: ref.scheduledArrival,
+      transitReference: ref,
+    });
+  }
 });
 beforeEach(() => {
   vi.useFakeTimers();
@@ -220,7 +261,7 @@ it("detects cancellations and lost connections while retaining the journey", () 
   const warning = transitDisruption(j, 0, now, 180)!;
   expect(warning.id).toContain("connection-");
   expect(warning.message).toBe(
-    `Anschluss an S1 um ${clock(now + 30)} voraussichtlich nicht erreichbar.`,
+    `Anschluss an S1 um ${clock(now + 30)} gefährdet.`,
   );
   const updated = applyTransit(
     j,
@@ -243,7 +284,7 @@ it("detects cancellations and lost connections while retaining the journey", () 
   );
   expect(transitDisruption(updated, 0, now, 180)).toEqual({
     id: warning.id,
-    message: `Anschluss an S1 um ${clock(now + 90)} voraussichtlich nicht erreichbar.`,
+    message: `Anschluss an S1 um ${clock(now + 90)} gefährdet.`,
   });
   j.legs[1].transitStatus!.cancelled = true;
   expect(transitDisruption(j, 0, now)?.id).toContain("cancelled-");
@@ -393,28 +434,19 @@ it.each(["proposal", "reroute"])(
   },
 );
 
-it("rechecks reachability on acceptance even before the proposal expires", async () => {
-  const plan = vi
-    .fn()
-    .mockResolvedValueOnce(connection())
-    .mockResolvedValueOnce(connection(now + 900));
-  const { session } = sessionHarness(plan);
+it("allows accepting the selected future departure after its boarding reserve disappears", async () => {
+  const { session, plan } = sessionHarness(
+    vi.fn().mockResolvedValue(connection()),
+  );
   await session.start(journey(), request, defaults);
   const previous = session.engine;
   session.disruption = { id: "missed", message: "Anschluss gefährdet" };
   await session.proposeAlternative();
-  expect(session.alternative).toBeDefined();
   vi.setSystemTime((now + 41) * 1000);
   await session.acceptAlternative();
-  expect(session.engine).toBe(previous);
-  expect(plan).toHaveBeenCalledTimes(2);
-  expect(session.alternative?.journey.legs.at(-1)?.start).toBe(now + 900);
-  expect(session.message).toContain("bestätigen");
-  await session.acceptAlternative();
-  await session.refresh();
   expect(session.engine).not.toBe(previous);
-  expect(session.disruption).toBeUndefined();
-  expect(plan).toHaveBeenCalledTimes(2);
+  expect(session.engine?.journey.legs.at(-1)?.start).toBe(now + 400);
+  expect(plan).toHaveBeenCalledTimes(1);
   await session.stop();
 });
 
@@ -632,7 +664,7 @@ it("discards a proposal as soon as GPS advances to another section", async () =>
   );
   session.disruption = { id: "connection", message: "Anschluss gefährdet" };
   await session.proposeAlternative();
-  session.updateLocation(fix(c, 1), "current");
+  session.updateLocation(fix(c, 20), "current");
   expect(session.engine?.progress.legIndex).toBe(1);
   expect(session.alternative).toBeUndefined();
   await session.stop();
@@ -694,7 +726,7 @@ it("retains coincident elevator guidance and requires confirmation at a vertical
   expect(engine.phase).toBe("arrived");
 });
 
-it("starts through the real planner after a delayed transit check invalidates the connection", async () => {
+it("retains a cancelled selection after a delayed transit check without silently planning", async () => {
   const api = new ApiClient();
   const batch = vi.spyOn(api, "batch").mockImplementation(async (input) => {
     const leg = { ...bike(), start: input.time, end: input.time + 180 };
@@ -722,10 +754,9 @@ it("starts through the real planner after a delayed transit check invalidates th
     transitStatus: { updatedAt: now, cancelled: true },
   };
   await session.start(journey([bike(), cancelled]), request, defaults);
-  expect(batch).toHaveBeenCalled();
-  expect(batch.mock.calls[0][0].time).toBe(now + 5);
-  expect(session.engine?.phase).toBe("active");
-  expect(session.engine?.journey.legs[0].kind).toBe("bike");
+  expect(batch).not.toHaveBeenCalled();
+  expect(session.engine).toBeUndefined();
+  expect(session.assessment?.status).toBe("cancelled");
   await session.stop();
 });
 
@@ -824,7 +855,7 @@ it("reserves movement between folding and boarding when scheduling waits", () =>
   expect(applyTransit(route, 0, new Map()).legs).toEqual(route.legs);
 });
 
-it.each(["startup", "reroute", "stop"])(
+it.each(["startup", "reroute"])(
   "rejects a route that expires during automatic %s",
   async (action) => {
     const plan = vi.fn(async () => {
@@ -989,5 +1020,240 @@ it("new navigation calculations use personal preferences and failed calculations
   await session.reroute();
   expect(session.settings).toEqual(preferences);
   expect(store.save.mock.lastCall?.[0].settings).toEqual(preferences);
+  await session.stop();
+});
+
+it.each([60, 120, 121, 600])(
+  "warns without blocking a future train for %s seconds of estimated lateness",
+  async (late) => {
+    const route = journey([
+      { ...bike(), end: now + 1000 + late },
+      { ...train(), start: now + 1000, end: now + 1600 },
+    ]);
+    const { session, store, plan } = sessionHarness();
+    const original = structuredClone(route);
+    const deadline = {
+      ...request,
+      timing: "arrive" as const,
+      time: route.arrival,
+    };
+    const prepared = await session.prepareStart(route, deadline, defaults);
+    expect(prepared.assessment.status).toBe("risk");
+    expect(blocksNavigation(prepared.assessment)).toBe(false);
+    expect(session.engine).toBeUndefined();
+    expect(store.save).not.toHaveBeenCalled();
+    expect(plan).not.toHaveBeenCalled();
+    expect(session.activateStart(prepared)).toBe(true);
+    expect(session.engine?.journey.legs.at(-1)?.transitReference).toEqual(ref);
+    expect(session.request?.timing).toBe("arrive");
+    expect(session.request?.time).toBe(deadline.time);
+    expect(route).toEqual(original);
+    await session.stop();
+  },
+);
+
+it("allows a past bike departure while keeping the selected train and projecting existing progress", async () => {
+  const route = connection(now + 400);
+  route.legs[0].start = now - 180;
+  route.legs[0].end = now;
+  route.departure = now - 180;
+  const api = new ApiClient();
+  const batch = vi.spyOn(api, "batch");
+  const session = new NavigationSession({
+    changed: vi.fn(),
+    locate: async () => fix(c),
+    storageEnabled: () => false,
+    api,
+    store: { clear: vi.fn() } as unknown as NavigationStore,
+    refresher: {
+      refresh: async () => new Map(),
+    } as unknown as TransitRefresher,
+  });
+  const prepared = await session.prepareStart(route, request, defaults);
+  expect(prepared.assessment.status).toBe("ready");
+  expect(batch).not.toHaveBeenCalled();
+  session.activateStart(prepared);
+  expect(session.engine?.leg.kind).toBe("fold");
+  expect(session.engine?.journey.legs.at(-1)?.transitReference).toEqual(ref);
+  await session.stop();
+});
+
+it("blocks only a known departed train and keeps missing data explicitly uncertain", async () => {
+  for (const fresh of [true, false]) {
+    const t = {
+      ...train(),
+      from: a,
+      coordinates: [a, c],
+      start: now - 30,
+      transitStatus: fresh
+        ? { updatedAt: now }
+        : { failure: "network" as const },
+    };
+    const { session, plan } = sessionHarness();
+    const prepared = await session.start(journey([t]), request, defaults);
+    expect(prepared.assessment.status).toBe(fresh ? "departed" : "unknown");
+    expect(!!session.engine).toBe(!fresh);
+    expect(plan).not.toHaveBeenCalled();
+    await session.stop();
+  }
+});
+
+it("rechecks departure between preparation and activation without persisting an active navigation", async () => {
+  const { session, store } = sessionHarness();
+  const prepared = await session.prepareStart(
+    journey([{ ...train(), from: a, coordinates: [a, c], start: now + 1 }]),
+    request,
+    defaults,
+  );
+  vi.setSystemTime((now + 2) * 1000);
+  expect(session.activateStart(prepared)).toBe(false);
+  expect(prepared.assessment.status).toBe("departed");
+  expect(store.save).not.toHaveBeenCalled();
+  expect(session.engine).toBeUndefined();
+  await session.stop();
+});
+
+it("invalidates a prepared start when the user cancels", async () => {
+  const { session, store } = sessionHarness();
+  const prepared = await session.prepareStart(journey(), request, defaults);
+  session.cancelStart();
+  expect(session.activateStart(prepared)).toBe(false);
+  expect(store.save).not.toHaveBeenCalled();
+  await session.stop();
+});
+
+it("offers rerouted multimodal journeys without replacing the active selection", async () => {
+  const { session, plan } = sessionHarness(
+    vi.fn().mockResolvedValue({ ...connection(now + 1000), id: "new" }),
+  );
+  await session.start(connection(now + 900), request, defaults);
+  const original = session.engine;
+  await session.reroute();
+  expect(session.engine).toBe(original);
+  expect(session.alternative?.journey.id).toBe("new");
+  await session.refresh();
+  expect(session.alternative?.reason).toBe("reroute");
+  session.dismissAlternative();
+  expect(session.engine).toBe(original);
+  await session.reroute();
+  await session.acceptAlternative();
+  expect(session.engine?.journey.id).toBe("new");
+  expect(plan).toHaveBeenCalledTimes(2);
+  await session.stop();
+});
+
+it("confirms a stop only when its newly planned continuation is accepted", async () => {
+  const stop = {
+    ...transition("stop", a, now, now),
+    stop: { id: "pause", place: a, stayMinutes: 0 },
+  };
+  const { session } = sessionHarness(vi.fn().mockResolvedValue(journey()));
+  await session.start(
+    journey([stop, train()]),
+    { ...request, stops: [stop.stop] },
+    defaults,
+  );
+  const engine = session.engine!;
+  engine.journey.legs[1].transitStatus!.cancelled = true;
+  await session.continueStop();
+  expect(session.engine).toBe(engine);
+  expect(engine.progress.confirmedStops).toEqual([]);
+  expect(session.alternative?.reason).toBe("stop");
+  await session.refresh();
+  expect(session.alternative?.reason).toBe("stop");
+  await session.acceptAlternative();
+  expect(session.engine).not.toBe(engine);
+  expect(session.engine?.progress.confirmedStops).toContain("pause");
+  await session.stop();
+});
+
+it("absorbs existing waiting time before warning and preserves the boarding reserve", () => {
+  const route = journey([
+    bike(),
+    transition("wait", c, now + 180, now + 400),
+    { ...train(), start: now + 600 },
+  ]);
+  expect(assessConnection(route, 0, now).status).toBe("ready");
+  expect(assessConnection(route, 0, now + 100).status).toBe("ready");
+  expect(assessConnection(route, 0, now + 250).status).toBe("unknown");
+  route.legs[2].transitStatus = { updatedAt: now + 450 };
+  expect(assessConnection(route, 0, now + 450).status).toBe("risk");
+});
+
+it("starts folding at actual arrival and does not automatically board a departed train", () => {
+  const route = connection(now + 300);
+  const engine = new NavigationEngine(route);
+  engine.advance(false, now + 400);
+  expect(engine.leg.kind).toBe("fold");
+  expect(engine.leg.start).toBe(now + 400);
+  expect(engine.leg.end).toBe(now + 580);
+  engine.journey.legs[2].transitStatus = { updatedAt: now + 581 };
+  engine.tick(now + 581);
+  expect(engine.leg.kind).toBe("fold");
+  engine.advance(true, now + 581);
+  expect(engine.leg.kind).toBe("transit");
+});
+
+it("an earlier arrival can recover the same connection while retaining the full folding duration", () => {
+  const engine = new NavigationEngine(connection(now + 300));
+  engine.advance(false, now + 50);
+  expect(engine.leg.kind).toBe("fold");
+  expect(engine.leg.end - engine.leg.start).toBe(180);
+  engine.journey.legs[2].transitStatus = { updatedAt: now + 230 };
+  engine.tick(now + 230);
+  expect(engine.leg.kind).toBe("transit");
+  expect(engine.leg.start).toBe(now + 300);
+});
+
+it("retains the reason for a reroute after asking for location again", async () => {
+  const { session } = sessionHarness(
+    vi.fn().mockResolvedValue({ ...connection(now + 1000), id: "new" }),
+  );
+  await session.start(connection(now + 900), request, defaults);
+  session.updateLocation(undefined);
+  await session.reroute();
+  expect(session.alternativeNeedsLocation).toBe(true);
+  const original = session.engine;
+  session.updateLocation(fix(a, 20), "current");
+  await session.resumeAlternativeAfterLocation();
+  expect(session.alternative?.reason).toBe("reroute");
+  await session.refresh();
+  expect(session.alternative?.reason).toBe("reroute");
+  expect(session.engine).toBe(original);
+  await session.stop();
+});
+
+it("starts the waiting prefix of a proposed stop continuation at the current stop", async () => {
+  const stop = {
+    ...transition("stop", a, now, now + 60),
+    stop: { id: "pause", place: a, stayMinutes: 1 },
+  };
+  const route = journey([
+    { ...bike(), from: c, to: a, coordinates: [c, b, a], maneuvers: [] },
+    stop,
+    train(),
+  ]);
+  const { session } = sessionHarness(vi.fn().mockResolvedValue(journey()));
+  const snapshot = {
+    version: 1 as const,
+    savedAt: now,
+    journey: route,
+    request,
+    settings: defaults,
+    progress: { legIndex: 1, maneuverIndex: 0, meters: 0, confirmedStops: [] },
+  };
+  await session.start(route, request, defaults, snapshot);
+  session.engine!.journey.legs[2].transitStatus!.cancelled = true;
+  await session.continueStop();
+  expect(session.alternative?.journey.origin).toEqual(a);
+  expect(session.alternative?.journey.departure).toBe(now);
+  expect(session.alternative?.journey.legs[0]).toMatchObject({
+    kind: "wait",
+    start: now,
+    end: now + 60,
+  });
+  expect(session.engine!.progress.confirmedStops).toEqual([]);
+  await session.acceptAlternative();
+  expect(session.engine!.progress.confirmedStops).toEqual(["pause"]);
   await session.stop();
 });

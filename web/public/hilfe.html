@@ -160,18 +160,26 @@
           <p>
             Tippe auf Start/Ziel im Routenkopf, um „Route anpassen“ zu öffnen. Tippe unter „Zeitpunkt“ auf die aktuelle
             Auswahl. Wähle Abfahrt oder Ankunft, Datum und Uhrzeit. „Jetzt“
-            verwendet den aktuellen Zeitpunkt bei der Berechnung. „Übernehmen“
+            trägt das aktuelle Datum und die aktuelle Uhrzeit ein. Abfahrt oder
+            Ankunft bleibt dabei ausgewählt. Die eingetragene Zeit bleibt stehen,
+            bis du sie änderst oder erneut auf „Jetzt“ tippst. „Übernehmen“
             speichert die Auswahl im Formular; erst „Route berechnen“ startet
             die Planung. Beim Schließen der Zeitwahl werden Änderungen
             verworfen.
           </p>
+          <p>Nach einer Suche zeigt „Route anpassen“ deren ursprüngliches Datum und Uhrzeit als feste Vorgabe. „Jetzt“ trägt bei Bedarf die aktuelle Zeit ein. Erst „Route berechnen“ übernimmt die feste Zeit, auch wenn du nur Start, Ziel oder Zwischenziele änderst. Abbrechen lässt die bisherige Suche unverändert.</p>
+          <p>Du kannst auch einen vergangenen Zeitpunkt suchen. Feste Abfahrts- und Ankunftszeiten bleiben beim Aktualisieren erhalten. Welche Verbindungen dafür verfügbar sind, hängt von den Fahrplandaten ab. „Los“ prüft, ob die gewählte Verbindung noch gestartet werden kann. „Ab jetzt suchen“ wechselt ausdrücklich zum aktuellen Zeitpunkt.</p>
         </details>
         <details>
-          <summary>Wann startet eine Planung mit „Jetzt“?</summary>
+          <summary>Wann startet die schnelle Zielsuche?</summary>
           <p>
-            Ab dem aktuellen Zeitpunkt nach der Standortermittlung. Über „Route
-            anpassen“ und „Route berechnen“ kannst du erneut planen; alternativ über „…“ und „Aktualisieren“. Bei „Jetzt“ wird der Zeitpunkt erneut
-            bestimmt. Feste Abfahrts- und Ankunftszeiten bleiben unverändert.
+            Ohne bestätigte Zeitwahl startet die Zielsuche ab dem aktuellen
+            Zeitpunkt nach der Standortermittlung. Beim Aktualisieren wird dieser
+            Zeitpunkt erneut bestimmt. Sobald du in der Zeitwahl auf „Übernehmen“
+            tippst, gilt stattdessen das dort angezeigte Datum mit Uhrzeit – auch
+            nach dem Antippen von „Jetzt“. Feste Abfahrts- und Ankunftszeiten
+            bleiben beim Aktualisieren unverändert. „Ab jetzt suchen“ wechselt
+            ausdrücklich wieder zum aktuellen Zeitpunkt.
           </p>
         </details>
         <details>
@@ -424,7 +432,8 @@
         <h2>Navigation während der Fahrt</h2>
         <p>Wähle eine Route und tippe unten auf „Los“. Daneben stehen Dauer und Ankunft. Tippe zum Bearbeiten auf Start/Ziel im Kopf. Im „…“-Menü findest du „Planung teilen“ und „Aktualisieren“. Bei Fehlern steht die passende Aktion direkt am Hinweis. Bei gespeicherten Kopien ist „Jetzt neu planen“ direkt sichtbar; „Mit gespeicherter Route starten“ findest du im Menü. Die Karte folgt deinem Standort in Fahrtrichtung. Abbiegehinweise, Entfernung und aktuelle Etappe bleiben sichtbar. Nach Verschieben der Karte aktiviert „Standort folgen“ die Kameraführung wieder.</p>
         <p>„Ton an“ schaltet Sprachansagen stumm. „Abschnitt fertig“ beziehungsweise „Ausgestiegen“ bestätigt den nächsten Wechsel. An Zwischenstopps bestätigst du „Weiterfahren“; geplante Aufenthaltszeit und verbleibende Anschlüsse werden berücksichtigt.</p>
-        <p>ÖPNV-Strecken werden im Vordergrund regelmäßig aktualisiert. Neue Verbindungen bei Ausfall oder gefährdetem Anschluss benötigen deine Bestätigung. Hinweise zeigen, wenn Daten veraltet oder nicht verfügbar sind. Prüfe bei einem ausgefallenen Halt zunächst den tatsächlichen Ausstieg vor Ort.</p>
+        <p>„Los“ prüft Standort und Fahrtdaten und startet deine gewählte Verbindung. Bei „Anschluss gefährdet“ entscheidest du selbst, solange die ÖPNV-Abfahrt noch bevorsteht. Solange noch kein Ergebnis vorliegt oder die Startprüfung läuft, bleibt „Los“ sichtbar und deaktiviert. Während der Optimierung kannst du eine startbare Verbindung bereits starten. Liegt die ÖPNV-Abfahrt laut aktuellen Daten zurück oder fällt die Fahrt aus, ist „Los“ deaktiviert. Direkt daneben findest du „Ab jetzt suchen“, darüber den Grund. Die gewählte Verbindung bleibt über „Details“ einsehbar. Die Suche ab jetzt ändert deine Zeitvorgabe ausdrücklich und zeigt neue Vorschläge. Fehlende Fahrtdaten werden als unklare Erreichbarkeit angezeigt.</p>
+        <p>ÖPNV-Fahrten werden im Vordergrund regelmäßig aktualisiert. Neue ÖPNV-Verbindungen bei Ausfall, Routenabweichung oder nach einem Zwischenstopp benötigen deine Bestätigung. Deine gewählte Verbindung bleibt bis zur Übernahme aktiv. Hinweise zeigen, wenn Daten veraltet oder nicht verfügbar sind. Prüfe bei einem ausgefallenen Halt zunächst den tatsächlichen Ausstieg vor Ort.</p>
         <p>Lass die PWA geöffnet und den Bildschirm eingeschaltet. App-Wechsel oder Bildschirmsperre pausiert die Navigation. Nach Rückkehr wartet sie auf einen aktuellen Standort. Bildschirm-Wachhalten kann vom Betriebssystem abgelehnt werden.</p>
         <p>Bei eingeschalteter Strecken-Speicherung werden Route, Abschnitt und Manöver lokal gespeichert, ohne GPS-Spur. Nach Neuladen fragt die App vor dem Fortsetzen nach. Beenden, Ankunft oder Ausschalten der Speicherung entfernt den Wiederaufnahmezustand. Ohne Internet bleibt der gespeicherte Streckenverlauf verfügbar; neue Routen, Fahrtdaten und Straßenkarten benötigen Internet. Browserstimmen können ebenfalls Internet benötigen.</p>
         <p>Zur Live-Aktualisierung gehen Fahrtkennungen an Transitous. Bei Neuberechnungen werden aktueller Start, Ziel, offene Zwischenstopps und Routing-Einstellungen übertragen. Sprachansagen verwenden die Stimmen deines Browsers beziehungsweise Betriebssystems.</p>

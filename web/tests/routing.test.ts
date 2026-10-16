@@ -58,6 +58,62 @@ const mapped = (routingSettings = settings) =>
   mapResponse(fixture.multimodal, request, routingSettings, baseVariants[2])
     .journeys;
 afterEach(() => vi.useRealTimers());
+describe("fixed past search times", () => {
+  for (const timing of ["depart", "arrive"] as const)
+    it(`sends the chosen ${timing} time to the service unchanged`, async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime((request.time + 86400) * 1000);
+      const urls: URL[] = [];
+      const api = new ApiClient(
+        vi.fn(async (url: URL) => {
+          urls.push(url);
+          return new Response(
+            JSON.stringify(
+              url.searchParams.get("directModes") === "BIKE"
+                ? fixture.direct
+                : fixture.multimodal,
+            ),
+          );
+        }) as any,
+      );
+      const updates = [];
+      for await (const update of planRoutes(
+        { ...request, timing },
+        settings,
+        new AbortController().signal,
+        api,
+      ))
+        updates.push(update);
+      expect(updates.at(-1)?.journeys.length).toBeGreaterThan(0);
+      expect(urls.length).toBeGreaterThan(0);
+      for (const url of urls) {
+        const offset =
+          url.searchParams.get("directModes") === "BIKE"
+            ? 0
+            : timing === "arrive"
+              ? -settings.foldingDuration
+              : settings.foldingDuration;
+        expect(Date.parse(url.searchParams.get("time")!) / 1000).toBe(
+          request.time + offset,
+        );
+        expect(url.searchParams.get("arriveBy")).toBe(
+          String(timing === "arrive"),
+        );
+      }
+    });
+  for (const invalid of [NaN, Infinity])
+    it(`rejects a non-finite timestamp (${invalid}) before sending requests`, async () => {
+      const fetcher = vi.fn();
+      const updates = planRoutes(
+        { ...request, time: invalid },
+        settings,
+        new AbortController().signal,
+        new ApiClient(fetcher),
+      );
+      await expect(updates.next()).rejects.toMatchObject({ code: "input" });
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+});
 describe("Shared Swift fixtures", () => {
   it("matches native multimodal mapping and folding timestamps", () =>
     expect(mapped(nativeSettings).map(snapshot)).toEqual(
@@ -116,6 +172,27 @@ describe("Shared Swift fixtures", () => {
     expect(mapResponse(f, request, settings, baseVariants[2]).journeys).toEqual(
       [],
     );
+  });
+  it("retains scheduled times without requiring a refreshable trip reference", () => {
+    const f = structuredClone(fixture.multimodal);
+    Object.assign(f.itineraries[0].legs[1], {
+      scheduledStartTime: "2026-09-04T08:00:00Z",
+      scheduledEndTime: "2026-09-04T08:30:00Z",
+    });
+    const train = mapResponse(
+      f,
+      request,
+      settings,
+      baseVariants[2],
+    ).journeys[0].legs.find((l) => l.kind === "transit")!;
+    expect(train.transitReference).toBeUndefined();
+    expect(train).toMatchObject({
+      start: Date.parse("2026-09-04T08:15:00Z") / 1000,
+      end: Date.parse("2026-09-04T08:35:00Z") / 1000,
+      scheduledStart: Date.parse("2026-09-04T08:00:00Z") / 1000,
+      scheduledEnd: Date.parse("2026-09-04T08:30:00Z") / 1000,
+      realtime: true,
+    });
   });
   it("flags invalid street geometry", () => {
     const f = structuredClone(fixture.multimodal);

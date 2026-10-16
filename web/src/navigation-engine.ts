@@ -258,6 +258,13 @@ export class NavigationEngine {
     if (!manual && next?.kind === "transit" && !freshTransit(next, now))
       return false;
     if (
+      !manual &&
+      next?.kind === "transit" &&
+      next.start < now &&
+      (movement(this.leg) ? now : this.leg.end) > next.start
+    )
+      return false;
+    if (
       this.leg.kind === "stop" &&
       this.leg.stop &&
       !this.progress.confirmedStops.includes(this.leg.stop.id)
@@ -269,6 +276,18 @@ export class NavigationEngine {
       return true;
     }
     this.progress.legIndex++;
+    // Physical activities take time even when their original schedule is past.
+    if (next.kind === "fold" || next.kind === "unfold") {
+      const seconds = Math.max(0, next.end - next.start);
+      next.start = now;
+      next.end = now + seconds;
+    } else if (next.kind === "stop") {
+      next.start = now;
+      next.end = Math.max(next.end, now + (next.stop?.stayMinutes ?? 0) * 60);
+    } else if (next.kind === "wait") {
+      next.start = now;
+      next.end = Math.max(now, next.end);
+    }
     this.progress.meters = 0;
     this.progress.maneuverIndex = 0;
     this.offSamples = 0;

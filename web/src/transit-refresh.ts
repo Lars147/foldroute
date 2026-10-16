@@ -4,9 +4,8 @@ import {
   type Leg,
   type TransitReference,
 } from "./model";
-import { freshTransit } from "./navigation-engine";
+import { assessConnection } from "./connection-assessment";
 import { platform, retryAfter, service } from "./transitous";
-import { clock } from "./ui";
 
 export interface TransitUpdate {
   departure: number;
@@ -309,50 +308,11 @@ export function transitDisruption(
   now: number,
   remainingMovement?: number,
 ): Disruption | undefined {
-  const cancelled = journey.legs
-    .slice(index)
-    .find((l) => l.kind === "transit" && l.transitStatus?.cancelled);
-  if (cancelled)
-    return {
-      id: `cancelled-${cancelled.navigationId}`,
-      message: `${cancelled.line}: Fahrt oder benötigter Halt fällt aus.`,
-    };
-  let earliest = now,
-    previousTransit = false,
-    transferWalk = false;
-  const boardings = bikeBoardings(journey);
-  for (let i = index; i < journey.legs.length; i++) {
-    const leg = journey.legs[i];
-    if (leg.kind === "transit") {
-      if (!freshTransit(leg, now)) return;
-      let buffer =
-        boardings.includes(i) || (previousTransit && !transferWalk) ? 180 : 0;
-      if (
-        journey.legs[index].kind === "wait" &&
-        journey.legs.slice(index + 1, i).every((l) => l.kind === "wait")
-      )
-        buffer = Math.min(buffer, Math.max(0, journey.legs[index].end - now));
-      if (i > index && earliest + buffer > leg.start)
-        return {
-          id: `connection-${leg.navigationId}`,
-          message: `Anschluss an ${leg.line} um ${clock(leg.start)} voraussichtlich nicht erreichbar.`,
-        };
-      earliest = Math.max(now, leg.end);
-      previousTransit = true;
-      transferWalk = false;
-    } else if (leg.kind === "stop") {
-      earliest = Math.max(
-        leg.end,
-        i === index ? now : earliest + (leg.stop?.stayMinutes ?? 0) * 60,
-      );
-      previousTransit = false;
-      transferWalk = false;
-    } else if (leg.kind !== "wait") {
-      earliest +=
-        i === index
-          ? (remainingMovement ?? Math.max(0, leg.end - now))
-          : Math.max(0, leg.end - leg.start);
-      if (leg.kind === "walk") transferWalk = true;
-    }
-  }
+  const assessment = assessConnection(journey, index, now, {
+    remainingMovement,
+    onboard: journey.legs[index]?.kind === "transit",
+  });
+  return assessment.status === "ready" || assessment.status === "unknown"
+    ? undefined
+    : { id: assessment.id, message: assessment.message };
 }

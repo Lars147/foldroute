@@ -59,9 +59,119 @@ function sessionWithArchive() {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetAllMocks();
+  vi.restoreAllMocks();
+});
+
+describe("pending search time", () => {
+  it("resolves now after location and retains that time across stop and context restore", async () => {
+    const session = sessionWithArchive();
+    const location = gate(),
+      results = gate();
+    let now = 100_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.mocked(locate).mockImplementation(async () => {
+      await location.promise;
+      return origin;
+    });
+    vi.mocked(planRoutes).mockImplementation(async function* () {
+      await results.promise;
+      yield { journeys: [journey("late")], status: "complete", issues: [] };
+    });
+    const task = session.calculate(
+      { ...request, timing: "now" },
+      defaults,
+      true,
+    );
+    expect(session.state.pendingRequestResolved).toBe(false);
+    expect(planRoutes).not.toHaveBeenCalled();
+    now = 145_000;
+    location.release();
+    await vi.waitFor(() => expect(planRoutes).toHaveBeenCalledOnce());
+    expect(session.state.pendingRequest).toMatchObject({
+      timing: "now",
+      time: 145,
+    });
+    expect(session.state.pendingRequestResolved).toBe(true);
+    expect(session.state.request).toEqual(request);
+    session.stop();
+    const context = structuredClone(session.state);
+    session.restoreContext(context);
+    expect(session.state.pendingRequestResolved).toBe(true);
+    expect(session.state.pendingRequest?.time).toBe(145);
+    results.release();
+    await task;
+    expect(session.state.selected?.id).toBe("archive");
+    session.clear();
+    expect(session.state.pendingRequestResolved).toBeUndefined();
+  });
+
+  for (const outcome of ["offline", "location", "service"] as const)
+    it(`distinguishes the pending time after a ${outcome} failure and resets on retry`, async () => {
+      const session = sessionWithArchive();
+      vi.spyOn(Date, "now").mockReturnValue(145_000);
+      if (outcome === "offline") vi.stubGlobal("navigator", { onLine: false });
+      vi.mocked(locate).mockImplementation(async () => {
+        throw new Error("Standort nicht verfügbar");
+      });
+      vi.mocked(planRoutes).mockImplementation(async function* () {
+        throw new PlannerError("service", "Routendienst nicht verfügbar");
+      });
+      await session.calculate(
+        { ...request, timing: "now" },
+        defaults,
+        outcome === "location",
+      );
+      expect(session.state.pendingRequestResolved).toBe(outcome === "service");
+      expect(session.state.selected?.id).toBe("archive");
+      if (outcome === "service")
+        expect(session.state.pendingRequest?.time).toBe(145);
+      session.stop();
+      expect(session.state.pendingRequestResolved).toBe(outcome === "service");
+      vi.stubGlobal("navigator", { onLine: true });
+      const location = gate();
+      vi.mocked(locate).mockImplementation(async () => {
+        await location.promise;
+        return origin;
+      });
+      const retry = session.calculate(
+        { ...request, timing: "now" },
+        defaults,
+        true,
+      );
+      expect(session.state.pendingRequestResolved).toBe(false);
+      session.stop();
+      location.release();
+      await retry;
+      expect(session.state.pendingRequestResolved).toBe(false);
+    });
 });
 
 describe("result context during recalculation", () => {
+  for (const code of ["empty", "service"] as const)
+    it(`explains past ${code} results without losing the prior selection`, async () => {
+      const session = sessionWithArchive();
+      vi.mocked(planRoutes).mockImplementation(async function* () {
+        throw new PlannerError(code, "Routendienst nicht verfügbar");
+      });
+      await session.calculate(
+        { ...changedRequest, timing: "arrive" },
+        changedSettings,
+        false,
+      );
+      expect(session.state.message).toBe(
+        code === "empty"
+          ? "Für diesen Zeitpunkt wurden keine passenden Verbindungen gefunden."
+          : "Routendienst nicht verfügbar",
+      );
+      expect(session.state.selected?.id).toBe("archive");
+      expect(session.state.pendingRequest).toMatchObject({
+        timing: "arrive",
+        time: changedRequest.time,
+      });
+      expect(session.state.recovery?.action).toBe(
+        code === "empty" ? "adjust" : "retry",
+      );
+    });
   for (const status of ["complete", "partial"] as const)
     it(`finishes an empty ${status} update without losing fresh results`, async () => {
       const session = sessionWithArchive();
@@ -136,6 +246,8 @@ describe("result context during recalculation", () => {
       restored: false,
     });
     expect(session.state.queriedAt).toBeGreaterThan(100);
+    expect(session.state.pendingRequest).toBeUndefined();
+    expect(session.state.pendingRequestResolved).toBeUndefined();
     expect(session.state.staleReason).toBeUndefined();
     finish.release();
     await task;

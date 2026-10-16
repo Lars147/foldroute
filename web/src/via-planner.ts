@@ -95,13 +95,10 @@ export async function* planViaRoutes(
     ...request,
     time: request.timing === "now" ? Date.now() / 1000 : request.time,
   };
-  if (
-    !Number.isFinite(fixed.time) ||
-    (request.timing !== "now" && fixed.time < Date.now() / 1000)
-  )
+  if (!Number.isFinite(fixed.time))
     throw new PlannerError(
       "input",
-      "Bitte einen aktuellen oder zukünftigen Zeitpunkt auswählen.",
+      "Bitte einen gültigen Zeitpunkt auswählen.",
     );
   const deadline = new AbortController();
   const timer = setTimeout(

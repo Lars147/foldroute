@@ -1,6 +1,12 @@
 import { openCachedJourney } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
-import { defaults, type Journey, type Leg, type Place } from "../../src/model";
+import {
+  defaults,
+  type Journey,
+  type Leg,
+  type Place,
+  type RouteRequest,
+} from "../../src/model";
 import { distance } from "../../src/geometry";
 const now = Date.parse("2026-10-06T10:00:00Z") / 1000;
 const a: Place = { name: "Start", detail: "", latitude: 48, longitude: 11 };
@@ -262,7 +268,12 @@ function route(multimodal = false): Journey {
     transfers: 0,
   };
 }
-async function setup(page: Page, multimodal = false) {
+async function setup(
+  page: Page,
+  multimodal = false,
+  start = true,
+  requestOverrides: Partial<RouteRequest> = {},
+) {
   await page.clock.install({ time: new Date(now * 1000) });
   await page.addInitScript(() => {
     const watchers = new Map<number, PositionCallback>();
@@ -359,7 +370,7 @@ async function setup(page: Page, multimodal = false) {
   );
   await page.goto("/");
   await page.evaluate(
-    async ({ journey, settings, time }) => {
+    async ({ journey, settings, time, requestOverrides }) => {
       const { OfflineStore } = await import("/src/offline.ts");
       await new OfflineStore().save(
         {
@@ -373,15 +384,22 @@ async function setup(page: Page, multimodal = false) {
             timing: "now",
             time,
             stops: journey.legs.flatMap((l: any) => (l.stop ? [l.stop] : [])),
+            ...requestOverrides,
           },
         },
         "test",
       );
     },
-    { journey: route(multimodal), settings: defaults, time: now },
+    {
+      journey: route(multimodal),
+      settings: defaults,
+      time: now,
+      requestOverrides,
+    },
   );
   await page.reload();
   await openCachedJourney(page, page.locator("#open-saved"));
+  if (!start) return;
   await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
   await expect(page.locator("#navigation-instruction")).toHaveText(
@@ -986,17 +1004,15 @@ test("retry after denied location retains the restored section", async ({
     });
   });
   await page.locator("#navigation-resume").click();
-  await expect(page.locator("#navigation-locate")).toBeVisible();
-  await expect(page.locator("#navigation-instruction")).toHaveText(
-    "Navigation konnte nicht starten",
-  );
+  await expect(page.locator("#navigation-start-retry")).toBeVisible();
+  await expect(page.locator("#navigation-view")).toBeHidden();
   await page.evaluate(() =>
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: (window as any).savedGeo,
     }),
   );
-  await page.locator("#navigation-locate").click();
+  await page.locator("#navigation-start-retry").click();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt falten",
   );
@@ -1022,21 +1038,19 @@ test("explains a silent location provider and offers retry after the deadline", 
     });
   });
   await page.locator("#navigation-resume").click();
-  await expect(page.locator("#navigation-status")).toHaveText(
+  await expect(page.locator("#navigation-start-notice")).toHaveText(
     "Standort wird geprüft …",
   );
   await page.clock.runFor(3100);
-  await expect(page.locator("#navigation-status")).toContainText(
+  await expect(page.locator("#navigation-start-notice")).toContainText(
     "Warte auf einen genauen Standort",
   );
   await page.clock.runFor(9000);
-  await expect(page.locator("#navigation-status")).toContainText(
+  await expect(page.locator("#navigation-start-notice")).toContainText(
     "Standortabfrage dauert zu lange",
   );
-  await expect(page.locator("#navigation-locate")).toBeVisible();
-  await expect(page.locator("#navigation-instruction")).toHaveText(
-    "Navigation konnte nicht starten",
-  );
+  await expect(page.locator("#navigation-start-retry")).toBeVisible();
+  await expect(page.locator("#navigation-view")).toBeHidden();
 });
 
 test("interrupted startup can retry location after returning from the background", async ({
@@ -1058,7 +1072,7 @@ test("interrupted startup can retry location after returning from the background
     });
   });
   await page.locator("#navigation-resume").click();
-  await expect(page.locator("#navigation-status")).toHaveText(
+  await expect(page.locator("#navigation-start-notice")).toHaveText(
     "Standort wird geprüft …",
   );
   await page.evaluate(() => (window as any).navProbe.hide(true));
@@ -1070,11 +1084,11 @@ test("interrupted startup can retry location after returning from the background
     (window as any).navProbe.hide(false);
   });
   await page.clock.runFor(10);
-  await expect(page.locator("#navigation-locate")).toBeVisible();
-  await expect(page.locator("#navigation-status")).toContainText(
+  await expect(page.locator("#navigation-start-retry")).toBeVisible();
+  await expect(page.locator("#navigation-start-notice")).toContainText(
     "unterbrochen",
   );
-  await page.locator("#navigation-locate").click();
+  await page.locator("#navigation-start-retry").click();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
@@ -1103,8 +1117,8 @@ test("interrupted trip lookup offers a startup retry after returning", async ({
   release();
   await page.evaluate(() => (window as any).navProbe.hide(false));
   await page.clock.runFor(10);
-  await expect(page.locator("#navigation-retry")).toBeVisible();
-  await page.locator("#navigation-retry").click();
+  await expect(page.locator("#navigation-start-retry")).toBeVisible();
+  await page.locator("#navigation-start-retry").click();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
@@ -1164,4 +1178,172 @@ test("ending resumed navigation restores stops without replacing personal prefer
   expect(params.get("cyclingSpeed")).toBe(
     (defaults.cyclingSpeedKilometersPerHour / 3.6).toFixed(3),
   );
+});
+
+async function startSelected(page: Page) {
+  await page.locator("#route-more").click();
+  await page.locator("#navigation-start").click();
+}
+
+test("arrival deadline and selected train survive a late bike departure without a new route search", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  const deadline = route(true).arrival;
+  await setup(page, true, false, { timing: "arrive", time: deadline });
+  let searches = 0;
+  await page.route("**/api/v6/plan?*", async (request) => {
+    searches++;
+    await request.fulfill({ json: { direct: [], itineraries: [] } });
+  });
+  await page.clock.runFor(210000);
+  await startSelected(page);
+  await expect(page.locator("#navigation-view")).toBeVisible();
+  await expect(page.locator("#navigation-alert-summary")).toContainText(
+    "Anschluss an S1",
+  );
+  await expect(page.locator("#navigation-alert-summary")).toContainText(
+    "gefährdet",
+  );
+  expect(searches).toBe(0);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  const saved = await page.evaluate(async () => {
+    const { NavigationStore } = await import("/src/navigation-store.ts");
+    return new NavigationStore().read();
+  });
+  expect(saved?.request.timing).toBe("arrive");
+  expect(saved?.request.time).toBe(deadline);
+  expect(
+    saved?.journey.legs.find((leg) => leg.kind === "transit")?.transitReference
+      ?.tripId,
+  ).toBe("train-1");
+  await page.screenshot({
+    path: test.info().outputPath("connection-at-risk.png"),
+  });
+});
+
+for (const problem of ["departed", "cancelled"] as const)
+  test(`a ${problem} selection stays visible until a new search is explicitly requested`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await setup(page, true, false, {
+      timing: "arrive",
+      time: route(true).arrival,
+    });
+    if (problem === "departed") await page.clock.runFor(310000);
+    else
+      await page.route("**/api/v6/trip?*", (r) =>
+        r.fulfill({
+          json: {
+            legs: [
+              {
+                from: {
+                  stopId: "A",
+                  scheduledDeparture: new Date(
+                    (now + 300) * 1000,
+                  ).toISOString(),
+                },
+                to: {
+                  stopId: "D",
+                  scheduledArrival: new Date((now + 600) * 1000).toISOString(),
+                },
+                cancelled: true,
+              },
+            ],
+          },
+        }),
+      );
+    const searched: URL[] = [];
+    await page.route("**/api/v6/plan?*", async (request) => {
+      searched.push(new URL(request.request().url()));
+      await request.fulfill({ json: { direct: [], itineraries: [] } });
+    });
+    await startSelected(page);
+    await expect(page.locator("#navigation-start-notice")).toContainText(
+      problem === "departed" ? "liegt zurück" : "fällt aus",
+    );
+    await expect(page.locator("#navigation-view")).toBeHidden();
+    await expect(page.locator("#navigation-search-now")).toBeVisible();
+    expect(searched).toHaveLength(0);
+    expect(await savedActive(page)).toBe(false);
+    await expect(page.locator("#navigation-view-connection")).toHaveCount(0);
+    await expect(page.locator("#panel-details")).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`connection-${problem}.png`),
+    });
+    await page.context().setOffline(true);
+    await expect(page.locator("#navigation-search-now")).toBeDisabled();
+    await expect(page.locator("#navigation-start-notice")).toContainText(
+      "Internet",
+    );
+    await page.context().setOffline(false);
+    await page.locator("#navigation-search-now").click();
+    await expect.poll(() => searched.length).toBeGreaterThan(0);
+    expect(
+      searched.every((url) => url.searchParams.get("arriveBy") === "false"),
+    ).toBe(true);
+    expect(
+      searched[0].searchParams.get("fromPlace")!.split(",").map(Number),
+    ).toEqual([48, 11]);
+    expect(
+      searched[0].searchParams.get("toPlace")!.split(",").map(Number),
+    ).toEqual([e.latitude, e.longitude]);
+    await expect(page.locator("#navigation-view")).toBeHidden();
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      "list",
+    );
+  });
+
+test("missing trip data starts the same route with uncertainty instead of replacing it", async ({
+  page,
+}) => {
+  await setup(page, true, false);
+  await page.route("**/api/v6/trip?*", (r) =>
+    r.fulfill({ status: 503, json: {} }),
+  );
+  let searched = false;
+  await page.route("**/api/v6/plan?*", async (r) => {
+    searched = true;
+    await r.fulfill({ json: { direct: [], itineraries: [] } });
+  });
+  await startSelected(page);
+  await expect(page.locator("#navigation-view")).toBeVisible();
+  await expect(page.locator("#navigation-alert-summary")).toContainText(
+    "Erreichbarkeit unklar",
+  );
+  expect(searched).toBe(false);
+});
+
+test("editing during a delayed start check prevents late navigation activation", async ({
+  page,
+}) => {
+  await setup(page, true, false);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested = false;
+  await page.route("**/api/v6/trip?*", async (r) => {
+    requested = true;
+    await gate;
+    await r.fulfill({ json: { legs: [] } });
+  });
+  await startSelected(page);
+  await expect.poll(() => requested).toBe(true);
+  await expect(page.locator("#navigation-start-notice")).toContainText(
+    "Fahrtdaten werden geprüft",
+  );
+  await expect(page.locator("#navigation-view")).toBeHidden();
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#adjust-dialog")).toBeVisible();
+  release();
+  await page.clock.runFor(2000);
+  await expect(page.locator("#navigation-view")).toBeHidden();
+  expect(await savedActive(page)).toBe(false);
+  await page.locator("#cancel-adjust").click();
+  await expect(page.locator("#panel-details")).toBeVisible();
 });

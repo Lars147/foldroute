@@ -282,6 +282,7 @@ function mapLeg(raw: RawLeg, request: RouteRequest): Leg {
     scheduledStart: raw.scheduledStartTime
       ? date(raw.scheduledStartTime)
       : undefined,
+    scheduledEnd: raw.scheduledEndTime ? date(raw.scheduledEndTime) : undefined,
   };
 }
 export interface Batch {

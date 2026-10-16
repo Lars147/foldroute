@@ -101,6 +101,30 @@ async function collect(
   return updates;
 }
 describe("free intermediate stops", () => {
+  for (const timing of ["depart", "arrive"] as const)
+    it(`keeps a past ${timing} time through all intermediate sections`, async () => {
+      const past = Math.floor(Date.now() / 1000) - 86400;
+      const request = {
+        origin: p(0),
+        destination: p(2),
+        stops: [stop(1, 10)],
+        timing,
+        time: past,
+      };
+      const client = new Client();
+      const updates = await collect(request, client);
+      const journey = updates.at(-1)!.journeys[0];
+      expect(timing === "arrive" ? journey.arrival : journey.departure).toBe(
+        past,
+      );
+      expect(journey.legs.find((leg) => leg.kind === "stop")?.stop).toEqual(
+        request.stops[0],
+      );
+      expect(client.calls.some((call) => call.time === past)).toBe(true);
+      expect(client.calls.every((call) => call.time < Date.now() / 1000)).toBe(
+        true,
+      );
+    });
   it("keeps immediate departure valid while time advances between sections", async () => {
     let clock = Date.now();
     const clockSpy = vi.spyOn(Date, "now").mockImplementation(() => clock++);

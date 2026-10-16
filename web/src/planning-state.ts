@@ -27,6 +27,7 @@ export interface PlanningState {
   resultSettings?: RoutingSettings;
   calculationId?: string;
   pendingRequest?: RouteRequest;
+  pendingRequestResolved?: boolean;
   staleReason?: string;
   recovery?: PlanningRecovery;
 }
@@ -174,6 +175,7 @@ export class PlanningSession {
       ...previous,
       request: previous.selected ? previous.request : request,
       pendingRequest: request,
+      pendingRequestResolved: false,
       staleReason: previous.selected
         ? (previous.staleReason ??
           "Diese Verbindung stammt aus der bisherigen Abfrage. Die Aktualisierung ist noch nicht abgeschlossen.")
@@ -188,7 +190,8 @@ export class PlanningSession {
     };
     this.emit();
     let locating = false,
-      received = false;
+      received = false,
+      resolved = false;
     try {
       if (!navigator.onLine)
         throw new Error(
@@ -215,10 +218,12 @@ export class PlanningSession {
           ...request,
           time: Math.floor(queriedAt),
         };
+      resolved = true;
       this.resolved?.(request, calculationSettings);
       this.state = {
         ...this.state,
         pendingRequest: request,
+        pendingRequestResolved: true,
         locating: false,
         message: "Verbindungen werden gesucht …",
       };
@@ -314,13 +319,20 @@ export class PlanningSession {
         busy: false,
         locating: false,
         pendingRequest: received ? undefined : request,
+        pendingRequestResolved: received ? undefined : resolved,
         staleReason: received
           ? undefined
           : previous.selected
             ? (previous.staleReason ??
               "Die Aktualisierung ist nicht abgeschlossen. Diese Verbindung stammt aus der bisherigen Abfrage.")
             : undefined,
-        message: errorText(error),
+        message:
+          error instanceof PlannerError &&
+          error.code === "empty" &&
+          request.timing !== "now" &&
+          request.time < Date.now() / 1000
+            ? "Für diesen Zeitpunkt wurden keine passenden Verbindungen gefunden."
+            : errorText(error),
         recovery: {
           action:
             locating ||

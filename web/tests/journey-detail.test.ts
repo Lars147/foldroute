@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { detailGroups, detailTime } from "../src/journey-detail";
+import {
+  detailGroups,
+  detailTime,
+  detailTransitTime,
+} from "../src/journey-detail";
 import type { Journey, Leg, LegKind } from "../src/model";
 const place = { name: "Pasing", detail: "", latitude: 48, longitude: 11 };
 const leg = (kind: LegKind, start: number, end: number): Leg => ({
@@ -22,6 +26,103 @@ const journey = (legs: Leg[]): Journey => ({
   isDirect: false,
 });
 
+describe("transit schedule and delay", () => {
+  const scheduledStart = new Date(2026, 9, 16, 12, 20).getTime() / 1000;
+  const scheduledEnd = new Date(2026, 9, 16, 15, 4).getTime() / 1000;
+  const delayed = (): Leg => ({
+    ...leg("transit", scheduledStart + 900, scheduledEnd + 300),
+    scheduledStart,
+    scheduledEnd,
+    realtime: true,
+  });
+
+  it("compares departure and arrival to their own scheduled times", () => {
+    const train = delayed();
+    const route = journey([train]);
+    expect(detailTransitTime(route, train, "departure")).toEqual({
+      time: "12:20",
+      delay: { time: "12:35", minutes: 15 },
+    });
+    expect(detailTransitTime(route, train, "arrival")).toEqual({
+      time: "15:04",
+      delay: { time: "15:09", minutes: 5 },
+    });
+  });
+
+  it.each([15, 5, 0])(
+    "reflects a revised departure delay of %s minutes",
+    (minutes) => {
+      const train = { ...delayed(), start: scheduledStart + minutes * 60 };
+      const time = detailTransitTime(journey([train]), train, "departure");
+      expect(time.time).toBe("12:20");
+      expect(time.delay?.minutes).toBe(minutes || undefined);
+    },
+  );
+
+  it.each([0, 59, -60])(
+    "keeps a single time for a difference of %s seconds",
+    (seconds) => {
+      const train = {
+        ...delayed(),
+        start: scheduledStart + seconds,
+        end: scheduledEnd + seconds,
+      };
+      const route = journey([train]);
+      expect(
+        detailTransitTime(route, train, "departure").delay,
+      ).toBeUndefined();
+      expect(detailTransitTime(route, train, "arrival").delay).toBeUndefined();
+    },
+  );
+
+  it("does not infer a delay from timetable-only data or missing scheduled times", () => {
+    for (const train of [
+      { ...delayed(), realtime: false },
+      { ...delayed(), scheduledStart: undefined, scheduledEnd: undefined },
+    ]) {
+      const route = journey([train]);
+      expect(detailTransitTime(route, train, "departure")).toEqual({
+        time: "12:35",
+      });
+      expect(detailTransitTime(route, train, "arrival")).toEqual({
+        time: "15:09",
+      });
+    }
+  });
+
+  it("uses the original trip reference for older snapshots without schedule fields", () => {
+    const train = {
+      ...delayed(),
+      scheduledStart: undefined,
+      scheduledEnd: undefined,
+      transitReference: {
+        tripId: "trip",
+        fromId: "from",
+        toId: "to",
+        scheduledDeparture: scheduledStart,
+        scheduledArrival: scheduledEnd,
+      },
+    };
+    const route = journey([train]);
+    expect(detailTransitTime(route, train, "departure").delay?.minutes).toBe(
+      15,
+    );
+    expect(detailTransitTime(route, train, "arrival").delay?.minutes).toBe(5);
+  });
+
+  it("dates both times when a delay crosses midnight but the journey does not", () => {
+    const start = new Date(2026, 9, 16, 0, 10).getTime() / 1000;
+    const train = {
+      ...leg("transit", start, start + 3600),
+      scheduledStart: start - 900,
+      realtime: true,
+    };
+    const time = detailTransitTime(journey([train]), train, "departure");
+    expect(time.time).toMatch(/15\..*23:55/);
+    expect(time.delay?.time).toMatch(/16\..*00:10/);
+    expect(time.delay?.minutes).toBe(15);
+  });
+});
 describe("open journey detail groups", () => {
   it("keeps every real step once, groups preparation and does not mutate routing data", () => {
     const input = journey([

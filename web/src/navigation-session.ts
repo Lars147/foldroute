@@ -19,7 +19,14 @@ import {
   navigationJourney,
   movement,
   freshTransit,
+  projectPath,
+  type NavigationProgress,
 } from "./navigation-engine";
+import {
+  assessConnection,
+  blocksNavigation,
+  type ConnectionAssessment,
+} from "./connection-assessment";
 import {
   NavigationStore,
   validateNavigationGeometry,
@@ -61,6 +68,17 @@ export interface NavigationAlternative {
   createdAt: number;
   sourceArrival?: number;
   settings: RoutingSettings;
+  confirmedStops?: string[];
+  reason?: "reroute" | "stop";
+}
+export interface PreparedNavigation {
+  journey: Journey;
+  settings: RoutingSettings;
+  request: RouteRequest;
+  progress?: NavigationProgress;
+  assessment: ConnectionAssessment;
+  restored: boolean;
+  generation: number;
 }
 export interface NavigationDependencies {
   routingSettings?: () => RoutingSettings;
@@ -92,6 +110,7 @@ export class NavigationSession {
   distantStart = false;
   foreground = true;
   resumeNeedsConfirmation = false;
+  assessment?: ConnectionAssessment;
   private requiredFixAfter = 0;
   private generation = 0;
   private controller?: AbortController;
@@ -105,6 +124,7 @@ export class NavigationSession {
     engine: NavigationEngine;
     sourceId: string;
     issueId: string;
+    reason?: "reroute" | "stop";
   };
   get alternativeNeedsLocation() {
     return !!this.pendingAlternativeLocation;
@@ -209,7 +229,33 @@ export class NavigationSession {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
   }
+  cancelStart() {
+    if (this.engine) return;
+    this.abortTasks();
+    this.busy = false;
+    this.message = "";
+    this.assessment = undefined;
+    this.emit();
+  }
   async start(
+    journey: Journey,
+    request: RouteRequest,
+    settings: RoutingSettings,
+    restored?: NavigationSnapshot,
+    replan = false,
+  ) {
+    const prepared = await this.prepareStart(
+      journey,
+      request,
+      settings,
+      restored,
+      replan,
+    );
+    if (!blocksNavigation(prepared.assessment) || restored)
+      this.activateStart(prepared);
+    return prepared;
+  }
+  async prepareStart(
     journey: Journey,
     request: RouteRequest,
     settings: RoutingSettings,
@@ -218,6 +264,7 @@ export class NavigationSession {
   ) {
     this.abortTasks();
     this.engine = undefined;
+    this.assessment = undefined;
     this.settings = structuredClone(settings);
     this.request = structuredClone(request);
     this.message = "Standort wird geprüft …";
@@ -256,7 +303,17 @@ export class NavigationSession {
       let candidate = navigationJourney(journey);
       let candidateSettings = this.settings;
       const separation = distance(fix, journey.origin);
-      if (!restored && !replan && separation > 25000) {
+      const first = journey.legs[0];
+      const startsOnPath =
+        movement(first) &&
+        fix.accuracy <= 50 &&
+        projectPath(
+          fix,
+          first.coordinates.length > 1
+            ? first.coordinates
+            : [first.from, first.to],
+        ).distance <= Math.max(40, fix.accuracy);
+      if (!restored && !replan && !startsOnPath && separation > 25000) {
         this.distantStart = true;
         throw new Error(
           "Der geplante Start ist über 25 km entfernt. Route ab hier planen.",
@@ -271,7 +328,7 @@ export class NavigationSession {
         );
         candidate = navigationJourney(planned.journey);
         candidateSettings = planned.settings;
-      } else if (!restored && separation >= 250) {
+      } else if (!restored && !startsOnPath && separation >= 250) {
         this.message = "Anfahrt zum geplanten Start wird berechnet …";
         this.emit();
         if (!navigator.onLine)
@@ -292,19 +349,6 @@ export class NavigationSession {
         );
         const approach = batch.journeys[0];
         if (!approach) throw new Error("Keine Anfahrt zum Start gefunden.");
-        if (approach.arrival + 60 > candidate.departure) {
-          const planned = await this.plan(
-            {
-              ...request,
-              origin: journey.origin,
-              timing: "depart",
-              time: approach.arrival + 60,
-            },
-            signal,
-          );
-          candidate = planned.journey;
-          candidateSettings = planned.settings;
-        }
         const wait =
           candidate.departure > approach.arrival
             ? [
@@ -349,34 +393,20 @@ export class NavigationSession {
       signal.throwIfAborted();
       // Restoration never silently skips a saved section based on elapsed time.
       const checkedAt = Date.now() / 1000;
-      const first = candidate.legs[index];
-      const missedStart =
-        !restored &&
-        ((first.kind === "transit" && first.start < checkedAt) ||
-          !!transitDisruption(
-            candidate,
-            index,
-            checkedAt,
-            movement(first) ? first.end - first.start : undefined,
-          ));
-      if (missedStart) {
-        this.message = "Aktuelle Verbindung wird berechnet …";
-        this.emit();
-        const planned = await this.plan(
-          this.requestFrom(fixPlace(fix), checkedAt),
-          signal,
-        );
-        candidate = navigationJourney(planned.journey);
-        candidateSettings = planned.settings;
-      }
-      this.activate(candidate, restored?.progress, candidateSettings);
-      this.resumeNeedsConfirmation =
-        !!restored &&
-        !movement(this.engine!.leg) &&
-        this.engine!.leg.end <= checkedAt;
-      this.message = restored
-        ? "Navigation fortgesetzt. Prüfe deinen aktuellen Abschnitt."
-        : "";
+      this.assessment = assessConnection(candidate, index, checkedAt, {
+        fix: restored ? undefined : fix,
+        onboard: !!restored && candidate.legs[index].kind === "transit",
+      });
+      this.message = this.assessment.message;
+      return {
+        journey: candidate,
+        request: structuredClone(request),
+        settings: candidateSettings,
+        progress: restored?.progress,
+        assessment: this.assessment,
+        restored: !!restored,
+        generation,
+      } satisfies PreparedNavigation;
     } finally {
       if (generation === this.generation) {
         this.busy = false;
@@ -384,6 +414,44 @@ export class NavigationSession {
         this.emit();
       }
     }
+  }
+  activateStart(prepared: PreparedNavigation) {
+    if (prepared.generation !== this.generation) return false;
+    if (!this.fix || quality(this.fix) !== "current") {
+      this.needsLocation = true;
+      throw new Error(
+        "Standort ist zu ungenau oder veraltet. Bitte erneut versuchen.",
+      );
+    }
+    prepared.assessment = assessConnection(
+      prepared.journey,
+      prepared.progress?.legIndex ?? 0,
+      Date.now() / 1000,
+      {
+        fix: prepared.restored ? undefined : this.fix,
+        onboard:
+          prepared.restored &&
+          prepared.journey.legs[prepared.progress?.legIndex ?? 0].kind ===
+            "transit",
+      },
+    );
+    this.assessment = prepared.assessment;
+    if (blocksNavigation(prepared.assessment) && !prepared.restored)
+      return false;
+    this.request = structuredClone(prepared.request);
+    this.activate(prepared.journey, prepared.progress, prepared.settings);
+    if (!prepared.restored && this.fix) this.engine!.update(this.fix);
+    this.assessment = prepared.assessment;
+    this.resumeNeedsConfirmation =
+      prepared.restored &&
+      !movement(this.engine!.leg) &&
+      this.engine!.leg.end <= Date.now() / 1000;
+    this.message = prepared.restored
+      ? "Navigation fortgesetzt. Prüfe deinen aktuellen Abschnitt."
+      : "";
+    this.persist(true);
+    this.emit();
+    return true;
   }
   private activate(
     journey: Journey,
@@ -481,6 +549,17 @@ export class NavigationSession {
     )
       this.engine.tick();
     this.discardChangedAlternative();
+    this.assessment = assessConnection(
+      this.engine.journey,
+      this.engine.progress.legIndex,
+      Date.now() / 1000,
+      {
+        remainingMovement: movement(this.engine.leg)
+          ? this.engine.remainingSeconds
+          : undefined,
+        onboard: this.engine.leg.kind === "transit",
+      },
+    );
     this.persist();
     this.emit();
     void this.refresh();
@@ -508,12 +587,24 @@ export class NavigationSession {
         engine.applyJourney(
           applyTransit(engine.journey, engine.progress.legIndex, result),
         );
-      this.disruption = transitDisruption(
+      this.assessment = assessConnection(
+        engine.journey,
+        engine.progress.legIndex,
+        Date.now() / 1000,
+        {
+          remainingMovement: movement(engine.leg)
+            ? engine.remainingSeconds
+            : undefined,
+          onboard: engine.leg.kind === "transit",
+        },
+      );
+      const detected = transitDisruption(
         engine.journey,
         engine.progress.legIndex,
         Date.now() / 1000,
         movement(engine.leg) ? engine.remainingSeconds : undefined,
       );
+      if (!this.alternative?.reason) this.disruption = detected;
       if (!this.disruption) {
         this.alternative = undefined;
         this.pendingAlternativeLocation = undefined;
@@ -523,6 +614,8 @@ export class NavigationSession {
         this.alternative = undefined;
       if (
         this.disruption &&
+        !this.alternative &&
+        this.assessment.status !== "risk" &&
         this.lastIssue !== this.disruption.id &&
         engine.leg.kind !== "stop"
       ) {
@@ -581,6 +674,17 @@ export class NavigationSession {
   }
   async reroute() {
     this.lastReroute = Date.now() / 1000;
+    if (
+      this.engine?.journey.legs
+        .slice(this.engine.progress.legIndex)
+        .some((leg) => leg.kind === "transit")
+    ) {
+      this.disruption = {
+        id: `reroute-${this.engine.leg.navigationId}`,
+        message: "Route verlassen. Die bisherige Verbindung bleibt aktiv.",
+      };
+      return this.proposeAlternative("reroute");
+    }
     return this.changeRoute(async (signal, engine) => {
       if (engine.leg.kind === "transit")
         throw new Error("Zunächst den Ausstieg bestätigen.");
@@ -615,12 +719,10 @@ export class NavigationSession {
       engine.progress.legIndex,
       new Map(),
     );
-    const remaining = updated.legs
-      .slice(engine.progress.legIndex + 1)
-      .filter((l) => l.kind === "transit");
     if (
-      remaining.every((l) => freshTransit(l, now)) &&
-      !transitDisruption(updated, engine.progress.legIndex, now)
+      !blocksNavigation(
+        assessConnection(updated, engine.progress.legIndex, now),
+      )
     ) {
       engine.applyJourney(updated);
       if (stop.end > now) {
@@ -637,39 +739,11 @@ export class NavigationSession {
       this.emit();
       return;
     }
-    return this.changeRoute(async (signal, active) => {
-      const request = this.requestFrom(
-        fixPlace(this.usableFix()),
-        Math.max(now, stop.end),
-        true,
-      );
-      const { journey: route, settings: routeSettings } = await this.plan(
-        request,
-        signal,
-      );
-      signal.throwIfAborted();
-      if (
-        this.engine !== active ||
-        active.leg.navigationId !== stop.navigationId
-      )
-        return;
-      if (stop.end > now)
-        route.legs.unshift(transition("wait", stop.to, now, stop.end));
-      const confirmedStops = [
-        ...active.progress.confirmedStops,
-        ...(stop.stop ? [stop.stop.id] : []),
-      ];
-      this.activate(
-        route,
-        {
-          legIndex: 0,
-          maneuverIndex: 0,
-          meters: 0,
-          confirmedStops,
-        },
-        routeSettings,
-      );
-    }, "Weiterfahrt wird neu berechnet …");
+    this.disruption = {
+      id: `stop-${stop.navigationId}`,
+      message: "Weiterfahrt prüfen. Die bisherige Verbindung bleibt aktiv.",
+    };
+    return this.proposeAlternative("stop");
   }
   completeLeg(expectedId: string) {
     if (
@@ -686,10 +760,16 @@ export class NavigationSession {
     this.persist(true);
     this.emit();
   }
-  async proposeAlternative() {
+  async proposeAlternative(reason?: "reroute" | "stop") {
     const engine = this.engine,
       issue = this.disruption;
-    if (!engine || !issue || this.busy || engine.leg.kind === "stop") return;
+    if (
+      !engine ||
+      !issue ||
+      this.busy ||
+      (engine.leg.kind === "stop" && reason !== "stop")
+    )
+      return;
     this.alternative = undefined;
     if (engine.leg.kind === "transit" && engine.leg.transitStatus?.cancelled) {
       this.message =
@@ -707,6 +787,7 @@ export class NavigationSession {
           engine: active,
           sourceId,
           issueId: issue.id,
+          reason,
         };
         this.usableFix();
       }
@@ -716,9 +797,11 @@ export class NavigationSession {
         .foldingDuration;
       const departure = onboard
         ? Math.max(now, leg.end) + foldingDuration
-        : now + alternativeDecisionSeconds;
+        : reason === "stop"
+          ? Math.max(now, leg.end) + alternativeDecisionSeconds
+          : now + alternativeDecisionSeconds;
       const { journey: route, settings: routeSettings } = await this.plan(
-        this.requestFrom(origin, departure),
+        this.requestFrom(origin, departure, reason === "stop"),
         signal,
         (candidate) =>
           reachableAlternative(
@@ -746,13 +829,15 @@ export class NavigationSession {
               departure,
             ),
           ]
-        : [];
+        : reason === "stop" && leg.end > now
+          ? [transition("wait", leg.to, now, leg.end)]
+          : [];
       const proposed = navigationJourney(
         prefix.length
           ? {
               ...route,
-              origin: active.journey.origin,
-              departure: active.journey.departure,
+              origin: onboard ? active.journey.origin : prefix[0].from,
+              departure: onboard ? active.journey.departure : prefix[0].start,
               legs: [...prefix, ...route.legs],
             }
           : route,
@@ -766,6 +851,11 @@ export class NavigationSession {
         issueId: issue.id,
         createdAt: Date.now() / 1000,
         sourceArrival: onboard ? leg.end : undefined,
+        reason,
+        confirmedStops:
+          reason === "stop" && leg.stop
+            ? [...active.progress.confirmedStops, leg.stop.id]
+            : undefined,
       };
       return "Verbindung geprüft. Bitte zum Übernehmen bestätigen.";
     }, "Alternative wird gesucht …");
@@ -779,7 +869,7 @@ export class NavigationSession {
       pending.sourceId === this.engine?.leg.navigationId &&
       pending.issueId === this.disruption?.id
     )
-      await this.proposeAlternative();
+      await this.proposeAlternative(pending.reason);
   }
   async acceptAlternative() {
     const engine = this.engine,
@@ -789,11 +879,13 @@ export class NavigationSession {
       candidate.sourceId !== engine.leg.navigationId ||
       candidate.issueId !== this.disruption?.id ||
       Date.now() / 1000 - candidate.createdAt > 120 ||
-      !reachableAlternative(
-        candidate.journey,
-        candidate.legIndex,
-        Date.now() / 1000,
-        candidate.sourceArrival !== undefined,
+      blocksNavigation(
+        assessConnection(
+          candidate.journey,
+          candidate.legIndex,
+          Date.now() / 1000,
+          { onboard: candidate.sourceArrival !== undefined },
+        ),
       ) ||
       (candidate.sourceArrival !== undefined &&
         candidate.sourceArrival !== engine.leg.end)
@@ -805,7 +897,7 @@ export class NavigationSession {
         this.emit();
         return;
       }
-      await this.proposeAlternative();
+      await this.proposeAlternative(candidate.reason);
       return;
     }
     await this.changeRoute(async () => {
@@ -816,7 +908,8 @@ export class NavigationSession {
           legIndex: candidate.legIndex,
           maneuverIndex: 0,
           meters: 0,
-          confirmedStops: engine.progress.confirmedStops,
+          confirmedStops:
+            candidate.confirmedStops ?? engine.progress.confirmedStops,
         },
         candidate.settings,
       );
@@ -874,6 +967,7 @@ export class NavigationSession {
     this.busy = false;
     this.alternative = undefined;
     this.disruption = undefined;
+    this.assessment = undefined;
     this.message = "";
     this.savedKey = "";
     this.emit();

@@ -42,6 +42,20 @@ describe("offline snapshot validation", () => {
     expect(validSnapshot(invalid)).toBe(false);
     expect(validSnapshot({ ...snapshot, savedAt: NaN })).toBe(false);
   });
+  it("accepts optional scheduled times and rejects corrupt ones", () => {
+    const stored = structuredClone(snapshot);
+    const leg = stored.journey.legs[0];
+    leg.scheduledStart = leg.start;
+    leg.scheduledEnd = leg.end;
+    expect(validSnapshot(stored)).toBe(true);
+    leg.scheduledEnd = NaN;
+    expect(validSnapshot(stored)).toBe(false);
+    delete leg.scheduledEnd;
+    leg.scheduledStart = Infinity;
+    expect(validSnapshot(stored)).toBe(false);
+    delete leg.scheduledStart;
+    expect(validSnapshot(stored)).toBe(true);
+  });
   it("rejects incomplete place data or incompatible settings", () => {
     expect(
       validSnapshot({ ...snapshot, request: { ...request, origin: {} } }),

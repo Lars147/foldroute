@@ -27,11 +27,73 @@ export function detailGroups(journey: Journey): Leg[][] {
   return groups;
 }
 
-export function detailTime(journey: Journey, instant: number): string {
+export function detailTime(
+  journey: Journey,
+  instant: number,
+  comparedInstant = journey.departure,
+): string {
   const crossDay =
     new Date(journey.departure * 1000).toDateString() !==
-    new Date(journey.arrival * 1000).toDateString();
+      new Date(journey.arrival * 1000).toDateString() ||
+    new Date(instant * 1000).toDateString() !==
+      new Date(comparedInstant * 1000).toDateString();
   return `${crossDay ? `${dateLabel(instant)} ` : ""}${clock(instant)}`;
+}
+
+export function detailTransitTime(
+  journey: Journey,
+  leg: Leg,
+  event: "departure" | "arrival",
+): { time: string; delay?: { time: string; minutes: number } } {
+  const actual = event === "departure" ? leg.start : leg.end;
+  const scheduled =
+    event === "departure"
+      ? (leg.scheduledStart ?? leg.transitReference?.scheduledDeparture)
+      : (leg.scheduledEnd ?? leg.transitReference?.scheduledArrival);
+  if (!leg.realtime || scheduled === undefined || actual - scheduled < 60)
+    return { time: detailTime(journey, actual) };
+  return {
+    time: detailTime(journey, scheduled, actual),
+    delay: {
+      time: detailTime(journey, actual, scheduled),
+      minutes: Math.floor((actual - scheduled) / 60),
+    },
+  };
+}
+
+function renderTransitTime(
+  journey: Journey,
+  leg: Leg,
+  event: "departure" | "arrival",
+  restored: boolean,
+): HTMLElement[] {
+  const time = detailTransitTime(journey, leg, event);
+  const departure = event === "departure";
+  const heading = node(
+    "strong",
+    departure
+      ? `Ab ${time.time} · ${leg.line || "ÖPNV"}`
+      : `${time.time} · Ausstieg`,
+    departure ? "detail-heading" : "",
+  );
+  if (!time.delay) return [heading];
+  heading.append(node("span", " (laut Fahrplan)", "sr-only"));
+  const prediction = node("p", "", "detail-delay");
+  prediction.dataset.event = event;
+  const visible = node(
+    "span",
+    `${time.delay.time} · +${time.delay.minutes} min`,
+  );
+  visible.setAttribute("aria-hidden", "true");
+  prediction.append(
+    visible,
+    node(
+      "span",
+      `${restored ? "Gespeicherte Prognose:" : "Voraussichtlich"} ${departure ? "Abfahrt" : "Ankunft"} ${time.delay.time}, ${time.delay.minutes} Minuten Verspätung.`,
+      "sr-only",
+    ),
+  );
+  return [heading, prediction];
 }
 
 export function renderJourneyDetails(
@@ -56,13 +118,7 @@ export function renderJourneyDetails(
       const start = detailTime(journey, leg.start),
         end = detailTime(journey, leg.end);
       if (leg.kind === "transit") {
-        copy.append(
-          node(
-            "strong",
-            `Ab ${start} · ${leg.line || "ÖPNV"}`,
-            "detail-heading",
-          ),
-        );
+        copy.append(...renderTransitTime(journey, leg, "departure", restored));
         copy.append(node("p", leg.from.name, "detail-place"));
         if (leg.headsign)
           copy.append(
@@ -74,7 +130,7 @@ export function renderJourneyDetails(
           );
         const arrival = node("div", "", "detail-arrival");
         arrival.append(
-          node("strong", `${end} · Ausstieg`),
+          ...renderTransitTime(journey, leg, "arrival", restored),
           node("p", leg.to.name, "detail-place"),
         );
         if (leg.arrivalPlatform)

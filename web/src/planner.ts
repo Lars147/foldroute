@@ -262,13 +262,10 @@ async function* planRawRoutes(
     time: input.time,
     timing: input.timing === "now" ? ("depart" as const) : input.timing,
   };
-  if (
-    !Number.isFinite(request.time) ||
-    (input.timing !== "now" && request.time < Date.now() / 1000)
-  )
+  if (!Number.isFinite(request.time))
     throw new PlannerError(
       "input",
-      "Bitte einen aktuellen oder zukünftigen Zeitpunkt auswählen.",
+      "Bitte einen gültigen Zeitpunkt auswählen.",
     );
   let all: Journey[] = [],
     issues: string[] = [],

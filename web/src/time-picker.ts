@@ -35,10 +35,9 @@ export function timeSummary(mode: Timing, value: string): string {
   return `${day}, ${mode === "arrive" ? "an" : "ab"} ${value.slice(11)}`;
 }
 export class TimePicker {
-  private mode: Timing = "now";
+  private mode: Exclude<Timing, "now"> = "depart";
   private day = "";
   private month = new Date();
-  private timer?: ReturnType<typeof setInterval>;
   private get active() {
     return !el("time-editor").hidden;
   }
@@ -46,13 +45,12 @@ export class TimePicker {
     el("time-trigger").onclick = () => this.open();
     el("time-cancel").onclick = () => this.close();
     el("time-now").onclick = () => {
-      this.mode = "now";
-      this.refreshNow();
+      this.setFixedDate(new Date());
       this.render();
     };
     for (const mode of ["depart", "arrive"] as const)
       el(`time-${mode}`).onclick = () => {
-        if (this.mode !== "now" || mode === "arrive") this.mode = mode;
+        this.mode = mode;
         this.render();
       };
     el("time-previous").onclick = () => this.changeMonth(-1);
@@ -72,17 +70,13 @@ export class TimePicker {
       this.validate();
     };
     el("time-clock").oninput = () => {
-      if (this.mode === "now") this.mode = "depart";
       this.validate();
-      this.renderMode();
     };
     el("time-editor").onsubmit = (event) => {
       event.preventDefault();
       if (!this.validate()) return;
       el<HTMLInputElement>("timing").value = this.mode;
-      el<HTMLInputElement>("when").value = localMinute(
-        this.mode === "now" ? this.now() : this.date()!,
-      );
+      el<HTMLInputElement>("when").value = localMinute(this.date()!);
       this.changed();
       this.close();
     };
@@ -94,12 +88,6 @@ export class TimePicker {
       }
     });
     dialog.addEventListener("close", () => this.close(false));
-    document.addEventListener("visibilitychange", () => {
-      if (this.active) this.tick();
-    });
-  }
-  private now() {
-    return new Date();
   }
   private date() {
     const clock = el<HTMLInputElement>("time-clock").value.replace(
@@ -108,31 +96,19 @@ export class TimePicker {
     );
     return parseLocalMinute(`${this.day}T${clock}`);
   }
-  private refreshNow() {
-    const date = this.now();
-    this.day = localMinute(date).slice(0, 10);
-    this.month = new Date(date.getFullYear(), date.getMonth(), 1);
-    el<HTMLInputElement>("time-clock").value = localMinute(date).slice(11);
-  }
   private setFixedDate(date: Date) {
-    if (this.mode === "now") this.mode = "depart";
     this.day = localMinute(date).slice(0, 10);
     this.month = new Date(date.getFullYear(), date.getMonth(), 1);
     el<HTMLInputElement>("time-clock").value = localMinute(date).slice(11);
-  }
-  private tick() {
-    if (this.mode === "now") {
-      this.refreshNow();
-      this.render();
-    } else this.validate();
   }
   open() {
-    this.mode = el<HTMLInputElement>("timing").value as Timing;
-    if (this.mode === "now") this.refreshNow();
-    else
-      this.setFixedDate(
-        parseLocalMinute(el<HTMLInputElement>("when").value) ?? this.now(),
-      );
+    const timing = el<HTMLInputElement>("timing").value as Timing;
+    this.mode = timing === "arrive" ? "arrive" : "depart";
+    this.setFixedDate(
+      timing === "now"
+        ? new Date()
+        : (parseLocalMinute(el<HTMLInputElement>("when").value) ?? new Date()),
+    );
     el("route-form").hidden = true;
     el("route-form").inert = true;
     el("time-editor").hidden = false;
@@ -141,11 +117,9 @@ export class TimePicker {
     dialog.setAttribute("aria-labelledby", "time-heading");
     this.render();
     this.focusDay(this.day);
-    this.timer = setInterval(() => this.tick(), 60000);
   }
   close(focus = true) {
     if (!this.active) return;
-    clearInterval(this.timer);
     el("time-editor").hidden = true;
     el("route-form").hidden = false;
     el("route-form").inert = false;
@@ -175,29 +149,21 @@ export class TimePicker {
   private renderMode() {
     el("time-depart").setAttribute(
       "aria-pressed",
-      String(this.mode !== "arrive"),
+      String(this.mode === "depart"),
     );
     el("time-arrive").setAttribute(
       "aria-pressed",
       String(this.mode === "arrive"),
     );
-    el("time-now").setAttribute("aria-pressed", String(this.mode === "now"));
-    el("time-hint").textContent =
-      this.mode === "now"
-        ? "Der aktuelle Zeitpunkt wird bei der Berechnung bestimmt."
-        : "Fester Zeitpunkt";
   }
   private validate() {
-    const valid =
-      this.mode === "now" ||
-      (!!this.date() && this.date()!.getTime() >= Date.now());
+    const date = this.date();
+    const valid = !!date;
     el("time-error").textContent = valid
       ? ""
-      : "Bitte ein gültiges Datum und eine zukünftige Uhrzeit (HH:mm) wählen.";
+      : "Bitte ein gültiges Datum und eine Uhrzeit (HH:mm) wählen.";
     el<HTMLButtonElement>("time-apply").disabled = !valid;
-    const date = this.date();
-    el<HTMLButtonElement>("time-minus").disabled =
-      !date || date.getTime() - 300000 < Date.now();
+    el<HTMLButtonElement>("time-minus").disabled = !date;
     el<HTMLButtonElement>("time-plus").disabled = !date;
     return valid;
   }
@@ -211,8 +177,6 @@ export class TimePicker {
     });
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    el<HTMLButtonElement>("time-previous").disabled =
-      this.month <= new Date(today.getFullYear(), today.getMonth(), 1);
     const grid = el("time-calendar");
     grid.replaceChildren();
     const start = new Date(this.month);
@@ -233,7 +197,6 @@ export class TimePicker {
         const button = node("button", String(date.getDate()));
         button.type = "button";
         button.dataset.date = day;
-        button.disabled = date < today;
         button.tabIndex =
           day === this.day ||
           (!selectedVisible &&
@@ -257,7 +220,6 @@ export class TimePicker {
         if (date.getTime() === today.getTime())
           button.setAttribute("aria-current", "date");
         button.onclick = () => {
-          if (this.mode === "now") this.mode = "depart";
           this.day = day;
           this.month = new Date(date.getFullYear(), date.getMonth(), 1);
           this.render();
@@ -287,7 +249,6 @@ export class TimePicker {
             );
           } else return;
           event.preventDefault();
-          if (next < today) return;
           this.month = new Date(next.getFullYear(), next.getMonth(), 1);
           this.render();
           this.focusDay(localMinute(next).slice(0, 10));
