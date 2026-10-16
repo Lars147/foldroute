@@ -127,32 +127,34 @@
           ><span data-icon="chevron"></span>
         </button>
         <p id="place-status" class="message" role="status"></p>
-        <ul
-          id="destination-options"
-          class="suggestions"
-          role="listbox"
-          aria-label="Zielvorschläge"
-          hidden
-        ></ul>
-        <div id="search-empty" class="search-empty">
-          <img src="foldroute-mark.svg" width="96" height="96" alt="" />
-          <h2>Ein Ziel. Viele Möglichkeiten.</h2>
-          <p>
-            Wähle dein Ziel. FoldRoute findet Verbindungen mit Rad und ÖPNV –
-            mit deiner Zeit zum Falten.
+        <div class="search-content">
+          <ul
+            id="destination-options"
+            class="suggestions"
+            role="listbox"
+            aria-label="Zielvorschläge"
+            hidden
+          ></ul>
+          <div id="search-empty" class="search-empty">
+            <img src="foldroute-mark.svg" width="96" height="96" alt="" />
+            <h2>Ein Ziel. Viele Möglichkeiten.</h2>
+            <p>
+              Wähle dein Ziel. FoldRoute findet Verbindungen mit Rad und ÖPNV –
+              mit deiner Zeit zum Falten.
+            </p>
+          </div>
+          <button id="open-saved" class="saved-button" hidden>
+            <span data-icon="wait"></span
+            ><span
+              ><strong>Letzte Strecke erneut planen</strong
+              ><small id="saved-description"></small></span
+            ><span data-icon="chevron"></span>
+          </button>
+          <p id="offline-empty" class="message" hidden>
+            Du bist offline. Noch keine Reise gespeichert. Verbinde dich mit dem
+            Internet, um eine Route zu planen.
           </p>
         </div>
-        <button id="open-saved" class="saved-button" hidden>
-          <span data-icon="wait"></span
-          ><span
-            ><strong>Letzte Strecke erneut planen</strong
-            ><small id="saved-description"></small></span
-          ><span data-icon="chevron"></span>
-        </button>
-        <p id="offline-empty" class="message" hidden>
-          Du bist offline. Noch keine Reise gespeichert. Verbinde dich mit dem
-          Internet, um eine Route zu planen.
-        </p>
       </section>
       <section
         id="history-view"
