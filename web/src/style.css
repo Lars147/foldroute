@@ -803,6 +803,21 @@ fieldset:after {
   color: #b42332;
   font-size: 0.875rem;
 }
+.settings-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 78px;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-decoration: none;
+}
+.settings-feedback > span:last-child {
+  flex-shrink: 0;
+  color: var(--muted);
+}
 #settings-help .settings-install {
   padding-block: 16px;
 }
