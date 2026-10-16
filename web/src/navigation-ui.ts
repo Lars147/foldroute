@@ -374,7 +374,9 @@ export class NavigationView {
         ? `${leg.platform ? `Gleis ${leg.platform} · ` : ""}Ausstieg ${leg.to.name}${leg.arrivalPlatform ? ` · Gleis ${leg.arrivalPlatform}` : ""}`
         : leg?.kind === "stop"
           ? `Weiterfahrt ${clock(leg.end)} · Bestätige, wenn du bereit bist.`
-          : movement(leg) && !leg?.maneuvers?.length
+          : movement(leg) &&
+              !leg?.maneuvers?.length &&
+              !engine?.hasManeuverGuidance
             ? "Keine Abbiegehinweise für diesen Abschnitt. Folge dem Streckenverlauf."
             : (leg?.to.name ?? "");
     el("navigation-stage").textContent = engine
@@ -542,7 +544,9 @@ export class NavigationView {
         .querySelector(".current")
         ?.scrollIntoView({ block: "nearest", inline: "center" });
       this.guidance.speak(
-        phaseKey,
+        engine.maneuver && (engine.distanceToNext ?? Infinity) <= 100
+          ? `${phaseKey}-turn-${engine.guidanceKey}`
+          : phaseKey,
         engine.maneuver && engine.distanceToNext !== undefined
           ? `In ${Math.round(engine.distanceToNext / 10) * 10} Metern ${engine.instruction}`
           : engine.instruction,
@@ -551,7 +555,7 @@ export class NavigationView {
     if (session.foreground && !session.busy) {
       if (engine.maneuver && (engine.distanceToNext ?? Infinity) <= 100)
         this.guidance.speak(
-          `${phaseKey}-turn-${engine.progress.maneuverIndex}`,
+          `${phaseKey}-turn-${engine.guidanceKey}`,
           `In ${Math.round((engine.distanceToNext ?? 0) / 10) * 10} Metern ${engine.instruction}`,
         );
       if (

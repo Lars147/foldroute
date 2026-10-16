@@ -1,6 +1,11 @@
 import type { Coordinate, Journey, Leg, Maneuver } from "./model";
 import { distance } from "./geometry";
 import { quality, type LocationFix } from "./live-location";
+import {
+  navigationCues,
+  verticalManeuver,
+  type NavigationCue,
+} from "./navigation-cues";
 
 export interface NavigationProgress {
   legIndex: number;
@@ -104,6 +109,8 @@ export class NavigationEngine {
   private lastTimestamp = 0;
   private path: Coordinate[] = [];
   private offsets: number[] = [];
+  private cues: NavigationCue[] = [];
+  private cue?: NavigationCue;
   constructor(
     public journey: Journey,
     progress?: NavigationProgress,
@@ -124,7 +131,13 @@ export class NavigationEngine {
     return this.journey.legs[this.progress.legIndex];
   }
   get maneuver(): Maneuver | undefined {
-    return this.leg.maneuvers?.[this.progress.maneuverIndex];
+    return this.phase === "active" ? this.cue?.maneuver : undefined;
+  }
+  get guidanceKey(): string | undefined {
+    return this.phase === "active" ? this.cue?.key : undefined;
+  }
+  get hasManeuverGuidance(): boolean {
+    return this.cues.length > 0;
   }
   get instruction(): string {
     if (this.phase === "arrived") return "Ziel erreicht";
@@ -172,14 +185,16 @@ export class NavigationEngine {
         this.leg.coordinates.length > 1
           ? this.leg.coordinates
           : [this.leg.from, this.leg.to];
+    this.cues = movement(this.leg)
+      ? navigationCues(this.leg, this.path, this.offsets)
+      : [];
     this.updateManeuver();
   }
   private updateManeuver() {
+    // Preserve source-step indices for existing saved navigation snapshots.
     // A step's direction applies at its start, not at its endpoint.
     const next = this.offsets.findIndex((offset, i) => {
-      const special = ["ELEVATOR", "STAIRS"].includes(
-        this.leg.maneuvers![i].direction,
-      );
+      const special = verticalManeuver(this.leg.maneuvers![i].direction);
       // A vertical maneuver can share its coordinate with the next step.
       // Keep its instruction until the rider has moved beyond that anchor.
       return special
@@ -188,10 +203,16 @@ export class NavigationEngine {
     });
     this.progress.maneuverIndex =
       next < 0 ? (this.leg.maneuvers?.length ?? 0) : next;
+    this.cue = this.cues.find((cue) =>
+      verticalManeuver(cue.maneuver.direction)
+        ? cue.meters >= this.progress.meters - 25
+        : cue.meters > this.progress.meters ||
+          (cue.meters === 0 && this.progress.meters === 0),
+    );
     this.distanceToNext =
-      next < 0
+      this.cue === undefined
         ? this.remainingMeters
-        : Math.max(0, this.offsets[next] - this.progress.meters);
+        : Math.max(0, this.cue.meters - this.progress.meters);
   }
   invalidateLocation() {
     this.offSamples = 0;
@@ -233,7 +254,7 @@ export class NavigationEngine {
       if (
         projection.length - this.progress.meters <= 40 &&
         distance(fix, this.leg.to) <= 40 &&
-        !["ELEVATOR", "STAIRS"].includes(this.maneuver?.direction ?? "")
+        !this.maneuver
       )
         this.advance(false, now / 1000);
     }

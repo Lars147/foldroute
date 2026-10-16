@@ -286,6 +286,7 @@ async function setup(
   multimodal = false,
   start = true,
   requestOverrides: Partial<RouteRequest> = {},
+  selectedJourney = route(multimodal),
 ) {
   await page.clock.install({ time: new Date(now * 1000) });
   await page.addInitScript(() => {
@@ -444,7 +445,7 @@ async function setup(
       );
     },
     {
-      journey: route(multimodal),
+      journey: selectedJourney,
       settings: defaults,
       time: now,
       requestOverrides,
@@ -459,6 +460,151 @@ async function setup(
     "Links abbiegen auf Zweite Straße",
   );
   await expect(page.locator("#navigation-storage-status")).toBeEmpty();
+}
+
+function guidanceRoute(singleStep = false): Journey {
+  const journey = route();
+  const coordinates = singleStep
+    ? [
+        a,
+        { ...a, longitude: 11.0008 },
+        { ...a, longitude: 11.0008, latitude: 48.0006 },
+        { ...a, longitude: 11.003, latitude: 48.0006 },
+      ]
+    : [
+        a,
+        { ...a, longitude: 11.00005 },
+        { ...a, longitude: 11.0001 },
+        { ...a, longitude: 11.001 },
+        { ...a, longitude: 11.0108 },
+        { ...a, longitude: 11.0108, latitude: 48.002 },
+        { ...a, longitude: 11.0143, latitude: 48.002 },
+      ];
+  const to = { ...coordinates.at(-1)!, name: "Ziel" };
+  const leg = journey.legs[0];
+  leg.to = to;
+  leg.coordinates = coordinates;
+  leg.end = now + 900;
+  leg.distance = coordinates
+    .slice(1)
+    .reduce((sum, p, i) => sum + distance(coordinates[i], p), 0);
+  leg.maneuvers = singleStep
+    ? [
+        {
+          direction: "CONTINUE",
+          streetName: "",
+          coordinates,
+          distance: leg.distance,
+        },
+      ]
+    : coordinates.slice(1).map((p, i) => ({
+        direction: "CONTINUE",
+        streetName: i === 4 ? "Am Isarufer" : i === 5 ? "Zum Bahnhof" : "",
+        coordinates: [coordinates[i], p],
+        distance: distance(coordinates[i], p),
+      }));
+  journey.destination = to;
+  journey.arrival = leg.end;
+  return journey;
+}
+
+for (const width of [390, 1280]) {
+  test(`next actual turn stays visible across short straight steps at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page, false, false, {}, guidanceRoute());
+    await page.locator("#route-more").click();
+    await page.locator("#navigation-start").click();
+    const instruction = page.locator("#navigation-instruction");
+    const meters = page.locator("#navigation-distance");
+    await expect(instruction).toHaveText("Links abbiegen auf Am Isarufer");
+    await expect(page.locator("#navigation-arrow")).toHaveText("↰");
+    await expect(meters).toHaveText("805 m");
+    for (const longitude of [
+      11.00005, 11.0001, 11.001, 11.0054, 11.0098, 11.0106,
+    ]) {
+      await page.clock.runFor(20000);
+      await page.evaluate(
+        (longitude) => (window as any).navProbe.push(48, longitude),
+        longitude,
+      );
+      await expect(instruction).toHaveText("Links abbiegen auf Am Isarufer");
+      const expected =
+        Math.round(
+          distance(
+            { latitude: 48, longitude },
+            { latitude: 48, longitude: 11.0108 },
+          ) / 5,
+        ) * 5;
+      await expect(meters).toHaveText(`${expected} m`);
+    }
+    const spoken = await page.evaluate(
+      () => (window as any).navProbe.spoken as string[],
+    );
+    expect(
+      spoken.filter((text) => text.includes("Links abbiegen")),
+    ).toHaveLength(2);
+    expect(spoken.some((text) => text.includes("Geradeaus"))).toBe(false);
+    await page.screenshot({ path: info.outputPath("next-turn-countdown.png") });
+    await page.clock.runFor(1000);
+    await page.evaluate(() => (window as any).navProbe.push(48, 11.0108));
+    await expect(instruction).toHaveText("Rechts abbiegen auf Zum Bahnhof");
+    await expect(page.locator("#navigation-arrow")).toHaveText("↱");
+    await expect(meters).toHaveText("220 m");
+  });
+
+  test(`two inferred turns in one source step have separate announcements and survive GPS loss and resume at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page, false, false, {}, guidanceRoute(true));
+    await page.locator("#route-more").click();
+    await page.locator("#navigation-start").click();
+    const instruction = page.locator("#navigation-instruction");
+    const meters = page.locator("#navigation-distance");
+    await expect(instruction).toHaveText("Links abbiegen");
+    await expect(meters).toHaveText("60 m");
+    await page.clock.runFor(5000);
+    await page.evaluate(() => (window as any).navProbe.push(48, 11.0008));
+    await expect(instruction).toHaveText("Rechts abbiegen");
+    await expect(meters).toHaveText("65 m");
+    let spoken = await page.evaluate(
+      () => (window as any).navProbe.spoken as string[],
+    );
+    expect(
+      spoken.filter((text) => text.includes("Links abbiegen")),
+    ).toHaveLength(1);
+    expect(
+      spoken.filter((text) => text.includes("Rechts abbiegen")),
+    ).toHaveLength(1);
+    await page.evaluate(() => (window as any).navProbe.fail(2));
+    await expect(meters).toBeEmpty();
+    await page.clock.runFor(1000);
+    await page.evaluate(() => (window as any).navProbe.push(48.0003, 11.0008));
+    await expect(meters).toHaveText("35 m");
+    await page.evaluate(() => (window as any).navProbe.hide(true));
+    await page.reload();
+    await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
+    await page.evaluate(() => (window as any).navProbe.push(48.0003, 11.0008));
+    await page.locator("#navigation-resume").click();
+    await expect(instruction).toHaveText("Rechts abbiegen");
+    await expect(meters).toHaveText("35 m");
+    await page.clock.runFor(1000);
+    await page.evaluate(() => (window as any).navProbe.push(48.0006, 11.0008));
+    await expect(instruction).toHaveText("Mit dem Rad nach Ziel");
+    await expect(meters).toHaveText("165 m");
+    await page.clock.runFor(10000);
+    await page.evaluate(() => (window as any).navProbe.push(48.0006, 11.003));
+    await expect(instruction).toHaveText("Ziel erreicht");
+    spoken = await page.evaluate(
+      () => (window as any).navProbe.spoken as string[],
+    );
+    expect(spoken).toContain("Ziel erreicht");
+    expect(spoken.some((text) => /In .*Metern Ziel erreicht/.test(text))).toBe(
+      false,
+    );
+  });
 }
 async function complete(page: Page) {
   if (!(await page.locator("#navigation-complete").isVisible()))
