@@ -159,7 +159,7 @@ struct JourneyPreviewView: View {
             reservedAlternativeContent(journey) { option in
                 VStack(alignment: .leading, spacing: 16) {
                     if let comparison = CyclingComparison.label(option, limit: model.resultCyclingLimit) {
-                        Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.accent)
+                        Text(comparison).font(.caption).foregroundStyle(FoldRouteColor.actionText)
                     }
                     planningNotices(option)
                 }
@@ -280,8 +280,12 @@ struct JourneyPreviewView: View {
                         .accessibilityIdentifier("journeyDetails-" + option.id)
                     }
                     .fixedSize(horizontal: false, vertical: true)
-                    .background(selected ? FoldRouteColor.signalYellow : FoldRouteColor.panelSubtle, in: RoundedRectangle(cornerRadius: 12))
-                    .foregroundStyle(selected ? FoldRouteColor.asphalt : FoldRouteColor.panelText)
+                    .background(selected ? FoldRouteColor.panelSelected : FoldRouteColor.panelSubtle, in: RoundedRectangle(cornerRadius: 12))
+                    .foregroundStyle(FoldRouteColor.panelText)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(selected ? FoldRouteColor.selectionIndicator : FoldRouteColor.panelLine, lineWidth: selected ? 2 : 1)
+                    }
                     .id("routeChoice-" + option.id)
                     if open {
                         VStack(alignment: .leading, spacing: 16) {

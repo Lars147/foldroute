@@ -93,11 +93,13 @@ for (const system of ["light", "dark"] as const) {
 test("routing reset preserves appearance and local data deletion restores System", async ({
   page,
 }) => {
+  await page.addInitScript(() => localStorage.setItem("foldroute.mapStyle", "dark"));
   await page.emulateMedia({ colorScheme: "light" });
   await open(page);
   await page.getByRole("radio", { name: "Dunkel", exact: true }).check();
   await page.locator("#reset-settings").click();
   await theme(page, "dark");
+  await expect(page.locator("html")).toHaveAttribute("data-map-style", "dark");
   await openSettingsSection(page, "data");
   await page.locator("#clear-data").click();
   await page.locator("#cancel-delete-data").click();
@@ -105,6 +107,8 @@ test("routing reset preserves appearance and local data deletion restores System
   await page.locator("#clear-data").click();
   await page.locator("#confirm-delete-data").click();
   await theme(page, "light");
+  await expect(page.locator("html")).toHaveAttribute("data-map-style", "positron");
+  expect(await page.evaluate(() => localStorage.getItem("foldroute.mapStyle"))).toBeNull();
   expect(
     await page.evaluate((key) => localStorage.getItem(key), key),
   ).toBeNull();
@@ -144,26 +148,33 @@ test("unavailable storage keeps appearance usable for this session", async ({
   await theme(page, "light");
 });
 
-test("public example follows System without reading personal appearance", async ({
+test("public example follows System without reading personal routing data", async ({
   page,
 }, info) => {
   await page.addInitScript((key) => {
-    localStorage.setItem(key, "dark");
     const original = Storage.prototype.getItem;
     Storage.prototype.getItem = function (name) {
-      if (name === key) throw new Error("Example read personal appearance");
+      if (name !== key && name !== "foldroute.mapStyle")
+        throw new Error("Example read personal routing data");
       return original.call(this, name);
     };
   }, key);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
+  await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/?example=bike-transfer");
   await expect(page.locator(".route-choice")).toBeVisible();
   await theme(page, "light");
+  const routeLines = page.locator('.leaflet-overlay-pane path[stroke-width="6"]');
+  await expect(routeLines.first()).toBeAttached();
+  const lineColors = await routeLines.evaluateAll((lines) =>
+    lines.map((line) => line.getAttribute("stroke")),
+  );
+  expect(lineColors).toContain("#087f8c");
+  expect(lineColors).toContain("#7667e8");
   await expect(page.locator(".journey-panel")).toHaveCSS(
     "background-color",
     "rgb(255, 255, 255)",
@@ -174,6 +185,15 @@ test("public example follows System without reading personal appearance", async 
   await expectPanelContrast(page);
   await page.emulateMedia({ colorScheme: "dark" });
   await theme(page, "dark");
+  await expect(page.locator("#map")).toHaveCSS(
+    "background-color", "rgb(238, 240, 235)",
+  );
+  expect(await routeLines.evaluateAll((lines) =>
+    lines.map((line) => line.getAttribute("stroke")),
+  )).toEqual(lineColors);
+  await expect(page.locator(".route-marker-destination")).toHaveCSS(
+    "background-color", "rgb(23, 26, 28)",
+  );
   await expect(page.locator(".journey-panel")).toHaveCSS(
     "background-color",
     "rgb(23, 26, 28)",
@@ -183,6 +203,41 @@ test("public example follows System without reading personal appearance", async 
     .screenshot({ path: info.outputPath("route-dark.png") });
   await expectPanelContrast(page);
   expect(errors).toEqual([]);
+});
+
+test("landing stays light while planner and public example share appearance changes", async ({
+  page,
+  context,
+}) => {
+  await context.route("https://tiles.openfreemap.org/**", (route) => route.abort());
+  await page.emulateMedia({ colorScheme: "dark" });
+  await open(page);
+  await page.getByRole("radio", { name: "Dunkel", exact: true }).check();
+  await theme(page, "dark");
+  const landing = await context.newPage();
+  await landing.emulateMedia({ colorScheme: "dark" });
+  await landing.goto("/landing/");
+  await theme(landing, "light");
+  await expect(landing.getByRole("combobox", { name: "Darstellung" })).toHaveCount(0);
+  await expect(landing.locator(".planner-preview img")).toHaveAttribute(
+    "src", "assets/webplaner-vorschau.png",
+  );
+  expect(await landing.evaluate((key) => localStorage.getItem(key), key)).toBe("dark");
+  const planner = await context.newPage();
+  await planner.goto("/?example=bike-transfer");
+  await expect(planner.locator(".route-choice")).toBeVisible();
+  await theme(planner, "dark");
+  await page.getByRole("radio", { name: "Hell", exact: true }).check();
+  await theme(page, "light");
+  await theme(planner, "light");
+  await theme(landing, "light");
+  await page.getByRole("radio", { name: "Dunkel", exact: true }).check();
+  await theme(planner, "dark");
+  await landing.reload();
+  await theme(landing, "light");
+  expect(await landing.evaluate((key) => localStorage.getItem(key), key)).toBe("dark");
+  await landing.close();
+  await planner.close();
 });
 
 for (const width of [320, 390, 1280]) {
@@ -245,7 +300,7 @@ test("changing appearance preserves planned route and does not request replannin
   page,
 }) => {
   await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
+  await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
   let requests = 0;

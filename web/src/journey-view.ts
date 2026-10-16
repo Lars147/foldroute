@@ -2,6 +2,7 @@ import {
   renderJourneyDetails,
   type JourneyPresentation,
 } from "./journey-detail";
+import { closeMapStylePickers } from "./map-style-picker";
 import {
   type Journey,
   bikeDistance,
@@ -99,7 +100,11 @@ export class JourneyView {
     this.desktop.addEventListener("change", () => {
       this.applyLayout();
       this.restorePosition();
-      if (!actionsDialog.open && document.activeElement !== el("route-more"))
+      if (
+        !actionsDialog.open &&
+        !document.querySelector(".map-style-panel:popover-open") &&
+        document.activeElement !== el("route-more")
+      )
         this.focusSelection();
     });
     let pending = false;
@@ -300,13 +305,16 @@ export class JourneyView {
     el("close-route").hidden = mobile && this.screen !== "list";
     for (const element of [
       el("map"),
+      el("map-controls"),
       el("map-location"),
       el("map-route"),
+      el("map-style-control"),
       document.querySelector<HTMLElement>(".map-credit")!,
     ]) {
       element.inert = !this.mapVisible;
       element.style.visibility = this.mapVisible ? "" : "hidden";
     }
+    if (!this.mapVisible) closeMapStylePickers();
     this.onLayoutChange?.();
   }
   focusSelection(fromDetail = false) {

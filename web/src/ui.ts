@@ -51,6 +51,7 @@ const paths: Record<string, string> = {
   stop: '<path d="M12 22s8-8 8-14a8 8 0 0 0-16 0c0 6 8 14 8 14Z"/><circle cx="12" cy="8" r="3"/>',
   location: '<path d="m3 10 18-7-7 18-3-8-8-3Z"/>',
   map: '<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5ZM9 3v16m6-14v16"/>',
+  layers: '<path d="m12 3 10 5-10 5L2 8l10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"/>',
   settings:
     '<path d="M4 7h6m4 0h6M4 17h10m4 0h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/>',
   search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',
@@ -74,39 +75,17 @@ export function icon(name: LegKind | keyof typeof paths) {
   span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">${paths[name] ?? paths.map}</svg>`;
   return span;
 }
-export const legColors: Record<LegKind, string> = {
-  bike: "#2ec5ce",
-  transit: "#7667e8",
-  fold: "#ffd43b",
-  unfold: "#ffd43b",
-  walk: "#91d5b3",
-  wait: "#ffd43b",
-  stop: "#ffd43b",
-};
-const transitModeColors: Record<string, string> = {
-  SUBURBAN: "var(--green-text)",
-  SUBWAY: "var(--blue-text)",
-  TRAM: "var(--violet-text)",
-  BUS: "var(--orange-text)",
-  COACH: "var(--orange-text)",
-  REGIONAL_RAIL: "var(--red-text)",
-  HIGHSPEED_RAIL: "var(--red-text)",
-  LONG_DISTANCE: "var(--red-text)",
-  NIGHT_RAIL: "var(--red-text)",
-};
 export const legTextColors: Record<LegKind, string> = {
   bike: "var(--cyan-text)",
   transit: "var(--violet-text)",
-  fold: "var(--accent)",
-  unfold: "var(--accent)",
-  walk: "var(--green-text)",
-  wait: "var(--accent)",
-  stop: "var(--accent)",
+  fold: "var(--panel-text)",
+  unfold: "var(--panel-text)",
+  walk: "var(--panel-muted)",
+  wait: "var(--panel-muted)",
+  stop: "var(--panel-muted)",
 };
-export const routeSymbolColor = (kind: LegKind, mode?: string) =>
-  kind === "transit"
-    ? (transitModeColors[mode ?? ""] ?? legTextColors.transit)
-    : legTextColors[kind];
+export const routeSymbolColor = (kind: LegKind, _mode?: string) =>
+  legTextColors[kind];
 
 export function historyPlannedAt(seconds: number, now = new Date()): string {
   const date = new Date(seconds * 1000);

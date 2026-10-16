@@ -3,7 +3,8 @@ import View from "ol/View.js";
 import { defaults as defaultInteractions } from "ol/interaction/defaults.js";
 import TileLayer from "ol/layer/Tile.js";
 import VectorLayer from "ol/layer/Vector.js";
-import OSM from "ol/source/OSM.js";
+import LayerGroup from "ol/layer/Group.js";
+import { apply } from "ol-mapbox-style";
 import VectorSource from "ol/source/Vector.js";
 import Feature from "ol/Feature.js";
 import LineString from "ol/geom/LineString.js";
@@ -19,7 +20,8 @@ import {
 } from "./navigation-engine";
 import { type LocationFix, type LocationQuality } from "./live-location";
 import type { Coordinate, LegKind } from "./model";
-import { legColors } from "./ui";
+import { appearanceEvent, mapAttribution, mapTheme } from "./map-theme";
+import { mapStyleEvent } from "./map-style";
 const xy = (p: Coordinate) => fromLonLat([p.longitude, p.latitude]);
 const navigationZoom: Partial<Record<LegKind, number>> = {
   bike: 17,
@@ -31,7 +33,14 @@ export class NavigationMap {
   private view: View;
   private routes = new VectorSource();
   private location = new VectorSource();
-  private tiles = new TileLayer({ source: new OSM({ maxZoom: 19 }) });
+  private tiles = new LayerGroup();
+  private basemapTheme?: string;
+  private basemapVersion = 0;
+  private frame?: {
+    engine: NavigationEngine;
+    fix?: LocationFix;
+    state?: LocationQuality;
+  };
   private following = true;
   private heading?: number;
   private lastFix?: LocationFix;
@@ -104,9 +113,27 @@ export class NavigationMap {
     this.observer.observe(target);
     this.observer.observe(panel);
     this.observer.observe(top);
-    this.tiles.getSource()!.on("tileloaderror", () => {
-      target.dataset.tileError = "true";
-    });
+    window.addEventListener(
+      appearanceEvent,
+      () => {
+        if (this.frame)
+          this.update(this.frame.engine, this.frame.fix, this.frame.state);
+      },
+      { signal: this.events.signal },
+    );
+    window.addEventListener(
+      mapStyleEvent,
+      () => {
+        if (this.frame)
+          this.update(this.frame.engine, this.frame.fix, this.frame.state);
+      },
+      { signal: this.events.signal },
+    );
+    const credit = target.parentElement!.querySelector(".navigation-credit");
+    if (credit)
+      credit.innerHTML =
+        mapAttribution +
+        ' · <a href="https://transitous.org/sources/">Fahrtdaten</a>';
   }
   pause() {
     this.following = false;
@@ -122,8 +149,34 @@ export class NavigationMap {
     this.position();
   }
   update(engine: NavigationEngine, fix?: LocationFix, state?: LocationQuality) {
+    this.frame = { engine, fix, state };
+    const theme = mapTheme();
+    if (navigator.onLine && this.basemapTheme !== theme.name) {
+      this.basemapTheme = theme.name;
+      const version = ++this.basemapVersion;
+      const next = new LayerGroup();
+      void apply(next, theme.style)
+        .then(() => {
+          if (this.events.signal.aborted || version !== this.basemapVersion) {
+            next.dispose();
+            return;
+          }
+          const previous = this.tiles;
+          this.tiles = next;
+          next.setVisible(navigator.onLine);
+          this.map.getLayers().setAt(0, next);
+          previous.dispose();
+          delete this.target.dataset.tileError;
+        })
+        .catch(() => {
+          next.dispose();
+          if (!this.events.signal.aborted && version === this.basemapVersion)
+            this.target.dataset.tileError = "true";
+        });
+    }
     this.tiles.setVisible(navigator.onLine);
     const signature = JSON.stringify([
+      theme.name,
       engine.journey.legs.map((l) => [l.navigationId, l.coordinates]),
       engine.progress.legIndex,
     ]);
@@ -133,18 +186,24 @@ export class NavigationMap {
       engine.journey.legs.forEach((leg, index) => {
         if (leg.coordinates.length < 2) return;
         const feature = new Feature(new LineString(leg.coordinates.map(xy)));
-        feature.setStyle(
+        feature.setStyle([
+          new Style({
+            stroke: new Stroke({
+              color: theme.halo,
+              width: index === engine.progress.legIndex ? 11 : 8,
+            }),
+          }),
           new Style({
             stroke: new Stroke({
               color:
                 index < engine.progress.legIndex
-                  ? "#98a5a7"
-                  : legColors[leg.kind],
+                  ? theme.secondary
+                  : theme.lines[leg.kind],
               width: index === engine.progress.legIndex ? 7 : 4,
               lineDash: leg.kind === "walk" ? [3, 8] : undefined,
             }),
           }),
-        );
+        ]);
         this.routes.addFeature(feature);
       });
       const points = [
@@ -158,8 +217,13 @@ export class NavigationMap {
           new Style({
             image: new Circle({
               radius: 12,
-              fill: new Fill({ color: index === 0 ? "#171a1c" : "#ffd43b" }),
-              stroke: new Stroke({ color: "white", width: 2 }),
+              fill: new Fill({
+                color: index === 0 ? theme.surface : theme.text,
+              }),
+              stroke: new Stroke({
+                color: index === 0 ? theme.text : theme.surface,
+                width: 2,
+              }),
             }),
             text: new Text({
               text:
@@ -168,7 +232,7 @@ export class NavigationMap {
                   : index === points.length - 1
                     ? "Z"
                     : String(index),
-              fill: new Fill({ color: "#171a1c" }),
+              fill: new Fill({ color: theme.surface }),
               font: "bold 12px sans-serif",
             }),
           }),
@@ -208,8 +272,8 @@ export class NavigationMap {
     );
     accuracy.setStyle(
       new Style({
-        fill: new Fill({ color: "#3478f620" }),
-        stroke: new Stroke({ color: "#3478f680", width: 1 }),
+        fill: new Fill({ color: `${theme.location}20` }),
+        stroke: new Stroke({ color: `${theme.location}80`, width: 1 }),
       }),
     );
     const marker = new Feature(new Point(xy(point)));
@@ -222,9 +286,9 @@ export class NavigationMap {
           rotation: ((this.heading ?? 0) * Math.PI) / 180,
           rotateWithView: true,
           fill: new Fill({
-            color: state === "current" ? "#3478f6" : "#737d83",
+            color: state === "current" ? theme.location : theme.secondary,
           }),
-          stroke: new Stroke({ color: "white", width: 3 }),
+          stroke: new Stroke({ color: theme.halo, width: 3 }),
         }),
       }),
     );

@@ -62,7 +62,7 @@ async function setup(page: Page, permission = "granted") {
       },
     });
   }, permission);
-  await page.route("https://tile.openstreetmap.org/**", (r) => r.abort());
+  await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.route("**/api/v6/plan?*", (r) =>
     r.fulfill({
       headers: { "Access-Control-Allow-Origin": "*" },

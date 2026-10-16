@@ -4,12 +4,39 @@ import {
   type LocationQuality,
 } from "./live-location";
 import L from "leaflet";
+import { MaplibreGL } from "@maplibre/maplibre-gl-leaflet";
+import { GPUInitializationError, setWorkerUrl } from "maplibre-gl";
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "leaflet/dist/leaflet.css";
+import "maplibre-gl/dist/maplibre-gl.css";
 import type { Journey, Place } from "./model";
-import { el, node, icon, legColors } from "./ui";
+import { el, node, icon } from "./ui";
+import { appearanceEvent, mapAttribution, mapTheme } from "./map-theme";
+import { mapStyleEvent } from "./map-style";
+import { mountMapStylePicker } from "./map-style-picker";
+setWorkerUrl(workerUrl);
+
+// Keep Leaflet routes usable on devices where the basemap cannot create a GPU context.
+class BasemapLayer extends MaplibreGL {
+  override onAdd(map: L.Map): this {
+    try {
+      super.onAdd(map);
+    } catch (error) {
+      if (!(error instanceof GPUInitializationError)) throw error;
+      this.getContainer().remove();
+      this.fire("unavailable");
+    }
+    return this;
+  }
+  override onRemove(map: L.Map): this {
+    if (this.getMaplibreMap()) super.onRemove(map);
+    return this;
+  }
+}
 export class RouteMap {
   private map?: L.Map;
-  private tiles?: L.TileLayer;
+  private tiles?: L.MaplibreGL;
+  private basemapTheme?: string;
   private routes?: L.FeatureGroup;
   private selected?: Journey;
   private journeys: Journey[] = [];
@@ -36,8 +63,20 @@ export class RouteMap {
     private onSelect: (id: string) => void,
     private onBackground: () => void,
   ) {
-    new ResizeObserver(() => this.resize()).observe(el("journey-panel"));
+    mountMapStylePicker(el("map-style-control"), "overview");
+    const observer = new ResizeObserver(() =>
+      requestAnimationFrame(() => this.resize()),
+    );
+    observer.observe(el("journey-panel"));
+    observer.observe(el("map-controls"));
+    observer.observe(document.querySelector<HTMLElement>(".map-credit")!);
     window.addEventListener("resize", () => this.resize());
+    const redraw = () => {
+      if (this.map)
+        this.show(this.journeys, this.selected, this.online, this.context);
+    };
+    window.addEventListener(appearanceEvent, redraw);
+    window.addEventListener(mapStyleEvent, redraw);
   }
   show(
     journeys: Journey[],
@@ -45,6 +84,7 @@ export class RouteMap {
     online = navigator.onLine,
     context?: string,
   ) {
+    const theme = mapTheme();
     if (!this.map) {
       this.map = L.map("map", {
         zoomControl: false,
@@ -69,31 +109,48 @@ export class RouteMap {
           this.manualCamera = true;
         }
       });
-      L.control.zoom({ position: "topright" }).addTo(this.map);
+      const zoom = L.control
+        .zoom({
+          zoomInTitle: "Vergrößern",
+          zoomOutTitle: "Verkleinern",
+        })
+        .addTo(this.map);
+      el("map-zoom-control").replaceChildren(zoom.getContainer()!);
       this.routes = L.featureGroup().addTo(this.map);
-      this.tiles = L.tileLayer(
-        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-        { maxZoom: 19 },
-      );
-      this.tiles.on("tileerror", () => {
+    }
+    if (online && (!this.tiles || !this.map.hasLayer(this.tiles))) {
+      const unavailable = () => {
         el("map-error").hidden = false;
         el("map-error").textContent =
           "Straßenkarte nicht verfügbar. Deine Reise bleibt nutzbar.";
+      };
+      this.tiles = new BasemapLayer({
+        style: theme.style,
+        attributionControl: false,
       });
-      this.tiles.on("tileload", () => {
+      this.tiles.on("unavailable", unavailable).addTo(this.map);
+      const basemap = this.tiles!.getMaplibreMap();
+      this.basemapTheme = theme.name;
+      basemap?.on("error", unavailable);
+      basemap?.on("idle", () => {
         if (this.online) el("map-error").hidden = true;
       });
+    }
+    if (online && this.basemapTheme !== theme.name) {
+      this.tiles!.getMaplibreMap()?.setStyle(theme.style);
+      this.basemapTheme = theme.name;
     }
     this.updateLocation(this.liveFix, this.liveQuality);
     el("map-route").hidden = !selected;
     if (!selected) this.pendingRouteFit = false;
     this.online = online;
-    if (online && !this.map.hasLayer(this.tiles!)) this.tiles!.addTo(this.map);
-    if (!online && this.map.hasLayer(this.tiles!)) this.tiles!.remove();
+    if (!online && this.tiles && this.map.hasLayer(this.tiles))
+      this.tiles.remove();
     el("map").classList.toggle("offline-map", !online);
-    el("map-label").textContent = online
-      ? "© OpenStreetMap-Mitwirkende"
-      : "Gespeicherter Streckenverlauf · Ohne Straßenkarte";
+    if (online) el("map-label").innerHTML = mapAttribution;
+    else
+      el("map-label").textContent =
+        "Gespeicherter Streckenverlauf · Ohne Straßenkarte";
     if (!online) {
       el("map-error").hidden = false;
       el("map-error").textContent = "Offline · Straßenkarte nicht verfügbar.";
@@ -114,6 +171,7 @@ export class RouteMap {
       this.locationFocus = undefined;
       this.layoutKey = "";
       this.overviewArea = undefined;
+      this.markerHalfWidth = 22;
     }
     this.journeys = routes;
     this.selected = selected;
@@ -128,6 +186,7 @@ export class RouteMap {
       this.fitPending = true;
     }
     const signature = JSON.stringify([
+      theme.name,
       routes.map((j) => [
         j.id,
         j.origin,
@@ -146,17 +205,21 @@ export class RouteMap {
       const draw = (j: Journey, active: boolean) =>
         j.legs.forEach((leg) => {
           if (leg.coordinates.length < 2) return;
-          L.polyline(
-            leg.coordinates.map(
-              (p) => [p.latitude, p.longitude] as [number, number],
-            ),
-            {
-              color: active ? legColors[leg.kind] : "#838d99",
-              weight: active ? 6 : 4,
-              opacity: active ? 1 : 0.5,
-              dashArray: leg.kind === "walk" ? "3 8" : undefined,
-            },
-          )
+          const points = leg.coordinates.map(
+            (p) => [p.latitude, p.longitude] as [number, number],
+          );
+          if (active)
+            L.polyline(points, {
+              color: theme.halo,
+              weight: 10,
+              interactive: false,
+            }).addTo(this.routes!);
+          L.polyline(points, {
+            color: active ? theme.lines[leg.kind] : theme.secondary,
+            weight: active ? 6 : 4,
+            opacity: active ? 1 : 0.5,
+            dashArray: leg.kind === "walk" ? "3 8" : undefined,
+          })
             .on("click", (event) => {
               L.DomEvent.stopPropagation(event);
               this.onSelect(j.id);
@@ -200,7 +263,7 @@ export class RouteMap {
       groups.set(key, group);
     }
     this.markerHalfWidth = Math.max(
-      22,
+      this.markerHalfWidth,
       ...Array.from(groups.values(), (group) => 22 * group.length),
     );
     for (const group of groups.values()) {
@@ -250,6 +313,33 @@ export class RouteMap {
   }
   resize() {
     if (!this.map || el("map-view").hidden || el("map").inert) return;
+    // Reserve room above the mobile panel for the currently visible controls.
+    const controlsSpace = `${Math.ceil(el("map-controls").getBoundingClientRect().height) + 22}px`;
+    if (
+      el("map-view").style.getPropertyValue("--map-controls-space") !==
+      controlsSpace
+    )
+      el("map-view").style.setProperty("--map-controls-space", controlsSpace);
+    const panel = el("journey-panel");
+    const bounds = el("map").getBoundingClientRect(),
+      panelBounds = panel.getBoundingClientRect(),
+      controls = el("map-controls").getBoundingClientRect(),
+      credit = document
+        .querySelector<HTMLElement>(".map-credit")!
+        .getBoundingClientRect(),
+      creditBottom = panelBounds.top - 6,
+      creditRight = Math.max(
+        bounds.right - panelBounds.right,
+        creditBottom > controls.top &&
+          creditBottom - credit.height < controls.bottom
+          ? bounds.right - controls.left + 8
+          : 0,
+      );
+    el("map-view").style.setProperty(
+      "--map-panel-top",
+      `${Math.max(0, panelBounds.top - bounds.top)}px`,
+    );
+    el("map-view").style.setProperty("--map-credit-right", `${creditRight}px`);
     const size = this.map.getSize();
     if (size.x !== el("map").clientWidth || size.y !== el("map").clientHeight)
       this.map.invalidateSize({ pan: false });
@@ -257,14 +347,15 @@ export class RouteMap {
       this.centerLocation();
       return;
     }
-    const panel = el("journey-panel");
     const layout = JSON.stringify([
       el("map").clientWidth,
       el("map").clientHeight,
       window.innerWidth >= 900,
+      bounds.right - controls.left,
+      this.markerHalfWidth,
     ]);
     let changed = layout !== this.layoutKey;
-    const height = panel.getBoundingClientRect().height;
+    const height = panelBounds.height;
     if (changed) this.reservedPanelHeight = height;
 
     this.layoutKey = layout;
@@ -305,8 +396,12 @@ export class RouteMap {
     if (!this.map || !this.selected || !this.envelope) return;
     const coordinates = this.envelope;
     const desktop = window.innerWidth >= 900,
+      bounds = el("map").getBoundingClientRect(),
       panel = el("journey-panel").getBoundingClientRect(),
-      height = el("map").clientHeight;
+      controls = el("map-controls").getBoundingClientRect(),
+      height = bounds.height,
+      leftInset = desktop ? Math.max(0, panel.right - bounds.left) : 0;
+    if (bounds.width - leftInset <= 1 || !height) return;
     // Expanded details prioritize reading. Refit once enough map is visible again.
     if (!explicit && !desktop && height - panel.height < 100) return;
     this.fitPending = false;
@@ -318,23 +413,24 @@ export class RouteMap {
       )
     )
       return;
-    const markerPadding = this.markerHalfWidth + 8;
+    const markerPadding = Math.min(
+      this.markerHalfWidth + 8,
+      (bounds.width - leftInset - 1) / 2,
+    );
+    const left = leftInset + markerPadding;
+    // Reserve the entire control column, plus room for the marker and an 8px gap.
+    const right = Math.min(
+      Math.max(0, bounds.right - controls.left) + markerPadding,
+      bounds.width - left - 1,
+    );
     if (explicit) {
-      const bounds = el("map").getBoundingClientRect();
-      const left = desktop ? Math.max(0, panel.right - bounds.left) : 0;
       const bottom = desktop
         ? bounds.height
         : Math.max(0, Math.min(bounds.height, panel.top - bounds.top));
-      if (bounds.width <= left || bottom <= 0) return;
-      const horizontal = Math.min(markerPadding, (bounds.width - left - 1) / 2);
+      if (bottom <= 1) return;
       const vertical = Math.min(30, (bottom - 1) / 2);
-      // Keep the route clear of the map buttons, without negative fitting space.
-      const right = Math.min(
-        Math.max(80 + this.markerHalfWidth, horizontal),
-        bounds.width - left - horizontal - 1,
-      );
       this.setOverviewBounds(coordinates, {
-        paddingTopLeft: [left + horizontal, vertical],
+        paddingTopLeft: [left, vertical],
         paddingBottomRight: [right, bounds.height - bottom + vertical],
         maxZoom: 15,
         animate: false,
@@ -342,15 +438,10 @@ export class RouteMap {
       return;
     }
     this.setOverviewBounds(coordinates, {
-      paddingTopLeft: desktop
-        ? [Math.max(460, panel.right + markerPadding), 35]
-        : [Math.max(28, markerPadding), 35],
+      paddingTopLeft: [left, 35],
       paddingBottomRight: desktop
-        ? [Math.max(65, markerPadding), 40]
-        : [
-            Math.max(45, markerPadding),
-            Math.max(panel.height, this.reservedPanelHeight) + 45,
-          ],
+        ? [right, 40]
+        : [right, Math.max(panel.height, this.reservedPanelHeight) + 45],
       maxZoom: 15,
       animate: false,
     });
@@ -381,7 +472,8 @@ export class RouteMap {
     }
     const point: L.LatLngExpression = [fix.latitude, fix.longitude];
     const label = locationLabel(state);
-    const color = state === "stale" ? "#737d83" : "#3478f6";
+    const theme = mapTheme();
+    const color = state === "stale" ? theme.secondary : theme.location;
     if (!this.accuracyCircle)
       this.accuracyCircle = L.circle(point, {
         radius: fix.accuracy,

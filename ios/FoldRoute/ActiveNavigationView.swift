@@ -130,19 +130,19 @@ struct ActiveNavigationView: View {
             if let issue = model.transitDisruption {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(FoldRouteColor.accent)
+                    .foregroundStyle(FoldRouteColor.actionText)
             }
             if let message = engine.statusMessage {
                 Label(message, systemImage: engine.isReplanning ? "arrow.triangle.2.circlepath" : "exclamationmark.triangle")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(FoldRouteColor.accent)
+                    .foregroundStyle(FoldRouteColor.actionText)
                     .accessibilityLabel("Navigationsstatus: \(message)")
             }
 
             HStack(alignment: .top, spacing: 16) {
                 Image(systemName: engine.currentManeuver?.direction.symbol ?? engine.currentLeg?.kind.symbol ?? "location.north")
                     .font(.system(size: 34, weight: .heavy, design: .rounded))
-                    .foregroundStyle(engine.currentLeg?.kind.textColor ?? FoldRouteColor.accent)
+                    .foregroundStyle(engine.currentLeg?.kind.textColor ?? FoldRouteColor.actionText)
                     .frame(width: 52, height: 52)
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -163,7 +163,7 @@ struct ActiveNavigationView: View {
                 Text(message).font(.footnote).foregroundStyle(.secondary)
             }
             if model.isFindingAlternative {
-                ProgressView("Alternative wird gesucht …").tint(FoldRouteColor.accent)
+                ProgressView("Alternative wird gesucht …").tint(FoldRouteColor.actionText)
             } else if model.navigationAlternative != nil {
                 Button("Alternative ansehen") { showAlternative = true }
                     .buttonStyle(.borderedProminent)
@@ -172,7 +172,7 @@ struct ActiveNavigationView: View {
             } else if model.transitDisruption != nil || engine.journey.remainingTransit(from: engine.currentLegIndex).contains(where: { $0.reference == nil || $0.refreshFailure == .unavailable }) {
                 Button("Neue Verbindung suchen") { model.proposeNavigationAlternative() }
                     .buttonStyle(.bordered)
-                    .tint(FoldRouteColor.accent)
+                    .tint(FoldRouteColor.actionText)
             }
 
             if case .stop(let stop) = engine.currentLeg {
@@ -193,7 +193,7 @@ struct ActiveNavigationView: View {
                             .frame(maxWidth: .infinity, minHeight: 48)
                     }
                     .buttonStyle(.bordered)
-                    .tint(leg.kind.requiresCompletionConfirmation ? FoldRouteColor.panelText : FoldRouteColor.accent)
+                    .tint(leg.kind.requiresCompletionConfirmation ? FoldRouteColor.panelText : FoldRouteColor.actionText)
                     .disabled(engine.isReplanning)
                     .accessibilityIdentifier("completeNavigationLeg")
                 }
@@ -234,7 +234,7 @@ struct ActiveNavigationView: View {
                 if minutes != 0 {
                     Text(minutes > 0 ? "+\(minutes) Min. Verspätung" : "\(-minutes) Min. früher")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(FoldRouteColor.accent)
+                        .foregroundStyle(FoldRouteColor.actionText)
                 }
             }
         }
@@ -285,7 +285,7 @@ struct ActiveNavigationView: View {
         VStack(spacing: 14) {
             Image(systemName: "flag.checkered.circle.fill")
                 .font(.system(size: 50))
-                .foregroundStyle(FoldRouteColor.accent)
+                .foregroundStyle(FoldRouteColor.actionText)
             Text("Ziel erreicht")
                 .font(.system(size: 32, weight: .heavy, design: .rounded))
             Text(model.journey?.destination.name ?? "")

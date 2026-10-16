@@ -10,7 +10,7 @@ const match = {
   areas: [{ name: "München", default: true }],
 };
 async function seed(page: Page) {
-  await page.route("https://tile.openstreetmap.org/**", (r) => r.abort());
+  await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.addInitScript(() => {
     const geo = {
       getCurrentPosition() {

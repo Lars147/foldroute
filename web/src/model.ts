@@ -253,15 +253,6 @@ export const kindNames: Record<LegKind, string> = {
   wait: "Warten",
   stop: "Zwischenziel",
 };
-export const kindColors: Record<LegKind, string> = {
-  bike: "#168d97",
-  walk: "#57695a",
-  transit: "#7667e8",
-  fold: "#ffd43b",
-  unfold: "#ffd43b",
-  wait: "#697077",
-  stop: "#ffd43b",
-};
 export const bikeDistance = (j: Journey) =>
   j.legs.filter((l) => l.kind === "bike").reduce((s, l) => s + l.distance, 0);
 export const walkingSeconds = (j: Journey) =>

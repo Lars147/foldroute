@@ -6,7 +6,7 @@ async function setup(page: Page) {
   await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
   await page.context().grantPermissions(["geolocation"]);
   await page.context().setGeolocation({ latitude: 48.132, longitude: 11.5756 });
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
+  await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
   const headers = { "Access-Control-Allow-Origin": "*" };

@@ -1,9 +1,11 @@
 import "./style.css";
 import { appearance } from "./appearance";
+import { mapStyle } from "./map-style";
 
 const example =
   new URLSearchParams(location.search).get("example") === "bike-transfer";
-appearance.initialize(!example);
+appearance.initialize(true);
+mapStyle.initialize();
 const ready = example ? import("./example") : import("./main");
 
 // Keep controls unavailable until their entrypoint has attached its handlers.

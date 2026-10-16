@@ -37,7 +37,7 @@ async function setup(page: Page, matches = [place]) {
     },
     { ...defaults, cyclingSpeedKilometersPerHour: 18, maxCyclingMinutes: 60 },
   );
-  await page.route("https://tile.openstreetmap.org/**", (r) => r.abort());
+  await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.route("**/api/v1/geocode?*", (r) =>
     r.fulfill({ json: matches, headers: cors }),
   );

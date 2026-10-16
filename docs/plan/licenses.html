@@ -5,22 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f6f3">
   <title>Lizenzen &amp; Datenquellen · FoldRoute</title>
-  <style>
-    :root { color-scheme: light; font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; color: #171a1c; background: #f5f6f3; }
+  <link rel="stylesheet" href="theme.css">
+
+    <script src="appearance.js"></script>
+    <style>
+    :root {  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; color: var(--color-text); background: var(--color-canvas); }
     * { box-sizing: border-box; }
     body { margin: 0; }
     main { max-width: 860px; margin: auto; padding: 36px 24px 72px; }
     nav { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-bottom: 56px; }
     a { color: inherit; text-underline-offset: 4px; }
     a:hover { text-decoration-thickness: 2px; }
-    :focus-visible { outline: 3px solid #171a1c; outline-offset: 5px; }
+    :focus-visible { outline: 3px solid var(--color-selection-indicator); outline-offset: 5px; }
     .kicker { font-size: .8rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
     h1 { font-size: clamp(2rem, 7vw, 3.8rem); line-height: 1.05; letter-spacing: -.04em; margin: 16px 0 24px; overflow-wrap: anywhere; }
     h2 { margin: 40px 0 18px; font-size: 1.5rem; }
     p { line-height: 1.65; }
     .intro { font-size: 1.15rem; }
-    .sources { background: #e9ede6; border-radius: 20px; padding: 4px 24px 20px; }
-    details { border-bottom: 1px solid #b7bfb7; padding: 20px 0; }
+    .sources { background: var(--color-subtle); border-radius: 20px; padding: 4px 24px 20px; }
+    details { border-bottom: 1px solid var(--color-divider); padding: 20px 0; }
     summary { cursor: pointer; font-size: 1.1rem; font-weight: 650; line-height: 1.5; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; font: .9rem/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
     footer { margin-top: 36px; font-size: .9rem; }
@@ -35,6 +38,7 @@
   <section class="sources" aria-labelledby="sources-heading">
     <h2 id="sources-heading">Karten und Routen</h2>
     <p><a href="https://transitous.org/sources/">Transitous und Fahrplandaten</a>: Routen und Fahrpläne für iPhone-App und Webplaner. Für die einzelnen Datenquellen gelten die dort aufgeführten Bedingungen.</p>
+    <p><a href="https://openfreemap.org/">OpenFreeMap</a> liefert die hellen und dunklen Basiskarten einschließlich Kartenschriften. <a href="https://openmaptiles.org/">© OpenMapTiles</a>; Daten von OpenStreetMap.</p>
     <p><a href="https://www.openstreetmap.org/copyright">© OpenStreetMap-Mitwirkende</a>: Kartendaten im Webplaner und Grundlage der Routenberechnung über Transitous in beiden Anwendungen. Die Daten stehen unter der Open Database License (ODbL).</p>
     <p>Die iPhone-App zeigt Karten mit Apple MapKit. Die zugehörigen Kartenhinweise findest du direkt in der Kartenansicht.</p>
   </section>
@@ -155,6 +159,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 </pre></details>
+    <details id="map-rendering"><summary>MapLibre GL JS · BSD-3-Clause / Leaflet-Adapter · ISC / ol-mapbox-style · BSD-2-Clause</summary><p>Darstellung der OpenFreeMap-Basiskarten. Die Lizenztexte einschließlich der Produktionsabhängigkeiten bleiben auch offline verfügbar.</p><p><a href="map-rendering-LICENSE.txt">Vollständige Lizenztexte</a></p></details>
   </section>
   <footer><p>Die Software-Lizenztexte sind im installierten Webplaner auch offline lesbar. Externe Quellenlinks benötigen Internet.</p></footer>
 </main>

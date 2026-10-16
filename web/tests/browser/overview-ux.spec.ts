@@ -1,12 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function setup(page: Page, width = 1100) {
-  await page.setViewportSize({ width, height: 986 });
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
+async function setup(
+  page: Page,
+  width = 1100,
+  height = 986,
+  shape: "tall" | "wide" | "grouped" = "tall",
+) {
+  await page.setViewportSize({ width, height });
+  await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
   await page.goto("/");
-  await page.evaluate(async () => {
+  await expect(page.locator("#main")).not.toHaveAttribute("inert");
+  await page.evaluate(async (shape) => {
     const path = "/src/map-view.ts";
     const { RouteMap } = await import(path);
     const point = (latitude: number, longitude: number) => ({
@@ -15,8 +21,8 @@ async function setup(page: Page, width = 1100) {
       name: "Ort",
       detail: "",
     });
-    const origin = point(48.13, 11.57),
-      destination = point(48.15, 11.65);
+    const origin = point(48.13, shape === "tall" ? 11.57 : 11),
+      destination = point(48.15, shape === "tall" ? 11.65 : 12.4);
     const journey = (id: string, via: ReturnType<typeof point>) => ({
       id,
       origin,
@@ -35,18 +41,41 @@ async function setup(page: Page, width = 1100) {
           distance: 1000,
           coordinates: [origin, via, destination],
         },
+        ...(shape === "grouped" && id === "north"
+          ? [1, 2].map(() => ({
+              kind: "stop",
+              from: destination,
+              to: destination,
+              start: 1000,
+              end: 2000,
+              distance: 0,
+              coordinates: [],
+            }))
+          : []),
       ],
     });
     const journeys = [
-      journey("north", point(48.2, 11.6)),
-      journey("south", point(48.08, 11.6)),
+      journey(
+        "north",
+        shape === "tall" ? point(48.2, 11.6) : point(48.16, 11.7),
+      ),
+      journey(
+        "south",
+        shape === "tall" ? point(48.08, 11.6) : point(48.12, 11.7),
+      ),
     ];
     document.getElementById("search-view")!.hidden = true;
     document.getElementById("map-view")!.hidden = false;
     const panel = document.getElementById("journey-panel")!;
     panel.style.height = "240px";
     document.getElementById("map-view")!.dataset.resultScreen = "map";
-    for (const id of ["map", "map-route", "map-location"]) {
+    for (const id of [
+      "map",
+      "map-controls",
+      "map-style-control",
+      "map-route",
+      "map-location",
+    ]) {
       document.getElementById(id)!.inert = false;
       document.getElementById(id)!.style.visibility = "visible";
     }
@@ -67,7 +96,7 @@ async function setup(page: Page, width = 1100) {
     (window as any).overviewTest = fixture;
     fixture.show();
     document.getElementById("map-route")!.onclick = () => view.fitRoute();
-  });
+  }, shape);
   await expect(page.locator(".route-marker")).toHaveCount(2);
 }
 async function camera(page: Page) {
@@ -91,6 +120,101 @@ async function allVisible(page: Page) {
         ),
       );
   });
+}
+
+async function expectClearOverview(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const mapBounds = document
+          .getElementById("map")!
+          .getBoundingClientRect();
+        const panel = document
+          .getElementById("journey-panel")!
+          .getBoundingClientRect();
+        const controls = document
+          .getElementById("map-controls")!
+          .getBoundingClientRect();
+        const left = innerWidth >= 900 ? panel.right : mapBounds.left;
+        const bottom = innerWidth >= 900 ? mapBounds.bottom : panel.top;
+        const { view, journeys } = (window as any).overviewTest;
+        const points = journeys.flatMap((journey: any) => [
+          journey.origin,
+          journey.destination,
+          ...journey.legs.flatMap((leg: any) => [leg.from, ...leg.coordinates]),
+        ]);
+        return {
+          routeClear: points.every((point: any) => {
+            const pixel = view.map.latLngToContainerPoint([
+              point.latitude,
+              point.longitude,
+            ]);
+            const x = mapBounds.left + pixel.x;
+            const y = mapBounds.top + pixel.y;
+            return (
+              x - 5 >= left - 1 &&
+              x + 5 <= controls.left - 8 + 1 &&
+              y - 5 >= mapBounds.top - 1 &&
+              y + 5 <= bottom + 1
+            );
+          }),
+          markersClear: [
+            ...document.querySelectorAll("#map .route-marker"),
+          ].every((marker) => {
+            const bounds = marker.getBoundingClientRect();
+            return (
+              bounds.left >= left - 1 &&
+              bounds.right <= controls.left - 8 + 1 &&
+              bounds.top >= mapBounds.top - 1 &&
+              bounds.bottom <= bottom + 1
+            );
+          }),
+        };
+      }),
+    )
+    .toEqual({ routeClear: true, markersClear: true });
+}
+
+for (const [width, height] of [
+  [320, 568],
+  [425, 812],
+  [844, 390],
+  [1280, 900],
+]) {
+  for (const shape of ["tall", "wide", "grouped"] as const) {
+    test(`${shape} overview clears the controls on entry and route fit at ${width}x${height}`, async ({
+      page,
+    }, info) => {
+      await setup(page, width, height, shape);
+      await expectClearOverview(page);
+      await page.evaluate(() =>
+        (window as any).overviewTest.view.map.panBy([150, 80], {
+          animate: false,
+        }),
+      );
+      await page.locator("#map-route").click();
+      await expectClearOverview(page);
+      if (shape === "grouped") {
+        const before = await camera(page);
+        await page.evaluate(() => {
+          const fixture = (window as any).overviewTest;
+          fixture.selected = fixture.journeys[1];
+          fixture.show();
+        });
+        await expectClearOverview(page);
+        expect(await camera(page)).toEqual(before);
+      }
+      if (shape === "wide" && width === 425) {
+        const before = await camera(page);
+        await page.locator("#map-controls").evaluate((controls) => {
+          controls.style.width = "80px";
+        });
+        await expectClearOverview(page);
+        expect(await camera(page)).not.toEqual(before);
+      }
+      await page.screenshot({ path: info.outputPath("clear-overview.png") });
+    });
+  }
 }
 for (const width of [390, 1100]) {
   test(`shared overview stays fixed when selecting alternatives at ${width}`, async ({

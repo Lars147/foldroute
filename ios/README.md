@@ -28,6 +28,8 @@ Eine andere Bundle-ID installiert die App als separate Anwendung. Vorhandene lok
 
 ## Kartenansicht
 
+Die Grundkarte bleibt auch bei dunkler App-Darstellung hell. Kartenfarben und Routen sind auf diesen Hintergrund abgestimmt; Bedienflächen und Routenpanels folgen weiterhin der gewählten Darstellung.
+
 „Alle Routen anzeigen“ unter dem Standort-Button passt alle angebotenen Alternativen mit Start, Ziel und Zwischenstopps in den freien Kartenbereich ein; bei einer Verbindung heißt die Aktion „Gesamte Route anzeigen“. Panelmodus und Scrollposition bleiben erhalten. Die Aktion benötigt keine neue Standortabfrage oder Routenberechnung und funktioniert auch bei gespeicherten Reisen. Die laufende Navigation behält ihre eigene Standort-Zentrierung.
 
 ## Architektur

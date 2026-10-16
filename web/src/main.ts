@@ -1,5 +1,6 @@
 import { SettingsValidation } from "./settings-validation";
 import { appearance, type AppearancePreference } from "./appearance";
+import { mapStyle } from "./map-style";
 import {
   parseSharedDestination,
   readShareURL,
@@ -1916,6 +1917,7 @@ el("confirm-delete-data").onclick = async () => {
     localStorage.removeItem(screenAwakeKey);
     localStorage.removeItem(audioPreferenceKey);
     appearance.reset();
+    mapStyle.reset();
     keepScreenAwake = true;
     el<HTMLInputElement>("keep-screen-awake").checked = true;
     saved = undefined;

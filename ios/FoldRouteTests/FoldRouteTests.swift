@@ -78,9 +78,9 @@ final class FoldRouteTests: XCTestCase, @unchecked Sendable {
         }
         for style: UIUserInterfaceStyle in [.light, .dark] {
             let traits = UITraitCollection(userInterfaceStyle: style)
-            let backgrounds = [FoldRouteColor.panel, FoldRouteColor.panelSubtle]
+            let backgrounds = [FoldRouteColor.panel, FoldRouteColor.panelSubtle, FoldRouteColor.panelSelected]
             let foregrounds = [FoldRouteColor.panelText, FoldRouteColor.panelMuted,
-                               FoldRouteColor.accent, FoldRouteColor.alertText]
+                               FoldRouteColor.actionText, FoldRouteColor.alertText]
                 + [JourneyLegKind.bike, .walk, .transit, .fold].map(\.textColor)
             for background in backgrounds {
                 for foreground in foregrounds {

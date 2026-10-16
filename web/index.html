@@ -173,24 +173,41 @@
         hidden
       >
         <div id="map" aria-label="Routenkarte"></div>
-        <button
-          id="map-location"
-          class="map-location icon-button"
-          aria-label="Karte auf aktuellen Standort zentrieren"
-          data-icon="location"
-        ></button>
-        <button
-          id="map-route"
-          class="map-location map-route icon-button"
-          type="button"
-          aria-label="Gesamte Route anzeigen"
-          title="Gesamte Route anzeigen"
-          data-icon="fit-route"
-          hidden
-        ></button>
+        <div
+          id="map-controls"
+          class="map-controls"
+          role="group"
+          aria-label="Kartensteuerung"
+        >
+          <button
+            id="map-location"
+            class="map-location icon-button"
+            aria-label="Karte auf aktuellen Standort zentrieren"
+            data-icon="location"
+          ></button>
+          <button
+            id="map-route"
+            class="map-location map-route icon-button"
+            type="button"
+            aria-label="Gesamte Route anzeigen"
+            title="Gesamte Route anzeigen"
+            data-icon="fit-route"
+            hidden
+          ></button>
+          <div id="map-style-control" class="map-style-control"></div>
+          <div
+            id="map-zoom-control"
+            class="map-zoom-control"
+            role="group"
+            aria-label="Zoom"
+          ></div>
+        </div>
         <div class="map-credit">
-          <span id="map-label">© OpenStreetMap-Mitwirkende</span
-          ><a href="https://www.openstreetmap.org/copyright">Kartendaten</a>
+          <span id="map-label"
+            ><a href="https://www.openstreetmap.org/copyright"
+              >© OpenStreetMap-Mitwirkende</a
+            ></span
+          >
         </div>
         <article
           id="journey-panel"
@@ -510,11 +527,8 @@
             Alle lokalen Daten löschen
           </button>
         </details>
-        <a
-          class="group settings-feedback"
-          href="https://foldroute.userjot.com/"
-          ><span>Feedback &amp; Ideen</span
-          ><span aria-hidden="true">↗</span></a
+        <a class="group settings-feedback" href="https://foldroute.userjot.com/"
+          ><span>Feedback &amp; Ideen</span><span aria-hidden="true">↗</span></a
         >
         <details id="settings-help" class="group settings-disclosure info">
           <summary>Installation &amp; Hilfe</summary>

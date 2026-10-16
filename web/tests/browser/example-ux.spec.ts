@@ -11,7 +11,7 @@ test.use({ serviceWorkers: "block" });
 test("slow entrypoints keep controls unavailable until they are ready", async ({
   page,
 }) => {
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
+  await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
   for (const entry of ["main", "example"]) {
@@ -45,7 +45,7 @@ async function prepare(page: Page) {
       requests.push(request.url());
   });
   await page.route("https://api.transitous.org/**", (route) => route.abort());
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
+  await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
   const preferences = {
@@ -280,7 +280,7 @@ test("own-route action exits the example into the ordinary unfilled planner", as
   await page.keyboard.press("Tab");
   await own.focus();
   await expect(own).toBeFocused();
-  await expect(own).toHaveCSS("outline-style", "none");
+  await expect(own).toHaveCSS("outline-style", "solid");
   await own.press("Enter");
   await expect(page).toHaveURL(new URL("/", page.url()).href);
   await expect(
