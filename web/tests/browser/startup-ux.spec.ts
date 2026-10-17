@@ -10,6 +10,153 @@ async function standalone(page: Page) {
   });
 }
 
+async function controlledStartup(
+  page: Page,
+  { installed = true, hidden = false } = {},
+) {
+  const epoch = new Date("2026-10-17T10:00:00Z");
+  await page.clock.install({ time: new Date(epoch.getTime() - 1000) });
+  await page.clock.pauseAt(epoch);
+  if (installed) await standalone(page);
+  await page.addInitScript((hidden) => {
+    let visible = !hidden;
+    Object.defineProperty(document, "visibilityState", {
+      get: () => (visible ? "visible" : "hidden"),
+    });
+    (window as any).setStartupVisibility = (value: boolean) => {
+      visible = value;
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+  }, hidden);
+  await page.route("**/src/main.ts", (route) =>
+    route.fulfill({
+      contentType: "text/javascript",
+      body: "export const startupReady = new Promise(resolve => { window.releaseTestStartup = resolve; });",
+    }),
+  );
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect
+    .poll(() => page.evaluate(() => typeof (window as any).releaseTestStartup))
+    .toBe("function");
+  await page.clock.runFor(32);
+}
+
+async function advanceVisibleTo(page: Page, elapsed: number) {
+  const current = await page.evaluate(
+    () =>
+      performance.now() -
+      Number(document.documentElement.dataset.startupVisibleAt),
+  );
+  await page.clock.runFor(elapsed - current);
+}
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`fast installed start holds 600 ms of visible logo (${reducedMotion})`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion });
+    await controlledStartup(page);
+    await page.evaluate(() => (window as any).releaseTestStartup());
+    await advanceVisibleTo(page, 599);
+    await expect(page.locator("#app-startup")).toBeVisible();
+    await expect(page.locator("#main")).toHaveAttribute("inert", "");
+    await page.clock.runFor(1);
+    await expect(page.locator("#main")).not.toHaveAttribute("inert");
+    if (reducedMotion === "reduce") {
+      expect(
+        await page
+          .locator("#app-startup")
+          .evaluate((element) => element.hidden),
+      ).toBe(true);
+      await expect(page.locator("#app-startup")).not.toHaveAttribute(
+        "data-exiting",
+      );
+    } else {
+      await expect(page.locator("#app-startup")).toHaveAttribute(
+        "data-exiting",
+        "",
+      );
+    }
+    await expect(page.locator("#app-startup")).toBeHidden();
+  });
+}
+
+test("slow startup releases immediately when ready after the minimum", async ({
+  page,
+}) => {
+  await controlledStartup(page);
+  await advanceVisibleTo(page, 1200);
+  await expect(page.locator("#main")).toHaveAttribute("inert", "");
+  await page.evaluate(() => (window as any).releaseTestStartup());
+  // No clock advance: adding another 600 ms after readiness would leave controls inert.
+  await expect(page.locator("#main")).not.toHaveAttribute("inert");
+});
+
+test("a failed start cancels the minimum without releasing incomplete controls", async ({
+  page,
+}) => {
+  await controlledStartup(page);
+  await page.evaluate(() => (window as any).releaseTestStartup());
+  await advanceVisibleTo(page, 100);
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("foldroute:startup-error")),
+  );
+  await expect(page.locator("#startup-error")).toBeVisible();
+  await page.clock.runFor(1000);
+  await expect(page.locator("#startup-error")).toBeVisible();
+  await expect(page.locator("#main")).toHaveAttribute("inert", "");
+  await expect(page.locator("#app-startup")).not.toHaveAttribute(
+    "data-exiting",
+  );
+});
+
+test("initial background time does not consume the minimum or restart it on return", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await controlledStartup(page, { hidden: true });
+  await page.evaluate(() => (window as any).releaseTestStartup());
+  await page.clock.runFor(1500);
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-startup-visible-at",
+  );
+  await expect(page.locator("#main")).toHaveAttribute("inert", "");
+  await page.evaluate(() => (window as any).setStartupVisibility(true));
+  await page.clock.runFor(16);
+  await advanceVisibleTo(page, 599);
+  await expect(page.locator("#main")).toHaveAttribute("inert", "");
+  await page.clock.runFor(1);
+  await expect(page.locator("#app-startup")).toBeHidden();
+  const started = await page
+    .locator("html")
+    .getAttribute("data-startup-visible-at");
+  await page.evaluate(() => {
+    (window as any).setStartupVisibility(false);
+    (window as any).setStartupVisibility(true);
+    window.dispatchEvent(
+      new PageTransitionEvent("pageshow", { persisted: true }),
+    );
+  });
+  await page.clock.runFor(1000);
+  await expect(page.locator("#app-startup")).toBeHidden();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-startup-visible-at",
+    started!,
+  );
+});
+
+test("ordinary browser startup never waits for the splash minimum", async ({
+  page,
+}) => {
+  await controlledStartup(page, { installed: false });
+  await page.evaluate(() => (window as any).releaseTestStartup());
+  await expect(page.locator("#main")).not.toHaveAttribute("inert");
+  await expect(page.locator("#app-startup")).toBeHidden();
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-startup-visible-at",
+  );
+});
+
 for (const theme of ["light", "dark"] as const) {
   test(`installed cold start paints ${theme} before the bundle and honors saved preference`, async ({
     page,
@@ -239,9 +386,18 @@ test("local preview pauses, changes theme and replays without touching personal 
       ).toBe("light");
     }
   }
-  await page.getByRole("button", { name: "Wiederholen" }).click();
-  await expect(page.locator("#continue")).toBeEnabled();
-  await expect(phone.locator("#app-startup")).toBeVisible();
+  await page.getByRole("button", { name: "Start abspielen" }).click();
+  await expect(page.locator("#preview-status")).toHaveText(
+    "Start abgeschlossen.",
+  );
+  await expect(page.locator("#continue")).toBeDisabled();
+  await expect(phone.locator("#app-startup")).toBeHidden();
+  for (const frame of page.frames())
+    expect(await frame.evaluate(() => (window as any).previewEffects)).toEqual({
+      storage: 0,
+      database: 0,
+      location: 0,
+    });
   expect(errors).toEqual([]);
 });
 

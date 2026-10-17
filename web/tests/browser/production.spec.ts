@@ -620,6 +620,19 @@ test("PWA history deduplicates repeated trips across an offline restart", async 
 test("installed shell resumes navigation and loads its map while fully offline", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "standalone", { value: true });
+    (window as any).startupDialogOverlap = false;
+    new MutationObserver(() => {
+      const splash = document.getElementById("app-startup");
+      if (document.querySelector("dialog[open]") && splash && !splash.hidden)
+        (window as any).startupDialogOverlap = true;
+    }).observe(document, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["open"],
+    });
+  });
   await production(page);
   await page.clock.setFixedTime(new Date());
   await page.evaluate(async (settings) => {
@@ -689,6 +702,9 @@ test("installed shell resumes navigation and loads its map while fully offline",
   await page.context().setOffline(true);
   await page.reload();
   await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
+  expect(await page.evaluate(() => (window as any).startupDialogOverlap)).toBe(
+    false,
+  );
   await page.locator("#navigation-resume").click();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Mit dem Rad nach Ziel",

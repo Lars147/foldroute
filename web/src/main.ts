@@ -61,6 +61,7 @@ import {
   historyPlannedAt,
 } from "./ui";
 import { setupPWA } from "./pwa";
+import { afterStartup } from "./startup";
 import { PlaceBook } from "./places";
 import { localDatabase } from "./storage";
 import {
@@ -1359,12 +1360,14 @@ function presentSharedDestination() {
       : parsed.kind === "invalid"
         ? "Geteiltes Ziel ungültig. Bitte Ziel eingeben."
         : unsupportedShare;
-  sharedDialog.showModal();
-  sharedUI();
-  if (parsed.kind === "query") {
-    sharedSearch.searchShared(parsed.query);
-    sharedSearch.input.focus();
-  }
+  const sharedId = pendingShared.id;
+  if (parsed.kind === "query") sharedSearch.searchShared(parsed.query);
+  afterStartup(() => {
+    if (pendingShared?.id !== sharedId) return;
+    sharedDialog.showModal();
+    sharedUI();
+    if (parsed.kind === "query") sharedSearch.input.focus();
+  });
 }
 function openSharedDestination() {
   if (!pendingShared) return;
@@ -1378,8 +1381,12 @@ function openSharedDestination() {
           : "das geteilte Ziel";
     el("shared-navigation-description").textContent =
       `Neue Route zu ${label} planen? Die laufende Navigation wird beendet.`;
-    sharedNavigationDialog.showModal();
-    sharedUI();
+    const sharedId = pendingShared.id;
+    afterStartup(() => {
+      if (pendingShared?.id !== sharedId) return;
+      sharedNavigationDialog.showModal();
+      sharedUI();
+    });
   } else presentSharedDestination();
 }
 async function acceptSharedPlace(place: Place) {
@@ -2451,7 +2458,14 @@ const restoredStartup = store
           event.preventDefault();
           discard();
         };
-        resumeDialog.showModal();
+        afterStartup(() => {
+          if (
+            storageGeneration === 0 &&
+            navigationLaunchGeneration === 0 &&
+            !navigationView?.visible
+          )
+            resumeDialog.showModal();
+        });
         return;
       }
     }

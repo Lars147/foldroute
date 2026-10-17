@@ -160,11 +160,18 @@
           !matchMedia("(prefers-reduced-motion: reduce)").matches
         )
           root.dataset.startupMotion = "";
+        let firstFrame;
         const fail = () => {
-          if (!document.body?.hasAttribute("data-starting")) return;
+          if (
+            !document.body?.hasAttribute("data-starting") ||
+            document.body.hasAttribute("data-startup-error")
+          )
+            return;
+          cancelAnimationFrame(firstFrame);
           document.body.dataset.startupError = "";
           document.getElementById("startup-status").hidden = true;
           document.getElementById("startup-error").hidden = false;
+          window.dispatchEvent(new Event("foldroute:startup-failed"));
         };
         window.addEventListener("foldroute:startup-error", fail);
         window.addEventListener(
@@ -185,6 +192,23 @@
           )
             location.reload();
         });
+        if (root.hasAttribute("data-standalone")) {
+          const recordVisibleFrame = () => {
+            const mark = document.querySelector(
+              "#app-startup .startup-mark svg",
+            );
+            if (
+              document.visibilityState === "visible" &&
+              mark?.getClientRects().length
+            ) {
+              root.dataset.startupVisibleAt = String(performance.now());
+              window.dispatchEvent(new Event("foldroute:startup-visible"));
+            } else {
+              firstFrame = requestAnimationFrame(recordVisibleFrame);
+            }
+          };
+          firstFrame = requestAnimationFrame(recordVisibleFrame);
+        }
       })();
     </script>
     <meta name="referrer" content="strict-origin-when-cross-origin" />

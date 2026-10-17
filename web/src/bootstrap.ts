@@ -21,7 +21,7 @@ async function start() {
       : import("./main"));
   // Local restoration chooses the first screen; routing and tiles keep loading independently.
   await entry.startupReady;
-  finishStartup();
+  if (!(await finishStartup())) return;
   setupMotion();
   const introduction = document.querySelector<HTMLElement>("#search-empty");
   if (introduction) reveal(introduction, { y: 8 });

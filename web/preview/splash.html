@@ -13,8 +13,9 @@
         <p class="eyebrow">Lokale Vorschau · Simulierter Start</p>
         <h1 id="heading">Ein ruhiger Start.</h1>
         <p>
-          Eine kurze Faltbewegung am gelben Gelenk. Danach bleibt das Logo
-          stehen, bis die App bereit ist.
+          Eine kurze Faltbewegung am gelben Gelenk. Das Logo bleibt mindestens
+          600 ms sichtbar und wird danach sanft ausgeblendet, sobald die App
+          bereit ist.
         </p>
         <div class="controls" role="group" aria-label="Darstellung">
           <button type="button" data-theme-choice="light" aria-pressed="false">
@@ -28,13 +29,14 @@
           <button id="continue" type="button" class="primary" disabled>
             Fortsetzen
           </button>
-          <button id="replay" type="button">Wiederholen</button>
+          <button id="replay" type="button">Start abspielen</button>
         </div>
         <p id="preview-status" role="status">Vorschau wird geladen.</p>
         <p class="note">
-          Mit Wiederholen siehst du die Bewegung erneut. Fortsetzen öffnet die
-          App. Beim normalen Start gibt es keine zusätzliche Wartezeit. Bei
-          „Bewegung reduzieren“ bleibt das Logo statisch.
+          Start abspielen zeigt den Ablauf mit sofort bereiter App. Die
+          Mindestanzeige beträgt 600 ms, das Ausblenden weitere 120 ms. Bei
+          „Bewegung reduzieren“ bleibt das Logo statisch und öffnet die App ohne
+          Ausblenden.
         </p>
         <p class="note">
           Die Vorschau zeigt die Ladeoberfläche der PWA. Die kurze Systemanzeige

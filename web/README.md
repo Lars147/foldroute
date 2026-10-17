@@ -26,13 +26,13 @@ Der Build ersetzt ausschließlich `docs/plan/`. Landingpage und deren Assets ble
 
 ## PWA-Start
 
-Beim Kaltstart der installierten PWA bleibt das Faltradlogo sichtbar, bis Bedienung und lokale Wiederherstellung bereit sind. Die Radhälften bewegen sich einmal kurz um das gelbe Gelenk und kehren in die Ausgangslage zurück. Die Bewegung verzögert den App-Start nicht und entfällt bei „Bewegung reduzieren“. GPS, Routenabfragen und Kartenkacheln verzögern diesen Übergang nicht. Die Ladeoberfläche übernimmt die gespeicherte Darstellung, sonst die Systemeinstellung. Fehlgeschlagene Starts bieten „Neu laden“. Normale Browseraufrufe erhalten keinen zusätzlichen Splashscreen.
+Beim Kaltstart der installierten PWA bleibt das Faltradlogo mindestens 600 ms ab dem ersten sichtbaren Renderframe stehen. Initialisierung und Mindestanzeige laufen parallel: Sobald Bedienung und lokale Wiederherstellung bereit sind und die Mindestdauer erreicht ist, wird das Logo über 120 ms ausgeblendet. Langsamere Starts erhalten keine weitere Pause. Die Radhälften bewegen sich einmal kurz um das gelbe Gelenk und kehren in die Ausgangslage zurück. Bei „Bewegung reduzieren“ bleibt das Logo für dieselbe Mindestdauer statisch und verschwindet ohne Ausblenden. GPS, Routenabfragen und Kartenkacheln verzögern diesen Übergang nicht. Die Ladeoberfläche übernimmt die gespeicherte Darstellung, sonst die Systemeinstellung. Fehlgeschlagene Starts bieten sofort „Neu laden“. Normale Browseraufrufe und Rückkehr in eine bereits gestartete App erhalten keine zusätzliche Pause.
 
 Die Animation beginnt, sobald die PWA rendert. Die kurze Systemanzeige davor bleibt auf iPhone/iPad dem Betriebssystem überlassen; gerätespezifische PNG-Startbilder werden nicht ausgeliefert. Android erzeugt seinen System-Splash weiterhin aus dem Manifest mit hellem Hintergrund und vorhandenem App-Icon. Der tatsächliche Systemstart muss auf einem Gerät mit installierter PWA geprüft werden.
 
 `public/foldroute-mark.svg` ist die einzige Logoquelle. Vite bettet sie in Entwicklung und Produktionsbuild direkt ins HTML ein; die Striche übernehmen dabei die aktuelle Textfarbe. Zusammen mit den kritischen Startstilen ist das Logo bereits vor dem JavaScript-Bundle verfügbar und über das gespeicherte HTML auch offline nutzbar. Ein separater Bildexport entfällt.
 
-Nur im Dev-Modus zeigt `/splash-preview/` dieselbe Oberfläche mit Hell/Dunkel, Fortsetzen und Wiederholen. Die Vorschau pausiert ausdrücklich, lädt keine persönlichen Reisen und verändert keine Einstellungen. Der Produktionsbuild enthält diese Vorschauseite nicht.
+Nur im Dev-Modus zeigt `/splash-preview/` dieselbe Oberfläche mit Hell/Dunkel und zunächst pausiertem Start. „Start abspielen“ simuliert eine sofort bereite App und zeigt die Mindestanzeige mit automatischem Übergang. „Fortsetzen“ beendet die manuelle Pause. Die Vorschau lädt keine persönlichen Reisen und verändert keine Einstellungen. Der Produktionsbuild enthält diese Vorschauseite nicht.
 
 ## Gesamte Website lokal ansehen
 
