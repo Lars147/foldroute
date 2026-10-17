@@ -2497,7 +2497,21 @@ const placesStartup = book
     ),
   );
 export const startupReady = Promise.all([restoredStartup, placesStartup]).then(
-  () => {},
+  () => {
+    afterStartup(() => {
+      if (
+        matchMedia("(min-width: 900px) and (hover: hover) and (pointer: fine)")
+          .matches &&
+        view === "search" &&
+        !editorExpanded &&
+        !navigationView?.visible &&
+        !pendingShared &&
+        !document.querySelector("dialog[open]") &&
+        document.activeElement === document.body
+      )
+        destination.input.focus({ preventScroll: true });
+    });
+  },
 );
 destination.activate();
 settingsUI();

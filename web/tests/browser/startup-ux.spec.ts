@@ -265,6 +265,7 @@ test("startup waits for local restoration, then releases controls without locati
   await expect(page.locator("#app-startup")).not.toHaveAttribute(
     "data-exiting",
   );
+  await expect(page.locator("#destination")).toBeFocused();
   await page.locator("#tab-settings").click();
   await expect(page.locator("#app-startup")).toBeHidden();
 });
@@ -290,7 +291,7 @@ test("ordinary browser entry has no splash and unavailable storage falls back to
   await expect(page.locator("#app-startup")).toBeHidden();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   release();
-  await expect(page.locator("#destination")).toBeVisible();
+  await expect(page.locator("#destination")).toBeFocused();
 });
 
 for (const module of ["bootstrap", "main"]) {

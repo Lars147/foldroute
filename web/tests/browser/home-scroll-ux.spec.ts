@@ -54,6 +54,9 @@ for (const width of [390, 1280])
       if (request.url().includes("/api/v6/plan")) plans++;
     });
     await populateHome(page);
+    await expect(page.locator("#main")).not.toHaveAttribute("inert");
+    if (width >= 900) await expect(page.locator("#destination")).toBeFocused();
+    else await expect(page.locator("#destination")).not.toBeFocused();
     const list = page.locator("#destination-options");
     const summary = await page.locator("#saved-description").textContent();
     for (const close of ["button", "escape", "back"]) {
