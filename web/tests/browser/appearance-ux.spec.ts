@@ -223,8 +223,8 @@ test("landing stays light while planner and public example share appearance chan
   await landing.goto("/landing/");
   await theme(landing, "light");
   await expect(landing.getByRole("combobox", { name: "Darstellung" })).toHaveCount(0);
-  await expect(landing.locator(".planner-preview img")).toHaveAttribute(
-    "src", "assets/webplaner-vorschau.png",
+  await expect(landing.locator(".planner-preview img").first()).toHaveAttribute(
+    "src", /^assets\/webplaner-vorschau\.png\?v=/,
   );
   expect(await landing.evaluate((key) => localStorage.getItem(key), key)).toBe("dark");
   const planner = await context.newPage();

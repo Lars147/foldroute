@@ -10,8 +10,8 @@
   <meta property="og:type" content="website">
   <title>FoldRoute – ÖPNV kann mehr. Mit deinem Klapprad.</title>
   <link rel="icon" href="assets/foldroute-mark.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=20261016-4">
-  <script src="script.js" defer></script>
+  <link rel="stylesheet" href="styles.css?v=20261017-9">
+  <script src="script.js?v=20261017-9" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Zum Inhalt</a>
@@ -63,7 +63,7 @@
         <span class="map-caption">Schematische Darstellung</span>
       </div>
     </section>
-    <div class="mode-strip" aria-hidden="true"><div class="wrap"><span>Radeln.</span><span class="fold-word">Falten.</span><span>Weiterfahren.</span></div></div>
+    <div class="mode-strip" aria-hidden="true"><div class="wrap"><span>Radeln.</span><span>Falten.</span><span>Weiterfahren.</span></div></div>
     <section class="comparison wrap" id="idee" aria-labelledby="comparison-heading">
       <div class="comparison-heading"><h2 id="comparison-heading">Dein Klapprad<br>verbindet die Linien.</h2><p>Radetappen zwischen Linien eröffnen neue Verbindungen und können Umwege verkürzen.</p></div>
       <div class="comparison-panel">
@@ -150,15 +150,27 @@
         <div class="planner-copy">
           <h2 id="planner-heading">Deine nächste Route.<br>Direkt im Browser.</h2>
           <ol class="planner-steps" role="list">
-            <li><h3>Ziel wählen.</h3><p>Lege Start, Ziel und Zeitpunkt fest.</p></li>
+            <li><h3>Ziel wählen.</h3><p>Ab deinem Standort, für jetzt. Start und Zeitpunkt änderst du unter „Mehr Einstellungen“.</p></li>
             <li><h3>Verbindungen vergleichen.</h3><p>Finde deine passende Kombination aus Rad, Bus und Bahn.</p></li>
             <li><h3>Losfahren.</h3><p>Mit Navigation und Sprachansagen – bei geöffneter App und eingeschaltetem Bildschirm.</p></li>
           </ol>
           <p class="planner-storage">Favoriten und gespeicherte Strecken bleiben auf deinem Gerät.</p>
         </div>
-        <figure class="planner-preview">
-          <img src="assets/webplaner-vorschau.png" alt="Mobile Verbindungsliste im FoldRoute-Webplaner mit ausgewählter Route, Ankunft, Dauer und Rad- und ÖPNV-Etappen." width="780" height="1688" loading="lazy" decoding="async">
-        </figure>
+        <div class="planner-preview preview-panels" role="group" aria-roledescription="Karussell" aria-label="FoldRoute in vier Ansichten" tabindex="0">
+          <figure id="preview-connections" role="group" aria-label="1 von 4: Verbindungen">
+            <img src="assets/webplaner-vorschau.png?v=20261017-10" alt="Mobile Verbindungsliste Flughafen München–Fröttmaning: ausgewählte S8–Rad–U6-Verbindung mit 57 Minuten und reine Radroute mit 106 Minuten." width="780" height="1688" loading="lazy" decoding="async" draggable="false">
+          </figure>
+          <figure id="preview-map" role="group" aria-label="2 von 4: Karte">
+            <img src="assets/webplaner-karte.png?v=20261017-10" alt="Karte der Verbindung Flughafen München–Fröttmaning mit S8, Radetappe zwischen Unterföhring und Freimann und U6." width="780" height="1688" loading="lazy" decoding="async" draggable="false">
+          </figure>
+          <figure id="preview-itinerary" role="group" aria-label="3 von 4: Reiseablauf">
+            <img src="assets/webplaner-reiseablauf.png?v=20261017-10" alt="Reiseablauf der 57-Minuten-Verbindung Flughafen München–Fröttmaning mit S8, Radumstieg, U6 sowie Falt- und Umsteigezeiten." width="780" height="1688" loading="lazy" decoding="async" draggable="false">
+          </figure>
+          <figure id="preview-navigation" role="group" aria-label="4 von 4: Navigation">
+            <img src="assets/webplaner-navigation.png?v=20261017-10" alt="Navigation am Flughafen München zu Beginn der Verbindung nach Fröttmaning, mit Fußweg zur S8, Standort und verbleibender Reisezeit." width="780" height="1688" loading="lazy" decoding="async" draggable="false">
+          </figure>
+          <span class="preview-announcement" role="status" aria-live="polite" aria-atomic="true">1 von 4: Verbindungen</span>
+        </div>
       </div>
     </section>
     <section class="project wrap" id="projekt" aria-labelledby="project-heading">
@@ -176,7 +188,7 @@
       <details><summary>Kann ich ohne App eine Route planen?</summary><p>Ja. Im <a href="plan/">Webplaner</a> vergleichst du Rad- und ÖPNV-Verbindungen mit deinen Faltzeiten und Einstellungen. Die PWA bietet Navigation bei geöffneter App mit Abbiegehinweisen, Karte in Fahrtrichtung, Sprachansagen und aktuellen ÖPNV-Daten. Haptik gehört zum iPhone-Prototyp.</p><p>Den Webplaner kannst du <a href="plan/hilfe.html#installation">zum Home-Bildschirm hinzufügen</a> und bis zu 20 gespeicherte Strecken offline ansehen. Ihre Zeiten entsprechen der damaligen Abfrage. Neue Routen, Ortssuche, aktuelle Verbindungsdaten und Straßenkarten benötigen Internet. </p></details>
       <details><summary>Wo kann ich FoldRoute nutzen?</summary><p>Gib Start und Ziel in deiner Region ein. Verbindungen und Echtzeitinformationen hängen von den verfügbaren <a href="https://transitous.org/sources/">Verkehrsdaten bei Transitous</a> ab und können sich regional unterscheiden. FoldRoute ist noch nicht flächendeckend erprobt.</p></details>
       <details><summary>Ist das hier eine echte Routenplanung?</summary><p>Diese Landingpage stellt das Projekt vor. Die Karten sind Illustrationen; die Webplaner-Vorschau zeigt die echte Oberfläche mit Beispieldaten. Im <a href="plan/">Webplaner</a> und im iPhone-Prototyp werden echte Routen ab deinem Standort oder einem gewählten Startpunkt berechnet.</p></details>
-      <details><summary>Welche Daten werden beim Planen übertragen?</summary><p>Der iPhone-Prototyp sendet Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen an Transitous. MapKit verarbeitet Ortssuchen. Einstellungen, Favoriten, letzte Orte und Fahrten bleiben lokal, ohne GPS-Spuren.</p><p>Im Webplaner gehen Ortssuchen und dieselben Planungsangaben an Transitous; OpenFreeMap liefert die Karten auf Basis von OpenStreetMap. Einstellungen, Favoriten und letzte Orte bleiben auf deinem Gerät. Standardmäßig speichert der Webplaner außerdem bis zu 20 unterschiedliche geplante Strecken mit Zwischenzielen, Streckenverlauf und damaligen Zeiten. Aktive Navigation speichert Abschnitt und Manöver zur bestätigten Wiederaufnahme.</p><p>Fahrtkennungen werden für Live-Daten an Transitous übertragen; Neuberechnungen verwenden den aktuellen Standort. Browserstimmen können online arbeiten.</p><p>Ausschalten von „Fahrten auf diesem Gerät speichern“ löscht den Fahrtenverlauf und die Wiederaufnahme; Orte und Einstellungen bleiben erhalten. Einzelne Fahrten lassen sich im Tab „Fahrten“ löschen. „Alle lokalen Daten löschen“ entfernt auch Einstellungen, Favoriten und letzte Orte. Der Browser kann lokale Daten ebenfalls entfernen.</p><p><a href="plan/hilfe.html#offline">Mehr zur Offline-Nutzung</a>. Landingpage und Webplaner verwenden keine Analyse-Tools und keine extern geladenen Oberflächenschriften. Die Kartendarstellung lädt Kartendaten und Kartenschriften von OpenFreeMap.</p></details>
+      <details><summary>Welche Daten werden beim Planen übertragen?</summary><p>Der iPhone-Prototyp sendet Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen an Transitous. MapKit verarbeitet Ortssuchen. Einstellungen, Favoriten, letzte Orte und Fahrten bleiben lokal, ohne GPS-Spuren.</p><p>Im Webplaner gehen Ortssuchen und dieselben Planungsangaben an Transitous; OpenFreeMap liefert die Karten auf Basis von OpenStreetMap. Einstellungen, Favoriten und letzte Orte bleiben auf deinem Gerät. Standardmäßig speichert der Webplaner außerdem bis zu 20 unterschiedliche geplante Strecken mit Zwischenzielen, Streckenverlauf und damaligen Zeiten. Aktive Navigation speichert Abschnitt und Manöver zur bestätigten Wiederaufnahme.</p><p>Fahrtkennungen werden für Live-Daten an Transitous übertragen; Neuberechnungen verwenden den aktuellen Standort. Browserstimmen können online arbeiten.</p><p>Ausschalten von „Strecken auf diesem Gerät speichern“ löscht den Fahrtenverlauf und die Wiederaufnahme; Orte und Einstellungen bleiben erhalten. Einzelne Strecken lassen sich im Tab „Strecken“ löschen. „Alle lokalen Daten löschen“ entfernt auch Einstellungen, Favoriten und letzte Orte. Der Browser kann lokale Daten ebenfalls entfernen.</p><p><a href="plan/hilfe.html#offline">Mehr zur Offline-Nutzung</a>. Landingpage und Webplaner verwenden keine Analyse-Tools und keine extern geladenen Oberflächenschriften. Die Kartendarstellung lädt Kartendaten und Kartenschriften von OpenFreeMap.</p></details>
       <details><summary>Was kann der Prototyp noch nicht?</summary><p>Ticketkauf, Offline-Karten, Apple Watch und CarPlay sind nicht enthalten. Transitous ist ein Best-Effort-Dienst; Verbindungen und Navigation müssen noch im Alltag auf einem echten Gerät erprobt werden.</p></details>
     </div></section>
     <section class="closing wrap" aria-labelledby="closing-heading">
