@@ -58,8 +58,11 @@ for (const width of [390, 1280])
         return route.fulfill({ json: { direct: [], itineraries: [] } });
       });
       await home(page);
-      await page.locator("#search-adjust").click();
+      const toggle = page.locator("#search-adjust");
+      const toggleBounds = await toggle.boundingBox();
+      await toggle.click();
       await expect(page.locator("#route-editor")).toBeVisible();
+      expect(await toggle.boundingBox()).toEqual(toggleBounds);
       await expect(page.locator("#search-adjust")).toHaveAttribute(
         "aria-expanded",
         "true",
@@ -71,11 +74,13 @@ for (const width of [390, 1280])
       await select(page, "destination", "Daglfing");
       await expect(page.locator("#search-view")).toBeVisible();
       await select(page, "origin", "Bergstraße 1");
-      await page.locator("#search-adjust").click();
+      await toggle.click();
+      expect(await toggle.boundingBox()).toEqual(toggleBounds);
       await expect(page.locator("#search-context")).toContainText(
         "Bergstraße 1",
       );
-      await page.locator("#search-adjust").click();
+      await toggle.click();
+      expect(await toggle.boundingBox()).toEqual(toggleBounds);
       await expect(page.locator("#origin")).toHaveValue("Bergstraße 1");
       await expect(page.locator("#destination")).toHaveValue("Daglfing");
       await page.locator("#time-trigger").click();

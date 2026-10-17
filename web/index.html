@@ -322,6 +322,18 @@
           <p>Mit deinem Faltrad. Und allem, was verbindet.</p>
         </div>
         <form id="route-form" class="search-form" novalidate>
+          <button
+            id="search-adjust"
+            type="button"
+            class="context-button"
+            aria-expanded="false"
+            aria-controls="route-editor"
+          >
+            <span class="context-copy"
+              ><strong id="search-adjust-label">Start &amp; Zeit</strong
+              ><span id="search-context">Aktueller Standort · Jetzt</span></span
+            ><span data-icon="chevron"></span>
+          </button>
           <div id="destination-home">
             <div id="destination-field" class="destination-row">
               <span
@@ -356,18 +368,6 @@
               ></button>
             </div>
           </div>
-          <button
-            id="search-adjust"
-            type="button"
-            class="context-button"
-            aria-expanded="false"
-            aria-controls="route-editor"
-          >
-            <span class="context-copy"
-              ><strong id="search-adjust-label">Start &amp; Zeit</strong
-              ><span id="search-context">Aktueller Standort · Jetzt</span></span
-            ><span data-icon="chevron"></span>
-          </button>
           <div id="destination-status-home">
             <p id="place-status" class="message" role="status"></p>
           </div>

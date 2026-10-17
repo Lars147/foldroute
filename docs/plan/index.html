@@ -221,8 +221,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>FoldRoute · Route planen</title>
-    <script type="module" crossorigin src="./assets/index-Cr_EoPAV.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-ve-ZazT1.css">
+    <script type="module" crossorigin src="./assets/index-CR91uwEz.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BAV7wOGk.css">
   <link rel="manifest" href="./manifest.webmanifest"></head>
   <body data-view="search" data-starting>
     <div id="app-startup" aria-label="FoldRoute startet">
@@ -349,6 +349,18 @@
           <p>Mit deinem Faltrad. Und allem, was verbindet.</p>
         </div>
         <form id="route-form" class="search-form" novalidate>
+          <button
+            id="search-adjust"
+            type="button"
+            class="context-button"
+            aria-expanded="false"
+            aria-controls="route-editor"
+          >
+            <span class="context-copy"
+              ><strong id="search-adjust-label">Start &amp; Zeit</strong
+              ><span id="search-context">Aktueller Standort · Jetzt</span></span
+            ><span data-icon="chevron"></span>
+          </button>
           <div id="destination-home">
             <div id="destination-field" class="destination-row">
               <span
@@ -383,18 +395,6 @@
               ></button>
             </div>
           </div>
-          <button
-            id="search-adjust"
-            type="button"
-            class="context-button"
-            aria-expanded="false"
-            aria-controls="route-editor"
-          >
-            <span class="context-copy"
-              ><strong id="search-adjust-label">Start &amp; Zeit</strong
-              ><span id="search-context">Aktueller Standort · Jetzt</span></span
-            ><span data-icon="chevron"></span>
-          </button>
           <div id="destination-status-home">
             <p id="place-status" class="message" role="status"></p>
           </div>

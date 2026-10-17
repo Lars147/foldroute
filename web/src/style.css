@@ -231,6 +231,7 @@ body[data-starting] .app-tabs {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  margin-top: 28px;
 }
 .search-form > :not(.search-content) {
   flex-shrink: 0;
@@ -299,7 +300,6 @@ p {
   border: 1px solid var(--line);
   border-radius: 15px;
   padding: 2px 14px;
-  margin-top: 28px;
   color: var(--muted);
 }
 input:not([type="checkbox"]):not([type="radio"]),
@@ -1857,7 +1857,7 @@ dialog form {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.search-screen.compact .search-box {
+.search-screen.compact .search-form {
   margin-top: 0;
 }
 .search-screen.compact .search-empty {
@@ -1880,7 +1880,7 @@ dialog form {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  .search-screen .search-box {
+  .search-screen .search-form {
     margin-top: 0;
   }
   .search-screen .search-empty {
