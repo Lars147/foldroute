@@ -135,14 +135,13 @@ nav a, .standalone-link, .footer > a { display: inline-flex; align-items: center
 .diagram-pin .fold-pin { fill: var(--yellow); }
 .pin-symbols { color: var(--color-asphalt); }
 .stop-labels { font-size: 26px; font-weight: 700; fill: var(--ink); }
-.ticket { position: relative; margin: 0 24px; padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--color-surface); }
+.ticket { position: relative; margin: 0 24px 24px; padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--color-surface); }
 .ticket-top { display: block; font-size: 18px; font-weight: 650; }
 .ticket-modes { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 16px; }
 .ticket-modes > span { border: 1px solid currentColor; border-radius: 8px; padding: 4px 8px; }
 .ticket-modes > span:first-child, .ticket-modes > span:last-child { color: var(--color-bike-text); }
 .ticket-modes > span:nth-of-type(2) { color: var(--color-transit-text); }
 .ticket-modes i { flex: 1; height: 1px; background: var(--color-control-border); }
-.map-caption { display: block; padding: 16px 24px; font-size: 16px; text-align: right; color: var(--muted); }
 .mode-strip { padding-block: 24px; border-block: 1px solid var(--line); background: var(--color-subtle); }
 .mode-strip > .wrap { display: flex; justify-content: space-between; align-items: center; gap: 16px; font-size: clamp(24px, 3vw, 36px); font-weight: 650; letter-spacing: -.025em; }
 
@@ -253,7 +252,6 @@ details[open] summary::after { content: "−"; }
   .intro { max-width: 450px; }
   .route-art { width: 100%; max-width: 530px; justify-self: center; }
   .stop-labels { font-size: 32px; }
-  .map-caption { padding-inline: 16px; }
   .mode-strip > .wrap { flex-wrap: wrap; gap: 8px 16px; font-size: clamp(18px, 4.5vw, 28px); }
   .comparison, .planner-section, .faq { padding-block: 48px; }
   .comparison-heading { grid-template-columns: minmax(0, 1fr); gap: 16px; margin-bottom: 24px; }
