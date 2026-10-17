@@ -1,4 +1,5 @@
 import { SettingsValidation } from "./settings-validation";
+import { reveal, stopMotionWithin, captureList, reflowList } from "./motion";
 import { appearance, type AppearancePreference } from "./appearance";
 import { mapStyle } from "./map-style";
 import {
@@ -194,6 +195,7 @@ function toast(message: string, source?: StorageMessageSource) {
   toastStorageSource = source;
   el("toast").textContent = message;
   el("toast").hidden = false;
+  reveal(el("toast"), { y: 8 });
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el("toast").hidden = true), 6000);
 }
@@ -840,6 +842,7 @@ function show(next: View, push = true) {
     el("map-location-error").hidden = true;
     el<HTMLButtonElement>("map-location").disabled = false;
   }
+  stopMotionWithin(el(`${view}-view`));
   view = next;
   syncLiveLocation();
   document.body.dataset.view = next;
@@ -864,6 +867,22 @@ function show(next: View, push = true) {
     requestAnimationFrame(() => routeMap.resize());
   }
   if (replan) void refreshRoute(false);
+  if (!document.body.classList.contains("search-focus-mode"))
+    if (next === "map")
+      reveal(
+        el(
+          journeyView.screen === "map"
+            ? "map-preview-summary"
+            : "panel-content",
+        ),
+      );
+    else if (next === "settings") {
+      reveal(el("settings-form"), { y: 8 });
+      reveal(el("app-settings"), { y: 8 });
+    } else if (next === "history") {
+      reveal(el("history-list"));
+      reveal(el("history-empty"));
+    } else reveal(document.querySelector<HTMLElement>(".search-content")!);
 }
 window.addEventListener("popstate", async (event) => {
   cancelNavigationCheck();
@@ -946,10 +965,15 @@ window.addEventListener("popstate", async (event) => {
 });
 function historyUI() {
   if (historySwipe.deferRender(historyUI)) return;
+  const before =
+    historyMutationPending && view === "history"
+      ? captureList(el("history-list"), "historyId")
+      : undefined;
   const focused = document.activeElement as HTMLElement | null;
   const focusedId =
     focused?.closest<HTMLElement>(".history-row")?.dataset.historyId;
   const focusedRemove = focused?.classList.contains("history-remove");
+  stopMotionWithin(el("history-list"));
   el("history-list").replaceChildren();
   el("history-empty").hidden = historyEntries.length > 0;
   el("history-empty").textContent = offlineEnabled
@@ -1023,6 +1047,7 @@ function historyUI() {
       )?.focus({ preventScroll: true });
   }
   historySwipe.ready();
+  if (before) reflowList(el("history-list"), before, "historyId");
 }
 async function reloadHistory() {
   const generation = storageGeneration;
@@ -1957,6 +1982,9 @@ function appearanceUI() {
     'input[name="appearance"]',
   ))
     input.checked = input.value === appearance.preference;
+  const segments = document.querySelector<HTMLElement>(".appearance-segments")!;
+  if (segments.dataset.appearance !== appearance.preference)
+    segments.dataset.appearance = appearance.preference;
 }
 appearance.onChange = appearanceUI;
 appearance.onStorageError = () =>

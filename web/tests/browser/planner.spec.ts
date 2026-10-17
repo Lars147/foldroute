@@ -4,6 +4,7 @@ import { openSelectedDetails, showMap } from "./assertions";
 import {
   expectPlanningComplete,
   expectSelectedJourneySaved,
+  expectMotionSettled,
 } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import { defaults, type Journey } from "../../src/model";
@@ -64,6 +65,7 @@ async function setup(page: Page, geolocation = true) {
     { ...defaults, maxCyclingMinutes: 60 },
   );
   await page.reload();
+  await expect(page.locator("#main")).not.toHaveAttribute("inert");
 }
 async function choose(page: Page, id: string, name: string) {
   await page.locator("#" + id).fill(name);
@@ -204,7 +206,7 @@ for (const width of [320, 390, 1280]) {
     await expect(start).toBeVisible();
     await expect(start).toBeDisabled();
     await expect(start).toHaveText("Los");
-    await expect(start).toHaveCSS("background-color", "rgb(52, 62, 65)");
+    await expect(start).toHaveCSS("background-color", "rgb(226, 231, 228)");
     await expect(start).toHaveAccessibleDescription(
       /Abfahrt von U6.*liegt zurück/,
     );
@@ -240,7 +242,7 @@ for (const width of [320, 390, 1280]) {
     }
     await page.context().setOffline(true);
     await expect(search).toBeDisabled();
-    await expect(search).toHaveCSS("background-color", "rgb(52, 62, 65)");
+    await expect(search).toHaveCSS("background-color", "rgb(226, 231, 228)");
     await expect(notice).toContainText("Internet");
     await expect(start).toBeVisible();
     await expect(start).toBeDisabled();
@@ -465,6 +467,7 @@ for (const width of [320, 393, 1280]) {
       "Start und Ziel tauschen",
     );
     await expect(page.locator("#swap")).toBeInViewport({ ratio: 1 });
+    await expectMotionSettled(page.locator("#adjust-dialog"));
     const origin = await page.locator("#origin").boundingBox();
     const swap = await page.locator("#swap").boundingBox();
     expect(swap!.width).toBe(48);
@@ -2741,6 +2744,47 @@ test("editing a saved now result uses its original search time without starting 
   expect(requests).toBe(0);
 });
 
+test("reordered stop keeps keyboard focus visible after motion", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await setup(page);
+  await page.locator("#search-adjust").click();
+  for (let index = 0; index < 3; index++) {
+    await page.locator("#add-stop").click();
+    await page.locator(`#via-${index}`).press("Escape");
+  }
+  await expectMotionSettled(page.locator("#adjust-dialog"));
+  const row = page.locator("#via-2").locator("..");
+  const up = row.getByRole("button", { name: /nach oben/ });
+  await up.evaluate((button) => button.scrollIntoView({ block: "start" }));
+  const otherRowsMove = await up.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    const row = button.closest(".stop-editor-row")!;
+    return [...document.querySelectorAll(".stop-editor-row")].some(
+      (other) => other !== row && other.getAnimations().length > 0,
+    );
+  });
+  expect(otherRowsMove).toBe(true);
+  await expect(up).toBeFocused();
+  await expectMotionSettled(row);
+  await expect
+    .poll(() =>
+      up.evaluate((button) => {
+        const scrollport = button
+          .closest(".dialog-body")!
+          .getBoundingClientRect();
+        const focused = button.getBoundingClientRect();
+        return (
+          focused.top >= scrollport.top - 1 &&
+          focused.bottom <= scrollport.bottom + 1
+        );
+      }),
+    )
+    .toBe(true);
+});
+
 test("free stops edit, reorder, reverse and cancel without changing the active plan", async ({
   page,
 }) => {
@@ -3533,6 +3577,9 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
     }, fontSize);
     for (const screen of ["list", "detail"]) {
       if (screen === "detail") await openSelectedDetails(page);
+      await expectMotionSettled(page.locator("#panel-details"));
+      await expectMotionSettled(page.locator("#choices"));
+      await expectMotionSettled(page.locator("#panel-content"));
       const samples = await page.evaluate(async () => {
         const panel = document.getElementById("journey-panel")!;
         // Let measured fixed-header height select the normal or full-panel fallback.

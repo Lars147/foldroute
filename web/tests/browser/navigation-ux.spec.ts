@@ -1,4 +1,4 @@
-import { openCachedJourney } from "./assertions";
+import { openCachedJourney, expectMotionSettled } from "./assertions";
 import { test, expect, type Page } from "@playwright/test";
 import {
   defaults,
@@ -612,6 +612,7 @@ async function complete(page: Page) {
     await page.locator("#navigation-details-toggle").click();
   await page.locator("#navigation-complete").click();
   await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#navigation-confirm")).toBeHidden();
 }
 
 async function expectTabVisible(
@@ -848,17 +849,20 @@ test("section tabs support keyboard navigation, collapsed summary order and resu
   await page.setViewportSize({ width: 320, height: 568 });
   await setup(page, true);
   const tabs = page.getByRole("tab");
+  await expectMotionSettled(page.locator("#navigation-panel"));
   await expect(page.locator("#navigation-details")).toBeHidden();
   const summary = await page.locator("#navigation-summary").boundingBox();
   const strip = await page.getByRole("tablist").boundingBox();
   expect(strip!.y).toBeGreaterThanOrEqual(summary!.y + summary!.height);
+  const tabSizes = await tabs.evaluateAll((elements) =>
+    elements.map((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { width: bounds.width, height: bounds.height };
+    }),
+  );
   expect(
-    await tabs.evaluateAll((elements) =>
-      elements.every((element) => {
-        const bounds = element.getBoundingClientRect();
-        return bounds.width >= 48 && bounds.height >= 48;
-      }),
-    ),
+    tabSizes.every((bounds) => bounds.width >= 48 && bounds.height >= 48),
+    JSON.stringify(tabSizes),
   ).toBe(true);
   await expect(tabs.nth(0)).toHaveAttribute("tabindex", "0");
   await tabs.nth(0).focus();
@@ -1291,6 +1295,14 @@ for (const [width, height] of [
     await expectMobileCredit(page);
     await page.locator("#navigation-details-toggle").press("Escape");
     await expect(page.locator("#navigation-details")).toBeHidden();
+    // Measure the pointer path after the deliberate sheet transition settles.
+    await expect
+      .poll(() =>
+        page
+          .locator("#navigation-panel")
+          .evaluate((panel) => panel.getAnimations().length),
+      )
+      .toBe(0);
     const grip = await page.locator("#navigation-details-toggle").boundingBox();
     await page.mouse.move(grip!.x + grip!.width / 2, grip!.y + 15);
     await page.mouse.down();
@@ -1612,6 +1624,61 @@ test("overlay return without permission queries waits for an explicit fresh retr
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
 });
 
+test("following camera uses final panel geometry during the sheet animation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await setup(page, true);
+  const panel = page.locator("#navigation-panel");
+  const map = page.locator("#navigation-map");
+  await expect(map).toHaveAttribute("data-following", "true");
+  await expectMotionSettled(panel);
+  const collapsedCenter = await map.getAttribute("data-center");
+  const started = await page
+    .locator("#navigation-details-toggle")
+    .evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      const panel = document.getElementById("navigation-panel")!;
+      const animations = panel.getAnimations();
+      for (const animation of animations) animation.pause();
+      return {
+        count: animations.length,
+        gap: Math.abs(
+          panel.getBoundingClientRect().top -
+            (panel.parentElement!.getBoundingClientRect().top +
+              panel.offsetTop),
+        ),
+      };
+    });
+  expect(started.count).toBeGreaterThan(0);
+  expect(started.gap).toBeGreaterThan(20);
+  await expect
+    .poll(() =>
+      panel.evaluate((element) => {
+        const screen = element.parentElement!;
+        const map = document.getElementById("navigation-map")!;
+        const finalTop =
+          screen.getBoundingClientRect().top +
+          element.offsetTop -
+          map.getBoundingClientRect().top;
+        return Math.abs(
+          parseFloat(screen.style.getPropertyValue("--navigation-panel-top")) -
+            finalTop,
+        );
+      }),
+    )
+    .toBeLessThan(1);
+  await expect(map).not.toHaveAttribute("data-center", collapsedCenter!);
+  const expandedCenter = await map.getAttribute("data-center");
+  await panel.evaluate((element) => {
+    for (const animation of element.getAnimations()) animation.finish();
+  });
+  await expectMotionSettled(panel);
+  await expect(map).toHaveAttribute("data-center", expandedCenter!);
+  await expect(map).toHaveAttribute("data-following", "true");
+});
+
 test("mobile details resize without recentering a manually moved map and keep stop actions visible", async ({
   page,
 }) => {
@@ -1747,6 +1814,7 @@ for (const width of [390, 1280])
     );
     await expect(keepGoing).toBeFocused();
     await expect(finish).toBeVisible();
+    await expectMotionSettled(dialog);
     const bounds = (await dialog.boundingBox())!;
     if (width < 900) {
       expect(844 - bounds.y - bounds.height).toBeCloseTo(12, 0);
@@ -1959,6 +2027,7 @@ test("section confirmation keeps its labels and placement after cancelling navig
     dialog.getByRole("button", { name: "Bestätigen" }),
   ).toBeFocused();
   await expect(dialog.getByRole("button", { name: "Abbrechen" })).toBeVisible();
+  await expectMotionSettled(dialog);
   expect((await dialog.boundingBox())!.y).toBeCloseTo(12, 0);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

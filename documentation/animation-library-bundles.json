@@ -1,0 +1,80 @@
+{
+  "versions": {
+    "motion": "14.3.0",
+    "animejs": "4.5.0",
+    "gsap": "3.15.0",
+    "autoAnimate": "0.10.0",
+    "esbuild": "0.28.2"
+  },
+  "options": {
+    "platform": "browser",
+    "format": "esm",
+    "target": "es2020",
+    "minify": true,
+    "treeShaking": true,
+    "legalComments": "none",
+    "gzipLevel": 9
+  },
+  "results": [
+    {
+      "name": "native-waapi",
+      "minifiedBytes": 134,
+      "gzipBytes": 135,
+      "source": "export const run = element => element.animate({ transform: ['translateY(16px)', 'translateY(0)'], opacity: [0,1] }, { duration: 220, easing: 'ease-out' });"
+    },
+    {
+      "name": "motion-mini",
+      "minifiedBytes": 8503,
+      "gzipBytes": 3413,
+      "source": "import { animate } from 'motion/mini'; export const run = element => animate(element, { transform: ['translateY(16px)', 'translateY(0)'], opacity: [0,1] }, { duration: 0.22, ease: 'easeOut' });"
+    },
+    {
+      "name": "motion-mini-spring",
+      "minifiedBytes": 12676,
+      "gzipBytes": 5167,
+      "source": "import { animate } from 'motion/mini'; import { spring } from 'motion'; export const run = element => animate(element, { transform: ['translateY(16px)', 'translateY(0)'], opacity: [0,1] }, { type: spring, stiffness: 400, damping: 40 });"
+    },
+    {
+      "name": "motion-hybrid-spring",
+      "minifiedBytes": 64697,
+      "gzipBytes": 24122,
+      "source": "import { animate } from 'motion'; export const run = element => animate(element, { y: [16,0], opacity: [0,1] }, { type: 'spring', stiffness: 400, damping: 40 });"
+    },
+    {
+      "name": "motion-layout",
+      "minifiedBytes": 103999,
+      "gzipBytes": 34813,
+      "source": "import { animateLayout } from 'motion'; export const run = (root, update) => animateLayout(root, update, { type: 'spring', stiffness: 400, damping: 40 });"
+    },
+    {
+      "name": "anime-spring",
+      "minifiedBytes": 33470,
+      "gzipBytes": 13371,
+      "source": "import { animate, createSpring } from 'animejs'; export const run = element => animate(element, { y: [16,0], opacity: [0,1], ease: createSpring({ stiffness: 400, damping: 40 }) });"
+    },
+    {
+      "name": "anime-layout",
+      "minifiedBytes": 59207,
+      "gzipBytes": 21249,
+      "source": "import { createLayout } from 'animejs'; export const run = (root, update) => createLayout(root, { duration: 220 }).update(update);"
+    },
+    {
+      "name": "gsap-core",
+      "minifiedBytes": 70250,
+      "gzipBytes": 27461,
+      "source": "import { gsap } from 'gsap'; export const run = element => gsap.fromTo(element, { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.22, ease: 'power2.out' });"
+    },
+    {
+      "name": "gsap-flip",
+      "minifiedBytes": 94941,
+      "gzipBytes": 36151,
+      "source": "import { gsap } from 'gsap'; import { Flip } from 'gsap/Flip'; gsap.registerPlugin(Flip); export const run = (targets, update) => { const state = Flip.getState(targets); update(); return Flip.from(state, { duration: 0.22, ease: 'power2.out' }); };"
+    },
+    {
+      "name": "auto-animate",
+      "minifiedBytes": 7885,
+      "gzipBytes": 3147,
+      "source": "import autoAnimate from '@formkit/auto-animate'; export const run = element => autoAnimate(element, { duration: 220 });"
+    }
+  ]
+}

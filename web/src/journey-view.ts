@@ -3,6 +3,7 @@ import {
   type JourneyPresentation,
 } from "./journey-detail";
 import { closeMapStylePickers } from "./map-style-picker";
+import { reveal, stopMotionWithin, motionTime } from "./motion";
 import {
   type Journey,
   bikeDistance,
@@ -39,6 +40,7 @@ export class JourneyView {
   private key = "";
   private displayedID?: string;
   private restored = false;
+  private hadChoices = false;
   private recoveryTimer?: ReturnType<typeof setTimeout>;
   private navigation: JourneyNavigation = {
     screen: "list",
@@ -173,6 +175,8 @@ export class JourneyView {
     return structuredClone(this.navigation);
   }
   restoreNavigation(value?: JourneyNavigation, focus = false) {
+    const previous = this.screen;
+    stopMotionWithin(el("journey-panel"));
     const fromDetail = this.screen === "detail";
     this.navigation =
       value && ["list", "detail", "map"].includes(value.screen)
@@ -181,6 +185,7 @@ export class JourneyView {
     this.applyLayout();
     this.restorePosition();
     if (focus) this.focusSelection(fromDetail);
+    if (focus) this.animateScreen(previous);
   }
   reset(screen: JourneyScreen = "list", savedOrigin?: "search" | "history") {
     this.restoreNavigation({
@@ -191,6 +196,8 @@ export class JourneyView {
     });
   }
   showScreen(screen: JourneyScreen, focus = true) {
+    const previous = this.screen;
+    stopMotionWithin(el("journey-panel"));
     const fromDetail = this.screen === "detail";
     this.savePosition();
     if (screen === "map" && this.screen !== "map")
@@ -199,6 +206,21 @@ export class JourneyView {
     this.applyLayout();
     this.restorePosition();
     if (focus) this.focusSelection(fromDetail);
+    this.animateScreen(previous);
+  }
+  private animateScreen(previous: JourneyScreen) {
+    if (previous === this.screen || this.desktop.matches) return;
+    const target =
+      this.screen === "map"
+        ? el("map-preview-summary")
+        : this.screen === "detail"
+          ? this.detailPanel
+          : el("choices");
+    const mapChange = previous === "map" || this.screen === "map";
+    reveal(target, {
+      x: mapChange ? 0 : this.screen === "detail" ? 18 : -18,
+      y: mapChange ? 12 : 0,
+    });
   }
   private requestScreen(screen: JourneyScreen, replace = false) {
     if (this.onNavigate) this.onNavigate(screen, replace);
@@ -331,6 +353,8 @@ export class JourneyView {
     target.focus({ preventScroll: true });
   }
   render(state: PlanningState, cyclingLimit = 30) {
+    const firstResults = !this.hadChoices && state.journeys.length > 0;
+    this.hadChoices = state.journeys.length > 0;
     const request = state.request;
     this.restored = state.restored;
     // Keep the internal GPS label intact: planning uses it to refresh location.
@@ -470,6 +494,7 @@ export class JourneyView {
     const active = document.activeElement as HTMLElement;
     const focused = active?.dataset.journey;
     const focusedDetail = active?.dataset.detailJourney;
+    stopMotionWithin(el("choices"));
     el("choices").replaceChildren();
     state.journeys.forEach((journey, index) => {
       const comparison = cyclingExcess(journey, cyclingLimit) > 0;
@@ -499,7 +524,25 @@ export class JourneyView {
       );
       button.onclick = () => {
         this.savePosition();
+        const changed = journey.id !== this.displayedID;
         this.select(journey.id);
+        if (changed) {
+          const selectedRow = el("choices").querySelector<HTMLElement>(
+            ".route-choice-row.selected",
+          );
+          if (selectedRow)
+            reveal(selectedRow, {
+              y: 0,
+              duration: motionTime.selection,
+              fromOpacity: 0.75,
+            });
+          if (this.desktop.matches)
+            reveal(el("journey-detail"), {
+              y: 4,
+              duration: motionTime.selection,
+              fromOpacity: 0.75,
+            });
+        }
       };
       const details = node("button", "Details ›", "route-detail-link");
       details.type = "button";
@@ -517,6 +560,7 @@ export class JourneyView {
         if (this.desktop.matches) {
           el("journey-heading").focus({ preventScroll: true });
           this.detailPanel.scrollIntoView({ block: "nearest" });
+          reveal(el("journey-detail"), { y: 8 });
         } else this.requestScreen("detail");
       };
       row.append(button, details);
@@ -547,6 +591,7 @@ export class JourneyView {
     el<HTMLButtonElement>("map-open-details").disabled = !j;
     this.applyLayout();
     this.restorePosition();
+    if (firstResults) reveal(el("choices"), { y: 10 });
     if (focusedDetail && !el("choices").hidden)
       [
         ...el("choices").querySelectorAll<HTMLButtonElement>(

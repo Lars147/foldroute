@@ -299,9 +299,12 @@ export class NavigationMap {
     this.position();
   }
   private position() {
+    // Panel translate is visual only: following uses its final layout position.
     const bounds = this.target.getBoundingClientRect(),
       top = this.top.getBoundingClientRect(),
-      panel = this.panel.getBoundingClientRect();
+      panelTop =
+        this.target.parentElement!.getBoundingClientRect().top +
+        this.panel.offsetTop;
     if (!bounds.width || !bounds.height) return;
     const screen = this.target.parentElement!;
     screen.style.setProperty(
@@ -310,7 +313,7 @@ export class NavigationMap {
     );
     screen.style.setProperty(
       "--navigation-panel-top",
-      `${Math.max(0, panel.top - bounds.top)}px`,
+      `${Math.max(0, panelTop - bounds.top)}px`,
     );
     const controls = screen
         .querySelector(".navigation-map-controls")!
@@ -318,14 +321,14 @@ export class NavigationMap {
       credit = screen
         .querySelector(".navigation-credit")!
         .getBoundingClientRect(),
-      creditBottom = panel.top - 6;
+      creditBottom = panelTop - 6;
     screen.style.setProperty(
       "--navigation-credit-offset",
       `${creditBottom > controls.top && creditBottom - credit.height < controls.bottom ? controls.width + 8 : 0}px`,
     );
     if (!this.following || !this.lastFix || this.target.hidden) return;
     const upper = Math.max(0, top.bottom - bounds.top + 12),
-      lower = Math.max(upper, panel.top - bounds.top - 12);
+      lower = Math.max(upper, panelTop - bounds.top - 12);
     const heading = (-(this.heading ?? 0) * Math.PI) / 180;
     this.view.setRotation(heading);
     this.view.centerOn(

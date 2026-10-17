@@ -1,3 +1,5 @@
+import { reveal, stopMotion } from "./motion";
+
 /** One undo action, with an eight-second reading window. */
 export class HistoryUndo {
   private timer?: ReturnType<typeof setTimeout>;
@@ -42,6 +44,7 @@ export class HistoryUndo {
     this.remaining = 8000;
     this.banner.hidden = false;
     this.button.disabled = false;
+    reveal(this.banner, { y: 8 });
     this.hovered =
       matchMedia("(any-hover: hover)").matches && this.banner.matches(":hover");
     this.resume();
@@ -51,6 +54,7 @@ export class HistoryUndo {
     clearTimeout(this.timer);
     this.timer = undefined;
     this.action = undefined;
+    stopMotion(this.banner);
     this.banner.hidden = true;
   }
   private pause() {

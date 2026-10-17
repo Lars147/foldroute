@@ -1,4 +1,11 @@
 import type { NavigationSession } from "./navigation-session";
+import {
+  reveal,
+  settle,
+  stopMotion,
+  stopMotionWithin,
+  motionTime,
+} from "./motion";
 import type { NavigationMap } from "./navigation-map";
 import { NavigationGuidance } from "./navigation-guidance";
 import { clock, duration, el, node, icon } from "./ui";
@@ -82,6 +89,7 @@ export class NavigationView {
     const toggle = el("navigation-details-toggle");
     toggle.onclick = () => this.setDetails(!this.detailsOpen);
     toggle.onpointerdown = (event) => {
+      stopMotion(el("navigation-panel"));
       this.dragY = event.clientY;
       toggle.setPointerCapture(event.pointerId);
     };
@@ -188,6 +196,10 @@ export class NavigationView {
     el("navigation-dismiss").onclick = () => this.session?.dismissAlternative();
   }
   private setDetails(open: boolean) {
+    if (open === this.detailsOpen) return;
+    const panel = el("navigation-panel");
+    const before = panel.getBoundingClientRect().top;
+    stopMotion(panel);
     this.detailsOpen = open;
     const details = el("navigation-details");
     const focusedTab = el("navigation-phases").contains(document.activeElement);
@@ -195,6 +207,13 @@ export class NavigationView {
     if (!open && details.contains(document.activeElement))
       el("navigation-details-toggle").focus({ preventScroll: true });
     this.render();
+    if (this.mobile.matches)
+      settle(
+        panel,
+        0,
+        before - panel.getBoundingClientRect().top,
+        open ? motionTime.panel : motionTime.exit,
+      );
     if (!open) {
       const tab = this.selectedTab();
       if (focusedTab) tab?.focus({ preventScroll: true });
@@ -222,12 +241,20 @@ export class NavigationView {
     );
   }
   private selectSection(id: string, focus = false) {
+    const changed = id !== this.selectedSectionId;
+    const opening = !this.detailsOpen;
     this.selectedSectionId = id;
-    this.detailsOpen = true;
-    this.render();
+    if (opening) this.setDetails(true);
+    else this.render();
     const tab = this.selectedTab();
     if (focus) tab?.focus({ preventScroll: true });
     tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (changed)
+      reveal(el("navigation-section-content"), {
+        y: 6,
+        duration: motionTime.selection,
+        fromOpacity: 0.7,
+      });
   }
   private renderSections() {
     const engine = this.session?.engine;
@@ -420,6 +447,7 @@ export class NavigationView {
     this.guidance.reset();
     this.guidance.speak("start", "Navigation wird vorbereitet");
     this.render();
+    settle(el("navigation-panel"), 0, 14);
     if (!this.map && !this.loading) {
       this.loading = import("./navigation-map")
         .then(({ NavigationMap }) => {
@@ -450,6 +478,7 @@ export class NavigationView {
     }
   }
   hide() {
+    stopMotionWithin(this.root);
     closeMapStylePickers();
     this.root.hidden = true;
     this.guidance.reset();
