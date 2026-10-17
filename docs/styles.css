@@ -85,7 +85,7 @@ p { max-width: 60ch; line-height: 1.55; overflow-wrap: anywhere; }
 }
 .brand-icon img { display: block; }
 nav { display: flex; align-items: center; gap: 24px; font-size: 16px; font-weight: 650; }
-nav a, .standalone-link, .footer > a { display: inline-flex; align-items: center; min-height: 44px; }
+nav a, .footer > a { display: inline-flex; align-items: center; min-height: 44px; }
 .button, .nav-cta {
   display: inline-flex;
   align-items: center;
@@ -104,7 +104,6 @@ nav a, .standalone-link, .footer > a { display: inline-flex; align-items: center
 .primary, .nav-cta { color: var(--color-on-brand); background: var(--yellow); }
 .button:hover, .nav-cta:hover { background: var(--color-action-hover); text-decoration: none; }
 .button:active, .nav-cta:active { background: var(--color-action-pressed); }
-.standalone-link { max-width: 100%; padding-block: 8px; font-size: 16px; font-weight: 650; text-decoration: underline; overflow-wrap: anywhere; }
 
 .hero {
   display: grid;
@@ -205,11 +204,6 @@ nav a, .standalone-link, .footer > a { display: inline-flex; align-items: center
 .preview-panels.is-dragging { cursor: grabbing; scroll-snap-type: none; }
 .preview-announcement { position: absolute; left: 0; top: 0; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-.project { display: flex; justify-content: space-between; align-items: center; gap: 24px 48px; margin-block: 72px 0; padding: 32px; border: 1px solid var(--line); border-radius: 24px; background: var(--color-surface); }
-.project-copy { max-width: 660px; min-width: 0; }
-.project h2 { margin-bottom: 16px; font-size: 28px; }
-.project p { margin-bottom: 0; font-size: 18px; color: var(--muted); }
-.project > a { flex-shrink: 0; }
 .faq { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 48px; padding-block: 72px; }
 .faq h2 { font-size: 32px; }
 .questions { min-width: 0; }
@@ -266,8 +260,6 @@ details[open] summary::after { content: "−"; }
   .planner-layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .planner-copy { max-width: none; }
   .planner-steps li { padding-left: 32px; }
-  .project { flex-direction: column; align-items: flex-start; gap: 16px; margin-top: 48px; padding: 24px; }
-  .project > a { flex-shrink: 1; }
   .faq { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .closing { flex-direction: column; align-items: flex-start; padding-bottom: 48px; }
 }

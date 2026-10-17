@@ -39,11 +39,11 @@ test("landing keeps route planning primary from introduction to conclusion", asy
   }
   await expect(page.getByRole("navigation", { name: "Hauptnavigation" })
     .getByRole("link", { name: "Webplaner", exact: true, includeHidden: true })).toHaveAttribute("href", "#reise");
-  await expect(page.locator("#projekt .primary")).toHaveCount(0);
-  const project = await documentBox(page.locator("#projekt"));
+  await expect(page.locator("#reise + .faq#selbst-bauen > h2#projekt"))
+    .toHaveAccessibleName("Noch kurz vor der Abfahrt.");
   const preview = await documentBox(page.locator("#reise"));
-  expect(project.y).toBeGreaterThan(preview.y + preview.height);
   const faq = await documentBox(page.locator(".faq"));
+  expect(faq.y).toBeGreaterThanOrEqual(preview.y + preview.height);
   const conclusion = await documentBox(page.locator(".closing"));
   expect(conclusion.y).toBeGreaterThanOrEqual(faq.y + faq.height);
   await page.locator(".hero").getByRole("link", { name: "Route planen", exact: true }).press("Enter");
@@ -77,13 +77,13 @@ test("body text, context and scaled map labels remain readable at every breakpoi
   for (const width of [320, 390, 760, 761, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto(landing);
-    const paragraphs = page.locator(".intro, .comparison-heading p, .planner-steps p, .planner-storage, .project p, .questions p");
+    const paragraphs = page.locator(".intro, .comparison-heading p, .planner-steps p, .planner-storage, .questions p");
     for (const paragraph of await paragraphs.all()) {
       await expect(paragraph).toHaveCSS("font-size", "18px");
       await expect(paragraph).toHaveCSS("line-height", "27.9px");
     }
     const contextSizes = await page.locator(
-      "nav a, .button, .standalone-link, .hero-availability p, .ticket-modes > span, .comparison-legend, .comparison-controls button, .footer > a, .footer > span",
+      "nav a, .button, .hero-availability p, .ticket-modes > span, .comparison-legend, .comparison-controls button, .footer > a, .footer > span",
     ).evaluateAll(elements => elements.map(element => ({
       text: element.textContent,
       size: parseFloat(getComputedStyle(element).fontSize),
@@ -109,11 +109,11 @@ test("body text, context and scaled map labels remain readable at every breakpoi
   }
 });
 
-test("standalone actions and FAQ summaries offer touch targets and keyboard feedback", async ({ page }) => {
+test("actions and FAQ summaries offer touch targets and keyboard feedback", async ({ page }) => {
   for (const width of [320, 390, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto(landing);
-    const targets = page.locator("nav a:visible, a.button, a.standalone-link, .comparison-controls button:visible, .questions summary, .footer > a");
+    const targets = page.locator("nav a:visible, a.button, .comparison-controls button:visible, .questions summary, .footer > a");
     for (const target of await targets.all()) {
       const box = await documentBox(target);
       const isAction = await target.evaluate(element => element.matches(".button, .nav-cta, button"));
@@ -181,15 +181,9 @@ test("landing remains readable without JavaScript", async ({ browser }) => {
   await context.close();
 });
 
-test("landing provides complete setup links and opens the fixed interactive example", async ({ page }) => {
+test("landing provides PWA installation and opens the fixed interactive example", async ({ page }) => {
   await page.goto(landing);
-  await expect(page.getByRole("link", { name: "Prototyp selbst bauen", exact: true })).toHaveAttribute(
-    "href", "https://github.com/Lars147/foldroute/blob/main/ios/README.md",
-  );
-  await page.getByText("Wie kann ich den iPhone-Prototyp selbst bauen?", { exact: true }).click();
-  await expect(page.getByRole("link", { name: "Quellcode als ZIP", exact: true })).toHaveAttribute(
-    "href", "https://github.com/Lars147/foldroute/archive/refs/heads/main.zip",
-  );
+  await expect(page.locator("main")).not.toContainText(/iPhone|iOS|Prototyp/i);
   const installation = page.getByText("Kann ich FoldRoute als App nutzen?", { exact: true });
   await installation.click();
   await expect(page.locator("details").filter({ has: installation })
@@ -203,6 +197,7 @@ test("landing provides complete setup links and opens the fixed interactive exam
   const privacy = page.getByText("Welche Daten werden beim Planen übertragen?", { exact: true });
   await privacy.click();
   const privacyAnswer = page.locator("details").filter({ has: privacy });
+  await expect(privacyAnswer).toContainText("Ortssuchen sowie Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen an Transitous");
   await expect(privacyAnswer).toContainText("„Strecken auf diesem Gerät speichern“");
   await expect(privacyAnswer).toContainText("Einzelne Strecken lassen sich im Tab „Strecken“ löschen.");
   const example = page.locator("#idee").getByRole("link", { name: "Beispiel öffnen", exact: true });
