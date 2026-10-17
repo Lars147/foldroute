@@ -127,11 +127,11 @@ test("rapid main navigation keeps the indicator aligned after resizing", async (
   ].entries()) {
     const transition = await page.evaluate(async (id) => {
       const marker = document.querySelector<HTMLElement>(".tab-indicator")!;
-      const previous = marker.getAnimations();
+      const previous = marker.getAnimations({ subtree: true });
       document.getElementById(id)!.click();
       // Each change must reach the observer before the next navigation action.
       await new Promise<void>((resolve) => queueMicrotask(resolve));
-      const current = marker.getAnimations();
+      const current = marker.getAnimations({ subtree: true });
       for (const animation of current) {
         animation.pause();
         animation.currentTime = 40;
@@ -149,7 +149,8 @@ test("rapid main navigation keeps the indicator aligned after resizing", async (
     expect(transition.current).toBeGreaterThan(0);
   }
   await page.locator(".tab-indicator").evaluate((marker) => {
-    for (const animation of marker.getAnimations()) animation.finish();
+    for (const animation of marker.getAnimations({ subtree: true }))
+      animation.finish();
   });
   await expect(page.locator("#settings-view")).toBeVisible();
   await expect(page.locator("#tab-settings")).toHaveAttribute(
@@ -168,11 +169,14 @@ test("rapid main navigation keeps the indicator aligned after resizing", async (
             const marker = document
               .querySelector(".tab-indicator")!
               .getBoundingClientRect();
-            const icon = document
-              .querySelector("#tab-settings .icon")!
+            const button = document
+              .querySelector("#tab-settings")!
               .getBoundingClientRect();
-            return Math.abs(
-              marker.left + marker.width / 2 - icon.left - icon.width / 2,
+            return Math.max(
+              Math.abs(marker.left - button.left - 4),
+              Math.abs(marker.top - button.top - 4),
+              Math.abs(marker.width - button.width + 8),
+              Math.abs(marker.height - button.height + 8),
             );
           }),
         )

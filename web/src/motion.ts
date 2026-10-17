@@ -41,10 +41,15 @@ function play(
   duration: number,
   fade: number | false,
   physics: boolean,
+  size?: { width: [number, number]; height: [number, number] },
 ) {
   stopMotion(element);
   if (!motionAllowed(element)) return;
-  const properties = fade !== false ? ["translate", "opacity"] : ["translate"];
+  const properties = [
+    "translate",
+    ...(fade !== false ? ["opacity"] : []),
+    ...(size ? ["width", "height"] : []),
+  ];
   const original = properties.map((name) => [
     name,
     element.style.getPropertyValue(name),
@@ -54,6 +59,12 @@ function play(
     element,
     {
       translate: [`${x}px ${y}px`, "0px 0px"],
+      ...(size
+        ? {
+            width: size.width.map((value) => `${value}px`),
+            height: size.height.map((value) => `${value}px`),
+          }
+        : {}),
       ...(fade !== false
         ? {
             opacity: [
@@ -169,24 +180,84 @@ export function setupMotion() {
   if (initialized) return;
   initialized = true;
   setupAppearanceMotion();
+  setupTabMotion();
+  document.addEventListener(
+    "toggle",
+    (event) => {
+      const detail = event.target;
+      if (!(detail instanceof HTMLDetailsElement) || !detail.open) return;
+      for (const child of detail.children)
+        if (child instanceof HTMLElement && child.tagName !== "SUMMARY")
+          reveal(child, { y: 6, duration: motionTime.selection });
+    },
+    true,
+  );
+}
+
+function setupTabMotion() {
   const tabs = document.querySelector<HTMLElement>(".app-tabs")!;
-  const indicator = document.createElement("span");
+  const indicator = document.createElement("div");
   indicator.className = "tab-indicator";
   indicator.setAttribute("aria-hidden", "true");
+  const contents = document.createElement("div");
+  contents.className = "tab-indicator-contents";
+  const captions = [
+    ...tabs.querySelectorAll<HTMLElement>(".app-tab-content"),
+  ].map((caption) => {
+    const copy = caption.cloneNode(true) as HTMLElement;
+    copy.classList.add("tab-indicator-copy");
+    copy.dataset.tab = caption.closest("button")!.id;
+    contents.append(copy);
+    return { caption, copy };
+  });
+  indicator.append(contents);
   tabs.append(indicator);
+  let selected: string | undefined;
   const position = (moving: boolean) => {
-    const icon = tabs.querySelector<HTMLElement>("[aria-current] .icon");
-    if (!icon || !tabs.getClientRects().length) return;
+    if (!tabs.getClientRects().length) {
+      stopMotionWithin(indicator);
+      delete tabs.dataset.motion;
+      selected = undefined;
+      return;
+    }
+    const button = tabs.querySelector<HTMLButtonElement>(
+      "button[aria-current]",
+    )!;
     const old = indicator.getBoundingClientRect();
-    stopMotion(indicator);
+    stopMotionWithin(indicator);
     const area = tabs.getBoundingClientRect(),
-      target = icon.getBoundingClientRect();
-    const left = target.left + target.width / 2 - 16;
-    const top = target.top + target.height / 2 - 16;
-    indicator.style.left = `${left - area.left}px`;
-    indicator.style.top = `${top - area.top}px`;
-    if (moving && tabs.dataset.motion === "ready")
-      settle(indicator, old.left - left, old.top - top, motionTime.selection);
+      target = button.getBoundingClientRect();
+    const left = target.left - area.left - tabs.clientLeft + 4;
+    const top = target.top - area.top - tabs.clientTop + 4;
+    const width = target.width - 8;
+    const height = target.height - 8;
+    indicator.style.left = `${left}px`;
+    indicator.style.top = `${top}px`;
+    indicator.style.width = `${width}px`;
+    indicator.style.height = `${height}px`;
+    contents.style.left = `${-left}px`;
+    contents.style.top = `${-top}px`;
+    contents.style.width = `${tabs.clientWidth}px`;
+    contents.style.height = `${tabs.clientHeight}px`;
+    for (const { caption, copy } of captions) {
+      const bounds = caption.getBoundingClientRect();
+      copy.style.left = `${bounds.left - area.left - tabs.clientLeft}px`;
+      copy.style.top = `${bounds.top - area.top - tabs.clientTop}px`;
+      copy.style.width = `${bounds.width}px`;
+      copy.style.height = `${bounds.height}px`;
+      copy.style.font = getComputedStyle(caption).font;
+    }
+    if (moving && selected !== button.id && tabs.dataset.motion === "ready") {
+      const x = old.left - (target.left + 4);
+      const y = old.top - (target.top + 4);
+      play(indicator, x, y, motionTime.selection, false, true, {
+        width: [old.width, width],
+        height: [old.height, height],
+      });
+      // Counter-move the clipped copies so icons and labels stay fixed.
+      settle(contents, -x, -y, motionTime.selection);
+    }
+    selected = button.id;
     tabs.dataset.motion = "ready";
   };
   position(false);
@@ -199,17 +270,7 @@ export function setupMotion() {
   resize.observe(tabs);
   // Text scaling can move an icon without resizing the fixed navigation bar.
   for (const button of tabs.querySelectorAll("button")) resize.observe(button);
-  document.addEventListener(
-    "toggle",
-    (event) => {
-      const detail = event.target;
-      if (!(detail instanceof HTMLDetailsElement) || !detail.open) return;
-      for (const child of detail.children)
-        if (child instanceof HTMLElement && child.tagName !== "SUMMARY")
-          reveal(child, { y: 6, duration: motionTime.selection });
-    },
-    true,
-  );
+  for (const { caption } of captions) resize.observe(caption);
 }
 
 function setupAppearanceMotion() {

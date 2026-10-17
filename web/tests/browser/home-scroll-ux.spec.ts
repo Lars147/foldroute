@@ -168,7 +168,7 @@ for (const { width, height, fontSize, safeArea } of layouts) {
     });
     await page.reload();
     await page.addStyleTag({
-      content: `html { font-size: ${fontSize}px; --tabs: ${64 + safeArea}px; }
+      content: `:root { font-size: ${fontSize}px; --tabs: calc(max(64px, 4rem) + ${safeArea}px); }
         .app-tabs { padding-bottom: ${safeArea}px; }`,
     });
     const rows = page

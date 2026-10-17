@@ -15,7 +15,7 @@
   --yellow: var(--color-brand);
   --header: 64px;
   --mobile-status-height: 0px;
-  --tabs: calc(64px + env(safe-area-inset-bottom, 0px));
+  --tabs: calc(max(64px, 4rem) + env(safe-area-inset-bottom, 0px));
   --motion-feedback: 120ms;
   --motion-selection: 220ms;
   --motion-page: 300ms;
@@ -165,25 +165,39 @@ body[data-starting] .app-tabs {
   border-top: 1px solid var(--line);
 }
 .app-tabs button {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  padding: 8px 22px;
+  text-align: center;
+}
+.app-tab-content {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  color: var(--muted);
-  font-size: 0.6875rem;
-  padding: 8px 22px;
+  min-width: 0;
+  max-width: 100%;
+}
+.app-tab-label {
+  overflow-wrap: anywhere;
 }
 .app-tabs button[aria-current] {
-  color: var(--ink);
-}
-.app-tabs button[aria-current] .icon {
-  stroke-width: 2.2;
-  background: var(--color-brand);
   color: var(--color-on-brand);
-  border-radius: 6px;
-  box-shadow: 0 0 0 4px var(--color-brand);
-  outline: 1px solid var(--color-asphalt);
-  outline-offset: 4px;
+}
+.app-tabs button[aria-current]::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  z-index: -1;
+  background: var(--color-brand);
+  border-radius: 12px;
 }
 .screen {
   width: min(620px, 100%);
@@ -3498,21 +3512,31 @@ body[data-example] #route-start-summary {
 
 /* One persistent selection marker; moving it never changes tab geometry. */
 .tab-indicator {
+  display: none;
   position: absolute;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
+  border-radius: 12px;
+  overflow: hidden;
+  contain: layout;
   background: var(--color-brand);
-  outline: 1px solid var(--color-asphalt);
-  outline-offset: 3px;
+  color: var(--color-on-brand);
   pointer-events: none;
-  z-index: -1;
+  z-index: 2;
 }
-.app-tabs { isolation: isolate; }
-.app-tabs[data-motion="ready"] button[aria-current] .icon {
-  background: transparent;
-  box-shadow: none;
-  outline: none;
+.tab-indicator-contents,
+.tab-indicator-copy {
+  position: absolute;
+}
+.app-tabs {
+  isolation: isolate;
+}
+.app-tabs[data-motion="ready"] .tab-indicator {
+  display: block;
+}
+.app-tabs[data-motion="ready"] button[aria-current] {
+  color: var(--muted);
+}
+.app-tabs[data-motion="ready"] button[aria-current]::before {
+  display: none;
 }
 .navigation-screen { overflow: clip; }
 
