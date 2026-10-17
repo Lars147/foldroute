@@ -3436,13 +3436,14 @@ body[data-navigation="active"] .app-tabs {
   }
   .navigation-expand {
     position: absolute;
+    width: 20px;
+    height: 20px;
     right: 8px;
     top: 50%;
-    transform: translateY(-50%);
-    font-size: 1.25rem;
+    transform: translateY(-50%) rotate(-90deg);
   }
   [data-details="true"] .navigation-expand {
-    transform: translateY(-50%) rotate(180deg);
+    transform: translateY(-50%) rotate(90deg);
   }
   #navigation-end {
     min-width: 48px;

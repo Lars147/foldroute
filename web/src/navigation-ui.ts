@@ -64,7 +64,7 @@ export class NavigationView {
         <div class="navigation-instruction" id="navigation-guidance"><span id="navigation-arrow" aria-hidden="true">↑</span><div><strong id="navigation-distance"></strong><h1 id="navigation-instruction" tabindex="-1">Navigation wird vorbereitet …</h1><p id="navigation-detail"></p></div></div>
         <div id="navigation-alert" hidden><p id="navigation-alert-summary" role="status"></p><button id="navigation-alert-open" class="secondary" type="button">Details</button></div>
         <div id="navigation-summary">
-          <button id="navigation-details-toggle" type="button" aria-expanded="false" aria-controls="navigation-details"><span class="navigation-grip" aria-hidden="true"></span><strong id="navigation-remaining"></strong><span id="navigation-summary-arrival"></span><span class="navigation-expand" aria-hidden="true">⌃</span></button>
+          <button id="navigation-details-toggle" type="button" aria-expanded="false" aria-controls="navigation-details"><span class="navigation-grip" aria-hidden="true"></span><strong id="navigation-remaining"></strong><span id="navigation-summary-arrival"></span></button>
           <div id="navigation-end-slot"></div>
         </div>
         <div id="navigation-phases-slot"></div>
@@ -87,6 +87,9 @@ export class NavigationView {
     mountMapStylePicker(el("navigation-style-control"), "navigation");
     el("navigation-center").append(icon("crosshair"));
     const toggle = el("navigation-details-toggle");
+    const expand = icon("chevron");
+    expand.classList.add("navigation-expand");
+    toggle.append(expand);
     toggle.onclick = () => this.setDetails(!this.detailsOpen);
     toggle.onpointerdown = (event) => {
       stopMotion(el("navigation-panel"));
