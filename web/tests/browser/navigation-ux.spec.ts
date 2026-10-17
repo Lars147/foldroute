@@ -1410,7 +1410,7 @@ for (const colorScheme of ["light", "dark"] as const)
       await expect(status).toHaveText("Kein GPS");
       if (width < 900) await page.locator("#navigation-details-toggle").click();
       await expect(page.locator("#navigation-location-status")).toContainText(
-        "nicht aktualisiert",
+        "Standort nicht verfügbar",
       );
       await expect(page.locator("#navigation-locate")).toBeVisible();
       await page.evaluate(() => (window as any).navProbe.push(48, 11));
@@ -1434,8 +1434,8 @@ test("a location timeout stays in details and clears when the watch recovers", a
   await page.locator("#navigation-locate").click();
   await expect(page.locator("#navigation-locate")).toBeDisabled();
   await page.clock.runFor(12100);
-  await expect(page.locator("#navigation-location-status")).toHaveText(
-    "Standortabfrage dauert zu lange. Bitte erneut versuchen.",
+  await expect(page.locator("#navigation-location-status")).toContainText(
+    "Standortabfrage dauert zu lange.",
   );
   await expect(page.locator("#navigation-locate")).toBeEnabled();
   await expect(page.locator("#navigation-alert")).toBeHidden();
@@ -1458,11 +1458,17 @@ test("denied permission explains recovery only in location details", async ({
   await expect(page.locator("#navigation-alert")).toBeHidden();
   await page.locator("#navigation-details-toggle").click();
   await expect(page.locator("#navigation-location-status")).toContainText(
-    "Standortzugriff blockiert",
+    "Standortzugriff nicht erlaubt",
   );
-  await expect(page.locator("#navigation-location-status")).toContainText(
-    "Website-Einstellungen",
-  );
+  await expect(
+    page
+      .locator("#navigation-location-status")
+      .getByRole("link", { name: "Hilfe zum Standort" }),
+  ).toHaveAttribute("href", "hilfe.html#standort");
+  const help = page.locator("#navigation-location-status .location-help");
+  await help.focus();
+  await page.evaluate(() => (window as any).navProbe.fail(1));
+  await expect(help).toBeFocused();
   await page.locator("#navigation-locate").click();
   await page.clock.runFor(10);
   await expect(page.locator("#navigation-gps-status")).toBeHidden();

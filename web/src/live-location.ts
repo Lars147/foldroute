@@ -22,19 +22,14 @@ export class LocationError extends Error {
     this.name = "LocationError";
   }
 }
-const permissionDeniedMessage =
-  "Standortzugriff blockiert. Öffne die Website-Einstellungen neben der Adressleiste und erlaube den Standortzugriff. Prüfe auch die Ortungsdienste in den Systemeinstellungen. Tippe danach auf „Standort erneut anfragen“.";
-const timeoutMessage =
-  "Standortabfrage dauert zu lange. Bitte erneut versuchen.";
-function positionError(code: number) {
+const permissionDeniedMessage = "Standortzugriff nicht erlaubt.";
+const timeoutMessage = "Standortabfrage dauert zu lange.";
+export function geolocationError(code: number): LocationError {
   return code === 1
     ? new LocationError("permission-denied", permissionDeniedMessage)
     : code === 3
       ? new LocationError("timeout", timeoutMessage)
-      : new LocationError(
-          "unavailable",
-          "Standort konnte nicht aktualisiert werden. Bitte erneut versuchen.",
-        );
+      : new LocationError("unavailable", "Standort nicht verfügbar.");
 }
 export const locationLabel = (quality: LocationQuality) =>
   quality === "stale"
@@ -160,7 +155,7 @@ export class LiveLocation {
         this.sessionAllowed = false;
         this.fix = undefined;
         this.failure =
-          permission.state === "denied" ? positionError(1) : undefined;
+          permission.state === "denied" ? geolocationError(1) : undefined;
         this.publish();
         if (this.failure) this.fail(this.failure);
         else this.cancelCenter();
@@ -180,7 +175,7 @@ export class LiveLocation {
     if (!window.isSecureContext || !navigator.geolocation?.watchPosition) {
       this.failure = new LocationError(
         "unavailable",
-        "Standort ist in diesem Browser nicht verfügbar.",
+        "Standort nicht verfügbar.",
       );
       this.publish();
       this.fail(this.failure);
@@ -199,7 +194,7 @@ export class LiveLocation {
           this.sessionAllowed = false;
           this.fix = undefined;
         }
-        this.failure = positionError(error.code);
+        this.failure = geolocationError(error.code);
         this.publish();
         this.fail(this.failure);
       },

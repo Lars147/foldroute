@@ -33,6 +33,76 @@ const cafes = [
 ];
 const cors = { "Access-Control-Allow-Origin": "*" };
 
+for (const width of [320, 1280])
+  for (const code of [1, 2, 3])
+    test(`location failures stay compact and link to help at ${width}px: ${code}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: code === 1 ? "dark" : "light" });
+      await page.addInitScript((code) => {
+        Object.defineProperty(navigator, "geolocation", {
+          configurable: true,
+          value: {
+            getCurrentPosition(
+              _success: PositionCallback,
+              fail: PositionErrorCallback,
+            ) {
+              fail({
+                code,
+                message: "Technical browser diagnostic",
+              } as GeolocationPositionError);
+            },
+          },
+        });
+      }, code);
+      await page.route("**/api/v1/geocode?*", (route) =>
+        route.fulfill({
+          headers: cors,
+          json: [{ name: "Manueller Start", lat: 48.15, lon: 11.6 }],
+        }),
+      );
+      await page.goto("/");
+      await page.locator("#search-adjust").click();
+      const input = page.locator("#origin");
+      const current = page.locator("#origin-options").getByRole("button", {
+        name: "Ort auswählen: Aktueller Standort",
+        exact: true,
+      });
+      await input.click();
+      await current.click();
+      const status = page.locator("#adjust-status");
+      const expected = [
+        "",
+        "Standortzugriff nicht erlaubt.",
+        "Standort nicht verfügbar.",
+        "Standortabfrage dauert zu lange.",
+      ][code];
+      await expect(status).toHaveText(`${expected} Hilfe zum Standort`);
+      const help = status.getByRole("link", { name: "Hilfe zum Standort" });
+      await expect(help).toBeVisible();
+      await expect(help).toHaveAttribute("href", "hilfe.html#standort");
+      const helpBounds = (await help.boundingBox())!;
+      expect(helpBounds.x).toBeGreaterThanOrEqual(0);
+      expect(helpBounds.x + helpBounds.width).toBeLessThanOrEqual(width);
+      await help.focus();
+      await expect(help).toBeFocused();
+      await page.screenshot({ path: info.outputPath("location-help.png") });
+      await input.fill("Manueller Start");
+      await page
+        .locator("#origin-options")
+        .getByRole("button", { name: /^Ort auswählen: Manueller Start/ })
+        .click();
+      await expect(input).toHaveValue("Manueller Start");
+      await expect(help).toBeHidden();
+      await input.click();
+      await current.click();
+      await expect(help).toBeVisible();
+      await help.click();
+      await expect(page).toHaveURL(/hilfe\.html#standort$/);
+      await expect(page.locator("#standort-heading")).toBeInViewport();
+    });
+
 for (const width of [320, 390, 1280])
   test(`districts distinguish equal place names and wrap without hiding controls at ${width}`, async ({
     page,

@@ -422,8 +422,11 @@ for (const width of [390, 1280])
     const origin = page.locator("#origin");
     await origin.click();
     await expect(origin).toBeFocused();
-    await expect(origin).toHaveCSS("outline-style", "solid");
-    await expect(origin).toHaveCSS("outline-width", "2px");
+    await expect(origin).toHaveCSS(
+      "outline-style",
+      width < 900 ? "solid" : "none",
+    );
+    if (width < 900) await expect(origin).toHaveCSS("outline-width", "2px");
     await origin.press("Escape");
 
     await page.locator("#planner-more").click();
@@ -451,6 +454,94 @@ for (const width of [390, 1280])
       "solid",
     );
   });
+
+for (const colorScheme of ["light", "dark"] as const)
+  test(`desktop route fields keep pointer focus quiet and keyboard focus visible in ${colorScheme}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ colorScheme });
+    await page.route("**/api/v1/geocode?*", (route) =>
+      route.fulfill({
+        headers: { "Access-Control-Allow-Origin": "*" },
+        json: [{ name: "Testort", lat: 48.15, lon: 11.6 }],
+      }),
+    );
+    await home(page);
+    await page.locator("#destination").click();
+    const destinationBox = page.locator(".search-box");
+    await expect(destinationBox).toHaveCSS("outline-style", "solid");
+    await page.locator("#search-adjust").click();
+    await addStop(page);
+
+    for (const id of ["origin", "destination", "via-0"]) {
+      await page.locator("#search-heading").click();
+      const input = page.locator(`#${id}`);
+      const idleBackground = await input.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+      const bounds = await input.boundingBox();
+      await input.click();
+      await expect(input).toBeFocused();
+      await expect(input).toHaveCSS("outline-style", "none");
+      await expect(input).not.toHaveCSS("background-color", idleBackground);
+      await expect(input).toHaveCSS("border-radius", "10px");
+      await expect(destinationBox).toHaveCSS("outline-style", "none");
+      expect(await input.boundingBox()).toEqual(bounds);
+      await page.screenshot({ path: info.outputPath(`${id}-pointer.png`) });
+
+      await input.fill("Test");
+      await page.locator(`#${id}-options .place-select`).last().waitFor();
+      await input.press("ArrowLeft");
+      await expect(input).toHaveCSS("outline-style", "none");
+      await expect(input).not.toHaveAttribute("data-keyboard-focus");
+      await input.press("Tab");
+      await expect(input).not.toBeFocused();
+      await expect(input).toHaveCSS("background-color", idleBackground);
+      await page.keyboard.press("Shift+Tab");
+      await expect(input).toBeFocused();
+      await expect(input).toHaveCSS("outline-style", "solid");
+      await expect(input).toHaveCSS("outline-width", "2px");
+      await expect(input).toHaveCSS("outline-offset", "-2px");
+      await page.screenshot({ path: info.outputPath(`${id}-keyboard.png`) });
+
+      // Clicking an already focused field removes its keyboard ring immediately.
+      await input.click();
+      await expect(input).toBeFocused();
+      await expect(input).toHaveCSS("outline-style", "none");
+      await input.press("ArrowRight");
+      await expect(input).toHaveCSS("outline-style", "none");
+    }
+  });
+
+test("desktop route fields retain a system focus outline in forced colors", async ({
+  page,
+  browserName,
+}) => {
+  test.skip(
+    browserName !== "chromium",
+    "Forced colors emulation uses Chromium",
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.emulateMedia({ forcedColors: "active" });
+  await home(page);
+  await page.locator("#search-adjust").click();
+  await addStop(page);
+  for (const id of ["origin", "destination", "via-0"]) {
+    const input = page.locator(`#${id}`);
+    await input.click();
+    await expect(input).toHaveCSS("outline-style", "solid");
+    await expect(input).toHaveCSS("outline-width", "2px");
+    await expect(input).toHaveCSS("outline-offset", "-2px");
+    const pointerColor = await input.evaluate(
+      (element) => getComputedStyle(element).outlineColor,
+    );
+    await input.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(input).toBeFocused();
+    await expect(input).toHaveCSS("outline-color", pointerColor);
+  }
+});
 
 test.describe("touch focus feedback", () => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });

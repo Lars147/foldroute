@@ -1561,10 +1561,6 @@ dialog form {
   )::-webkit-search-cancel-button {
   display: none;
 }
-#origin:focus {
-  outline: 2px solid var(--color-selection-indicator);
-  outline-offset: 2px;
-}
 .route-editor-places .icon-button,
 .route-editor-places .destination-marker {
   position: relative;
@@ -1672,6 +1668,19 @@ dialog form {
   border: 0;
   border-radius: 10px;
   background: none;
+}
+@media (min-width: 900px) {
+  .route-editor-places .search-box:focus-within {
+    outline: none;
+  }
+  .route-editor-places input[type="search"]:focus {
+    background: var(--color-subtle);
+    outline: none;
+  }
+  .route-editor-places input[type="search"][data-keyboard-focus]:focus {
+    outline: 2px solid var(--color-selection-indicator);
+    outline-offset: -2px;
+  }
 }
 .planner-actions-panel {
   position: fixed;
@@ -2361,6 +2370,7 @@ dialog.compact .dialog-actions {
   body.search-focus-mode .search-focus-results,
   body.search-focus-mode .search-focus-results *,
   body.search-focus-mode .search-focus-status,
+  body.search-focus-mode .search-focus-status a,
   body.search-focus-mode .search-focus-back {
     visibility: visible;
   }
@@ -2429,6 +2439,7 @@ dialog.compact .dialog-actions {
     top: calc(var(--visual-top, 0px) + 116px);
     margin: 0;
     font-size: 12px;
+    line-height: 1.4;
     max-width: calc(var(--visual-width, 100vw) - 24px);
   }
   body.search-focus-mode .search-focus-results {
@@ -2451,6 +2462,13 @@ dialog.compact .dialog-actions {
   .search-box:focus-within,
   body.search-focus-mode .search-focus-input:focus {
     outline-color: Highlight;
+  }
+}
+@media (forced-colors: active) and (min-width: 900px) {
+  .route-editor-places input[type="search"]:focus,
+  .route-editor-places input[type="search"][data-keyboard-focus]:focus {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 }
 

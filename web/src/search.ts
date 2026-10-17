@@ -1,9 +1,9 @@
-import { announceLocation } from "./live-location";
+import { announceLocation, geolocationError } from "./live-location";
 import type { Place, Coordinate } from "./model";
 import { errorText } from "./model";
 import { ApiClient } from "./transitous";
 import { PlaceBook, samePlace } from "./places";
-import { el, node, icon } from "./ui";
+import { el, node, icon, setLocationFeedback } from "./ui";
 import { reveal, stopMotion } from "./motion";
 
 let lastLocation: { coordinate: Coordinate; timestamp: number } | undefined;
@@ -237,7 +237,9 @@ export class PlaceSearch {
   private contains(target: EventTarget | null) {
     return (
       target instanceof Node &&
-      (target === this.input || this.list.contains(target))
+      (target === this.input ||
+        this.list.contains(target) ||
+        this.message.contains(target))
     );
   }
   private claim() {
@@ -245,9 +247,12 @@ export class PlaceSearch {
     if (PlaceSearch.dialogSearch !== this) PlaceSearch.dialogSearch?.cancel();
     PlaceSearch.dialogSearch = this;
   }
-  private setMessage(text: string) {
-    PlaceSearch.messages.set(this.message, { owner: this, text });
-    this.message.textContent = text;
+  private setMessage(text: string, locationHelp = false) {
+    setLocationFeedback(this.message, text, locationHelp);
+    PlaceSearch.messages.set(this.message, {
+      owner: this,
+      text: this.message.textContent ?? "",
+    });
   }
   private clearMessage() {
     if (!this.settings.focusDriven) return;
@@ -381,7 +386,7 @@ export class PlaceSearch {
       const place = await locate(this.abort.signal);
       if (version === this.version) this.choose(place);
     } catch (error) {
-      if (version === this.version) this.setMessage(errorText(error));
+      if (version === this.version) this.setMessage(errorText(error), true);
     }
   }
   private heading(text: string) {
@@ -542,15 +547,11 @@ export function locate(signal?: AbortSignal): Promise<Place> {
       return;
     }
     if (!window.isSecureContext) {
-      reject(
-        new Error(
-          "Standort benötigt eine sichere Verbindung. Bitte die App über HTTPS öffnen.",
-        ),
-      );
+      reject(geolocationError(2));
       return;
     }
     if (!navigator.geolocation) {
-      reject(new Error("Standort nicht verfügbar. Bitte Start wählen."));
+      reject(geolocationError(2));
       return;
     }
     const abort = () => reject(signal!.reason);
@@ -576,18 +577,7 @@ export function locate(signal?: AbortSignal): Promise<Place> {
       },
       (error) => {
         signal?.removeEventListener("abort", abort);
-        const message =
-          error.code === 1
-            ? "Standortzugriff nicht erlaubt. Bitte Standortberechtigung und Ortungsdienste in den Geräte- bzw. Browsereinstellungen prüfen. Danach erneut versuchen oder Start manuell wählen."
-            : error.code === 3
-              ? "Standortabfrage dauert zu lange. Bitte erneut versuchen oder Start manuell wählen."
-              : "Standort konnte nicht ermittelt werden. Bitte Ortungsdienste und Empfang prüfen, erneut versuchen oder Start manuell wählen.";
-        const detail = error.message?.trim();
-        reject(
-          new Error(
-            `${message} Diagnose: Standortfehler ${error.code}${detail ? ` – ${detail}` : ""}.`,
-          ),
-        );
+        reject(geolocationError(error.code));
       },
       { timeout: 12000, maximumAge: 60000 },
     );

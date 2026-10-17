@@ -11,6 +11,28 @@ export const node = <K extends keyof HTMLElementTagNameMap>(
   element.className = className;
   return element;
 };
+export function setLocationFeedback(
+  element: HTMLElement,
+  text: string,
+  showHelp = true,
+  helpId?: string,
+) {
+  const help = showHelp && !!text;
+  const link = element.querySelector<HTMLAnchorElement>("a.location-help");
+  if (
+    element.textContent === (help ? `${text} Hilfe zum Standort` : text) &&
+    !!link === help &&
+    (!helpId || link?.id === helpId)
+  )
+    return;
+  element.textContent = text;
+  if (help) {
+    const anchor = node("a", "Hilfe zum Standort", "location-help");
+    anchor.href = "hilfe.html#standort";
+    if (helpId) anchor.id = helpId;
+    element.append(" ", anchor);
+  }
+}
 export const clock = (seconds: number) =>
   new Date(seconds * 1000).toLocaleTimeString("de-DE", {
     hour: "2-digit",

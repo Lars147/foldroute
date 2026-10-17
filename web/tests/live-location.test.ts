@@ -190,7 +190,7 @@ it("explicit requests time out without discarding the subscription", async () =>
   const rejected = expect(service.center()).rejects.toMatchObject({
     name: "LocationError",
     reason: "timeout",
-    message: "Standortabfrage dauert zu lange. Bitte erneut versuchen.",
+    message: "Standortabfrage dauert zu lange.",
   });
   await vi.advanceTimersByTimeAsync(12000);
   await rejected;
@@ -231,7 +231,7 @@ it("requests permission again explicitly after denial and recovers after allowin
   service.setActive(true);
   await flush();
   const denied = expect(service.center(true)).rejects.toThrow(
-    "Website-Einstellungen",
+    "Standortzugriff nicht erlaubt.",
   );
   expect(watch).toHaveBeenCalledTimes(1);
   callbacks.get(1)!.error({ code: 1 } as GeolocationPositionError);

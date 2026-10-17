@@ -59,6 +59,7 @@ import {
   clock,
   dateLabel,
   historyPlannedAt,
+  setLocationFeedback,
 } from "./ui";
 import { setupPWA } from "./pwa";
 import { afterStartup } from "./startup";
@@ -74,9 +75,18 @@ import {
 const clearPointerFocus = () => {
   delete document.documentElement.dataset.focusInput;
 };
+const routeSearchInput = (target: EventTarget | null) =>
+  target instanceof HTMLInputElement &&
+  target.type === "search" &&
+  target.closest(".route-editor-places")
+    ? target
+    : undefined;
 window.addEventListener(
   "pointerdown",
-  () => (document.documentElement.dataset.focusInput = "pointer"),
+  (event) => {
+    document.documentElement.dataset.focusInput = "pointer";
+    routeSearchInput(event.target)?.removeAttribute("data-keyboard-focus");
+  },
   true,
 );
 window.addEventListener(
@@ -95,6 +105,16 @@ window.addEventListener(
   },
   true,
 );
+// Remember how a field was entered so typing after a click does not add a ring.
+window.addEventListener("focusin", (event) => {
+  routeSearchInput(event.target)?.toggleAttribute(
+    "data-keyboard-focus",
+    document.documentElement.dataset.focusInput !== "pointer",
+  );
+});
+window.addEventListener("focusout", (event) => {
+  routeSearchInput(event.target)?.removeAttribute("data-keyboard-focus");
+});
 
 type View = "search" | "map" | "settings" | "history";
 let historyEntries: HistoryEntry[] = [];
@@ -496,11 +516,14 @@ function renderNavigationCheck() {
         ? ""
         : (assessment?.message ?? ""));
   const notice = el("navigation-start-notice");
-  notice.textContent =
+  setLocationFeedback(
+    notice,
     text +
-    ((blocked || distant) && !navigator.onLine
-      ? " Neue Verbindungen benötigen Internet."
-      : "");
+      ((blocked || distant) && !navigator.onLine
+        ? " Neue Verbindungen benötigen Internet."
+        : ""),
+    !!error && navigation.needsLocation,
+  );
   notice.hidden = !notice.textContent;
   const search = el<HTMLButtonElement>("navigation-search-now");
   search.hidden = !selected || !(blocked || distant) || navigationChecking;
@@ -1529,8 +1552,12 @@ async function start(place: Place) {
   );
   if (result === "location-error" && view === "map" && !dialog.open) {
     openAdjust("replan", place);
-    el("adjust-status").textContent = session.state.message;
-    el("adjust-location-help").hidden = false;
+    setLocationFeedback(
+      el("adjust-status"),
+      session.state.message,
+      true,
+      "adjust-location-help",
+    );
     draftOrigin.input.focus();
   }
 }
@@ -1570,7 +1597,6 @@ function initializeEditor(request?: RouteRequest, target?: Place) {
   updateTiming();
   el("adjust-status").textContent = "";
   el("adjust-location-announcement").textContent = "";
-  el("adjust-location-help").hidden = true;
 }
 function editorSummary() {
   if (!editorInitialized) return;
@@ -1682,7 +1708,7 @@ el("search-adjust").onclick = () => {
 el("adjust-route").onclick = () => openAdjust("replan");
 el("cancel-adjust").onclick = closeAdjust;
 el("route-form").addEventListener("input", () => {
-  el("adjust-location-help").hidden = true;
+  el("adjust-status").querySelector(".location-help")?.remove();
 });
 el("route-form").addEventListener("focusout", editorSummary);
 el("route-form").addEventListener("keydown", (event) => {
@@ -1692,7 +1718,6 @@ el("route-form").addEventListener("keydown", (event) => {
   }
 });
 el("origin-location").onclick = async () => {
-  el("adjust-location-help").hidden = true;
   cancelDraftLocation();
   const controller = new AbortController();
   draftLocationRequest = controller;
@@ -1710,8 +1735,12 @@ el("origin-location").onclick = async () => {
     }
   } catch (error) {
     if (!controller.signal.aborted) {
-      el("adjust-status").textContent = errorText(error);
-      el("adjust-location-help").hidden = false;
+      setLocationFeedback(
+        el("adjust-status"),
+        errorText(error),
+        true,
+        "adjust-location-help",
+      );
     }
   } finally {
     if (draftLocationRequest === controller) {
@@ -1820,8 +1849,12 @@ async function refreshRoute(interactive = true) {
     !dialog.open
   ) {
     openAdjust("replan", request.destination);
-    el("adjust-status").textContent = session.state.message;
-    el("adjust-location-help").hidden = false;
+    setLocationFeedback(
+      el("adjust-status"),
+      session.state.message,
+      true,
+      "adjust-location-help",
+    );
   }
 }
 el("refresh-route").onclick = () => void refreshRoute();
@@ -2368,8 +2401,12 @@ el("recover-planning").onclick = async () => {
   );
   if (result === "location-error" && view === "map" && !dialog.open) {
     openAdjust("replan", request.destination);
-    el("adjust-status").textContent = session.state.message;
-    el("adjust-location-help").hidden = false;
+    setLocationFeedback(
+      el("adjust-status"),
+      session.state.message,
+      true,
+      "adjust-location-help",
+    );
   }
 };
 function updateConnectionHeight() {

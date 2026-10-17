@@ -8,7 +8,7 @@ import {
 } from "./motion";
 import type { NavigationMap } from "./navigation-map";
 import { NavigationGuidance } from "./navigation-guidance";
-import { clock, duration, el, node, icon } from "./ui";
+import { clock, duration, el, node, icon, setLocationFeedback } from "./ui";
 import type { Leg } from "./model";
 import { movement, freshTransit } from "./navigation-engine";
 import { renderJourneyDetails } from "./journey-detail";
@@ -647,8 +647,7 @@ export class NavigationView {
               ? `${!session.fix ? "Kein Standort verfügbar." : session.locationQuality === "inaccurate" ? "Standort zu ungenau." : "Letzter Standort nicht aktuell."} Automatischer Fortschritt pausiert.`
               : ""));
     const locationStatus = el("navigation-location-status");
-    if (locationStatus.textContent !== locationMessage)
-      locationStatus.textContent = locationMessage;
+    setLocationFeedback(locationStatus, locationMessage, !session.locating);
     el("navigation-network-status").textContent = navigator.onLine
       ? ""
       : "Offline · Streckenverlauf verfügbar. Neue Routen und Fahrtdaten benötigen Internet.";

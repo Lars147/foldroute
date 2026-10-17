@@ -425,7 +425,7 @@ for (const width of [320, 390, 1280]) {
     await expect(start).toHaveText("Los");
     await expect(start).toBeDisabled();
     await expect(start).toHaveAccessibleDescription(
-      /Standortzugriff blockiert/,
+      /Standortzugriff nicht erlaubt/,
     );
     await expect(page.locator("#route-start-summary")).toBeHidden();
     await expect(page.locator("#navigation-start-retry")).toBeVisible();
@@ -1539,13 +1539,16 @@ for (const code of [0, 1, 2, 3]) {
         [
           "",
           "Standortzugriff nicht erlaubt",
-          "Standort konnte nicht ermittelt werden",
+          "Standort nicht verfügbar",
           "Standortabfrage dauert zu lange",
         ][code],
       );
       await expect(page.locator("#adjust-location-announcement")).toBeEmpty();
-      await expect(page.locator("#adjust-status")).toContainText(
-        `Diagnose: Standortfehler ${code} – Origin does not have permission to use Geolocation service`,
+      await expect(page.locator("#adjust-status")).not.toContainText(
+        "Diagnose:",
+      );
+      await expect(page.locator("#adjust-status")).not.toContainText(
+        "Geolocation service",
       );
     }
     if (code) await expect(page.locator("#adjust-location-help")).toBeVisible();
