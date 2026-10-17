@@ -109,7 +109,10 @@ test("license page and original notices remain accessible offline", async ({
     .click();
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(16, 19, 20)");
+  await expect(page.locator("html")).toHaveCSS(
+    "background-color",
+    "rgb(16, 19, 20)",
+  );
   await expect(
     page.getByRole("heading", { name: "Lizenzen & Datenquellen" }),
   ).toBeVisible();
@@ -224,7 +227,7 @@ test("local storage failure does not prevent online planning", async ({
   );
 });
 
-test("an app update waits for explicit confirmation and does not reload a draft", async ({
+test("an app update preserves a draft until confirmation and removes obsolete cached assets", async ({
   page,
 }) => {
   const { createServer } = await import("node:http");
@@ -239,12 +242,28 @@ test("an app update waits for explicit confirmation and does not reload a draft"
     }
     const name = path.slice(5) || "index.html";
     try {
-      let data = await readFile(resolve(process.cwd(), "../docs/plan", name));
-      if (name === "sw.js")
+      let data = await readFile(
+        resolve(
+          process.cwd(),
+          "../docs/plan",
+          name === "splash/legacy.png" ? "pwa-192x192.png" : name,
+        ),
+      );
+      if (name === "sw.js") {
+        if (revision === 1)
+          data = Buffer.from(
+            data
+              .toString()
+              .replace(
+                "precacheAndRoute([",
+                'precacheAndRoute([{url:"splash/legacy.png",revision:"legacy"},',
+              ),
+          );
         data = Buffer.concat([
           data,
           Buffer.from(`\n// Test release ${revision}\n`),
         ]);
+      }
       const type = name.endsWith(".js")
         ? "text/javascript"
         : name.endsWith(".css")
@@ -269,6 +288,14 @@ test("an app update waits for explicit confirmation and does not reload a draft"
     await page.goto(`http://127.0.0.1:${address.port}/pwa/`);
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.reload();
+    expect(
+      await page.evaluate(
+        async () =>
+          !!(await caches.match(new URL("splash/legacy.png", location.href), {
+            ignoreSearch: true,
+          })),
+      ),
+    ).toBe(true);
     await page.route("**/api/**", (r) =>
       r.fulfill({ json: [], headers: cors }),
     );
@@ -293,6 +320,14 @@ test("an app update waits for explicit confirmation and does not reload a draft"
       page.locator("#update-now").click(),
     ]);
     await expect(page.locator("#update-banner")).toBeHidden();
+    expect(
+      await page.evaluate(
+        async () =>
+          !!(await caches.match(new URL("splash/legacy.png", location.href), {
+            ignoreSearch: true,
+          })),
+      ),
+    ).toBe(false);
   } finally {
     await page.goto("about:blank");
     server.closeAllConnections();
@@ -369,7 +404,10 @@ test("help topics and links work offline under the deployment subpath", async ({
     .click();
   await expect(page.locator("#datenschutz")).toHaveAttribute("open", "");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(16, 19, 20)");
+  await expect(page.locator("html")).toHaveCSS(
+    "background-color",
+    "rgb(16, 19, 20)",
+  );
   await expect(page.locator("#datenschutz summary")).toBeInViewport();
   for (const topic of [
     "standort-pwa",

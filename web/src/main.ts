@@ -2398,7 +2398,7 @@ function connectionChanged() {
 }
 window.addEventListener("online", connectionChanged);
 window.addEventListener("offline", connectionChanged);
-void store
+const restoredStartup = store
   .read()
   .then(async (result) => {
     if (storageGeneration === 0) offlineEnabled = result.enabled;
@@ -2478,13 +2478,16 @@ void store
     );
     initializeLink();
   });
-void book
+const placesStartup = book
   .load()
   .catch(() =>
     toast(
       "Favoriten und letzte Orte konnten nicht geladen werden. Online-Planung bleibt möglich.",
     ),
   );
+export const startupReady = Promise.all([restoredStartup, placesStartup]).then(
+  () => {},
+);
 destination.activate();
 settingsUI();
 contextUI();

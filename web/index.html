@@ -7,6 +7,186 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="theme-color" content="#f5f6f3" />
+    <style id="startup-styles">
+      :root {
+        --startup-paper: #f5f6f3;
+        --startup-ink: #171a1c;
+        background: var(--startup-paper);
+      }
+      :root[data-theme="dark"] {
+        --startup-paper: #101314;
+        --startup-ink: #f5f6f3;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --startup-paper: #101314;
+          --startup-ink: #f5f6f3;
+        }
+      }
+      #app-startup {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: var(--startup-paper);
+        color: var(--startup-ink);
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      :root[data-standalone] body[data-starting] #app-startup,
+      body[data-startup-error] #app-startup,
+      #app-startup[data-exiting] {
+        display: flex;
+      }
+      @media (display-mode: standalone) {
+        body[data-starting] #app-startup {
+          display: flex;
+        }
+      }
+      #app-startup[hidden] {
+        display: none;
+      }
+      .startup-mark,
+      .startup-mark svg {
+        display: block;
+        width: 128px;
+        height: 128px;
+      }
+      #app-startup [data-fold] {
+        transform-box: view-box;
+        /* Shared hinge at (520, 545) in the 1024-square SVG. */
+        transform-origin: 50.78125% 53.22265625%;
+      }
+      :root[data-startup-motion] #app-startup [data-fold] {
+        animation: startup-fold-rear 480ms cubic-bezier(0.4, 0, 0.2, 1) both;
+      }
+      :root[data-startup-motion] #app-startup [data-fold="front"] {
+        animation-name: startup-fold-front;
+      }
+      @keyframes startup-fold-rear {
+        0%,
+        100% {
+          transform: none;
+        }
+        42% {
+          transform: rotate(-10deg) scaleX(0.9);
+        }
+      }
+      @keyframes startup-fold-front {
+        0%,
+        100% {
+          transform: none;
+        }
+        42% {
+          transform: rotate(12deg) scaleX(0.86);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        :root[data-startup-motion] #app-startup [data-fold] {
+          animation: none;
+        }
+      }
+      .startup-sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      #startup-error {
+        max-width: 300px;
+        padding: 0 20px;
+        text-align: center;
+      }
+      #startup-error[hidden] {
+        display: none;
+      }
+      #startup-reload {
+        min-height: 48px;
+        padding: 12px 24px;
+        border: 0;
+        border-radius: 12px;
+        background: #ffd43b;
+        color: #171a1c;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      #startup-reload:focus-visible {
+        outline: 2px solid var(--startup-ink);
+        outline-offset: 4px;
+      }
+      #app-startup[data-exiting] {
+        pointer-events: none;
+      }
+    </style>
+    <script>
+      (() => {
+        const root = document.documentElement;
+        const preview = document.querySelector('meta[name="foldroute-dev"]')
+          ? new URLSearchParams(location.search).get("splash-preview")
+          : null;
+        let preference = "system";
+        try {
+          preference = localStorage.getItem("foldroute.appearance") || "system";
+        } catch {}
+        const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+        const theme =
+          preview === "light" || preview === "dark"
+            ? preview
+            : preference === "light" || preference === "dark"
+              ? preference
+              : dark
+                ? "dark"
+                : "light";
+        root.dataset.theme = theme;
+        document.querySelector('meta[name="theme-color"]').content =
+          theme === "dark" ? "#101314" : "#f5f6f3";
+        if (preview === "light" || preview === "dark")
+          root.dataset.startupPreview = preview;
+        if (
+          root.dataset.startupPreview ||
+          matchMedia("(display-mode: standalone)").matches ||
+          navigator.standalone === true
+        )
+          root.dataset.standalone = "";
+        if (
+          root.hasAttribute("data-standalone") &&
+          !matchMedia("(prefers-reduced-motion: reduce)").matches
+        )
+          root.dataset.startupMotion = "";
+        const fail = () => {
+          if (!document.body?.hasAttribute("data-starting")) return;
+          document.body.dataset.startupError = "";
+          document.getElementById("startup-status").hidden = true;
+          document.getElementById("startup-error").hidden = false;
+        };
+        window.addEventListener("foldroute:startup-error", fail);
+        window.addEventListener(
+          "error",
+          (event) => {
+            if (
+              event instanceof ErrorEvent ||
+              event.target instanceof HTMLScriptElement
+            )
+              fail();
+          },
+          true,
+        );
+        document.addEventListener("click", (event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest("#startup-reload")
+          )
+            location.reload();
+        });
+      })();
+    </script>
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta
       name="description"
@@ -19,8 +199,20 @@
     <title>FoldRoute · Route planen</title>
   </head>
   <body data-view="search" data-starting>
-    <a class="skip" href="#main">Zum Inhalt</a>
-    <header class="app-header">
+    <div id="app-startup" aria-label="FoldRoute startet">
+      <div class="startup-mark" aria-hidden="true">
+        <!-- startup-mark -->
+      </div>
+      <p id="startup-status" class="startup-sr-only" role="status">
+        FoldRoute wird gestartet.
+      </p>
+      <div id="startup-error" hidden>
+        <p role="alert">FoldRoute konnte nicht gestartet werden.</p>
+        <button id="startup-reload" type="button">Neu laden</button>
+      </div>
+    </div>
+    <a class="skip" href="#main" inert>Zum Inhalt</a>
+    <header class="app-header" inert>
       <a class="brand" href="../" aria-label="FoldRoute Projekt"
         ><img
           src="foldroute-mark.svg"

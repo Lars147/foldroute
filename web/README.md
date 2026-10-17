@@ -24,6 +24,16 @@ npm run build
 
 Der Build ersetzt ausschließlich `docs/plan/`. Landingpage und deren Assets bleiben erhalten. GitHub Pages kann weiterhin das Verzeichnis `docs/` ausliefern; der Planer liegt unter `plan/`. Relative Bundle-URLs funktionieren auch unter einem Repository-Unterpfad. Zum lokalen Testen die Seite über HTTP öffnen, nicht über `file://`. `npm run preview` liefert den fertigen Build aus.
 
+## PWA-Start
+
+Beim Kaltstart der installierten PWA bleibt das Faltradlogo sichtbar, bis Bedienung und lokale Wiederherstellung bereit sind. Die Radhälften bewegen sich einmal kurz um das gelbe Gelenk und kehren in die Ausgangslage zurück. Die Bewegung verzögert den App-Start nicht und entfällt bei „Bewegung reduzieren“. GPS, Routenabfragen und Kartenkacheln verzögern diesen Übergang nicht. Die Ladeoberfläche übernimmt die gespeicherte Darstellung, sonst die Systemeinstellung. Fehlgeschlagene Starts bieten „Neu laden“. Normale Browseraufrufe erhalten keinen zusätzlichen Splashscreen.
+
+Die Animation beginnt, sobald die PWA rendert. Die kurze Systemanzeige davor bleibt auf iPhone/iPad dem Betriebssystem überlassen; gerätespezifische PNG-Startbilder werden nicht ausgeliefert. Android erzeugt seinen System-Splash weiterhin aus dem Manifest mit hellem Hintergrund und vorhandenem App-Icon. Der tatsächliche Systemstart muss auf einem Gerät mit installierter PWA geprüft werden.
+
+`public/foldroute-mark.svg` ist die einzige Logoquelle. Vite bettet sie in Entwicklung und Produktionsbuild direkt ins HTML ein; die Striche übernehmen dabei die aktuelle Textfarbe. Zusammen mit den kritischen Startstilen ist das Logo bereits vor dem JavaScript-Bundle verfügbar und über das gespeicherte HTML auch offline nutzbar. Ein separater Bildexport entfällt.
+
+Nur im Dev-Modus zeigt `/splash-preview/` dieselbe Oberfläche mit Hell/Dunkel, Fortsetzen und Wiederholen. Die Vorschau pausiert ausdrücklich, lädt keine persönlichen Reisen und verändert keine Einstellungen. Der Produktionsbuild enthält diese Vorschauseite nicht.
+
 ## Gesamte Website lokal ansehen
 
 Im Dev-Modus (`npm run dev`) liegen Landingpage und Planer auf demselben Server: [Landingpage](http://127.0.0.1:4173/landing/) und [Planer](http://127.0.0.1:4173/). Änderungen werden automatisch aktualisiert. Die Landingpage bleibt hell; die Darstellungswahl in den App-Einstellungen gilt für den Planer und die interaktive Beispielroute.

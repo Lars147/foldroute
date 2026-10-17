@@ -5,6 +5,9 @@ import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const landingRoot = fileURLToPath(new URL("../docs", import.meta.url));
+const startupMark = fileURLToPath(
+  new URL("./public/foldroute-mark.svg", import.meta.url),
+);
 export default defineConfig({
   optimizeDeps: {
     include: [
@@ -18,6 +21,58 @@ export default defineConfig({
     : "node_modules/.vite",
   base: "./",
   plugins: [
+    {
+      name: "foldroute-startup-mark",
+      async transformIndexHtml(html) {
+        const placeholder = "<!-- startup-mark -->";
+        if (!html.includes(placeholder)) return;
+        const svg = (await readFile(startupMark, "utf8"))
+          .replace(/<\?xml[^>]*\?>\s*/, "")
+          .replaceAll("#F5F6F3", "currentColor");
+        return html.replace(placeholder, svg);
+      },
+      configureServer(server) {
+        server.watcher.add(startupMark);
+        server.watcher.on("change", (path) => {
+          if (path === startupMark)
+            server.ws.send({ type: "full-reload", path: "*" });
+        });
+      },
+    },
+    {
+      name: "foldroute-splash-preview",
+      apply: "serve",
+      transformIndexHtml() {
+        return [
+          {
+            tag: "meta",
+            attrs: { name: "foldroute-dev", content: "true" },
+            injectTo: "head-prepend",
+          },
+        ];
+      },
+      configureServer(server) {
+        server.middlewares.use((request, response, next) => {
+          const url = new URL(request.url!, "http://localhost");
+          if (url.pathname === "/splash-preview") {
+            response.writeHead(302, { Location: "/splash-preview/" });
+            response.end();
+            return;
+          }
+          if (url.pathname !== "/splash-preview/") return next();
+          void readFile(
+            new URL("./preview/splash.html", import.meta.url),
+            "utf8",
+          )
+            .then((html) => server.transformIndexHtml(url.pathname, html))
+            .then((html) => {
+              response.setHeader("Content-Type", "text/html; charset=utf-8");
+              response.end(html);
+            })
+            .catch(next);
+        });
+      },
+    },
     {
       name: "foldroute-shared-theme",
       async generateBundle() {

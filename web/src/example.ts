@@ -4,6 +4,8 @@ import { RouteMap } from "./map-view";
 import type { PlanningState } from "./planning-state";
 import { el, icon, node } from "./ui";
 
+export const startupReady = Promise.resolve();
+
 // This entrypoint deliberately does not initialize planning, location or journey storage.
 document.title = "FoldRoute · Beispielroute";
 document.body.dataset.view = "map";
