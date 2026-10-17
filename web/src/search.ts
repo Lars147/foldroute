@@ -402,6 +402,7 @@ export class PlaceSearch {
     const li = node("li"),
       select = node("button", "", "place-select");
     li.setAttribute("role", "row");
+    if (!place) li.className = "current-location-option";
     const name = place?.name ?? "Aktueller Standort";
     li.dataset.placeKey = JSON.stringify([
       name,

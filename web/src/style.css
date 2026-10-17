@@ -1674,10 +1674,74 @@ dialog form {
     outline: none;
   }
   .route-editor-places input[type="search"]:focus {
-    background: var(--color-subtle);
+    border-radius: 0;
+    box-shadow: inset 0 -1px 0 var(--color-control-border);
     outline: none;
   }
   .route-editor-places input[type="search"][data-keyboard-focus]:focus {
+    border-radius: 10px;
+    box-shadow: none;
+    outline: 2px solid var(--color-selection-indicator);
+    outline-offset: -2px;
+  }
+  .route-editor-places input[type="search"]::-webkit-search-cancel-button {
+    background-color: var(--muted);
+  }
+  .route-editor-places .suggestions {
+    margin: 0 var(--route-icon-width) 12px var(--route-text-inset);
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+  .route-editor-places .stop-editor-row .suggestions {
+    margin-inline: 4px;
+  }
+  .route-editor-places .suggestions li[role="row"] {
+    min-height: 44px;
+    padding: 0 4px;
+    border: 0;
+    border-radius: 8px;
+  }
+  .route-editor-places .suggestions li.suggestion-heading {
+    padding: 12px 4px 4px;
+    border: 0;
+    background: none;
+  }
+  .route-editor-places .suggestions .place-select {
+    min-height: 44px;
+    padding: 8px 0;
+    gap: 8px;
+  }
+  .route-editor-places .suggestions .place-select > .icon {
+    width: 16px;
+    height: 16px;
+    color: var(--muted);
+  }
+  .route-editor-places .suggestions strong {
+    font-size: 0.875rem;
+    font-weight: 550;
+  }
+  .route-editor-places .suggestions small {
+    margin-top: 2px;
+  }
+  .route-editor-places
+    .suggestions
+    .current-location-option
+    .place-select
+    > span:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+  }
+  .route-editor-places .current-location-option small {
+    margin: 0;
+  }
+  .route-editor-places .suggestions .place-favorite,
+  .route-editor-places .suggestions .place-prefill {
+    font-size: 20px;
+  }
+  .route-editor-places .suggestions button:focus-visible {
     outline: 2px solid var(--color-selection-indicator);
     outline-offset: -2px;
   }
@@ -2465,8 +2529,13 @@ dialog.compact .dialog-actions {
   }
 }
 @media (forced-colors: active) and (min-width: 900px) {
+  .route-editor-places input[type="search"]::-webkit-search-cancel-button {
+    background-color: ButtonText;
+  }
   .route-editor-places input[type="search"]:focus,
   .route-editor-places input[type="search"][data-keyboard-focus]:focus {
+    border-radius: 10px;
+    box-shadow: none;
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }

@@ -484,8 +484,9 @@ for (const colorScheme of ["light", "dark"] as const)
       await input.click();
       await expect(input).toBeFocused();
       await expect(input).toHaveCSS("outline-style", "none");
-      await expect(input).not.toHaveCSS("background-color", idleBackground);
-      await expect(input).toHaveCSS("border-radius", "10px");
+      await expect(input).toHaveCSS("background-color", idleBackground);
+      await expect(input).not.toHaveCSS("box-shadow", "none");
+      await expect(input).toHaveCSS("border-radius", "0px");
       await expect(destinationBox).toHaveCSS("outline-style", "none");
       expect(await input.boundingBox()).toEqual(bounds);
       await page.screenshot({ path: info.outputPath(`${id}-pointer.png`) });
