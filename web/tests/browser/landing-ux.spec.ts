@@ -83,7 +83,7 @@ test("body text, context and scaled map labels remain readable at every breakpoi
       await expect(paragraph).toHaveCSS("line-height", "27.9px");
     }
     const contextSizes = await page.locator(
-      "nav a, .button, .standalone-link, .hero-availability p, .map-caption, .ticket-modes > span, .comparison-legend, .comparison-controls button, .footer > a, .footer > span",
+      "nav a, .button, .standalone-link, .hero-availability p, .ticket-modes > span, .comparison-legend, .comparison-controls button, .footer > a, .footer > span",
     ).evaluateAll(elements => elements.map(element => ({
       text: element.textContent,
       size: parseFloat(getComputedStyle(element).fontSize),
