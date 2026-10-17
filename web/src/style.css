@@ -16,6 +16,14 @@
   --header: 64px;
   --mobile-status-height: 0px;
   --tabs: calc(64px + env(safe-area-inset-bottom, 0px));
+  --motion-feedback: 120ms;
+  --motion-selection: 220ms;
+  --motion-page: 300ms;
+  --motion-panel: 360ms;
+  --motion-exit: 240ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --motion-ease-enter: cubic-bezier(0, 0, 0.38, 0.9);
+  --motion-ease-exit: cubic-bezier(0.2, 0, 1, 0.9);
   --panel: var(--color-surface);
   --panel-text: var(--color-text);
   --panel-muted: var(--color-secondary);
@@ -448,6 +456,7 @@ input[type="search"]::-webkit-search-cancel-button {
 .map-style-toggle .icon { width: 24px; height: 24px; }
 .map-style-panel {
   position: fixed;
+  flex-direction: column;
   inset: auto;
   margin: 0;
   padding: 0;
@@ -459,7 +468,7 @@ input[type="search"]::-webkit-search-cancel-button {
   border-radius: 20px;
   box-shadow: 0 8px 32px var(--color-shadow);
 }
-.map-style-panel:popover-open { display: flex; flex-direction: column; }
+.map-style-panel:popover-open { display: flex; }
 .map-style-header { display: flex; align-items: center; gap: 12px; flex-shrink: 0; padding: 12px 12px 0; }
 .map-style-header h2 { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 1.125rem; }
 .map-style-header button { width: 44px; height: 44px; flex-shrink: 0; padding: 10px; color: inherit; }
@@ -571,15 +580,6 @@ input[type="search"]::-webkit-search-cancel-button {
   .map-style-copy { flex: none; width: 100%; text-align: center; }
   .map-style-copy small { display: none; }
 }
-@media (max-width: 899px) and (prefers-reduced-motion: no-preference) {
-  .map-style-panel:popover-open {
-    animation: map-style-enter 250ms cubic-bezier(0, 0, 0.2, 1);
-  }
-}
-@keyframes map-style-enter {
-  from { transform: translateY(calc(100% + 24px)); }
-  to { transform: translateY(0); }
-}
 #navigation-style-control .map-style-toggle { border-radius: 16px; }
 .map-zoom-control { display: flex; }
 .map-screen .map-controls .leaflet-control-zoom {
@@ -660,6 +660,7 @@ input[type="search"]::-webkit-search-cancel-button {
 }
 .panel-content {
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-color: var(--panel-line) transparent;
@@ -974,6 +975,8 @@ fieldset:after {
   font-size: 1rem;
 }
 .appearance-segments {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   clear: both;
@@ -985,11 +988,14 @@ fieldset:after {
 }
 .appearance-segments label {
   position: relative;
+  z-index: 1;
   min-width: 0;
   cursor: pointer;
 }
 .appearance-segments input {
   position: absolute;
+  /* The decorative selection surface never intercepts native radio input. */
+  z-index: 1;
   inset: 0;
   width: 100%;
   height: 100%;
@@ -1008,9 +1014,45 @@ fieldset:after {
   font-size: 1rem;
 }
 .appearance-segments input:checked + span {
-  background: var(--surface);
-  border-color: var(--ink);
+  background: var(--color-brand);
+  color: var(--color-on-brand);
   font-weight: 700;
+}
+.appearance-indicator {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  border-radius: 9px;
+  overflow: hidden;
+  color: var(--color-on-brand);
+  background: var(--color-brand);
+  pointer-events: none;
+}
+.appearance-indicator-labels { position: absolute; }
+.appearance-indicator-label {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 8px 4px;
+  border: 2px solid transparent;
+  overflow-wrap: anywhere;
+}
+.appearance-segments[data-motion="ready"] .appearance-indicator { display: block; }
+.appearance-segments[data-motion="ready"] input:checked + span {
+  background: transparent;
+  color: inherit;
+}
+.appearance-segments input:focus-visible + span,
+.appearance-segments[data-keyboard-focus] input:focus + span,
+.appearance-segments:has(input[value="system"]:focus-visible) [data-value="system"],
+.appearance-segments:has(input[value="light"]:focus-visible) [data-value="light"],
+.appearance-segments:has(input[value="dark"]:focus-visible) [data-value="dark"],
+.appearance-segments[data-keyboard-focus]:has(input[value="system"]:focus) [data-value="system"],
+.appearance-segments[data-keyboard-focus]:has(input[value="light"]:focus) [data-value="light"],
+.appearance-segments[data-keyboard-focus]:has(input[value="dark"]:focus) [data-value="dark"] {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 @container appearance (max-width: 12rem) {
   .appearance-segments {
@@ -1183,6 +1225,7 @@ fieldset:after {
 }
 dialog {
   border: 0;
+  overflow-x: hidden;
   border-radius: 24px;
   background: var(--paper);
   color: var(--ink);
@@ -2048,6 +2091,7 @@ dialog.compact .dialog-actions {
   justify-content: space-between;
 }
 .time-editor-body {
+  overflow-x: hidden;
   overflow-y: auto;
   min-height: 0;
   flex: 1;
@@ -3233,7 +3277,8 @@ body[data-navigation="active"] .app-tabs {
   justify-content: center;
   gap: 8px;
   min-width: 96px;
-  min-height: 48px;
+  /* Reserve the normal label's line even while the busy label uses smaller type. */
+  min-height: max(48px, calc(1.45rem + 26px));
   padding: 12px 20px;
   font-size: 1rem;
 }
@@ -3449,4 +3494,110 @@ body[data-example] #route-start-summary {
 }
 .map-screen .leaflet-bar {
   border-color: var(--panel-line);
+}
+
+/* One persistent selection marker; moving it never changes tab geometry. */
+.tab-indicator {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--color-brand);
+  outline: 1px solid var(--color-asphalt);
+  outline-offset: 3px;
+  pointer-events: none;
+  z-index: -1;
+}
+.app-tabs { isolation: isolate; }
+.app-tabs[data-motion="ready"] button[aria-current] .icon {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.navigation-screen { overflow: clip; }
+
+@media (prefers-reduced-motion: no-preference) {
+  button > .icon {
+    transition: scale var(--motion-feedback) var(--motion-ease);
+  }
+  button:active:not(:disabled) > .icon { scale: 0.94; }
+  /* Keep palette changes atomic so intermediate text contrast never drops. */
+  .map-style-preview { transition: border-color var(--motion-selection); }
+  .settings-disclosure > summary::after,
+  .navigation-expand,
+  .stop-stay-toggle .icon:last-child {
+    transition: transform var(--motion-selection) var(--motion-ease);
+  }
+  .stop-stay-toggle[aria-expanded="true"] .icon:last-child { transform: rotate(90deg); }
+  .settings-screen input[role="switch"] {
+    transition: background-color var(--motion-selection), border-color var(--motion-selection);
+  }
+  .settings-screen input[role="switch"]::before {
+    transition: transform var(--motion-selection) var(--motion-ease), background-color var(--motion-selection);
+  }
+
+  /* Native close/popover semantics stay immediate; only their painted exit persists. */
+  dialog,
+  .map-style-panel,
+  dialog::backdrop {
+    --motion-overlay-time: var(--motion-exit);
+    --motion-overlay-ease: var(--motion-ease-exit);
+  }
+  dialog[open],
+  .map-style-panel:popover-open,
+  dialog[open]::backdrop {
+    --motion-overlay-time: var(--motion-page);
+    --motion-overlay-ease: var(--motion-ease-enter);
+  }
+  dialog,
+  .map-style-panel {
+    opacity: 0;
+    translate: 0 14px;
+    transition:
+      opacity var(--motion-overlay-time) var(--motion-overlay-ease),
+      translate var(--motion-overlay-time) var(--motion-overlay-ease),
+      display var(--motion-overlay-time) allow-discrete,
+      overlay var(--motion-overlay-time) allow-discrete;
+  }
+  dialog[open],
+  .map-style-panel:popover-open { opacity: 1; translate: 0 0; }
+  dialog::backdrop {
+    opacity: 0;
+    transition:
+      opacity var(--motion-overlay-time) var(--motion-overlay-ease),
+      display var(--motion-overlay-time) allow-discrete,
+      overlay var(--motion-overlay-time) allow-discrete;
+  }
+  dialog[open]::backdrop { opacity: 1; }
+  dialog:not([open]), dialog:not([open])::backdrop,
+  .map-style-panel:not(:popover-open) { pointer-events: none; }
+
+  @starting-style {
+    dialog[open],
+    .map-style-panel:popover-open { opacity: 0; translate: 0 14px; }
+    dialog[open]::backdrop { opacity: 0; }
+  }
+  /* Focused search fields use fixed viewport positioning, including inside dialogs. */
+  body.search-focus-mode dialog[open]:has(.search-focus-input) {
+    translate: none;
+    opacity: 1;
+    transition: none;
+  }
+}
+@media (max-width: 899px) and (prefers-reduced-motion: no-preference) {
+  .map-style-panel { translate: 0 calc(100% + 24px); }
+  .map-style-panel:popover-open {
+    --motion-overlay-time: var(--motion-panel);
+    translate: 0 0;
+  }
+  @starting-style {
+    .map-style-panel:popover-open { translate: 0 calc(100% + 24px); }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }

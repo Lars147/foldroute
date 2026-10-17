@@ -122,13 +122,13 @@ for (const width of [320, 390, 1280]) {
     await expect(context).toHaveCSS("outline-style", "none");
     await expect(page.locator("#result-context")).toHaveCSS(
       "outline-style",
-      "none",
+      "solid",
     );
     await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
     await expect(page.locator("#adjust-route")).toBeFocused();
     await expect(page.locator("#adjust-route")).toHaveCSS(
       "outline-style",
-      "none",
+      "solid",
     );
     await page.locator("#adjust-route").blur();
     await page.screenshot({ path: info.outputPath("planning-context.png") });
@@ -503,7 +503,7 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
   await page.locator(".route-choice-row.selected .route-detail-link").click();
   await page.locator("#result-back").click();
   await expect(card).toHaveAttribute("aria-pressed", "true");
-  await expect(card).toHaveCSS("border-color", "rgb(117, 87, 0)");
+  await expect(card).toHaveCSS("border-color", "rgb(23, 26, 28)");
   await expect(page.locator('.route-choice[aria-pressed="true"]')).toHaveCount(
     1,
   );
@@ -922,7 +922,8 @@ for (const width of [320, 390, 1280]) {
           ),
         ),
     ).toBe(true);
-    await transit.locator(".detail-heading").scrollIntoViewIfNeeded();
+    // A visible multiline heading at 200% text does not expose the delay below it.
+    await departureDelay.scrollIntoViewIfNeeded();
     await expect(departureDelay).toBeInViewport();
     await page.screenshot({
       path: info.outputPath("delayed-transit-large-text.png"),

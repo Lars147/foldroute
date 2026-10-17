@@ -1,5 +1,6 @@
 import type { Timing } from "./model";
 import { el, node } from "./ui";
+import { reveal, stopMotionWithin, motionTime } from "./motion";
 
 export function localMinute(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -102,6 +103,7 @@ export class TimePicker {
     el<HTMLInputElement>("time-clock").value = localMinute(date).slice(11);
   }
   open() {
+    stopMotionWithin(el("route-form"));
     const timing = el<HTMLInputElement>("timing").value as Timing;
     this.mode = timing === "arrive" ? "arrive" : "depart";
     this.setFixedDate(
@@ -117,15 +119,18 @@ export class TimePicker {
     dialog.setAttribute("aria-labelledby", "time-heading");
     this.render();
     this.focusDay(this.day);
+    reveal(el("time-editor"), { x: 14, y: 0 });
   }
   close(focus = true) {
     if (!this.active) return;
+    stopMotionWithin(el("time-editor"));
     el("time-editor").hidden = true;
     el("route-form").hidden = false;
     el("route-form").inert = false;
     el("adjust-dialog").classList.remove("editing-time");
     el("adjust-dialog").setAttribute("aria-labelledby", "adjust-heading");
     if (focus) el("time-trigger").focus();
+    if (focus) reveal(el("route-form"), { x: -14, y: 0 });
   }
   private changeMonth(delta: number) {
     this.month = new Date(
@@ -134,6 +139,11 @@ export class TimePicker {
       1,
     );
     this.render();
+    reveal(el("time-calendar"), {
+      x: delta > 0 ? 12 : -12,
+      y: 0,
+      duration: motionTime.selection,
+    });
   }
   private focusDay(day: string) {
     const grid = el("time-calendar");

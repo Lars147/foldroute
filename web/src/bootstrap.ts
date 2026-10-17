@@ -1,6 +1,7 @@
 import "./style.css";
 import { appearance } from "./appearance";
 import { mapStyle } from "./map-style";
+import { setupMotion, reveal } from "./motion";
 
 const example =
   new URLSearchParams(location.search).get("example") === "bike-transfer";
@@ -16,4 +17,7 @@ void ready.then(() => {
       element.inert = false;
     });
   delete document.body.dataset.starting;
+  setupMotion();
+  const introduction = document.querySelector<HTMLElement>("#search-empty");
+  if (introduction) reveal(introduction, { y: 8 });
 });

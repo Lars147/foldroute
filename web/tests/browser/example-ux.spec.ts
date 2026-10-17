@@ -193,7 +193,7 @@ test("example retains the usual map, details and browser navigation on small scr
   await page
     .getByRole("button", { name: "Gesamte Route anzeigen", exact: true })
     .click();
-  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await page.getByRole("button", { name: "Vergrößern", exact: true }).click();
   await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.locator("#panel-details")).toBeVisible();
   await page.goBack();

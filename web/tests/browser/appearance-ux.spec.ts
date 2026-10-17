@@ -1,5 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
-import { openSettingsSection, expectPlanningComplete } from "./assertions";
+import {
+  openSettingsSection,
+  expectPlanningComplete,
+  expectMotionSettled,
+} from "./assertions";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 
 const key = "foldroute.appearance";
@@ -259,6 +263,7 @@ for (const width of [320, 390, 1280]) {
         page.getByRole("radio", { name: "Dunkel", exact: true }),
       ).toBeChecked();
       await page.getByRole("radio", { name: "System", exact: true }).check();
+      await expectMotionSettled(page.locator(".appearance-indicator"));
       await page
         .locator(".appearance-picker")
         .screenshot({ path: info.outputPath("appearance.png") });

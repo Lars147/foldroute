@@ -3,6 +3,7 @@ import { ApiClient } from "./transitous";
 import { PlaceSearch } from "./search";
 import { PlaceBook } from "./places";
 import { el, icon, node } from "./ui";
+import { captureList, reflowList, reveal, stopMotion } from "./motion";
 
 export class StopEditor {
   private rows: {
@@ -119,6 +120,7 @@ export class StopEditor {
         stayPanel.hidden = !stayPanel.hidden;
         stayToggle.setAttribute("aria-expanded", String(!stayPanel.hidden));
         if (!stayPanel.hidden) row.hours.focus();
+        if (!stayPanel.hidden) reveal(stayPanel, { y: 6 });
       };
       for (const field of [hours, minutes]) {
         field.addEventListener("input", () => this.readStay(i, false));
@@ -128,7 +130,7 @@ export class StopEditor {
       remove.onclick = () => {
         search.cancel();
         this.order = this.order.filter((n) => n !== i);
-        this.layout();
+        this.layout(true);
         el("add-stop").focus();
       };
     }
@@ -140,7 +142,7 @@ export class StopEditor {
       this.resetStay(i, 0);
       row.id = crypto.randomUUID();
       this.order.push(i);
-      this.layout();
+      this.layout(true);
       row.search.input.focus();
     };
   }
@@ -210,13 +212,18 @@ export class StopEditor {
       this.order[target],
       this.order[pos],
     ];
-    this.layout();
+    this.layout(true);
     const row = this.rows[i];
+    // Focus must scroll to the row's final position, not its FLIP offset.
+    stopMotion(row.root);
     const action = delta < 0 ? row.up : row.down;
     (action.disabled ? row.remove : action).focus();
   }
-  private layout() {
+  private layout(moving = false) {
+    const before = moving ? captureList(el("via-fields")) : undefined;
     this.rows.forEach((r, i) => {
+      stopMotion(r.root);
+      r.root.dataset.motionKey = r.id;
       r.root.hidden = !this.order.includes(i);
       r.hours.disabled = r.root.hidden;
       r.minutes.disabled = r.root.hidden;
@@ -243,6 +250,7 @@ export class StopEditor {
     el("swap").title = this.order.length
       ? "Route umkehren – inklusive Zwischenziele"
       : "Start und Ziel tauschen";
+    if (before) reflowList(el("via-fields"), before);
   }
   set(stops: RouteStop[]) {
     this.cancel();
@@ -257,7 +265,7 @@ export class StopEditor {
   }
   reverse() {
     this.order.reverse();
-    this.layout();
+    this.layout(true);
   }
   cancel() {
     this.rows.forEach((r) => r.search.cancel());

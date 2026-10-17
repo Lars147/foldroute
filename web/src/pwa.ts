@@ -1,4 +1,5 @@
 import { el } from "./ui";
+import { reveal } from "./motion";
 interface InstallEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: string }>;
@@ -35,6 +36,7 @@ export function setupPWA() {
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
         ? "In Safari: Teilen öffnen und „Zum Home-Bildschirm“ wählen. Falls angeboten, „Als Web-App öffnen“ aktivieren."
         : "Öffne das Browsermenü und wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“, sofern dein Browser dies anbietet.";
+    reveal(el("install-message"), { y: 6 });
   };
   if (
     !import.meta.env.PROD ||
@@ -44,7 +46,10 @@ export function setupPWA() {
     return;
   const base = new URL("./", document.baseURI);
   const showUpdate = () => {
-    if (registration?.waiting) el("update-banner").hidden = false;
+    if (registration?.waiting && el("update-banner").hidden) {
+      el("update-banner").hidden = false;
+      reveal(el("update-banner"), { y: 8 });
+    }
   };
   const ready = () =>
     (el("offline-ready").textContent =

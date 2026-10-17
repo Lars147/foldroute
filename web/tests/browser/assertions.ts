@@ -1,5 +1,12 @@
 import { expect, type Page, type Locator } from "@playwright/test";
 
+// Measure final geometry after an entrance without disabling the animation.
+export async function expectMotionSettled(element: Locator) {
+  await expect
+    .poll(() => element.evaluate((node) => node.getAnimations().length))
+    .toBe(0);
+}
+
 export async function expectPlanningComplete(page: Page) {
   await expect(page.locator(".route-choice").first()).toBeAttached();
   await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);

@@ -66,16 +66,20 @@ test("mobile layers slide up smoothly on every opening", async ({ page }) => {
       )!;
       const panel = document.getElementById("overview-map-style-panel")!;
       trigger.click();
-      const animation = panel.getAnimations()[0];
+      const animations = panel.getAnimations();
+      const animation = animations.find(
+        (animation) =>
+          (animation as CSSTransition).transitionProperty === "translate",
+      );
       if (!animation) throw new Error("Missing mobile sheet entry animation");
-      animation.pause();
+      animations.forEach((animation) => animation.pause());
       const duration = Number(animation.effect!.getTiming().duration);
       const tops = [0, 0.25, 0.5, 1].map((progress) => {
         animation.currentTime = duration * progress;
         return panel.getBoundingClientRect().top;
       });
       const height = panel.getBoundingClientRect().height;
-      animation.finish();
+      animations.forEach((animation) => animation.finish());
       return { tops, height, viewportHeight: innerHeight };
     });
     const [start, quarter, halfway, end] = motion.tops;
@@ -98,11 +102,127 @@ test("mobile layers slide up smoothly on every opening", async ({ page }) => {
   }
 });
 
+for (const { name, width } of [
+  { name: "mobile", width: 425 },
+  { name: "desktop", width: 1280 },
+] as const) {
+  for (const close of ["button", "Escape", "outside", "trigger"] as const) {
+    test(`${name} layers keep their size while closing via ${close}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 812 });
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await example(page);
+      await picker(page);
+      const panel = page.locator("#overview-map-style-panel");
+      const trigger = page.getByRole("button", {
+        name: "Kartenstil wählen",
+        exact: true,
+      });
+      const open = await panel.evaluate((element) => {
+        const animations = element.getAnimations();
+        const entry = animations.find(
+          (animation) =>
+            (animation as CSSTransition).transitionProperty === "translate",
+        );
+        if (!entry) throw new Error("Missing menu entry transition");
+        const duration = Number(entry.effect!.getTiming().duration);
+        animations.forEach((animation) => animation.finish());
+        const bounds = element.getBoundingClientRect();
+        element.addEventListener("toggle", function pauseExit(event) {
+          if ((event as ToggleEvent).newState !== "closed") return;
+          element.getAnimations().forEach((animation) => animation.pause());
+          element.setAttribute("data-exit-paused", "true");
+          element.removeEventListener("toggle", pauseExit);
+        });
+        return { width: bounds.width, height: bounds.height, duration };
+      });
+
+      if (close === "button") {
+        await panel
+          .getByRole("button", { name: "Kartenstile schließen", exact: true })
+          .click();
+      } else if (close === "Escape") {
+        await page.keyboard.press("Escape");
+      } else if (close === "outside") {
+        await page.mouse.click(10, 16);
+      } else {
+        await trigger.click();
+      }
+      await expect(panel).toHaveAttribute("data-exit-paused", "true");
+      const exit = await panel.evaluate((element) => {
+        const animations = element.getAnimations();
+        const frames = [0, 0.5, 0.95].map((progress) => {
+          animations.forEach((animation) => {
+            animation.currentTime =
+              Number(animation.effect!.getTiming().duration) * progress;
+          });
+          const bounds = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return {
+            width: bounds.width,
+            height: bounds.height,
+            direction: style.flexDirection,
+            opacity: Number(style.opacity),
+          };
+        });
+        return {
+          animationCount: animations.length,
+          durations: animations.map((animation) =>
+            Number(animation.effect!.getTiming().duration),
+          ),
+          supportsOverlay: CSS.supports("overlay", "auto"),
+          closed: !element.matches(":popover-open"),
+          frames,
+        };
+      });
+      expect(exit.closed).toBe(true);
+      if (exit.supportsOverlay) {
+        expect(exit.animationCount).toBeGreaterThan(0);
+        // Full dismissals finish sooner than entry, with all tracks aligned.
+        expect(new Set(exit.durations).size).toBe(1);
+        expect(exit.durations[0]).toBeLessThan(open.duration);
+        for (const frame of exit.frames) {
+          expect(Math.abs(frame.width - open.width)).toBeLessThanOrEqual(1);
+          expect(Math.abs(frame.height - open.height)).toBeLessThanOrEqual(1);
+          expect(frame.direction).toBe("column");
+        }
+        expect(exit.frames[2].opacity).toBeLessThan(exit.frames[0].opacity);
+      } else {
+        // Without overlay transitions, native popovers close immediately.
+        expect(exit.animationCount).toBe(0);
+        await expect(panel).toBeHidden();
+      }
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+      if (close === "button" || close === "Escape") {
+        await expect(trigger).toBeFocused();
+      }
+
+      // Reopen before the paused exit finishes, then complete a normal close.
+      await trigger.click();
+      await expect(panel).toHaveCSS("flex-direction", "column");
+      await expect(
+        panel.getByRole("radio", { name: "Positron", exact: true }),
+      ).toBeFocused();
+      const reopened = await panel.evaluate((element) => {
+        element.getAnimations().forEach((animation) => animation.finish());
+        const bounds = element.getBoundingClientRect();
+        return { width: bounds.width, height: bounds.height };
+      });
+      expect(reopened).toEqual({ width: open.width, height: open.height });
+      await page.keyboard.press("Escape");
+      await expect(panel).toBeHidden();
+      await expect(trigger).toBeFocused();
+    });
+  }
+}
+
 for (const { name, width, reducedMotion } of [
   { name: "reduced motion", width: 425, reducedMotion: "reduce" },
+  { name: "desktop with reduced motion", width: 1280, reducedMotion: "reduce" },
   { name: "desktop", width: 1280, reducedMotion: "no-preference" },
 ] as const) {
-  test(`layers open immediately for ${name}`, async ({ page }) => {
+  test(`layers respect motion preferences for ${name}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 812 });
     await page.emulateMedia({ reducedMotion });
     await example(page);
@@ -110,11 +230,14 @@ for (const { name, width, reducedMotion } of [
       document
         .querySelector<HTMLButtonElement>("#map-style-control button")!
         .click();
-      return document
+      const animations = document
         .getElementById("overview-map-style-panel")!
-        .getAnimations().length;
+        .getAnimations();
+      animations.forEach((animation) => animation.finish());
+      return animations.length;
     });
-    expect(animations).toBe(0);
+    if (reducedMotion === "reduce") expect(animations).toBe(0);
+    else expect(animations).toBeGreaterThan(0);
     const panel = page.getByRole("dialog", {
       name: "Karte anpassen",
       exact: true,
@@ -128,6 +251,13 @@ for (const { name, width, reducedMotion } of [
     ).toBeChecked();
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
+    if (reducedMotion === "reduce") {
+      expect(
+        await page
+          .locator("#overview-map-style-panel")
+          .evaluate((element) => element.getAnimations().length),
+      ).toBe(0);
+    }
   });
 }
 

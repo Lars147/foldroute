@@ -4,6 +4,7 @@ import { errorText } from "./model";
 import { ApiClient } from "./transitous";
 import { PlaceBook, samePlace } from "./places";
 import { el, node, icon } from "./ui";
+import { reveal, stopMotion } from "./motion";
 
 let lastLocation: { coordinate: Coordinate; timestamp: number } | undefined;
 export function clearSearchLocation() {
@@ -334,6 +335,7 @@ export class PlaceSearch {
     this.list.append(li);
   }
   private render() {
+    const opening = this.list.hidden;
     const focused = this.list.contains(document.activeElement)
       ? {
           key: (document.activeElement as HTMLElement).closest("li")?.dataset
@@ -379,6 +381,9 @@ export class PlaceSearch {
       results.forEach((p) => this.row(p));
     }
     this.list.hidden = !this.buttons.length;
+    if (this.list.hidden) stopMotion(this.list);
+    else if (opening)
+      reveal(this.list, { y: 5, duration: 0.12, fromOpacity: 0.7 });
     this.input.setAttribute("aria-expanded", String(!this.list.hidden));
     if (focused)
       Array.from(this.list.querySelectorAll<HTMLButtonElement>("button"))

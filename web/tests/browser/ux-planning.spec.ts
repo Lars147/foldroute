@@ -227,7 +227,10 @@ test("entry focus and archive timestamps remain stable without background focus 
   );
   await page.locator("#close-route").click();
   await expect(page.locator("#destination")).toBeFocused();
-  await expect(page.locator("#destination")).toHaveCSS("outline-style", "none");
+  await expect(page.locator("#destination")).toHaveCSS(
+    "outline-style",
+    "solid",
+  );
   await expect(page.locator(".search-box")).toHaveCSS("outline-style", "none");
   await page.locator("#tab-history").click();
   const timestamp = page.locator(".history-timestamp").first();

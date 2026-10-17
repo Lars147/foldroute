@@ -38,6 +38,7 @@ Für den iPhone-Prototyp öffne `ios/FoldRoute.xcodeproj` in Xcode. Voraussetzun
 
 - [Bedienung](documentation/bedienung.md): Suche, Favoriten, Routenauswahl, Einstellungen und Navigation in iPhone-Prototyp und PWA.
 - [Routing und Datenverhalten](documentation/routing.md): Auswahlregeln, Rad-Umstiege, Suchbudgets, Geometrieprüfung, Echtzeit und Speicherkompatibilität.
+- [Motion-Konzept für die PWA](documentation/animationen.md): umgesetzte Animationen, natürliche Ansichtswechsel, Navigation und recherchierter Bibliotheksvergleich.
 - [iOS entwickeln und prüfen](ios/README.md): Einrichtung, Architektur, Konfiguration und Geräteabnahme.
 - [Web entwickeln und PWA nutzen](web/README.md): lokale Vorschau, Build, Tests, Offline-Funktionen und Veröffentlichungshinweise.
 
