@@ -352,7 +352,7 @@ input[type="search"]::-webkit-search-cancel-button {
   font-size: 0.75rem;
   color: var(--muted);
   font-weight: 500;
-  padding: 12px 2px;
+  padding: 12px 0;
   max-width: 100%;
   text-align: left;
 }
@@ -364,13 +364,12 @@ input[type="search"]::-webkit-search-cancel-button {
   width: 16px;
   height: 16px;
 }
-.context-button > span:nth-child(2) {
-  flex: 1;
-  overflow-wrap: anywhere;
-}
 .context-copy {
   display: grid;
+  flex: 1;
+  min-width: 0;
   gap: 4px;
+  overflow-wrap: anywhere;
 }
 .context-copy strong {
   color: var(--ink);

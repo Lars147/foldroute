@@ -23,7 +23,7 @@ test("landing keeps route planning primary from introduction to conclusion", asy
   await expect(page.locator("h1")).toHaveAccessibleName("ÖPNV kann mehr. Mit deinem Klapprad.");
   await expect(page.locator(".questions details[open]")).toHaveCount(0);
   await expect(page.locator(".planner-steps li").first())
-    .toContainText("Ab deinem Standort, für jetzt. Start und Zeitpunkt änderst du unter „Mehr Einstellungen“.");
+    .toContainText("Ab deinem Standort, für jetzt. Start und Zeitpunkt änderst du unter „Start & Zeit“.");
   const words = await page.locator("main p").evaluateAll(elements =>
     elements.filter(element => !element.closest(".faq"))
       .map(element => (element as HTMLElement).innerText).join(" ").trim().split(/\s+/).length,

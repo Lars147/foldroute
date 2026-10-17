@@ -1616,9 +1616,6 @@ function setEditorExpanded(expanded: boolean) {
   el("route-editor").dataset.mode = adjustMode;
   el("search-view").dataset.editorMode = adjustMode;
   el("search-adjust").setAttribute("aria-expanded", String(expanded));
-  el("search-adjust-label").textContent = expanded
-    ? "Weniger Einstellungen"
-    : "Mehr Einstellungen";
   el("planning-actions").hidden = !expanded && adjustMode !== "replan";
   el("cancel-adjust").hidden = adjustMode !== "replan";
   el("calculate").textContent =
