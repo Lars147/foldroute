@@ -1553,6 +1553,14 @@ dialog form {
   border-radius: 10px;
   background: none;
 }
+.route-editor-places
+  input[type="search"]:not(
+    :focus,
+    :active,
+    .search-focus-input
+  )::-webkit-search-cancel-button {
+  display: none;
+}
 #origin:focus {
   outline: 2px solid var(--color-selection-indicator);
   outline-offset: 2px;
