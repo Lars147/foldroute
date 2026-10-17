@@ -64,10 +64,10 @@ for (const width of [390, 1280])
         );
       await page.locator("#search-adjust").click();
       await expect(list).toBeHidden();
-      if (close === "button") await page.locator("#cancel-adjust").click();
+      if (close === "button") await page.locator("#search-adjust").click();
       else if (close === "escape") await page.keyboard.press("Escape");
       else await page.goBack();
-      await expect(page.locator("#adjust-dialog")).not.toBeVisible();
+      await expect(page.locator("#route-editor")).not.toBeVisible();
       await expect(list).toBeVisible();
       await expect(list).toContainText("Favoriten");
       await expect(list).toContainText("Zuletzt verwendet");
@@ -86,7 +86,7 @@ for (const width of [390, 1280])
     expect(plans).toBe(0);
   });
 
-test("home cancellation preserves the query and discards adjustment drafts", async ({
+test("collapsing home preserves the query and adjustment draft", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -96,22 +96,21 @@ test("home cancellation preserves the query and discards adjustment drafts", asy
   await populateHome(page);
   await page.locator("#destination").fill("Berg");
   await page.locator(".search-focus-back").click();
-  const context = await page.locator("#search-context").textContent();
   await page.locator("#search-adjust").click();
-  await page.locator("#adjust-destination").fill("Verworfener Entwurf");
+  await page.locator("#origin").fill("Verworfener Entwurf");
   await page.keyboard.press("Escape");
-  await expect(page.locator("#adjust-dialog")).toBeVisible();
-  await page.locator("#cancel-adjust").click();
+  await expect(page.locator("#route-editor")).toBeVisible();
+  await page.locator("#search-adjust").click();
   await expect(page.locator("#destination")).toHaveValue("Berg");
   await expect(page.locator("#destination-options")).toBeVisible();
   await expect(
     page.locator("#destination-options .place-select strong"),
   ).toHaveText(["Bergstraße 1"]);
-  await expect(page.locator("#search-context")).toHaveText(context!);
+  await expect(page.locator("#search-context")).toContainText("Start wählen");
   await expect(page.locator("#search-adjust")).toBeFocused();
   await page.locator("#search-adjust").click();
-  await expect(page.locator("#adjust-destination")).toHaveValue("");
-  await page.locator("#cancel-adjust").click();
+  await expect(page.locator("#origin")).toHaveValue("Verworfener Entwurf");
+  await page.locator("#search-adjust").click();
 });
 
 test("home greeting remains visible after cancelling without saved places", async ({
@@ -121,9 +120,9 @@ test("home greeting remains visible after cancelling without saved places", asyn
   await page.goto("/");
   for (const close of ["button", "escape"]) {
     await page.locator("#search-adjust").click();
-    if (close === "button") await page.locator("#cancel-adjust").click();
+    if (close === "button") await page.locator("#search-adjust").click();
     else await page.keyboard.press("Escape");
-    await expect(page.locator("#adjust-dialog")).not.toBeVisible();
+    await expect(page.locator("#route-editor")).not.toBeVisible();
     await expect(page.locator("#search-empty")).toBeVisible();
     await expect(page.locator("#destination-options")).toBeHidden();
     await expect(page.locator("#search-adjust")).toBeFocused();

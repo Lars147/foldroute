@@ -1,5 +1,32 @@
 import { expect, type Page, type Locator } from "@playwright/test";
 
+// Exercise the full editor through an existing route, without making a routing request.
+export async function openRecordedRouteEditor(page: Page) {
+  await page.evaluate(async () => {
+    const storePath = "/src/offline.ts";
+    const recordingPath = "/src/example-data.ts";
+    const { OfflineStore } = await import(storePath);
+    const { exampleRecording } = await import(recordingPath);
+    await new OfflineStore().save(
+      {
+        version: 3,
+        savedAt: Date.now() / 1000,
+        request: exampleRecording.request,
+        settings: exampleRecording.settings,
+        journey: exampleRecording.journey,
+      },
+      "inline-editor-test",
+    );
+  });
+  await page.reload();
+  await openCachedJourney(page, page.locator("#open-saved"));
+  await page.locator("#adjust-route").click();
+  await expect(page.locator("#route-editor")).toHaveAttribute(
+    "data-mode",
+    "replan",
+  );
+}
+
 // Measure final geometry after an entrance without disabling the animation.
 export async function expectMotionSettled(element: Locator) {
   await expect
@@ -98,4 +125,9 @@ export async function openCachedJourney(page: Page, trigger: Locator) {
   }, target);
   await expect(page.locator("#saved-notice")).toBeVisible();
   if (online) await page.context().setOffline(false);
+}
+
+export async function addStop(page: Page) {
+  await page.locator("#planner-more").click();
+  await page.locator("#add-stop").click();
 }

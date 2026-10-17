@@ -2527,7 +2527,7 @@ test("ending resumed navigation restores stops without replacing personal prefer
   await expect(page.locator("#navigation-view")).toBeHidden();
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Start");
-  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+  await expect(page.locator("#destination")).toHaveValue("Ziel");
   await expect(page.locator(".stop-editor-row:visible")).toHaveCount(1);
   await expect(page.locator("#via-0")).toHaveValue("Café");
   await page.locator("#cancel-adjust").click();
@@ -2716,7 +2716,7 @@ test("editing during a delayed start check prevents late navigation activation",
   );
   await expect(page.locator("#navigation-view")).toBeHidden();
   await page.locator("#adjust-route").click();
-  await expect(page.locator("#adjust-dialog")).toBeVisible();
+  await expect(page.locator("#route-editor")).toBeVisible();
   release();
   await page.clock.runFor(2000);
   await expect(page.locator("#navigation-view")).toBeHidden();

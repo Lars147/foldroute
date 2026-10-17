@@ -1,3 +1,4 @@
+import { addStop } from "./assertions";
 import { openCachedJourney } from "./assertions";
 import { openSettingsSection } from "./assertions";
 import { openSelectedDetails, showMap } from "./assertions";
@@ -462,37 +463,55 @@ for (const width of [320, 393, 1280]) {
     await setup(page);
     await plan(page);
     await page.locator("#adjust-route").click();
-    await expect(page.locator("#adjust-heading")).toBeFocused();
+    await expect(page.locator("#search-heading")).toBeFocused();
     await expect(page.locator("#swap")).toHaveAccessibleName(
       "Start und Ziel tauschen",
     );
     await expect(page.locator("#swap")).toBeInViewport({ ratio: 1 });
-    await expectMotionSettled(page.locator("#adjust-dialog"));
-    const origin = await page.locator("#origin").boundingBox();
-    const swap = await page.locator("#swap").boundingBox();
-    expect(swap!.width).toBe(48);
-    expect(swap!.height).toBe(48);
-    expect(origin!.x + origin!.width).toBeLessThanOrEqual(swap!.x);
-    expect(
-      Math.abs(swap!.y + swap!.height / 2 - origin!.y - origin!.height / 2),
-    ).toBeLessThan(1);
+    await expectMotionSettled(page.locator("#route-editor"));
+    // Read one animation frame so an ancestor's entrance cannot skew alignment.
+    const { origin, target, swap, more, locationBounds } = await page.evaluate(
+      () => {
+        const bounds = (id: string) => {
+          const { x, y, width, height } = document
+            .getElementById(id)!
+            .getBoundingClientRect();
+          return { x, y, width, height };
+        };
+        return {
+          origin: bounds("origin"),
+          target: bounds("destination"),
+          swap: bounds("swap"),
+          more: bounds("planner-more"),
+          locationBounds: bounds("origin-location"),
+        };
+      },
+    );
+    expect(origin.width).toBeGreaterThanOrEqual(width < 380 ? 150 : 200);
+    expect(target.width).toBeCloseTo(origin.width, 1);
+    expect(origin.y).toBeLessThan(target.y);
+    expect(swap.width).toBeCloseTo(32, 1);
+    expect(swap.height).toBeCloseTo(44, 1);
+    expect(target.x + target.width).toBeLessThanOrEqual(swap.x);
+    expect(Math.abs(swap.y + 22 - target.y - target.height / 2)).toBeLessThan(
+      1,
+    );
+    expect(Math.abs(more.y + 22 - origin.y - origin.height / 2)).toBeLessThan(
+      1,
+    );
     const locationButton = page.locator("#origin-location");
     await expect(locationButton).toHaveAccessibleName(
       "Aktuellen Standort verwenden",
     );
-    const locationBounds = await locationButton.boundingBox();
-    expect(locationBounds!.width).toBe(44);
-    expect(locationBounds!.height).toBe(44);
-    expect(locationBounds!.x + locationBounds!.width).toBeLessThanOrEqual(
-      origin!.x + origin!.width,
+    expect(locationBounds.width).toBeCloseTo(32, 1);
+    expect(locationBounds.height).toBeCloseTo(44, 1);
+    expect(locationBounds.x + locationBounds.width).toBeLessThanOrEqual(
+      origin.x,
     );
-    expect(
-      Math.abs(locationBounds!.y + 22 - origin!.y - origin!.height / 2),
-    ).toBeLessThan(1);
     await page.screenshot({ path: test.info().outputPath("route-editor.png") });
     await page.locator("#swap").click();
     await expect(page.locator("#origin")).toHaveValue("Ziel");
-    await expect(page.locator("#adjust-destination")).toHaveValue(
+    await expect(page.locator("#destination")).toHaveValue(
       "Aktueller Standort",
     );
     await page.locator("#time-trigger").click();
@@ -500,7 +519,7 @@ for (const width of [320, 393, 1280]) {
     await page.locator("#time-cancel").click();
     await expect(page.locator("#time-trigger")).toBeFocused();
     await expect(page.locator("#timezone")).toBeHidden();
-    await page.locator("#add-stop").click();
+    await addStop(page);
     await expect(page.locator("#via-0")).toBeFocused();
     await page.locator("#via-0").press("Escape");
     await expect(page.locator("#swap")).toHaveAccessibleDescription(
@@ -513,7 +532,7 @@ for (const width of [320, 393, 1280]) {
     await expect(page.locator("#calculate")).toBeInViewport({ ratio: 1 });
     expect(
       await page
-        .locator("#adjust-dialog")
+        .locator("#route-editor")
         .evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth),
     ).toBe(true);
   });
@@ -705,8 +724,8 @@ test("location denial keeps destination and allows a manual start", async ({
   });
   await setup(page, false);
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#adjust-dialog")).toBeVisible();
-  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+  await expect(page.locator("#route-editor")).toBeVisible();
+  await expect(page.locator("#destination")).toHaveValue("Ziel");
   await choose(page, "origin", "Start");
   await page.locator("#calculate").click();
   await expect(
@@ -1071,7 +1090,7 @@ test("editing during search preserves drafts, focus and optimization until cance
   await choose(page, "destination", "Ziel");
   await expect(page.locator("#adjust-route")).toBeEnabled();
   await page.locator("#adjust-route").click();
-  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+  await expect(page.locator("#destination")).toHaveValue("Ziel");
   await page.locator("#origin").fill("Unbestätigter Start");
   const requestCount = requests;
   await page.locator("#calculate").click();
@@ -1134,7 +1153,7 @@ test("submitting edits during optimization replaces the search and ignores late 
   await expect.poll(() => oldTransitStarted).toBe(true);
   await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
   await page.locator("#adjust-route").click();
-  await choose(page, "adjust-destination", "Park");
+  await choose(page, "destination", "Park");
   await page.locator("#calculate").click();
   await expectPlanningComplete(page);
   await expect(page.locator("#route-destination")).toHaveText("Park");
@@ -1144,7 +1163,7 @@ test("submitting edits during optimization replaces the search and ignores late 
   await page.waitForTimeout(200);
   await expect(page.locator("#route-destination")).toHaveText("Park");
   expect(page.url()).toBe(link);
-  await expect(page.locator("#adjust-dialog")).not.toBeVisible();
+  await expect(page.locator("#route-editor")).not.toBeVisible();
 });
 
 test("a late location failure does not reset an open edit dialog", async ({
@@ -1165,10 +1184,10 @@ test("a late location failure does not reset an open edit dialog", async ({
   await page.locator("#origin").fill("Manueller Entwurf");
   await page.evaluate(() => (window as any).failPlanningLocation());
   await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
-  await expect(page.locator("#adjust-dialog")).toBeVisible();
+  await expect(page.locator("#route-editor")).toBeVisible();
   await expect(page.locator("#origin")).toHaveValue("Manueller Entwurf");
   await expect(page.locator("#origin")).toBeFocused();
-  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+  await expect(page.locator("#destination")).toHaveValue("Ziel");
 });
 
 test("choice labels keep arrival times for both search modes and update dates without changing IDs", async ({
@@ -1356,7 +1375,7 @@ test("dark appearance, large text and reduced motion remain usable", async ({
   ).toBe(true);
   await expect(page.locator("#adjust-route")).toBeVisible();
   await page.locator("#adjust-route").click();
-  await expect(page.locator("#adjust-dialog")).toBeVisible();
+  await expect(page.locator("#route-editor")).toBeVisible();
   await page.locator("#cancel-adjust").click();
   await page.screenshot({
     path: "test-results/app-dark-large.png",
@@ -1371,14 +1390,14 @@ test("adjustment actions remain reachable in a short keyboard viewport", async (
   await setup(page);
   await page.locator("#search-adjust").click();
   await page.locator("#origin").focus();
-  await expect(page.locator("#calculate")).toBeHidden();
+  await expect(page.locator("#search-adjust")).toBeHidden();
   await page.locator(".search-focus-back").click();
-  await expect(page.locator("#calculate")).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#search-adjust")).toBeInViewport({ ratio: 1 });
   await page.locator("#time-trigger").click();
   await page.locator("#time-clock").scrollIntoViewIfNeeded();
   await expect(page.locator("#time-clock")).toBeInViewport();
   await page.locator("#time-apply").click();
-  await expect(page.locator("#use-context")).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#search-adjust")).toBeInViewport({ ratio: 1 });
 });
 
 test("focused dialog fields stay inside the scroll area when the keyboard opens", async ({
@@ -1386,11 +1405,12 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
-  await page.locator("#search-adjust").focus();
-  await page.locator("#search-adjust").press("Enter");
-  await page.locator("#adjust-destination").fill("Zi");
+  await plan(page);
+  await page.locator("#adjust-route").focus();
+  await page.locator("#adjust-route").press("Enter");
+  await page.locator("#destination").fill("Zi");
   await page
-    .locator("#adjust-destination")
+    .locator("#destination")
     .evaluate((input: HTMLInputElement) => input.setSelectionRange(1, 1));
 
   // Unlike resizing the page, an iOS keyboard shrinks the visual viewport
@@ -1414,7 +1434,7 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
           ({ id, withLabel }) => {
             const field = document.getElementById(id) as HTMLInputElement;
             const bounds = document
-              .querySelector(".dialog-body")!
+              .querySelector(".search-content")!
               .getBoundingClientRect();
             const input = field.getBoundingClientRect();
             const label = field.labels![0].getBoundingClientRect();
@@ -1440,11 +1460,11 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
       .toBe(true);
     await expect(page.locator(`#${id}`)).toBeFocused();
   };
-  await expectFieldInside("adjust-destination");
-  await expect(page.locator("#adjust-destination")).toHaveValue("Zi");
+  await expectFieldInside("destination");
+  await expect(page.locator("#destination")).toHaveValue("Zi");
   expect(
     await page
-      .locator("#adjust-destination")
+      .locator("#destination")
       .evaluate((input: HTMLInputElement) => input.selectionStart),
   ).toBe(1);
 
@@ -1456,20 +1476,20 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
   await page.locator("#time-clock").scrollIntoViewIfNeeded();
   await expect(page.locator("#time-clock")).toBeInViewport();
   await page.locator("#time-cancel").click();
-  await choose(page, "adjust-destination", "Ziel");
-  await page.locator("#adjust-destination").focus();
-  await expectFieldInside("adjust-destination");
-  await expect(page.locator("#adjust-destination")).toHaveValue("Ziel");
+  await choose(page, "destination", "Ziel");
+  await page.locator("#destination").focus();
+  await expectFieldInside("destination");
+  await expect(page.locator("#destination")).toHaveValue("Ziel");
 
   await page.addStyleTag({ content: ":root { font-size: 24px; }" });
   await page.evaluate(() =>
     window.visualViewport!.dispatchEvent(new Event("resize")),
   );
-  await expectFieldInside("adjust-destination", false);
+  await expectFieldInside("destination", false);
   await page.locator(".search-focus-back").click();
   const actionsVisible = await page.evaluate(() => {
     const actions = document
-      .querySelector(".dialog-actions")!
+      .querySelector("#planning-actions")!
       .getBoundingClientRect();
     const viewport = window.visualViewport!;
     return (
@@ -1479,7 +1499,7 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
   });
   expect(actionsVisible).toBe(true);
   await page.locator("#cancel-adjust").click();
-  await expect(page.locator("#search-adjust")).toBeFocused();
+  await expect(page.locator("#adjust-route")).toBeFocused();
 });
 
 for (const code of [0, 1, 2, 3]) {
@@ -1531,7 +1551,7 @@ for (const code of [0, 1, 2, 3]) {
     if (code) await expect(page.locator("#adjust-location-help")).toBeVisible();
     else await expect(page.locator("#adjust-location-help")).toBeHidden();
     await expect(page.locator("#origin-location")).toBeEnabled();
-    await expect(page.locator("#adjust-dialog")).toBeVisible();
+    await expect(page.locator("#route-editor")).toBeVisible();
   });
 }
 
@@ -1591,7 +1611,7 @@ test("location success stays quiet after retry and cancelled replies cannot anno
   await expect(page.locator("#origin")).toHaveValue("Start");
   await expect(announcement).toBeEmpty();
   await button.click();
-  await page.locator("#cancel-adjust").click();
+  await page.locator("#search-adjust").click();
   await page.evaluate(() =>
     window.dispatchEvent(new Event("resolve-location")),
   );
@@ -1689,7 +1709,7 @@ test("map location help persists and clears on retry; manual origin clears dialo
   await choose(page, "origin", "Start");
   await expect(page.locator("#adjust-location-help")).toBeHidden();
   await page.locator("#calculate").click();
-  await expect(page.locator("#adjust-dialog")).toBeHidden();
+  await expect(page.locator("#route-editor")).toBeHidden();
   await expectPlanningComplete(page);
 });
 
@@ -1742,14 +1762,13 @@ test("favorites and recent places share all searches and remain available offlin
   await page.locator("#origin").fill("");
   await expect(page.locator("#origin-options")).toContainText("Favoriten");
   await choose(page, "origin", "Start");
-  await page.locator("#adjust-destination").fill("");
-  await expect(page.locator("#adjust-destination-options")).toContainText(
+  await addStop(page);
+  await page.locator("#via-0").fill("");
+  await expect(page.locator("#via-0-options")).toContainText(
     "Zuletzt verwendet",
   );
-  await expect(
-    page.locator("#adjust-destination-options .place-select"),
-  ).toHaveCount(3);
-  await page.locator("#cancel-adjust").click();
+  await expect(page.locator("#via-0-options .place-select")).toHaveCount(3);
+  await page.locator("#search-adjust").click();
   await page.reload();
   await expect(page.locator("#destination-options")).toContainText("Favoriten");
   await expect(page.locator("#destination-options")).toContainText(
@@ -1957,7 +1976,7 @@ test("a past fixed departure survives settings recalculation and manual refresh"
       .filter((url) => url.searchParams.get("directModes") === "BIKE")
       .every((url) => url.searchParams.get("time") === "2026-09-04T08:00:00Z"),
   ).toBe(true);
-  await expect(page.locator("#adjust-dialog")).toBeHidden();
+  await expect(page.locator("#route-editor")).toBeHidden();
 });
 
 test("long direct rides are labeled comparisons and suitable transit is preferred", async ({
@@ -2131,7 +2150,7 @@ test("Back and Forward restore distinct submitted plans without result history e
       json: [{ name: "Weiteres Ziel", lat: 48.176, lon: 11.6 }],
     }),
   );
-  await choose(page, "adjust-destination", "Weiteres Ziel");
+  await choose(page, "destination", "Weiteres Ziel");
   await page
     .locator("#route-form")
     .evaluate((form: HTMLFormElement) => form.requestSubmit());
@@ -2210,7 +2229,7 @@ for (const timing of ["depart", "arrive"] as const)
     });
     await page.goto(url.href);
     await expectPlanningComplete(page);
-    await expect(page.locator("#adjust-dialog")).toBeHidden();
+    await expect(page.locator("#route-editor")).toBeHidden();
     expect(
       requests
         .find((r) => r.searchParams.get("directModes") === "BIKE")
@@ -2299,7 +2318,7 @@ for (const problem of ["empty", "service"] as const)
     await page.goto(url.href);
     await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
     await expect(page.locator("#planning-recovery")).toBeVisible();
-    await expect(page.locator("#adjust-dialog")).toBeHidden();
+    await expect(page.locator("#route-editor")).toBeHidden();
     if (problem === "empty") {
       await expect(page.locator("#status")).toHaveText(
         "Für diesen Zeitpunkt wurden keine passenden Verbindungen gefunden.",
@@ -2318,7 +2337,7 @@ for (const problem of ["empty", "service"] as const)
     failing = false;
     await page.locator("#recover-planning").click();
     if (problem === "empty") {
-      await expect(page.locator("#adjust-dialog")).toBeVisible();
+      await expect(page.locator("#route-editor")).toBeVisible();
       await expect(page.locator("#when")).toHaveValue("2026-09-03T10:00");
       await page.locator("#calculate").click();
     }
@@ -2328,7 +2347,7 @@ for (const problem of ["empty", "service"] as const)
         .filter((r) => r.searchParams.get("directModes") === "BIKE")
         .every((r) => r.searchParams.get("time") === "2026-09-03T08:00:00Z"),
     ).toBe(true);
-    await expect(page.locator("#adjust-dialog")).toBeHidden();
+    await expect(page.locator("#route-editor")).toBeHidden();
     expect(Date.parse(new URL(page.url()).searchParams.get("time")!)).toBe(
       Date.parse("2026-09-03T08:00:00Z"),
     );
@@ -2705,7 +2724,7 @@ test("adding only a stop preserves the original now search minute", async ({
   await expectPlanningComplete(page);
   await page.clock.setFixedTime(new Date("2026-09-04T08:10:45Z"));
   await page.locator("#adjust-route").click();
-  await page.locator("#add-stop").click();
+  await addStop(page);
   await choose(page, "via-0", "Café");
   const query = page.waitForRequest((r) =>
     r.url().includes("directModes=BIKE"),
@@ -2752,10 +2771,10 @@ test("reordered stop keeps keyboard focus visible after motion", async ({
   await setup(page);
   await page.locator("#search-adjust").click();
   for (let index = 0; index < 3; index++) {
-    await page.locator("#add-stop").click();
+    await addStop(page);
     await page.locator(`#via-${index}`).press("Escape");
   }
-  await expectMotionSettled(page.locator("#adjust-dialog"));
+  await expectMotionSettled(page.locator("#route-editor"));
   const row = page.locator("#via-2").locator("..");
   const up = row.getByRole("button", { name: /nach oben/ });
   await up.evaluate((button) => button.scrollIntoView({ block: "start" }));
@@ -2773,7 +2792,7 @@ test("reordered stop keeps keyboard focus visible after motion", async ({
     .poll(() =>
       up.evaluate((button) => {
         const scrollport = button
-          .closest(".dialog-body")!
+          .closest(".search-content")!
           .getBoundingClientRect();
         const focused = button.getBoundingClientRect();
         return (
@@ -2793,7 +2812,7 @@ test("free stops edit, reorder, reverse and cancel without changing the active p
   await expectPlanningComplete(page);
   await page.locator("#adjust-route").click();
   for (const [i, name] of ["Café", "See", "Park"].entries()) {
-    await page.locator("#add-stop").click();
+    await addStop(page);
     await choose(page, `via-${i}`, name);
   }
   await expect(page.locator("#add-stop")).toBeDisabled();
@@ -2838,8 +2857,8 @@ for (const width of [320, 393, 1280]) {
     await setupVia(page);
     await page.locator("#search-adjust").click();
     await choose(page, "origin", "Start");
-    await choose(page, "adjust-destination", "Ziel");
-    await page.locator("#add-stop").click();
+    await choose(page, "destination", "Ziel");
+    await addStop(page);
     await choose(page, "via-0", "Café");
     const toggle = page.locator(
       '.stop-stay-toggle[aria-controls="via-0-stay"]',
@@ -2863,7 +2882,7 @@ for (const width of [320, 393, 1280]) {
       await toggle.click();
       await expect(page.locator("#via-0-stay")).toBeHidden();
       await expect(toggle).toContainText(summary);
-      await page.locator("#use-context").click();
+      await page.locator("#search-adjust").click();
       await page.locator("#search-adjust").click();
       await expect(toggle).toContainText(summary);
       await expect(page.locator("#via-0-stay")).toBeHidden();
@@ -2882,7 +2901,7 @@ for (const width of [320, 393, 1280]) {
     ]) {
       await page.locator("#via-0-hours").fill(hours);
       await page.locator("#via-0-minutes").fill(minutes);
-      await page.locator("#use-context").click();
+      await page.locator("#calculate").click();
       await expect(page.locator("#via-0-stay-error")).toBeVisible();
       await expect(page.locator(`#via-0-${field}`)).toBeFocused();
       await toggle.click();
@@ -2890,12 +2909,12 @@ for (const width of [320, 393, 1280]) {
     }
     await page.locator("#via-0-hours").fill("");
     await page.locator("#via-0-minutes").fill("");
-    await page.locator("#use-context").click();
+    await page.locator("#search-adjust").click();
     await page.locator("#search-adjust").click();
     await expect(toggle).toContainText("Ohne Pause");
-    await toggle.click();
+    await expect(page.locator("#via-0-stay")).toBeVisible();
     await page.locator("#via-0-minutes").fill("15");
-    await page.locator("#add-stop").click();
+    await addStop(page);
     await choose(page, "via-1", "See");
     await page
       .getByRole("button", { name: "Zwischenziel 1 nach unten", exact: true })
@@ -2911,7 +2930,7 @@ for (const width of [320, 393, 1280]) {
     await page.locator("#via-0-minutes").scrollIntoViewIfNeeded();
     expect(
       await page
-        .locator("#adjust-dialog")
+        .locator("#route-editor")
         .evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth),
     ).toBe(true);
     await page.screenshot({
@@ -2920,11 +2939,11 @@ for (const width of [320, 393, 1280]) {
     await page
       .getByRole("button", { name: "Zwischenziel 2 entfernen", exact: true })
       .click();
-    await expect(page.locator("#add-stop")).toBeFocused();
-    await page.locator("#cancel-adjust").click();
+    await expect(page.locator("#planner-more")).toBeFocused();
     await page.locator("#search-adjust").click();
-    await expect(page.locator("#via-0")).toHaveValue("Café");
-    await expect(toggle).toContainText("Ohne Pause");
+    await page.locator("#search-adjust").click();
+    await expect(page.locator("#via-1")).toHaveValue("See");
+    await expect(page.locator("#via-0")).toBeHidden();
   });
 }
 test("mobile stop planning shares and reloads pauses and restores the complete offline trip", async ({
@@ -2934,12 +2953,12 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   await setupVia(page);
   await page.locator("#search-adjust").click();
   await choose(page, "origin", "Start");
-  await choose(page, "adjust-destination", "Ziel");
-  await page.locator("#add-stop").click();
+  await addStop(page);
   await choose(page, "via-0", "Café");
   await page.locator('.stop-stay-toggle[aria-controls="via-0-stay"]').click();
   await page.locator("#via-0-minutes").fill("10");
-  await page.locator("#calculate").click();
+  await page.locator("#search-adjust").click();
+  await choose(page, "destination", "Ziel");
   await expectPlanningComplete(page);
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
@@ -3647,12 +3666,12 @@ test("route markers identify endpoints and ordered stops with accessible popups"
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator("#search-adjust").click();
   await choose(page, "origin", "Start");
-  await choose(page, "adjust-destination", "Ziel");
   for (const [i, name] of ["Café", "See", "Park"].entries()) {
-    await page.locator("#add-stop").click();
+    await addStop(page);
     await choose(page, `via-${i}`, name);
   }
-  await page.locator("#calculate").click();
+  await page.locator("#search-adjust").click();
+  await choose(page, "destination", "Ziel");
   await expectPlanningComplete(page);
   await showMap(page);
   await expect(page.locator("#map .route-marker")).toHaveCount(5);
@@ -3922,7 +3941,7 @@ for (const [width, height] of [
     // while this test asserts that map fitting makes no API requests.
     await page.locator("#search-adjust").click();
     await choose(page, "origin", "Start");
-    await page.locator("#use-context").click();
+    await page.locator("#search-adjust").click();
     await plan(page);
     const requests: string[] = [];
     page.on("request", (request) => {
@@ -4022,10 +4041,10 @@ test("route fit overrides a pending location response and works offline with sto
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator("#search-adjust").click();
   await choose(page, "origin", "Start");
-  await choose(page, "adjust-destination", "Ziel");
-  await page.locator("#add-stop").click();
+  await addStop(page);
   await choose(page, "via-0", "Café");
-  await page.locator("#calculate").click();
+  await page.locator("#search-adjust").click();
+  await choose(page, "destination", "Ziel");
   await expectPlanningComplete(page);
   await showMap(page);
   await page.locator("#map-location").click();
@@ -4154,7 +4173,7 @@ test("new GPS planning enriches history without renaming the active origin", asy
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
   await page
-    .locator("#adjust-dialog")
+    .locator("#route-editor")
     .evaluate((dialog: HTMLDialogElement) => dialog.close());
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-open").first()).toContainText(

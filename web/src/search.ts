@@ -17,6 +17,11 @@ function searchCenter(): Coordinate {
 }
 export class PlaceSearch {
   private static focusedSearch?: PlaceSearch;
+  private static dialogSearch?: PlaceSearch;
+  private static messages = new WeakMap<
+    HTMLElement,
+    { owner: PlaceSearch; text: string }
+  >();
   input: HTMLInputElement;
   list: HTMLElement;
   value?: Place;
@@ -26,6 +31,7 @@ export class PlaceSearch {
   private active = -1;
   private options: Place[] = [];
   private visible = false;
+  private browsing = false;
   private prefilling = false;
   private buttons: HTMLButtonElement[] = [];
   private focusBack?: HTMLButtonElement;
@@ -75,7 +81,10 @@ export class PlaceSearch {
     private onSelect: (place: Place) => void,
     private book: PlaceBook,
     private onError: (message: string) => void,
-    private showCurrentLocation = true,
+    private settings: {
+      showCurrentLocation?: boolean;
+      focusDriven?: boolean;
+    } = {},
   ) {
     this.input = el(id);
     this.list = el(`${id}-options`);
@@ -86,10 +95,79 @@ export class PlaceSearch {
     });
     this.input.addEventListener("focus", () => {
       this.enterFocusMode();
-      if (!this.prefilling && !this.value) this.activate();
+      if (
+        !this.openingFocus &&
+        !this.prefilling &&
+        (this.settings.focusDriven || !this.value)
+      )
+        this.activate();
     });
+    {
+      let pointing = false;
+      let pointerTarget: EventTarget | null = null;
+      // Safari does not focus clicked buttons. Keep the input focused until selection.
+      this.list.addEventListener("mousedown", (event) => {
+        if (this.settings.focusDriven) event.preventDefault();
+      });
+      this.input.addEventListener("click", () => {
+        if (this.settings.focusDriven && !this.visible) this.activate();
+      });
+      const leave = (event?: FocusEvent) => {
+        if (this.contains(event?.relatedTarget ?? null)) return;
+        // Re-rendered result buttons can regain focus in the same turn.
+        queueMicrotask(() => {
+          if (
+            !pointing &&
+            !this.focusBack &&
+            PlaceSearch.dialogSearch === this &&
+            !this.contains(document.activeElement)
+          )
+            this.cancel();
+        });
+      };
+      this.input.addEventListener("focusout", leave);
+      this.list.addEventListener("focusout", leave);
+      document.addEventListener(
+        "pointerdown",
+        (event) => {
+          pointing = true;
+          pointerTarget = event.target;
+        },
+        true,
+      );
+      document.addEventListener("pointerup", () => (pointing = false), true);
+      document.addEventListener("pointercancel", () => {
+        pointing = false;
+        pointerTarget = null;
+        leave();
+      });
+      // Do not collapse an inline list under a button between pointerdown and click.
+      document.addEventListener("click", (event) => {
+        const target = event.detail
+          ? (pointerTarget ?? event.target)
+          : event.target;
+        pointerTarget = null;
+        if (
+          !this.focusBack &&
+          PlaceSearch.dialogSearch === this &&
+          !this.contains(target)
+        )
+          this.cancel();
+      });
+    }
     this.input.addEventListener("input", () => this.search());
     this.input.addEventListener("keydown", (event) => {
+      if (
+        event.key === "Tab" &&
+        !event.shiftKey &&
+        this.settings.focusDriven &&
+        this.visible &&
+        this.buttons.length
+      ) {
+        event.preventDefault();
+        this.buttons[0].focus();
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -122,6 +200,18 @@ export class PlaceSearch {
       }
     });
     this.list.addEventListener("keydown", (event) => {
+      if (
+        event.key === "Tab" &&
+        event.shiftKey &&
+        event.target === this.buttons[0] &&
+        this.settings.focusDriven
+      ) {
+        event.preventDefault();
+        this.openingFocus = true;
+        this.input.focus({ preventScroll: true });
+        this.openingFocus = false;
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -144,9 +234,39 @@ export class PlaceSearch {
       }
     });
   }
+  private contains(target: EventTarget | null) {
+    return (
+      target instanceof Node &&
+      (target === this.input || this.list.contains(target))
+    );
+  }
+  private claim() {
+    if (!this.settings.focusDriven) return;
+    if (PlaceSearch.dialogSearch !== this) PlaceSearch.dialogSearch?.cancel();
+    PlaceSearch.dialogSearch = this;
+  }
+  private setMessage(text: string) {
+    PlaceSearch.messages.set(this.message, { owner: this, text });
+    this.message.textContent = text;
+  }
+  private clearMessage() {
+    if (!this.settings.focusDriven) return;
+    const message = PlaceSearch.messages.get(this.message);
+    if (message?.owner !== this) return;
+    if (this.message.textContent === message.text)
+      this.message.textContent = "";
+    PlaceSearch.messages.delete(this.message);
+  }
   activate() {
+    this.claim();
+    this.browsing = !!this.settings.focusDriven;
+    this.clearMessage();
     this.visible = true;
     this.render();
+  }
+  setFocusDriven(enabled: boolean) {
+    this.cancel();
+    this.settings.focusDriven = enabled;
   }
   searchShared(query: string) {
     this.input.value = query;
@@ -155,24 +275,24 @@ export class PlaceSearch {
   private search(autoSelectSingle = false) {
     this.value = undefined;
     this.cancel(true);
+    this.claim();
     this.visible = true;
     const version = this.version,
       query = this.input.value.trim();
     this.render();
     if (query.length < 2) {
-      this.message.textContent = query.length
-        ? "Mindestens zwei Zeichen eingeben."
-        : "";
+      this.setMessage(query.length ? "Mindestens zwei Zeichen eingeben." : "");
       return;
     }
     if (!navigator.onLine) {
-      this.message.textContent =
-        "Offline: Favoriten bleiben verfügbar. Neue Ortssuche benötigt Internet.";
+      this.setMessage(
+        "Offline: Favoriten bleiben verfügbar. Neue Ortssuche benötigt Internet.",
+      );
       return;
     }
     this.timer = setTimeout(async () => {
       this.abort = new AbortController();
-      this.message.textContent = "Orte werden gesucht …";
+      this.setMessage("Orte werden gesucht …");
       try {
         const results = await this.api.searchPlaces(
           query,
@@ -186,16 +306,19 @@ export class PlaceSearch {
           return;
         }
         this.render();
-        this.message.textContent = this.buttons.length
-          ? "Ort auswählen."
-          : "Keine passenden Orte gefunden.";
+        this.setMessage(
+          this.buttons.length
+            ? "Ort auswählen."
+            : "Keine passenden Orte gefunden.",
+        );
       } catch (error) {
-        if (version === this.version)
-          this.message.textContent = errorText(error);
+        if (version === this.version) this.setMessage(errorText(error));
       }
     }, 280);
   }
   cancel(keepFocus = false) {
+    if (PlaceSearch.dialogSearch === this) PlaceSearch.dialogSearch = undefined;
+    this.clearMessage();
     if (!keepFocus) this.exitFocusMode();
     this.version++;
     clearTimeout(this.timer);
@@ -204,6 +327,7 @@ export class PlaceSearch {
     this.buttons = [];
     this.active = -1;
     this.visible = false;
+    this.browsing = false;
     this.list.hidden = true;
     this.input.setAttribute("aria-expanded", "false");
     this.input.removeAttribute("aria-activedescendant");
@@ -220,7 +344,7 @@ export class PlaceSearch {
     this.openingFocus = true;
     if (!wasFocused) this.input.focus({ preventScroll: true });
     this.openingFocus = false;
-    this.message.textContent = "";
+    this.setMessage("");
     void this.book
       .change(place, "use")
       .catch(() =>
@@ -232,6 +356,7 @@ export class PlaceSearch {
   }
   private prefill(place: Place) {
     this.cancel(true);
+    this.claim();
     this.value = undefined;
     this.input.value = place.name + " ";
     this.prefilling = true;
@@ -241,18 +366,22 @@ export class PlaceSearch {
       this.input.value.length,
     );
     this.prefilling = false;
-    this.message.textContent = "Namen ergänzen oder Suchen drücken.";
+    this.setMessage("Namen ergänzen oder Suchen drücken.");
   }
   private async chooseLocation() {
     this.cancel(true);
+    this.claim();
+    this.openingFocus = true;
+    this.input.focus({ preventScroll: true });
+    this.openingFocus = false;
     const version = this.version;
     this.abort = new AbortController();
-    this.message.textContent = "Standort wird ermittelt …";
+    this.setMessage("Standort wird ermittelt …");
     try {
       const place = await locate(this.abort.signal);
       if (version === this.version) this.choose(place);
     } catch (error) {
-      if (version === this.version) this.message.textContent = errorText(error);
+      if (version === this.version) this.setMessage(errorText(error));
     }
   }
   private heading(text: string) {
@@ -306,7 +435,9 @@ export class PlaceSearch {
         String(this.book.isFavorite(place)),
       );
       favorite.onclick = async () => {
-        favorite.disabled = true;
+        if (favorite.getAttribute("aria-disabled") === "true") return;
+        // Keep focus inside the list while IndexedDB updates and re-renders it.
+        favorite.setAttribute("aria-disabled", "true");
         try {
           await this.book.change(place, "favorite");
         } catch {
@@ -314,7 +445,7 @@ export class PlaceSearch {
             "Favorit konnte nicht gespeichert werden. Bitte erneut versuchen.",
           );
         } finally {
-          favorite.disabled = false;
+          favorite.removeAttribute("aria-disabled");
         }
       };
       const favoriteCell = node("span");
@@ -347,7 +478,9 @@ export class PlaceSearch {
     this.buttons = [];
     this.active = -1;
     this.input.removeAttribute("aria-activedescendant");
-    const query = this.input.value.trim().toLocaleLowerCase("de");
+    const query = this.browsing
+      ? ""
+      : this.input.value.trim().toLocaleLowerCase("de");
     const favorites = this.book.favorites
       .map(({ place }) => {
         const detail = this.options.find((option) =>
@@ -362,7 +495,7 @@ export class PlaceSearch {
             .toLocaleLowerCase("de")
             .includes(query),
       );
-    if (!query && this.showCurrentLocation) this.row();
+    if (!query && this.settings.showCurrentLocation !== false) this.row();
     if (favorites.length) {
       this.heading("Favoriten");
       favorites.forEach((place) => this.row(place));
@@ -385,14 +518,21 @@ export class PlaceSearch {
     else if (opening)
       reveal(this.list, { y: 5, duration: 0.12, fromOpacity: 0.7 });
     this.input.setAttribute("aria-expanded", String(!this.list.hidden));
-    if (focused)
-      Array.from(this.list.querySelectorAll<HTMLButtonElement>("button"))
-        .find(
-          (b) =>
-            b.className === focused.action &&
-            b.closest("li")?.dataset.placeKey === focused.key,
-        )
-        ?.focus({ preventScroll: true });
+    if (focused) {
+      const replacement = Array.from(
+        this.list.querySelectorAll<HTMLButtonElement>("button"),
+      ).find(
+        (b) =>
+          b.className === focused.action &&
+          b.closest("li")?.dataset.placeKey === focused.key,
+      );
+      if (replacement) replacement.focus({ preventScroll: true });
+      else if (this.settings.focusDriven) {
+        this.openingFocus = true;
+        this.input.focus({ preventScroll: true });
+        this.openingFocus = false;
+      }
+    }
   }
 }
 export function locate(signal?: AbortSignal): Promise<Place> {

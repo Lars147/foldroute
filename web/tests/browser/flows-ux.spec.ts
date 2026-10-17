@@ -320,9 +320,9 @@ test("planning errors retry the failed route directly and keep the saved snapsho
   await page.locator(".history-open").click();
   await expect(page.locator("#recover-planning")).toHaveText("Route anpassen");
   await page.locator("#recover-planning").click();
-  await expect(page.locator("#adjust-dialog")).toBeVisible();
+  await expect(page.locator("#route-editor")).toBeVisible();
   await expect(page.locator("#origin")).toHaveValue(origin.name);
-  await expect(page.locator("#adjust-destination")).toHaveValue(
+  await expect(page.locator("#destination")).toHaveValue(
     destination.name,
   );
   await expect(page.locator("#via-0")).toHaveValue(stops[0].place.name);

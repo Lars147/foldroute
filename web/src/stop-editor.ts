@@ -6,6 +6,9 @@ import { el, icon, node } from "./ui";
 import { captureList, reflowList, reveal, stopMotion } from "./motion";
 
 export class StopEditor {
+  get count() {
+    return this.order.length;
+  }
   private rows: {
     root: HTMLElement;
     label: HTMLLabelElement;
@@ -89,6 +92,9 @@ export class StopEditor {
       heading.append(label, remove);
       actions.append(stayToggle, up, down);
       root.append(heading, input, list, actions, stayPanel);
+      const marker = node("span", "", "route-stop-marker");
+      marker.setAttribute("aria-hidden", "true");
+      root.prepend(marker);
       root.hidden = true;
       el("via-fields").append(root);
       const search = new PlaceSearch(
@@ -98,6 +104,7 @@ export class StopEditor {
         () => {},
         book,
         toast,
+        { focusDriven: true },
       );
       this.rows.push({
         root,
@@ -131,20 +138,20 @@ export class StopEditor {
         search.cancel();
         this.order = this.order.filter((n) => n !== i);
         this.layout(true);
-        el("add-stop").focus();
+        el("planner-more").focus();
       };
     }
-    el("add-stop").onclick = () => {
-      const i = this.rows.findIndex((_, i) => !this.order.includes(i));
-      if (i < 0) return;
-      const row = this.rows[i];
-      row.search.set();
-      this.resetStay(i, 0);
-      row.id = crypto.randomUUID();
-      this.order.push(i);
-      this.layout(true);
-      row.search.input.focus();
-    };
+  }
+  add() {
+    const i = this.rows.findIndex((_, i) => !this.order.includes(i));
+    if (i < 0) return;
+    const row = this.rows[i];
+    row.search.set();
+    this.resetStay(i, 0);
+    row.id = crypto.randomUUID();
+    this.order.push(i);
+    this.layout(true);
+    row.search.input.focus();
   }
   private resetStay(i: number, total: number) {
     const row = this.rows[i];
@@ -232,6 +239,7 @@ export class StopEditor {
     this.order.forEach((i, n) => {
       const row = this.rows[i];
       row.label.textContent = `Zwischenziel ${n + 1}`;
+      row.root.querySelector(".route-stop-marker")!.textContent = String(n + 1);
       row.up.hidden = row.down.hidden = this.order.length < 2;
       row.up.disabled = n === 0;
       row.down.disabled = n === this.order.length - 1;
@@ -244,6 +252,7 @@ export class StopEditor {
       el("via-fields").append(row.root);
     });
     el<HTMLButtonElement>("add-stop").disabled = this.order.length === 3;
+    el("planner-stop-limit").hidden = this.order.length !== 3;
     el("swap-description").textContent = this.order.length
       ? "Die Reihenfolge der Zwischenziele wird ebenfalls umgekehrt."
       : "";

@@ -223,8 +223,8 @@ test("a missing location keeps the shared target available for manual planning",
         "https://maps.apple.com/?q=Sweet%20Spot&ll=48.175,11.6",
       ),
   );
-  await expect(page.locator("#adjust-dialog")).toBeVisible();
-  await expect(page.locator("#adjust-destination")).toHaveValue("Sweet Spot");
+  await expect(page.locator("#origin")).toBeVisible();
+  await expect(page.locator("#destination")).toHaveValue("Sweet Spot");
   await expect(page.locator("#adjust-status")).not.toBeEmpty();
 });
 

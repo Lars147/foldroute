@@ -1,3 +1,8 @@
+import {
+  addStop,
+  expectMotionSettled,
+  openRecordedRouteEditor,
+} from "./assertions";
 import { test, expect } from "@playwright/test";
 
 const cafes = [
@@ -78,9 +83,9 @@ test("district details are shared by origin, destination and stop searches", asy
     route.fulfill({ headers: cors, json: cafes }),
   );
   await page.goto("/");
-  await page.locator("#search-adjust").click();
-  for (const id of ["origin", "adjust-destination", "via-0"]) {
-    if (id === "via-0") await page.locator("#add-stop").click();
+  await openRecordedRouteEditor(page);
+  for (const id of ["origin", "destination", "via-0"]) {
+    if (id === "via-0") await addStop(page);
     await page.locator(`#${id}`).fill("sweet");
     const results = page.locator(`#${id}-options .place-select`);
     await expect(results).toHaveCount(2);
@@ -152,7 +157,7 @@ test("fresh district details enrich a favorite without moving focus or writing u
   await expect
     .poll(storedFavorite)
     .toEqual({ ...legacy, detail: "80331, München, Altstadt-Lehel, DE" });
-  await page.locator("#cancel-adjust").click();
+  await page.locator("#search-adjust").click();
   await page.reload();
   await expect(page.locator("#destination")).toBeVisible();
   await context.setOffline(true);
@@ -186,32 +191,31 @@ for (const width of [320, 390]) {
         }),
       );
       await page.goto("/");
-      await page.locator("#search-adjust").click();
-      const dialog = page.locator("#adjust-dialog");
-      for (const id of ["origin", "adjust-destination", "via-0"]) {
-        if (id === "via-0") await page.locator("#add-stop").click();
+      await openRecordedRouteEditor(page);
+      const dialog = page.locator(".route-editor-places");
+      for (const id of ["origin", "destination", "via-0"]) {
+        if (id === "via-0") await addStop(page);
         const input = page.locator(`#${id}`);
         await input.fill("Test");
         await expect(
           page.locator(`#${id}-options .place-select`).last(),
         ).toBeVisible();
-        const bounds = (await dialog.boundingBox())!;
-        expect(bounds.x).toBe(0);
-        expect(bounds.y).toBe(0);
-        expect(bounds.width).toBe(width);
-        expect(bounds.height).toBe(844);
-        await expect(dialog).toHaveCSS("border-radius", "0px");
-        await expect(dialog).toHaveCSS("box-shadow", "none");
-        expect(
-          await dialog.evaluate(
-            (element) => getComputedStyle(element, "::backdrop").backdropFilter,
-          ),
-        ).toBe("none");
+        await expect(input).toBeFocused();
+        await expect(input).toHaveCSS("outline-style", "solid");
+        await expectMotionSettled(page.locator(`#${id}-options`));
+        const bounds = (await input.boundingBox())!;
+        expect(bounds.x).toBe(12);
+        expect(bounds.y).toBe(60);
+        expect(bounds.width).toBe(width - 24);
+        const results = (await page.locator(`#${id}-options`).boundingBox())!;
+        expect(results.y).toBe(150);
+        expect(results.y + results.height).toBeLessThanOrEqual(844);
+        await expect(page.locator(".search-focus-back")).toBeVisible();
         await page.screenshot({ path: info.outputPath(`search-${id}.png`) });
         await page.locator(".search-focus-back").click();
         await expect(input).toHaveValue("Test");
-        await expect(dialog).toHaveCSS("border-radius", "24px");
-        await expect(page.locator("#use-context")).toBeVisible();
+        await expect(dialog).toHaveCSS("border-radius", "16px");
+        await expect(page.locator("#calculate")).toBeVisible();
       }
     });
   }
@@ -258,9 +262,9 @@ test("mobile search uses visual viewport and returns to the unchanged adjustment
   await page.locator("#origin-options .place-select").click();
   await expect(page.locator(".search-focus-back")).toHaveCount(0);
   await expect(page.locator("#origin")).toHaveValue("Testziel");
-  await expect(page.locator("#use-context")).toBeVisible();
-  await page.locator("#adjust-destination").fill("Draft");
-  await page.locator("#adjust-destination").press("Escape");
-  await expect(page.locator("dialog[open]")).toBeVisible();
-  await expect(page.locator("#adjust-destination")).toHaveValue("Draft");
+  await expect(page.locator("#search-adjust")).toBeVisible();
+  await page.locator("#origin").fill("Draft");
+  await page.locator("#origin").press("Escape");
+  await expect(page.locator("#route-editor")).toBeVisible();
+  await expect(page.locator("#origin")).toHaveValue("Draft");
 });

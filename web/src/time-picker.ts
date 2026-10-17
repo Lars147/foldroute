@@ -40,7 +40,7 @@ export class TimePicker {
   private day = "";
   private month = new Date();
   private get active() {
-    return !el("time-editor").hidden;
+    return el<HTMLDialogElement>("time-dialog").open;
   }
   constructor(private changed: () => void) {
     el("time-trigger").onclick = () => this.open();
@@ -81,14 +81,13 @@ export class TimePicker {
       this.changed();
       this.close();
     };
-    const dialog = el<HTMLDialogElement>("adjust-dialog");
+    const dialog = el<HTMLDialogElement>("time-dialog");
     dialog.addEventListener("cancel", (event) => {
       if (this.active) {
         event.preventDefault();
         this.close();
       }
     });
-    dialog.addEventListener("close", () => this.close(false));
   }
   private date() {
     const clock = el<HTMLInputElement>("time-clock").value.replace(
@@ -103,7 +102,6 @@ export class TimePicker {
     el<HTMLInputElement>("time-clock").value = localMinute(date).slice(11);
   }
   open() {
-    stopMotionWithin(el("route-form"));
     const timing = el<HTMLInputElement>("timing").value as Timing;
     this.mode = timing === "arrive" ? "arrive" : "depart";
     this.setFixedDate(
@@ -111,12 +109,8 @@ export class TimePicker {
         ? new Date()
         : (parseLocalMinute(el<HTMLInputElement>("when").value) ?? new Date()),
     );
-    el("route-form").hidden = true;
-    el("route-form").inert = true;
-    el("time-editor").hidden = false;
-    const dialog = el("adjust-dialog");
-    dialog.classList.add("editing-time");
-    dialog.setAttribute("aria-labelledby", "time-heading");
+    const dialog = el<HTMLDialogElement>("time-dialog");
+    dialog.showModal();
     this.render();
     this.focusDay(this.day);
     reveal(el("time-editor"), { x: 14, y: 0 });
@@ -124,13 +118,8 @@ export class TimePicker {
   close(focus = true) {
     if (!this.active) return;
     stopMotionWithin(el("time-editor"));
-    el("time-editor").hidden = true;
-    el("route-form").hidden = false;
-    el("route-form").inert = false;
-    el("adjust-dialog").classList.remove("editing-time");
-    el("adjust-dialog").setAttribute("aria-labelledby", "adjust-heading");
+    el<HTMLDialogElement>("time-dialog").close();
     if (focus) el("time-trigger").focus();
-    if (focus) reveal(el("route-form"), { x: -14, y: 0 });
   }
   private changeMonth(delta: number) {
     this.month = new Date(

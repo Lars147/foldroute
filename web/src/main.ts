@@ -25,6 +25,7 @@ import { ScreenAwake } from "./screen-awake";
 import { LiveLocation, fixPlace } from "./live-location";
 import { TimePicker, parseLocalMinute, timeSummary } from "./time-picker";
 import { StopEditor } from "./stop-editor";
+import { PlannerActions } from "./planner-actions";
 import "./style.css";
 import {
   defaults,
@@ -68,6 +69,31 @@ import {
   type RouteLink,
   type ParsedRouteLink,
 } from "./route-url";
+
+const clearPointerFocus = () => {
+  delete document.documentElement.dataset.focusInput;
+};
+window.addEventListener(
+  "pointerdown",
+  () => (document.documentElement.dataset.focusInput = "pointer"),
+  true,
+);
+window.addEventListener(
+  "keydown",
+  (event) => {
+    if (!["Shift", "Control", "Alt", "Meta"].includes(event.key))
+      clearPointerFocus();
+  },
+  true,
+);
+window.addEventListener(
+  "click",
+  (event) => {
+    // Keyboard and assistive-technology clicks may have no preceding key event.
+    if (event.isTrusted && event.detail === 0) clearPointerFocus();
+  },
+  true,
+);
 
 type View = "search" | "map" | "settings" | "history";
 let historyEntries: HistoryEntry[] = [];
@@ -146,7 +172,7 @@ let beforeSettings: View = "search",
 const api = new ApiClient(),
   store = new OfflineStore(),
   book = new PlaceBook(),
-  dialog = el<HTMLDialogElement>("adjust-dialog");
+  dialog = el<HTMLDialogElement>("time-dialog");
 const settingsValidation = new SettingsValidation(el("settings-form"));
 const screenAwakeKey = "foldroute.screenAwake";
 let keepScreenAwake = true;
@@ -714,6 +740,14 @@ function writeHistory(
       historyId: openedHistoryId,
       resultDepth,
       journeyNavigation: journeyView.snapshot(),
+      routeEditor:
+        view === "search" && (editorExpanded || adjustMode === "replan")
+          ? {
+              mode: adjustMode,
+              expanded: editorExpanded,
+              returnPosition: editorReturnPosition,
+            }
+          : undefined,
     },
     "",
     routeURL(location.href, activePlan),
@@ -727,7 +761,7 @@ function releasePlan() {
   activePlanId = undefined;
   settingsUI();
 }
-function beginPlanning() {
+function beginPlanning(replaceEditor = false) {
   cancelNavigationCheck();
   navigationRevision++;
   activePlan = undefined;
@@ -738,7 +772,10 @@ function beginPlanning() {
   activeSnapshot = undefined;
   persistKey = "";
   if (view === "map") writeHistory(true);
-  else show("map");
+  else if (replaceEditor) {
+    show("map", false);
+    writeHistory();
+  } else show("map");
   journeyView.focusSelection();
 }
 async function restoreLink(
@@ -746,6 +783,7 @@ async function restoreLink(
   next: View = "map",
   id?: string,
 ) {
+  resetEditor();
   journeyView.reset();
   settingsReplanPending = false;
   session.clear();
@@ -821,6 +859,7 @@ function show(next: View, push = true) {
   )
     return false;
   el<HTMLDialogElement>("route-actions-dialog").close();
+  plannerActions.close();
   if (navigationView?.visible) {
     navigationView.confirmEnd();
     return;
@@ -836,7 +875,10 @@ function show(next: View, push = true) {
     if (next === "map") requestAnimationFrame(() => routeMap.resize());
     return;
   }
-  if (next !== "search") destination.cancel();
+  if (next !== "search") {
+    cancelEditorSearches();
+    timePicker.close(false);
+  }
   if (next !== "map") {
     mapLocationRequest?.abort();
     el("map-location-error").hidden = true;
@@ -859,7 +901,8 @@ function show(next: View, push = true) {
   }
   if (push) writeHistory(true);
   if (next === "search") {
-    destination.activate();
+    if (!editorExpanded && adjustMode !== "replan") destination.activate();
+    else destination.cancel();
     updateSearchEmpty();
   }
   if (next === "map") {
@@ -918,7 +961,7 @@ window.addEventListener("popstate", async (event) => {
     if (!navigationView.dismissConfirmation()) navigationView.confirmEnd();
     return;
   }
-  if (dialog.open) closeAdjust();
+  if (dialog.open) timePicker.close(false);
   const next: View =
     event.state?.view === "history"
       ? "history"
@@ -927,6 +970,40 @@ window.addEventListener("popstate", async (event) => {
         : event.state?.view === "search"
           ? "search"
           : "map";
+  const editing = next === "search" ? event.state?.routeEditor : undefined;
+  if (editing) {
+    if (event.state?.planId !== activePlanId) {
+      await restoreLink(
+        readRouteURL(new URL(location.href)),
+        "map",
+        event.state?.planId,
+      );
+      if (revision !== navigationRevision) return;
+    }
+    const wasEditing = adjustMode === editing.mode && editorInitialized;
+    adjustMode = editing.mode === "replan" ? "replan" : "context";
+    editorReturnPosition = editing.returnPosition;
+    if (!wasEditing)
+      initializeEditor(
+        adjustMode === "replan"
+          ? structuredClone(
+              session.state.pendingRequest ?? session.state.request,
+            )
+          : undefined,
+      );
+    setEditorExpanded(editing.expanded === true);
+    show("search", false);
+    writeHistory();
+    el("search-adjust").focus({ preventScroll: true });
+    return;
+  }
+  const returningFromEditor = view === "search" && adjustMode === "replan";
+  if (returningFromEditor) {
+    adjustMode = "context";
+    editorInitialized = false;
+    editorReturnPosition = undefined;
+  }
+  setEditorExpanded(false);
   if (event.state?.historyId) {
     const entry = historyEntries.find(
       (item) => item.id === event.state.historyId,
@@ -942,6 +1019,8 @@ window.addEventListener("popstate", async (event) => {
         );
       show(next, false);
       journeyView.restoreNavigation(navigation, next === "map");
+      if (returningFromEditor && next === "map")
+        el("adjust-route").focus({ preventScroll: true });
     } else {
       show("history", false);
       toast("Diese gespeicherte Strecke ist nicht mehr vorhanden.");
@@ -949,9 +1028,18 @@ window.addEventListener("popstate", async (event) => {
     return;
   }
   if (event.state?.planId === activePlanId) {
-    show(next === "map" && !session.state.request ? "search" : next, false);
+    show(
+      next === "map" && !session.state.request && !session.state.pendingRequest
+        ? "search"
+        : next,
+      false,
+    );
     journeyView.restoreNavigation(navigation, next === "map");
     writeHistory();
+    if (returningFromEditor && next === "map")
+      el("adjust-route").focus({ preventScroll: true });
+    else if (next === "search")
+      el("search-adjust").focus({ preventScroll: true });
   } else {
     await restoreLink(
       readRouteURL(new URL(location.href)),
@@ -1223,11 +1311,11 @@ const destination = new PlaceSearch(
   el("place-status"),
   (place) => {
     destination.input.blur();
-    void start(place);
+    if (!editorExpanded && adjustMode !== "replan") void start(place);
   },
   book,
   toast,
-  false,
+  { showCurrentLocation: false },
 );
 const sharedDialog = el<HTMLDialogElement>("shared-dialog");
 const sharedNavigationDialog = el<HTMLDialogElement>(
@@ -1240,7 +1328,7 @@ const sharedSearch = new PlaceSearch(
   (place) => void acceptSharedPlace(place),
   book,
   toast,
-  false,
+  { showCurrentLocation: false },
 );
 function sharedUI() {
   el("shared-pending").hidden =
@@ -1295,6 +1383,7 @@ function openSharedDestination() {
   } else presentSharedDestination();
 }
 async function acceptSharedPlace(place: Place) {
+  resetEditor();
   sharedSearch.cancel();
   sharedDialog.close();
   destination.set(place);
@@ -1357,24 +1446,35 @@ const draftOrigin = new PlaceSearch(
   (place) => {
     cancelDraftLocation();
     useLocation = place.name === "Aktueller Standort";
-    keepDialogFieldVisible();
+    keepEditorFieldVisible();
   },
   book,
   toast,
-);
-const draftDestination = new PlaceSearch(
-  "adjust-destination",
-  api,
-  el("adjust-status"),
-  () => keepDialogFieldVisible(),
-  book,
-  toast,
+  { focusDriven: true },
 );
 const stopEditor = new StopEditor(api, book, toast);
+const plannerActions = new PlannerActions(
+  () => {
+    destination.cancel();
+    draftOrigin.cancel();
+    stopEditor.cancel();
+  },
+  () => stopEditor.add(),
+);
 let useLocation = true;
 let adjustMode: "context" | "replan" = "context";
+let editorExpanded = false;
+let editorInitialized = false;
+let editorReturnPosition: number | undefined;
 let draftLocationRequest: AbortController | undefined;
+const draftLocationMessage =
+  "Standort wird ermittelt … Bitte Zugriff erlauben, falls danach gefragt wird.";
 function cancelDraftLocation() {
+  if (
+    draftLocationRequest &&
+    el("adjust-status").textContent === draftLocationMessage
+  )
+    el("adjust-status").textContent = "";
   draftLocationRequest?.abort();
   draftLocationRequest = undefined;
   el("adjust-location-announcement").textContent = "";
@@ -1385,13 +1485,25 @@ function contextUI() {
     `${originOverride?.name ?? "Aktueller Standort"}${stops.length ? ` · ${stops.length} Zwischenziel${stops.length > 1 ? "e" : ""}` : ""} · ${timing === "now" ? "Jetzt" : `${timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(time)}, ${clock(time)}`}`;
 }
 async function start(place: Place) {
-  settingsReplanPending = false;
+  const context = editorInitialized
+    ? validateEditor()
+    : { origin: originOverride, stops, timing, time };
+  if (!context) return;
   if (!navigator.onLine) {
-    el("place-status").textContent =
+    el(editorExpanded ? "adjust-status" : "place-status").textContent =
       "Für neue Routen brauchst du eine Internetverbindung.";
     return;
   }
-  beginPlanning();
+  originOverride = context.origin;
+  stops = context.stops;
+  timing = context.timing;
+  time = timing === "now" ? Date.now() / 1000 : context.time;
+  settingsReplanPending = false;
+  adjustMode = "context";
+  editorReturnPosition = undefined;
+  setEditorExpanded(false);
+  contextUI();
+  beginPlanning(!!history.state?.routeEditor);
   const result = await session.calculate(
     {
       origin: originOverride ?? {
@@ -1409,80 +1521,171 @@ async function start(place: Place) {
     !originOverride,
   );
   if (result === "location-error" && view === "map" && !dialog.open) {
-    openAdjust(place);
+    openAdjust("replan", place);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
     draftOrigin.input.focus();
   }
 }
-function openAdjust(target?: Place) {
-  cancelNavigationCheck();
+function cancelEditorSearches() {
+  plannerActions.close();
+  cancelDraftLocation();
   destination.cancel();
-  const request = structuredClone(
-    session.state.pendingRequest ?? session.state.request,
-  );
-  adjustMode = activePlan || request ? "replan" : "context";
-  el("use-context").hidden = adjustMode !== "context";
+  draftOrigin.cancel();
+  stopEditor.cancel();
+}
+function initializeEditor(request?: RouteRequest, target?: Place) {
+  cancelEditorSearches();
   stopEditor.set(structuredClone(request ? (request.stops ?? []) : stops));
   draftOrigin.set(request?.origin ?? originOverride);
   useLocation =
     !draftOrigin.value || draftOrigin.value.name === "Aktueller Standort";
   if (useLocation && !draftOrigin.value)
     draftOrigin.input.value = "Aktueller Standort";
-  draftDestination.set(target ?? request?.destination ?? destination.value);
-  const requestResolved = session.state.pendingRequest
-    ? session.state.pendingRequestResolved === true
-    : !!session.state.selected;
+  if (target ?? request?.destination)
+    destination.set(target ?? request?.destination);
+  const resolved =
+    request &&
+    (session.state.pendingRequest
+      ? session.state.pendingRequestResolved === true
+      : !!session.state.selected);
   const requestedTiming = request?.timing ?? timing;
-  const draftTiming =
-    requestedTiming === "now" && requestResolved ? "depart" : requestedTiming;
-  el<HTMLInputElement>("timing").value = draftTiming;
+  el<HTMLInputElement>("timing").value =
+    requestedTiming === "now" && resolved ? "depart" : requestedTiming;
   el<HTMLInputElement>("when").value = localDate(
     new Date(
-      (draftTiming === "now" ? Date.now() / 1000 : (request?.time ?? time)) *
-        1000,
+      (requestedTiming === "now" && !resolved
+        ? Date.now() / 1000
+        : (request?.time ?? time)) * 1000,
     ),
   );
+  editorInitialized = true;
   updateTiming();
   el("adjust-status").textContent = "";
   el("adjust-location-announcement").textContent = "";
   el("adjust-location-help").hidden = true;
-  dialog.showModal();
-  el("adjust-heading").focus({ preventScroll: true });
-  cancelMapCenter();
-  syncLiveLocation();
-  if (!draftOrigin.value) draftOrigin.activate();
-  if (!draftDestination.value) draftDestination.activate();
-  el<HTMLButtonElement>("update-now").disabled = true;
 }
-function closeAdjust() {
-  cancelDraftLocation();
-  draftOrigin.cancel();
-  draftDestination.cancel();
-  stopEditor.cancel();
-  dialog.close();
-  el<HTMLButtonElement>("update-now").disabled =
-    session.state.busy || !!navigationView?.visible;
+function editorSummary() {
+  if (!editorInitialized) return;
+  const count = stopEditor.count;
+  el("search-context").textContent = [
+    draftOrigin.value?.name ??
+      (useLocation ? "Aktueller Standort" : "Start wählen"),
+    ...(count ? [`${count} Zwischenziel${count > 1 ? "e" : ""}`] : []),
+    timeSummary(
+      el<HTMLInputElement>("timing").value as Timing,
+      el<HTMLInputElement>("when").value,
+    ),
+  ].join(" · ");
 }
-dialog.addEventListener("close", () => {
-  syncLiveLocation();
-  cancelDraftLocation();
-  draftOrigin.cancel();
-  draftDestination.cancel();
-  stopEditor.cancel();
-  if (view === "search") {
+function resetEditor() {
+  adjustMode = "context";
+  editorInitialized = false;
+  editorReturnPosition = undefined;
+  setEditorExpanded(false);
+}
+function setEditorExpanded(expanded: boolean) {
+  cancelEditorSearches();
+  editorExpanded = expanded;
+  const targetField = el("destination-field");
+  const targetSlot = el(
+    expanded ? "route-editor-destination" : "destination-home",
+  );
+  if (targetField.parentElement !== targetSlot) targetSlot.append(targetField);
+  const statusSlot = expanded ? targetSlot : el("destination-status-home");
+  const listSlot = expanded ? targetSlot : el("home-suggestions");
+  if (el("place-status").parentElement !== statusSlot)
+    statusSlot.append(el("place-status"));
+  if (el("destination-options").parentElement !== listSlot)
+    listSlot.append(el("destination-options"));
+  el("destination-home").hidden = expanded;
+  el("swap").hidden = !expanded;
+  targetField.querySelector<HTMLElement>(".destination-marker")!.hidden =
+    !expanded;
+  destination.input.placeholder = expanded
+    ? "Ziel wählen"
+    : "Adresse, Ort oder Haltestelle";
+  el("route-editor").hidden = !expanded;
+  el("route-editor").dataset.mode = adjustMode;
+  el("search-view").dataset.editorMode = adjustMode;
+  el("search-adjust").setAttribute("aria-expanded", String(expanded));
+  el("search-adjust-label").textContent = expanded
+    ? "Weniger Einstellungen"
+    : "Mehr Einstellungen";
+  el("planning-actions").hidden = !expanded && adjustMode !== "replan";
+  el("cancel-adjust").hidden = adjustMode !== "replan";
+  el("calculate").textContent =
+    adjustMode === "replan" ? "Route neu berechnen" : "Route berechnen";
+  el("search-heading").textContent =
+    adjustMode === "replan" ? "Route anpassen" : "Wohin geht’s?";
+  el("home-places").hidden = expanded || adjustMode === "replan";
+  destination.setFocusDriven(expanded || adjustMode === "replan");
+  editorSummary();
+  if (!expanded && adjustMode !== "replan" && view === "search") {
     destination.activate();
     updateSearchEmpty();
+  }
+  if (expanded) reveal(el("route-editor"), { y: 8 });
+}
+function openAdjust(mode: "context" | "replan", target?: Place) {
+  cancelNavigationCheck();
+  if (mode === "replan") {
+    editorReturnPosition = historyPosition;
+    adjustMode = "replan";
+    initializeEditor(
+      structuredClone(session.state.pendingRequest ?? session.state.request),
+      target,
+    );
+  } else if (!editorInitialized) initializeEditor();
+  setEditorExpanded(true);
+  show("search", false);
+  writeHistory(mode === "replan" || !history.state?.routeEditor);
+  el(mode === "replan" ? "search-heading" : "search-adjust").focus({
+    preventScroll: true,
+  });
+  cancelMapCenter();
+}
+function closeAdjust() {
+  cancelEditorSearches();
+  if (adjustMode === "replan") {
+    if (
+      editorReturnPosition !== undefined &&
+      editorReturnPosition < historyPosition
+    ) {
+      history.go(editorReturnPosition - historyPosition);
+      return;
+    }
+    adjustMode = "context";
+    editorInitialized = false;
+    editorReturnPosition = undefined;
+    setEditorExpanded(false);
+    show("map", false);
+    writeHistory();
+    el("adjust-route").focus({ preventScroll: true });
+  } else {
+    setEditorExpanded(false);
+    writeHistory();
     el("search-adjust").focus({ preventScroll: true });
   }
-  el<HTMLButtonElement>("update-now").disabled =
-    session.state.busy || !!navigationView?.visible;
-});
-el("search-adjust").onclick = () => openAdjust();
-el("adjust-route").onclick = () => openAdjust();
+}
+el("search-adjust").onclick = () => {
+  if (editorExpanded) {
+    setEditorExpanded(false);
+    writeHistory();
+    el("search-adjust").focus({ preventScroll: true });
+  } else openAdjust("context");
+};
+el("adjust-route").onclick = () => openAdjust("replan");
 el("cancel-adjust").onclick = closeAdjust;
-dialog.addEventListener("input", () => {
+el("route-form").addEventListener("input", () => {
   el("adjust-location-help").hidden = true;
+});
+el("route-form").addEventListener("focusout", editorSummary);
+el("route-form").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeAdjust();
+  }
 });
 el("origin-location").onclick = async () => {
   el("adjust-location-help").hidden = true;
@@ -1493,8 +1696,7 @@ el("origin-location").onclick = async () => {
   draftOrigin.set();
   draftOrigin.input.value = "Aktueller Standort";
   el<HTMLButtonElement>("origin-location").disabled = true;
-  el("adjust-status").textContent =
-    "Standort wird ermittelt … Bitte Zugriff erlauben, falls danach gefragt wird.";
+  el("adjust-status").textContent = draftLocationMessage;
   try {
     const place = await locate(controller.signal);
     if (!controller.signal.aborted) {
@@ -1519,14 +1721,14 @@ draftOrigin.input.addEventListener("input", () => {
   useLocation = false;
 });
 el("swap").onclick = () => {
-  if (!draftOrigin.value || !draftDestination.value) {
+  if (!draftOrigin.value || !destination.value) {
     el("adjust-status").textContent = "Zum Tauschen beide Orte auswählen.";
     return;
   }
   stopEditor.reverse();
   const origin = draftOrigin.value;
-  draftOrigin.set(draftDestination.value);
-  draftDestination.set(origin);
+  draftOrigin.set(destination.value);
+  destination.set(origin);
   useLocation = draftOrigin.value?.name === "Aktueller Standort";
 };
 function updateTiming() {
@@ -1534,17 +1736,18 @@ function updateTiming() {
     el<HTMLInputElement>("timing").value as Timing,
     el<HTMLInputElement>("when").value,
   );
+  editorSummary();
 }
-new TimePicker(updateTiming);
+const timePicker = new TimePicker(updateTiming);
 el("timezone").textContent =
   "Alle Zeiten: " + Intl.DateTimeFormat().resolvedOptions().timeZone;
-function readContext(): boolean {
+function readContext() {
   cancelDraftLocation();
   if (!useLocation && !draftOrigin.value) {
     el("adjust-status").textContent =
       "Bitte Start aus den Vorschlägen auswählen.";
     draftOrigin.input.focus();
-    return false;
+    return;
   }
   const selectedTiming = el<HTMLInputElement>("timing").value as Timing,
     date = parseLocalMinute(el<HTMLInputElement>("when").value),
@@ -1556,56 +1759,37 @@ function readContext(): boolean {
           : NaN;
   if (!Number.isFinite(seconds)) {
     el("adjust-status").textContent = "Bitte einen gültigen Zeitpunkt wählen.";
-    return false;
-  }
-  const draftStops = stopEditor.read();
-  if (!draftStops) return false;
-  stops = draftStops;
-  originOverride = useLocation ? undefined : draftOrigin.value;
-  timing = selectedTiming;
-  time = seconds;
-  contextUI();
-  return true;
-}
-el("use-context").onclick = () => {
-  if (adjustMode !== "context") return;
-  if (readContext()) {
-    closeAdjust();
-  }
-};
-el("route-form").onsubmit = async (event) => {
-  event.preventDefault();
-  if (!draftDestination.value) {
-    el("adjust-status").textContent =
-      "Bitte Ziel aus den Vorschlägen auswählen.";
+    el("time-trigger").focus();
     return;
   }
-  if (!readContext()) return;
-  const target = draftDestination.value;
-  destination.set(target);
-  closeAdjust();
-  beginPlanning();
-  const result = await session.calculate(
-    {
-      origin: originOverride ?? {
-        name: "Aktueller Standort",
-        detail: "",
-        latitude: 0,
-        longitude: 0,
-      },
-      destination: target,
-      stops: structuredClone(stops),
-      timing,
-      time,
-    },
-    settings,
-    !originOverride,
-  );
-  if (result === "location-error" && view === "map" && !dialog.open) {
-    openAdjust(target);
-    el("adjust-status").textContent = session.state.message;
-    el("adjust-location-help").hidden = false;
+  const draftStops = stopEditor.read();
+  if (!draftStops) return;
+  return {
+    origin: useLocation ? undefined : draftOrigin.value,
+    stops: draftStops,
+    timing: selectedTiming,
+    time: seconds,
+  };
+}
+function validateEditor() {
+  const context = readContext();
+  if (context) return context;
+  // Hidden fields cannot receive focus. Reveal them before reporting the error.
+  setEditorExpanded(true);
+  readContext();
+}
+el("route-form").onsubmit = async (event) => {
+  event.preventDefault();
+  cancelEditorSearches();
+  if (!destination.value) {
+    el("place-status").textContent =
+      "Bitte Ziel aus den Vorschlägen auswählen.";
+    destination.input.focus();
+    return;
   }
+  if (!editorInitialized) initializeEditor();
+  const target = destination.value;
+  await start(target);
 };
 async function refreshRoute(interactive = true) {
   if (view === "map") {
@@ -1631,7 +1815,7 @@ async function refreshRoute(interactive = true) {
     view === "map" &&
     !dialog.open
   ) {
-    openAdjust(request.destination);
+    openAdjust("replan", request.destination);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
   }
@@ -1643,6 +1827,10 @@ el("close-route").onclick = () => {
   releasePlan();
   mapLocationRequest?.abort();
   destination.set();
+  adjustMode = "context";
+  editorInitialized = false;
+  editorReturnPosition = undefined;
+  setEditorExpanded(false);
   originOverride = undefined;
   stops = [];
   timing = "now";
@@ -1927,11 +2115,7 @@ el("confirm-delete-data").onclick = async () => {
   historyNames.clear();
   settingsReplanPending = false;
   session.clear();
-  destination.cancel();
-  draftOrigin.cancel();
-  draftDestination.cancel();
-  stopEditor.cancel();
-  cancelDraftLocation();
+  resetEditor();
   mapLocationRequest?.abort();
   activeSnapshot = undefined;
   persistKey = "";
@@ -1962,7 +2146,6 @@ el("confirm-delete-data").onclick = async () => {
     time = Date.now() / 1000;
     destination.set();
     draftOrigin.set();
-    draftDestination.set();
     savedUI();
     settingsUI();
     contextUI();
@@ -2081,6 +2264,7 @@ el("confirm-delete-history").onclick = async () => {
   }
 };
 function restorePlanContext(plan: RouteLink, freezeLocation = true) {
+  resetEditor();
   // Restored endpoints stay fixed even if their original label came from GPS.
   for (const place of freezeLocation
     ? [plan.request.origin, plan.request.destination]
@@ -2167,7 +2351,7 @@ el("recover-planning").onclick = async () => {
   const recovery = session.state.recovery;
   if (!recovery || session.state.busy) return;
   if (recovery.action === "adjust") {
-    openAdjust(recovery.request.destination);
+    openAdjust("replan", recovery.request.destination);
     el("adjust-status").textContent = session.state.message;
     return;
   }
@@ -2179,7 +2363,7 @@ el("recover-planning").onclick = async () => {
     request.origin.name === "Aktueller Standort",
   );
   if (result === "location-error" && view === "map" && !dialog.open) {
-    openAdjust(request.destination);
+    openAdjust("replan", request.destination);
     el("adjust-status").textContent = session.state.message;
     el("adjust-location-help").hidden = false;
   }
@@ -2307,16 +2491,39 @@ contextUI();
 connectionChanged();
 setupPWA();
 
-let dialogScrollFrame: number | undefined;
-function keepDialogFieldVisible() {
+let editorScrollFrame: number | undefined;
+function updateRouteConnection() {
+  const card = document.querySelector<HTMLElement>(".route-editor-places")!;
+  if (!card.getClientRects().length) return;
+  const origin = el("origin-location").getBoundingClientRect();
+  const target = document
+    .querySelector<HTMLElement>(".destination-marker")!
+    .getBoundingClientRect();
+  const start = origin.top + origin.height / 2;
+  const end = target.top + target.height / 2;
+  const connection = document.querySelector<HTMLElement>(".route-connection")!;
+  connection.style.top = `${start - card.getBoundingClientRect().top - card.clientTop}px`;
+  connection.style.bottom = "auto";
+  connection.style.height = `${Math.max(0, end - start)}px`;
+}
+const routeConnectionObserver = new ResizeObserver(updateRouteConnection);
+for (const selector of [
+  ".route-editor-places",
+  ".route-editor-origin",
+  "#route-editor-destination",
+  "#via-fields",
+])
+  routeConnectionObserver.observe(document.querySelector(selector)!);
+function keepEditorFieldVisible() {
   if (document.body.classList.contains("search-focus-mode")) return;
-  if (dialogScrollFrame !== undefined) cancelAnimationFrame(dialogScrollFrame);
-  dialogScrollFrame = requestAnimationFrame(() => {
-    dialogScrollFrame = undefined;
+  if (editorScrollFrame !== undefined) cancelAnimationFrame(editorScrollFrame);
+  editorScrollFrame = requestAnimationFrame(() => {
+    editorScrollFrame = undefined;
     const field = document.activeElement;
-    const body = dialog.querySelector<HTMLElement>(".dialog-body")!;
+    const body = document.querySelector<HTMLElement>(".search-content")!;
     if (
-      !dialog.open ||
+      view !== "search" ||
+      !editorExpanded ||
       !(
         field instanceof HTMLInputElement || field instanceof HTMLSelectElement
       ) ||
@@ -2345,9 +2552,13 @@ function keepDialogFieldVisible() {
     }
   });
 }
-dialog.addEventListener("focusin", keepDialogFieldVisible);
+el("route-form").addEventListener("focusin", keepEditorFieldVisible);
 
 function visualViewportChanged() {
+  el("search-view").classList.toggle(
+    "compact",
+    (window.visualViewport?.height ?? innerHeight) < 700,
+  );
   document.documentElement.style.setProperty(
     "--visual-width",
     `${window.visualViewport?.width ?? innerWidth}px`,
@@ -2368,7 +2579,7 @@ function visualViewportChanged() {
     "--visual-top",
     `${window.visualViewport?.offsetTop ?? 0}px`,
   );
-  keepDialogFieldVisible();
+  keepEditorFieldVisible();
 }
 window.visualViewport?.addEventListener("resize", visualViewportChanged);
 window.visualViewport?.addEventListener("scroll", visualViewportChanged);

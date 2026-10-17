@@ -545,7 +545,7 @@ test("planning deep link loads offline under the static subpath without replacin
   await expect(page.locator("#status")).toContainText("brauchst du Internet");
   expect(page.url()).toBe(link.href);
   await page.locator("#adjust-route").click();
-  await expect(page.locator("#adjust-destination")).toHaveValue("Anderes Ziel");
+  await expect(page.locator("#destination")).toHaveValue("Anderes Ziel");
   await page.locator("#cancel-adjust").click();
   await context.setOffline(false);
   const request = page.waitForRequest((r) =>

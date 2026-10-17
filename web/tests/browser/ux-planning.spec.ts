@@ -68,7 +68,7 @@ async function snapshot(page: Page) {
   });
 }
 
-test("context-only action is limited to the initial dialog, including failed plans", async ({
+test("inline editor supports initial and failed plans with explicit calculation", async ({
   page,
 }) => {
   await setup(page);
@@ -77,15 +77,15 @@ test("context-only action is limited to the initial dialog, including failed pla
     if (request.url().includes("/v6/plan")) requests++;
   });
   await page.locator("#search-adjust").click();
-  await expect(page.locator("#use-context")).toBeVisible();
+  await expect(page.locator("#search-adjust")).toBeVisible();
   await choose(page, "origin", "Start");
-  await page.locator("#use-context").click();
+  await page.locator("#search-adjust").click();
   await expect(page.locator("#search-context")).toContainText("Start");
   await expect(page.locator("#toast")).toBeHidden();
   expect(requests).toBe(0);
   await plan(page);
   await page.locator("#adjust-route").click();
-  await expect(page.locator("#use-context")).toBeHidden();
+  await expect(page.locator("#calculate")).toHaveText("Route neu berechnen");
   await page.locator("#cancel-adjust").click();
   await page.locator("#close-route").click();
   await page.route("**/api/v6/plan?*", (route) =>
@@ -94,7 +94,7 @@ test("context-only action is limited to the initial dialog, including failed pla
   await choose(page, "destination", "Ziel");
   await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
   await page.locator("#adjust-route").click();
-  await expect(page.locator("#use-context")).toBeHidden();
+  await expect(page.locator("#calculate")).toHaveText("Route neu berechnen");
 });
 
 test("settings exit respects History and attempts once while preserving the old result and snapshot", async ({
@@ -229,9 +229,12 @@ test("entry focus and archive timestamps remain stable without background focus 
   await expect(page.locator("#destination")).toBeFocused();
   await expect(page.locator("#destination")).toHaveCSS(
     "outline-style",
+    "none",
+  );
+  await expect(page.locator(".search-box")).toHaveCSS(
+    "outline-style",
     "solid",
   );
-  await expect(page.locator(".search-box")).toHaveCSS("outline-style", "none");
   await page.locator("#tab-history").click();
   const timestamp = page.locator(".history-timestamp").first();
   const savedTime = await timestamp.getAttribute("datetime");

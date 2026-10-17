@@ -10,7 +10,7 @@ for (const width of [390, 1100])
     await page.locator("#search-adjust").click();
     await page.locator("#time-trigger").click();
     await expect(page.locator("#time-editor")).toBeVisible();
-    await expect(page.locator("#route-form")).toBeHidden();
+    await expect(page.locator("#time-dialog")).toHaveAttribute("open", "");
     await expect(page.locator("#time-clock")).toHaveValue("14:00");
     await expect(page.locator('[data-date="2026-09-21"]')).toBeEnabled();
     await page.locator('[data-date="2026-09-22"]').press("ArrowLeft");
@@ -34,7 +34,7 @@ for (const width of [390, 1100])
       "true",
     );
     await page.locator("#time-cancel").press("Escape");
-    await expect(page.locator("#adjust-dialog")).toBeVisible();
+    await expect(page.locator("#route-editor")).toBeVisible();
     await expect(page.locator("#time-summary")).toHaveText("Morgen, an 18:30");
     await page.locator("#time-trigger").click();
     await page.locator("#time-now").click();
@@ -124,8 +124,8 @@ test("current minute and earlier months can be applied without moving the fixed 
   await expect(page.locator("#time-apply")).toBeEnabled();
   await expect(page.locator("#time-clock")).toHaveValue("13:38");
   await page.locator("#time-apply").click();
-  await page.locator("#use-context").click();
-  await expect(page.locator("#adjust-dialog")).toBeHidden();
+  await page.locator("#search-adjust").click();
+  await expect(page.locator("#route-editor")).toBeHidden();
   await expect(page.locator("#search-context")).toContainText("13:38");
   await page.locator("#search-adjust").click();
   await page.locator("#time-trigger").click();
@@ -139,8 +139,8 @@ test("current minute and earlier months can be applied without moving the fixed 
   await page.locator("#time-apply").click();
   await expect(page.locator("#timing")).toHaveValue("arrive");
   await expect(page.locator("#when")).toHaveValue("2026-07-22T13:38");
-  await page.locator("#use-context").click();
-  await expect(page.locator("#adjust-dialog")).toBeHidden();
+  await page.locator("#search-adjust").click();
+  await expect(page.locator("#route-editor")).toBeHidden();
 });
 
 test("now fills once across midnight and only another click refreshes it", async ({
