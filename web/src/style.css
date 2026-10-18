@@ -2845,26 +2845,31 @@ dialog.compact .dialog-actions {
 }
 .route-choice-effort {
   font-size: 0.875rem;
+  color: var(--panel-muted);
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+  padding-top: 8px;
 }
 @container (min-width: 20rem) {
   .route-choice {
     padding-bottom: 12px;
   }
   .route-choice .route-choice-effort {
-    min-height: var(--route-detail-height);
+    min-height: calc(var(--route-detail-height) + 9px);
     padding-right: calc(var(--route-detail-width) + 12px);
     align-content: center;
   }
-}
-.route-outline {
-  font-size: 0.875rem;
 }
 .route-outline,
 .route-choice-effort {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 8px 6px;
+}
+.route-outline {
+  font-size: 0.875rem;
+  column-gap: 12px;
 }
 .route-stage,
 .route-effort-metric {
@@ -2874,14 +2879,12 @@ dialog.compact .dialog-actions {
   min-width: 0;
   max-width: 100%;
 }
-.route-stage .icon,
-.route-effort-metric .icon {
+.route-stage .icon {
   width: 1.25rem;
   height: 1.25rem;
   flex-shrink: 0;
 }
 .route-stage .icon,
-.route-effort-metric .icon,
 .route-choice-arrival .icon {
   color: var(--stage-color);
 }

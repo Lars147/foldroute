@@ -12,7 +12,7 @@
   --color-action-hover: #f1c01e;
   --color-action-pressed: #e2b316;
   --color-canvas: #f5f6f3;
-  --color-surface: #fff;
+  --color-surface: var(--color-cloud);
   --color-raised: #fff;
   --color-subtle: #e9ece6;
   --color-text: #171a1c;

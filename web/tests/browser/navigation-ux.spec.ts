@@ -2256,7 +2256,7 @@ test("System appearance changes navigation panels without resetting progress", a
   const phase = await page.locator(".navigation-phase.current").innerText();
   await expect(page.locator(".navigation-panel")).toHaveCSS(
     "background-color",
-    "rgb(255, 255, 255)",
+    "rgb(245, 246, 243)",
   );
   await page.screenshot({ path: info.outputPath("navigation-light.png") });
   await page.emulateMedia({ colorScheme: "dark" });
@@ -2276,7 +2276,7 @@ test("System appearance changes navigation panels without resetting progress", a
   await expect(page.locator("#navigation-instruction")).toHaveText(instruction);
   await expect(page.locator(".navigation-panel")).toHaveCSS(
     "background-color",
-    "rgb(255, 255, 255)",
+    "rgb(245, 246, 243)",
   );
 });
 

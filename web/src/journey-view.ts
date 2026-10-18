@@ -507,7 +507,7 @@ export class JourneyView {
       row.classList.toggle("selected", journey.id === j?.id);
       const button = node("button", "", "route-choice");
       const effort = journeyEffort(journey);
-      const effortText = `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
+      const effortText = this.effortDescription(effort);
       const outline = journeyOutline(journey);
       button.append(
         ...this.summary(
@@ -640,7 +640,7 @@ export class JourneyView {
     const effort = journeyEffort(journey);
     const accessible = node(
       "span",
-      `${comparison ? `Fahrradvergleich: ${cyclingComparisonLabel(journey, cyclingLimit)}. ` : ""}${journeyOutline(journey)}. ${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`,
+      `${comparison ? `Fahrradvergleich: ${cyclingComparisonLabel(journey, cyclingLimit)}. ` : ""}${journeyOutline(journey)}. ${this.effortDescription(effort)}`,
       "sr-only",
     );
     return [
@@ -686,32 +686,33 @@ export class JourneyView {
     return outline;
   }
 
+  private effortDescription(effort: ReturnType<typeof journeyEffort>) {
+    const transfers = `${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
+    return effort.cyclingSeconds > 0
+      ? `${duration(effort.cyclingSeconds)} Rad · ${transfers}`
+      : transfers;
+  }
+
   private choiceEffort(effort: ReturnType<typeof journeyEffort>) {
     const summary = node("span", "", "route-choice-effort");
     summary.setAttribute("aria-hidden", "true");
+    summary.append(node("span", "Gesamt:", "route-effort-label"));
     const addMetric = (
-      name: "bike" | "walk" | "transfer",
+      name: "bike" | "transfer",
       text: string,
       label: string,
     ) => {
-      const metric = node("span", "", "route-effort-metric");
+      const metric = node("span", text, "route-effort-metric");
       metric.dataset.kind = name;
       metric.title = label;
-      metric.style.setProperty(
-        "--stage-color",
-        name === "transfer" ? "var(--panel-muted)" : routeSymbolColor(name),
-      );
-      metric.append(icon(name), node("span", text));
       summary.append(metric);
     };
     if (effort.cyclingSeconds > 0)
       addMetric(
         "bike",
-        duration(effort.cyclingSeconds),
-        "Zeit auf dem Fahrrad",
+        `${duration(effort.cyclingSeconds)} Rad`,
+        "Gesamte Zeit auf dem Fahrrad",
       );
-    if (effort.walkingSeconds > 0)
-      addMetric("walk", duration(effort.walkingSeconds), "Zeit zu Fuß");
     addMetric("transfer", `${effort.transfers} Umst.`, "Anzahl der Umstiege");
     return summary;
   }

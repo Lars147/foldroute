@@ -181,7 +181,11 @@ test("public example follows System without reading personal routing data", asyn
   expect(lineColors).toContain("#7667e8");
   await expect(page.locator(".journey-panel")).toHaveCSS(
     "background-color",
-    "rgb(255, 255, 255)",
+    "rgb(245, 246, 243)",
+  );
+  await expect(page.locator(".app-header")).toHaveCSS(
+    "background-color",
+    "rgb(245, 246, 243)",
   );
   await page
     .locator(".journey-panel")
@@ -337,7 +341,7 @@ test("changing appearance preserves planned route and does not request replannin
   ).toHaveAttribute("data-journey", selected!);
   await expect(page.locator(".journey-panel")).toHaveCSS(
     "background-color",
-    "rgb(255, 255, 255)",
+    "rgb(245, 246, 243)",
   );
   await page.locator("#tab-settings").click();
   await page.getByRole("radio", { name: "Dunkel", exact: true }).check();

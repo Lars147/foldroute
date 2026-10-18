@@ -229,18 +229,36 @@ for (const width of [320, 390, 768, 1280]) {
     await expect(selected.locator(".route-line")).toHaveText("ÖPNV");
     await expect(
       selected.locator('.route-effort-metric[data-kind="bike"]'),
-    ).toHaveText("14 min");
+    ).toHaveText("14 min Rad");
     await expect(
       selected.locator('.route-effort-metric[data-kind="walk"]'),
-    ).toHaveText("2 min");
+    ).toHaveCount(0);
+    await expect(selected.locator(".route-effort-label")).toHaveText("Gesamt:");
+    await expect(selected.locator(".route-choice-effort .icon")).toHaveCount(0);
+    await expect(
+      selected.locator('.route-stage[data-kind="walk"] .icon'),
+    ).toHaveCount(1);
+    await expect(selected).toHaveAccessibleName(/14 min Rad · 1 Umstieg/);
+    await expect(selected).not.toHaveAccessibleName(/\d+ min Fuß/);
     await expect(
       selected.locator('.route-effort-metric[data-kind="transfer"]'),
     ).toHaveText("1 Umst.");
+    const details = (await page
+      .locator(".route-choice-row.selected .route-detail-link")
+      .boundingBox())!;
+    for (const metric of await selected.locator(".route-effort-metric").all()) {
+      const box = (await metric.boundingBox())!;
+      expect(
+        box.x + box.width <= details.x ||
+          box.y + box.height <= details.y ||
+          box.y >= details.y + details.height,
+      ).toBe(true);
+    }
     const comparison = page.locator('[data-journey="comparison"]');
     await expect(
       comparison.locator('.route-effort-metric[data-kind="walk"]'),
     ).toHaveCount(0);
-    await expect(comparison).toHaveAccessibleName(/0 min Fuß · 0 Umstiege/);
+    await expect(comparison).toHaveAccessibleName(/1 h 5 min Rad · 0 Umstiege/);
     await expect(
       page.locator("#panel-handle, .route-details-button"),
     ).toHaveCount(0);
@@ -352,16 +370,19 @@ for (const [width, height] of [
     ).toHaveCount(1);
     await expect(
       summary.locator('.route-effort-metric[data-kind="bike"]'),
-    ).toHaveText("14 min");
+    ).toHaveText("14 min Rad");
     await expect(
       summary.locator('.route-effort-metric[data-kind="walk"]'),
-    ).toHaveText("2 min");
+    ).toHaveCount(0);
+    await expect(summary.locator(".route-effort-label")).toHaveText("Gesamt:");
+    await expect(summary.locator(".route-choice-effort .icon")).toHaveCount(0);
     await expect(
       summary.locator('.route-effort-metric[data-kind="transfer"]'),
     ).toHaveText("1 Umst.");
     await expect(summary.locator(".sr-only")).toContainText(
-      "14 min Rad · 2 min Fuß · 1 Umstieg",
+      "14 min Rad · 1 Umstieg",
     );
+    await expect(summary.locator(".sr-only")).not.toContainText(/\d+ min Fuß/);
     await expect(summary.getByRole("button")).toHaveCount(0);
     await expect(page.locator("#result-freshness")).toBeVisible();
     await expect(page.locator("#map-preview-status")).toBeHidden();
@@ -381,6 +402,28 @@ for (const [width, height] of [
       summary.locator('.route-effort-metric[data-kind="walk"]'),
     ).toHaveCount(0);
     await expect(summary.locator(".sr-only")).toContainText("Fahrradvergleich");
+    await expect(
+      summary.locator('.route-effort-metric[data-kind="bike"]'),
+    ).toHaveText("1 h 5 min Rad");
+    await expect(
+      summary.locator('.route-effort-metric[data-kind="transfer"]'),
+    ).toHaveText("0 Umst.");
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      state.selected.isDirect = false;
+      for (const leg of state.selected.legs) leg.kind = "transit";
+      view.render(state);
+    });
+    await expect(
+      summary.locator('.route-effort-metric[data-kind="bike"]'),
+    ).toHaveCount(0);
+    await expect(summary.locator(".route-effort-metric")).toHaveText("0 Umst.");
+    await expect(summary.locator(".sr-only")).not.toContainText("0 min Rad");
+    const transitCard = page.locator('[data-journey="comparison"]');
+    await expect(transitCard.locator(".route-effort-metric")).toHaveText(
+      "0 Umst.",
+    );
+    await expect(transitCard).not.toHaveAccessibleName(/\d+ min Rad/);
   });
 }
 
@@ -489,7 +532,7 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
     card.locator('.route-effort-metric[data-kind="transfer"]'),
   ).toHaveText("2 Umst.");
   await expect(card).toHaveAccessibleName(
-    /14 min Rad · 2 min Fuß · 2 Umstiege\. Rad → 42 → RE 1 → ÖPNV → Stopp:/,
+    /14 min Rad · 2 Umstiege\. Rad → 42 → RE 1 → ÖPNV → Stopp:/,
   );
   expect(
     await card.evaluate(
