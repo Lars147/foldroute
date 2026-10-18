@@ -1037,6 +1037,8 @@ fieldset:after {
   color: var(--ink);
   font-size: 0.8125rem;
   padding: 10px 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .form-actions {
   display: flex;
@@ -4086,7 +4088,7 @@ body[data-example] #route-start-summary {
 }
 .panel-actions > #navigation-start[aria-busy="true"] {
   padding-inline: 8px;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 
 /* Folding is the brand's yellow hinge; labels retain readable neutral text. */

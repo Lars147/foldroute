@@ -129,10 +129,15 @@ export class JourneyView {
                 ),
               )
             : 180;
+        // Wrapping changes between scroll modes. Leave spare room before
+        // returning to the fixed header and footer to avoid resize oscillation.
+        const spare = panel.classList.contains("result-scroll-all")
+          ? 2 * parseFloat(getComputedStyle(panel).fontSize)
+          : 0;
         panel.classList.toggle(
           "result-scroll-all",
           (this.desktop.matches || this.screen !== "map") &&
-            el("map-view").clientHeight < fixed + row,
+            el("map-view").clientHeight < fixed + row + spare,
         );
       });
     });
