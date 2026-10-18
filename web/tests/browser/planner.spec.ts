@@ -4498,6 +4498,18 @@ test.describe("history touch gestures", () => {
     );
     await page.reload();
     await page.locator("#tab-history").tap();
+    await page.evaluate(() => {
+      (window as any).nativeTouchEvents = [];
+      for (const type of ["pointerdown", "pointerup", "pointercancel", "click"])
+        window.addEventListener(type, (event) => {
+          (window as any).nativeTouchEvents.push({
+            type,
+            target: (event.target as HTMLElement).className,
+            prevented: event.defaultPrevented,
+            time: performance.now(),
+          });
+        });
+    });
     const row = page.locator(".history-row").first();
     await expect(row).toBeVisible();
     let box!: { x: number; y: number; width: number; height: number };
@@ -4515,11 +4527,19 @@ test.describe("history touch gestures", () => {
       type: "touchStart",
       touchPoints: [{ x, y }],
     });
-    for (const distance of [15, 30, 50, 75, 95])
+    for (const distance of [15, 30, 50, 75, 95]) {
       await client.send("Input.dispatchTouchEvent", {
         type: "touchMove",
         touchPoints: [{ x: x - distance, y }],
       });
+      // Give the browser a frame per movement, as a physical touch would.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+    }
     await client.send("Input.dispatchTouchEvent", {
       type: "touchEnd",
       touchPoints: [],
@@ -4528,6 +4548,12 @@ test.describe("history touch gestures", () => {
     await expect(page.locator("#history-view")).toBeVisible();
     await expectMotionSettled(row.locator(".history-open"));
     await page.locator(".history-remove").tap();
+    await test.info().attach("native-touch-events", {
+      body: JSON.stringify(
+        await page.evaluate(() => (window as any).nativeTouchEvents),
+      ),
+      contentType: "application/json",
+    });
     await expect(page.locator(".history-row")).toHaveCount(0);
     await client.detach();
   });
