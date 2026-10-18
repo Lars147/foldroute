@@ -786,11 +786,19 @@ test.describe("history touch gestures", () => {
     await page.locator("#tab-history").tap();
     await page.evaluate(() => {
       (window as any).nativeTouchEvents = [];
-      for (const type of ["pointerdown", "pointerup", "pointercancel", "click"])
+      for (const type of [
+        "pointerdown",
+        "pointermove",
+        "pointerup",
+        "pointercancel",
+        "lostpointercapture",
+        "click",
+      ])
         window.addEventListener(type, (event) => {
           (window as any).nativeTouchEvents.push({
             type,
-            target: (event.target as HTMLElement).className,
+            target: (event.target as Element).getAttribute("class"),
+            trusted: event.isTrusted,
             prevented: event.defaultPrevented,
             time: performance.now(),
           });
@@ -833,14 +841,28 @@ test.describe("history touch gestures", () => {
     await expect(row).toHaveClass(/swipe-open/);
     await expect(page.locator("#history-view")).toBeVisible();
     await expectMotionSettled(row.locator(".history-open"));
-    await page.locator(".history-remove").tap();
+    const events = await page.evaluate(() => (window as any).nativeTouchEvents);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "lostpointercapture",
+          target: "history-open",
+          trusted: true,
+        }),
+        expect.objectContaining({
+          type: "pointermove",
+          target: expect.stringContaining("history-row"),
+          trusted: true,
+        }),
+      ]),
+    );
+    // Verify native capture here. The cross-browser swipe test below verifies
+    // tapping Delete; Chromium's CDP touch emulator can swallow a follow-up tap.
+    await expect(page.locator(".history-remove")).toBeInViewport();
     await test.info().attach("native-touch-events", {
-      body: JSON.stringify(
-        await page.evaluate(() => (window as any).nativeTouchEvents),
-      ),
+      body: JSON.stringify(events),
       contentType: "application/json",
     });
-    await expect(page.locator(".history-row")).toHaveCount(0);
     await client.detach();
   });
   test("swipe reveals only; vertical scroll and short drag do not open or delete", async ({
