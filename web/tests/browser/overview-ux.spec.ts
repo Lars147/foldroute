@@ -135,8 +135,17 @@ async function expectClearOverview(page: Page) {
         const controls = document
           .getElementById("map-controls")!
           .getBoundingClientRect();
-        const left = innerWidth >= 900 ? panel.right : mapBounds.left;
-        const bottom = innerWidth >= 900 ? mapBounds.bottom : panel.top;
+        const safe = getComputedStyle(document.getElementById("map-view")!);
+        const sidebar =
+          innerWidth >= 900 ||
+          safe.getPropertyValue("--map-panel-layout").trim() === "side";
+        const left = sidebar
+          ? panel.right
+          : mapBounds.left + parseFloat(safe.paddingLeft);
+        const top = mapBounds.top + parseFloat(safe.paddingTop);
+        const bottom = sidebar
+          ? mapBounds.bottom - parseFloat(safe.paddingBottom)
+          : panel.top;
         const { view, journeys } = (window as any).overviewTest;
         const points = journeys.flatMap((journey: any) => [
           journey.origin,
@@ -154,7 +163,7 @@ async function expectClearOverview(page: Page) {
             return (
               x - 5 >= left - 1 &&
               x + 5 <= controls.left - 8 + 1 &&
-              y - 5 >= mapBounds.top - 1 &&
+              y - 5 >= top - 1 &&
               y + 5 <= bottom + 1
             );
           }),
@@ -165,7 +174,7 @@ async function expectClearOverview(page: Page) {
             return (
               bounds.left >= left - 1 &&
               bounds.right <= controls.left - 8 + 1 &&
-              bounds.top >= mapBounds.top - 1 &&
+              bounds.top >= top - 1 &&
               bounds.bottom <= bottom + 1
             );
           }),

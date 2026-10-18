@@ -553,15 +553,24 @@ for (const colorScheme of ["light", "dark"] as const) {
               .getBoundingClientRect();
             const overlapsControls =
               bounds.top < controls.bottom && bounds.bottom > controls.top;
+            const style = getComputedStyle(
+              document.getElementById("map-view")!,
+            );
+            const sidebar =
+              style.getPropertyValue("--map-panel-layout").trim() === "side";
             return {
-              abovePanel: Math.abs(panel.top - bounds.bottom - 6) <= 1,
+              clearPanel: sidebar
+                ? bounds.left >= panel.right + 9
+                : Math.abs(panel.top - bounds.bottom - 6) <= 1,
               rightAligned:
                 Math.abs(
                   bounds.right -
-                    Math.min(
-                      panel.right,
-                      overlapsControls ? controls.left - 8 : panel.right,
-                    ),
+                    (sidebar
+                      ? innerWidth - parseFloat(style.paddingRight) - 10
+                      : Math.min(
+                          panel.right,
+                          overlapsControls ? controls.left - 8 : panel.right,
+                        )),
                 ) <= 1,
               inViewport:
                 bounds.top >= 0 &&
@@ -571,7 +580,7 @@ for (const colorScheme of ["light", "dark"] as const) {
             };
           }),
         )
-        .toEqual({ abovePanel: true, rightAligned: true, inViewport: true });
+        .toEqual({ clearPanel: true, rightAligned: true, inViewport: true });
       for (const link of await credit.locator("a").all())
         await link.click({ trial: true });
     };

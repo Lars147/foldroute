@@ -2950,6 +2950,10 @@ dialog.compact .dialog-actions {
   }
   .app-tabs .app-tab-content {
     gap: 1px;
+    line-height: 1.1;
+  }
+  .app-tabs .app-tab-content > [data-icon] {
+    display: flex;
   }
   .app-tabs .icon {
     width: 22px;
@@ -2961,6 +2965,7 @@ dialog.compact .dialog-actions {
   }
   .map-screen[data-result-screen="map"] {
     inset: 0;
+    /* Map pixels fill the screen; padding describes the camera's usable frame. */
     padding-top: calc(var(--safe-top) + var(--mobile-status-height));
     padding-left: var(--safe-left);
     padding-right: var(--safe-right);
@@ -3409,8 +3414,8 @@ dialog.compact .dialog-actions {
   }
   [data-result-screen="map"] .journey-panel {
     max-height: calc(
-      100% - var(--tabs) - var(--safe-top) - var(--mobile-status-height) -
-        var(--map-controls-space, 286px)
+      100% - var(--tabs) - 12px - var(--safe-top) -
+        var(--mobile-status-height) - var(--map-controls-space, 286px)
     );
   }
 }
@@ -3433,6 +3438,7 @@ dialog.compact .dialog-actions {
     bottom: calc(var(--tabs) + 12px);
     left: calc(var(--safe-left) + var(--map-side-width) + 20px);
     right: calc(var(--safe-right) + 10px);
+    margin-left: auto;
     max-width: none;
     transform: none;
     text-align: right;

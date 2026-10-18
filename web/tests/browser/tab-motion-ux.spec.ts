@@ -228,7 +228,9 @@ test("main tabs resize with large text and safe area, then restore without a gli
   await settled(page);
   await page.setViewportSize({ width: 320, height: 844 });
   await page.addStyleTag({
-    content: ":root { font-size: 32px; --safe-bottom: 34px; }",
+    // Wide fallback glyphs force three lines, as with Linux WebKit's fonts.
+    content:
+      ":root { font-size: 32px; --safe-bottom: 34px; } .app-tabs { font-family: monospace; }",
   });
   await settled(page);
   const geometry = await page.locator(".app-tabs").evaluate((tabs) => {
