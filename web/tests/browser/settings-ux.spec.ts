@@ -23,6 +23,8 @@ for (const width of [320, 390, 1280]) {
       await expect(page.locator(`#settings-${id}`)).not.toHaveAttribute("open");
     await expect(page.locator("#settings-replan")).toBeHidden();
     await expect(page.locator("#save-settings")).toHaveText("Fertig");
+    await expect(page.locator("#app-version")).toHaveText(/^[0-9a-f]{7}$/);
+    await expect(page.locator("#app-version")).toBeVisible();
     await page.screenshot({
       path: info.outputPath("settings.png"),
       fullPage: true,
@@ -50,6 +52,14 @@ for (const width of [320, 390, 1280]) {
       ),
     ).toEqual([]);
     await expect(page.getByRole("link", { name: "Hilfe & FAQ" })).toBeVisible();
+    await page.keyboard.press("Tab");
+    await page.locator("#app-version").focus();
+    await expect(page.locator("#app-version")).toBeFocused();
+    await expect(page.locator("#app-version")).toHaveCSS(
+      "outline-style",
+      "solid",
+    );
+    await expect(page.locator("#app-version")).toBeInViewport({ ratio: 1 });
     await page.screenshot({
       path: info.outputPath("settings-large-text.png"),
       fullPage: true,
