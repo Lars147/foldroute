@@ -355,11 +355,16 @@ for (const width of [390, 1280]) {
     });
     await choose(page, "destination", "Ziel");
     await expect(page.locator(".route-choice")).not.toHaveCount(0);
-    await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
+    await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+    await expect(page.locator("#journey-panel")).toHaveAttribute(
+      "data-search-status",
+      "searching",
+    );
     await expect(page.locator("#navigation-start")).toBeEnabled();
     await expect.poll(() => requested).toBeGreaterThan(0);
     await page.locator("#navigation-start").click();
     await expect(page.locator("#navigation-view")).toBeVisible();
+    await expect(page.locator("#toast")).toBeHidden();
     const savedJourney = () =>
       page.evaluate(async () => {
         const { NavigationStore } = await import("/src/navigation-store.ts");
@@ -768,7 +773,10 @@ test("transit renders before a pending comparison and an explicit comparison sta
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("53 min");
-  await expect(page.locator("#status")).toHaveText("Verbindungen optimieren …");
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-search-status",
+    "searching",
+  );
   release();
   await expectPlanningComplete(page);
   await page.getByRole("button", { name: /Fahrradvergleich:/ }).click();
@@ -988,7 +996,7 @@ for (const width of [320, 390, 430, 1479]) {
 }
 
 for (const outcome of ["complete", "cancel", "error"] as const) {
-  test(`route status spinner follows ${outcome} and respects reduced motion`, async ({
+  test(`route status distinguishes readiness from ${outcome} and respects reduced motion`, async ({
     page,
   }) => {
     await setup(page);
@@ -1012,43 +1020,40 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
     });
     await choose(page, "destination", "Ziel");
     if (outcome !== "error")
-      await expect(page.locator("#status")).toHaveText(
-        "Verbindungen optimieren …",
-      );
+      await expect(page.locator("#toast")).toHaveText("Verbindungen gefunden");
     else
       await expect(page.locator("#status")).toHaveText(
         "Verbindungen werden gesucht …",
       );
     const animation = () =>
-      page
-        .locator("#status")
-        .evaluate((e) => getComputedStyle(e, "::before").animationName);
-    await expect.poll(animation).toBe("route-loading");
-    await expect(page.locator("#status")).toHaveAttribute(
-      "aria-live",
-      "polite",
-    );
-    await expect.poll(animation).toBe("route-loading");
-    await expect(page.locator("#status")).toBeVisible();
+      page.locator("#toast").evaluate((e) => {
+        const spinner = e.querySelector(".planning-toast-spinner");
+        return !(e as HTMLElement).hidden && spinner
+          ? getComputedStyle(spinner).animationName
+          : "none";
+      });
+    await expect
+      .poll(animation)
+      .toBe(outcome === "error" ? "route-loading" : "none");
+    await expect(page.locator("#toast")).toHaveAttribute("role", "status");
+    await expect
+      .poll(animation)
+      .toBe(outcome === "error" ? "route-loading" : "none");
+    await expect(page.locator("#toast")).toBeVisible();
     await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect.poll(animation).toBe("none");
-    expect(
-      await page
-        .locator("#status")
-        .evaluate((e) => getComputedStyle(e, "::before").content),
-    ).toBe('""');
+    await expect(page.locator("#toast .planning-toast-spinner")).toHaveCount(
+      outcome === "error" ? 1 : 0,
+    );
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect.poll(animation).toBe("route-loading");
+    await expect
+      .poll(animation)
+      .toBe(outcome === "error" ? "route-loading" : "none");
     if (outcome === "cancel") await page.locator("#close-route").click();
     release();
     await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
     await expect.poll(animation).toBe("none");
-    expect(
-      await page
-        .locator("#status")
-        .evaluate((e) => getComputedStyle(e, "::before").content),
-    ).toBe("none");
     if (outcome === "complete") {
       for (let i = 0; i < 3; i++) {
         await expectPlanningComplete(page);
@@ -1063,7 +1068,7 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
   });
 }
 
-test("spinner rotation keeps scroll geometry stable in every panel size", async ({
+test("ready results keep scroll geometry stable while alternatives load", async ({
   page,
 }) => {
   await setup(page);
@@ -1079,7 +1084,10 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
     await route.fallback();
   });
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toHaveText("Verbindungen optimieren …");
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-search-status",
+    "searching",
+  );
   for (const [width, height, fontSize] of [
     [390, 844, 16],
     [515, 600, 16],
@@ -1102,13 +1110,9 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
         const content = panel.classList.contains("result-scroll-all")
           ? panel
           : document.getElementById("panel-content")!;
-        const probe = document.createElement("style");
-        document.head.append(probe);
         const samples = [];
-        for (const angle of [0, 45, 90, 135, 180, 225, 270, 315, 360]) {
-          probe.textContent = `.journey-panel.is-loading #status::before {
-            animation: none; transform: rotate(${angle}deg);
-          }`;
+        for (let frame = 0; frame < 9; frame++) {
+          await new Promise(requestAnimationFrame);
           const actions = document
             .querySelector(".panel-actions")!
             .getBoundingClientRect();
@@ -1125,7 +1129,6 @@ test("spinner rotation keeps scroll geometry stable in every panel size", async 
               actions.top >= bounds.top && actions.bottom <= bounds.bottom,
           });
         }
-        probe.remove();
         return samples;
       });
       for (const sample of samples) {

@@ -5,6 +5,7 @@ import {
   type RouteStop,
   type RoutingSettings,
   type PlanningUpdate,
+  type PlanningPhase,
   compare,
   connectionKey,
   sectionCyclingExcess,
@@ -14,7 +15,7 @@ import {
   errorText,
 } from "./model";
 import { distance } from "./geometry";
-import { ApiClient, type RequestBudget } from "./transitous";
+import type { RequestBudget, RoutingClient } from "./transitous";
 import { planRoutes } from "./planner";
 
 export function joinAtStop(
@@ -77,7 +78,7 @@ export async function* planViaRoutes(
   request: RouteRequest,
   settings: RoutingSettings,
   signal: AbortSignal,
-  client: ApiClient,
+  client: RoutingClient,
 ): AsyncGenerator<PlanningUpdate> {
   const stops = request.stops!;
   const places = [
@@ -93,7 +94,7 @@ export async function* planViaRoutes(
       );
   const fixed = {
     ...request,
-    time: request.timing === "now" ? Date.now() / 1000 : request.time,
+    time: request.time,
   };
   if (!Number.isFinite(fixed.time))
     throw new PlannerError(
@@ -106,7 +107,7 @@ export async function* planViaRoutes(
       deadline.abort(
         new PlannerError(
           "deadline",
-          "Die Suche mit Zwischenzielen hat das Zeitlimit erreicht.",
+          "Suche über Zwischenziele: Zeitlimit erreicht.",
           true,
         ),
       ),
@@ -119,15 +120,30 @@ export async function* planViaRoutes(
       if (++count > 64)
         throw new PlannerError(
           "budget",
-          "Die Suche mit Zwischenzielen hat das Anfragelimit erreicht.",
+          "Suche über Zwischenziele: Anfragelimit erreicht.",
           true,
         );
     },
   };
   const issues = new Set<string>();
+  const incompletePhases = new Set<PlanningPhase>();
   let completed: Journey[] = [],
     stopped = false,
-    retryableFailure = false;
+    retryableFailure = false,
+    phase: PlanningPhase = "via";
+  const update = (status: PlanningUpdate["status"]): PlanningUpdate => ({
+    journeys: selectJourneys(
+      completed,
+      request.timing,
+      4,
+      settings.maxCyclingMinutes,
+      settings.showCyclingComparison,
+    ),
+    status,
+    phase,
+    issues: [...issues],
+    incompletePhases: [...incompletePhases],
+  });
   const backward = request.timing === "arrive";
   try {
     // Complete the base itinerary before spending requests on additional bike transfers.
@@ -157,15 +173,21 @@ export async function* planViaRoutes(
           };
           let latest: Journey[] = [];
           try {
-            for await (const update of planRoutes(
+            for await (const partUpdate of planRoutes(
               part,
               settings,
               combined,
               client,
               { raw: true, baseOnly, budget },
             )) {
-              latest = update.journeys;
-              update.issues.forEach((issue) => issues.add(issue));
+              latest = partUpdate.journeys;
+              phase = partUpdate.phase === "base" ? "via" : partUpdate.phase;
+              partUpdate.issues.forEach((issue) => issues.add(issue));
+              partUpdate.incompletePhases.forEach((value) =>
+                incompletePhases.add(value === "base" ? "via" : value),
+              );
+              // Only complete end-to-end journeys may leave this planner.
+              yield update("searching");
             }
           } catch (error) {
             signal.throwIfAborted();
@@ -176,6 +198,7 @@ export async function* planViaRoutes(
             issues.add(
               `Teilstrecke ${index + 1} (${places[index].name} → ${places[index + 1].name}): ${errorText(error)}`,
             );
+            incompletePhases.add(phase);
             stopped ||=
               combined.aborted ||
               count > 64 ||
@@ -200,15 +223,7 @@ export async function* planViaRoutes(
           }
           if (stage === places.length - 2 && additions.length) {
             completed = [...completed, ...additions.map((c) => c.journey)];
-            const journeys = selectJourneys(
-              completed,
-              request.timing,
-              4,
-              settings.maxCyclingMinutes,
-              settings.showCyclingComparison,
-            );
-            if (journeys.length)
-              yield { journeys, status: "searching", issues: [...issues] };
+            yield update("searching");
           }
           if (
             stopped ||
@@ -227,11 +242,18 @@ export async function* planViaRoutes(
         break;
     }
     signal.throwIfAborted();
-    if (stopped)
-      issues.add("Die Suche mit Zwischenzielen wurde vorzeitig beendet.");
+    if (stopped || combined.aborted) {
+      if (!issues.size)
+        issues.add(
+          combined.aborted
+            ? errorText(combined.reason)
+            : "Suche über Zwischenziele unvollständig.",
+        );
+      incompletePhases.add("via");
+    }
     if (!stopped && !combined.aborted && !budget.stopped) {
       try {
-        for await (const update of optimizeWalking(
+        for await (const walkingUpdate of optimizeWalking(
           completed,
           fixed,
           settings,
@@ -239,24 +261,17 @@ export async function* planViaRoutes(
           client,
           budget,
         )) {
-          completed = update.journeys;
-          update.issues.forEach((issue) => issues.add(issue));
-          yield {
-            journeys: selectJourneys(
-              completed,
-              request.timing,
-              4,
-              settings.maxCyclingMinutes,
-              settings.showCyclingComparison,
-            ),
-            status: "searching",
-            issues: [...issues],
-          };
+          completed = walkingUpdate.journeys;
+          phase = "walking";
+          walkingUpdate.issues.forEach((issue) => issues.add(issue));
+          if (walkingUpdate.incomplete) incompletePhases.add("walking");
+          yield update("searching");
         }
       } catch (error) {
         signal.throwIfAborted();
         if (!combined.aborted) throw error;
-        issues.add("Die Suche mit Zwischenzielen wurde vorzeitig beendet.");
+        if (!issues.size) issues.add(errorText(combined.reason));
+        incompletePhases.add(phase);
       }
     }
     const journeys = selectJourneys(
@@ -274,11 +289,7 @@ export async function* planViaRoutes(
         [...issues].join(" ") ||
           "Keine vollständige Verbindung über alle Zwischenziele gefunden.",
       );
-    yield {
-      journeys,
-      status: issues.size ? "partial" : "complete",
-      issues: [...issues],
-    };
+    yield update(incompletePhases.size ? "partial" : "complete");
   } finally {
     clearTimeout(timer);
   }

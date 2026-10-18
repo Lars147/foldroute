@@ -5,6 +5,7 @@ import {
   type RouteRequest,
   type RoutingSettings,
   type PlanningUpdate,
+  type PlanningPhase,
   type Leg,
   bikeBoardings,
   selectJourneys,
@@ -23,6 +24,7 @@ import {
   type Batch,
   type StreetMode,
   type RequestBudget,
+  type RoutingClient,
 } from "./transitous";
 export interface Seed {
   journey: Journey;
@@ -235,7 +237,7 @@ async function* planRawRoutes(
   input: RouteRequest,
   settings: RoutingSettings,
   signal: AbortSignal,
-  client = defaultClient,
+  client: RoutingClient = defaultClient,
   options: SearchOptions = {},
 ): AsyncGenerator<PlanningUpdate> {
   if (
@@ -269,7 +271,13 @@ async function* planRawRoutes(
     );
   let all: Journey[] = [],
     issues: string[] = [],
-    stopped = false;
+    stopped = false,
+    phase: PlanningPhase = "base";
+  const incompletePhases = new Set<PlanningPhase>();
+  const addIssues = (...messages: string[]) => {
+    if (messages.length) incompletePhases.add(phase);
+    issues.push(...messages);
+  };
   const variants =
     settings.excludedTransitModes.length === 6
       ? baseVariants.slice(0, 1)
@@ -283,11 +291,12 @@ async function* planRawRoutes(
           cyclingExcess(j, settings.maxCyclingMinutes) === 0,
       ),
     );
-    issues.push(...batch.issues);
+    addIssues(...batch.issues);
     if (batch.rejected)
-      issues.push(
+      addIssues(
         "Einige Verbindungen wurden wegen fehlerhafter Streckendaten ausgeblendet.",
       );
+    if (batch.stop) incompletePhases.add(phase);
     stopped ||= batch.stop;
   };
   const update = (status: PlanningUpdate["status"]): PlanningUpdate => ({
@@ -302,7 +311,11 @@ async function* planRawRoutes(
         ),
     status,
     issues: [...new Set(issues)],
+    phase,
+    incompletePhases: [...incompletePhases],
   });
+  signal.throwIfAborted();
+  yield update("searching");
   for await (const result of pool(
     variants.map(
       (v) => (s) => client.batch(request, settings, v, s, options.budget),
@@ -312,7 +325,7 @@ async function* planRawRoutes(
     signal.throwIfAborted();
     if (result.value) add(result.value);
     else {
-      issues.push(errorText(result.error));
+      addIssues(errorText(result.error));
       stopped ||= result.error instanceof PlannerError && result.error.stops;
     }
     if (all.length) yield update("searching");
@@ -335,10 +348,9 @@ async function* planRawRoutes(
     !settings.maxBikeTransfers ||
     !all.some((j) => !j.isDirect)
   ) {
-    yield update(issues.length ? "partial" : "complete");
+    yield update(incompletePhases.size ? "partial" : "complete");
     return;
   }
-  yield update("searching");
   let frontier = selectJourneys(
     all.filter((j) => !j.isDirect),
     request.timing,
@@ -351,7 +363,7 @@ async function* planRawRoutes(
         deadline.abort(
           new PlannerError(
             "deadline",
-            "Die Suche nach weiteren Rad-Umstiegen wurde nach Ablauf des Zeitlimits beendet.",
+            "Suche nach weiteren Rad-Umstiegen: Zeitlimit erreicht.",
           ),
         ),
       15000,
@@ -365,6 +377,7 @@ async function* planRawRoutes(
     ) {
       if (searchSignal.aborted) {
         signal.throwIfAborted();
+        incompletePhases.add("bike-transfers");
         issues.push(errorText(searchSignal.reason));
         break;
       }
@@ -383,6 +396,10 @@ async function* planRawRoutes(
           jobs.push(seed);
           if (jobs.length === 4) break;
         }
+      }
+      if (jobs.length) {
+        phase = "bike-transfers";
+        yield update("searching");
       }
       try {
         for await (const result of pool(
@@ -411,16 +428,17 @@ async function* planRawRoutes(
           signal.throwIfAborted();
           if (result.value) {
             const batch = result.value;
-            issues.push(...batch.issues);
+            addIssues(...batch.issues);
             if (batch.rejected)
-              issues.push(
+              addIssues(
                 "Einige zusätzliche Verbindungen enthalten fehlerhafte Streckendaten.",
               );
+            if (batch.stop) incompletePhases.add(phase);
             stopped ||= batch.stop;
             cache.set(jobs[result.index].key, batch.journeys);
             append(jobs[result.index], batch.journeys);
           } else {
-            issues.push(errorText(result.error));
+            addIssues(errorText(result.error));
             stopped ||=
               result.error instanceof PlannerError && result.error.stops;
           }
@@ -428,7 +446,7 @@ async function* planRawRoutes(
         }
       } catch (error) {
         signal.throwIfAborted();
-        issues.push(errorText(error));
+        addIssues(errorText(error));
         stopped = true;
       }
       const ids = new Set(all.map((j) => j.id));
@@ -436,20 +454,24 @@ async function* planRawRoutes(
       yield update("searching");
       frontier = selectJourneys(generated, request.timing);
     }
+    if (deadline.signal.aborted) {
+      phase = "bike-transfers";
+      addIssues(errorText(deadline.signal.reason));
+    }
   } finally {
     clearTimeout(timer);
     deadline.abort();
   }
   signal.throwIfAborted();
   if (stopped && options.budget) options.budget.stopped = true;
-  yield update(issues.length ? "partial" : "complete");
+  yield update(incompletePhases.size ? "partial" : "complete");
 }
 
 export async function* planRoutes(
   input: RouteRequest,
   settings: RoutingSettings,
   signal: AbortSignal,
-  client = defaultClient,
+  client: RoutingClient = defaultClient,
   options: SearchOptions = {},
 ): AsyncGenerator<PlanningUpdate> {
   if (options.raw || options.baseOnly) {
@@ -475,6 +497,7 @@ export async function* planRoutes(
     budget,
   )) {
     last = {
+      ...last,
       journeys: selectJourneys(
         update.journeys,
         input.timing,
@@ -484,8 +507,18 @@ export async function* planRoutes(
       ),
       issues: [...new Set([...last.issues, ...update.issues])],
       status: "searching",
+      phase: "walking",
+      incompletePhases: [
+        ...new Set([
+          ...last.incompletePhases,
+          ...(update.incomplete ? ["walking" as const] : []),
+        ]),
+      ],
     };
     yield last;
   }
-  yield { ...last, status: last.issues.length ? "partial" : "complete" };
+  yield {
+    ...last,
+    status: last.incompletePhases.length ? "partial" : "complete",
+  };
 }

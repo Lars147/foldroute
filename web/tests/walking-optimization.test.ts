@@ -335,41 +335,68 @@ describe("bounded additional street requests", () => {
     const original = access();
     const run = (async () => {
       let results = [original];
+      let last;
       for await (const update of optimizeWalking(
         results,
         request,
         settings,
         new AbortController().signal,
         client,
-      ))
+      )) {
         results = update.journeys;
-      return results;
+        last = update;
+      }
+      return { results, last };
     })();
     await vi.advanceTimersByTimeAsync(10000);
-    expect(await run).toEqual([original]);
+    const { results, last } = await run;
+    expect(results).toEqual([original]);
+    expect(last?.incomplete).toBe(true);
+    expect(last?.issues).toEqual([
+      "Prüfung kürzerer Fußwege: Zeitlimit erreicht.",
+    ]);
   });
 });
 
 it("publishes the original immediately and finishes with its improved version", async () => {
   const client = new ApiClient();
-  vi.spyOn(client, "batch").mockImplementation(async (_r, _s, variant) => ({
-    journeys: variant.street
-      ? [ride()]
-      : variant.pre === "WALK"
-        ? [access()]
-        : [],
-    issues: [],
-  }));
+  const events: string[] = [];
+  vi.spyOn(client, "batch").mockImplementation(async (_r, _s, variant) => {
+    events.push(variant.street ? "request:walking" : "request:base");
+    return {
+      journeys: variant.street
+        ? [ride()]
+        : variant.pre === "WALK"
+          ? [access()]
+          : [],
+      issues: [],
+    };
+  });
   const updates = [];
   for await (const update of planRoutes(
     { ...request, timing: "now" },
     { ...settings, maxBikeTransfers: 0 },
     new AbortController().signal,
     client,
-  ))
+  )) {
+    events.push(`phase:${update.phase}`);
     updates.push(update);
-  expect(updates[0].journeys[0].id).toBe("original");
-  expect(updates[0].status).toBe("searching");
+  }
+  expect(updates[0]).toMatchObject({
+    phase: "base",
+    journeys: [],
+    status: "searching",
+  });
+  expect(updates.find((update) => update.journeys.length)?.journeys[0].id).toBe(
+    "original",
+  );
+  expect(updates.some((update) => update.phase === "walking")).toBe(true);
+  expect(events.indexOf("phase:base")).toBeLessThan(
+    events.indexOf("request:base"),
+  );
+  expect(events.indexOf("phase:walking")).toBeLessThan(
+    events.indexOf("request:walking"),
+  );
   expect(updates.at(-1)!.status).toBe("complete");
   expect(updates.at(-1)!.journeys).toHaveLength(1);
   expect(updates.at(-1)!.journeys[0].legs[0].kind).toBe("bike");

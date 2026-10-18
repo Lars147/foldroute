@@ -115,6 +115,35 @@ describe("fixed past search times", () => {
     });
 });
 describe("Shared Swift fixtures", () => {
+  it("announces additional bike-transfer requests before they start", async () => {
+    const client = new ApiClient();
+    const events: string[] = [];
+    let requests = 0;
+    vi.spyOn(client, "batch").mockImplementation(async (_r, _s, variant) => {
+      const phase = variant.street
+        ? "walking"
+        : requests++ < baseVariants.length
+          ? "base"
+          : "bike-transfers";
+      events.push(`request:${phase}`);
+      return {
+        journeys: phase === "base" && !variant.direct ? mapped() : [],
+        issues: [],
+      };
+    });
+    for await (const update of planRoutes(
+      request,
+      { ...defaults, maxBikeTransfers: 1 },
+      new AbortController().signal,
+      client,
+    ))
+      events.push(`phase:${update.phase}`);
+    expect(events).toContain("request:bike-transfers");
+    expect(events.indexOf("phase:bike-transfers")).toBeLessThan(
+      events.indexOf("request:bike-transfers"),
+    );
+  });
+
   it("matches native multimodal mapping and folding timestamps", () =>
     expect(mapped(nativeSettings).map(snapshot)).toEqual(
       fixture.expectedTransit,
@@ -300,6 +329,7 @@ describe("Requests and service resilience", () => {
       updates.push(u);
     expect(updates.at(-1)?.journeys).toHaveLength(1);
     expect(updates.at(-1)?.status).toBe("partial");
+    expect(updates.at(-1)?.incompletePhases).toEqual(["base"]);
   });
   it("does not start requests after cancellation", async () => {
     const c = new AbortController();

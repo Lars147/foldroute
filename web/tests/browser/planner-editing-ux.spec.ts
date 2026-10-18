@@ -421,7 +421,11 @@ test("editing during search preserves drafts, focus and optimization until cance
   await expect(page.locator("#origin")).toHaveValue("Unbestätigter Start");
   await expect(page.locator("#origin")).toBeFocused();
   await page.locator("#cancel-adjust").click();
-  await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
+  await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-search-status",
+    "searching",
+  );
   await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
@@ -473,7 +477,11 @@ test("submitting edits during optimization replaces the search and ignores late 
   await choose(page, "destination", "Ziel");
   await expect(page.locator(".route-choice")).not.toHaveCount(0);
   await expect.poll(() => oldTransitStarted).toBe(true);
-  await expect(page.locator("#journey-panel")).toHaveClass(/is-loading/);
+  await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-search-status",
+    "searching",
+  );
   await page.locator("#adjust-route").click();
   await choose(page, "destination", "Park");
   await page.locator("#calculate").click();

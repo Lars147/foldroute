@@ -646,7 +646,7 @@
               </div>
             </div>
             <div id="map-preview" hidden>
-              <p id="map-preview-status" role="status" hidden></p>
+              <p id="map-preview-status" role="status" tabindex="-1" hidden></p>
               <div id="map-preview-summary" class="route-summary"></div>
               <button id="map-open-details" class="primary" type="button">
                 Details
@@ -673,13 +673,19 @@
               class="panel-status"
               role="status"
               aria-live="polite"
+              tabindex="-1"
             ></p>
             <p id="issues" class="notice" hidden></p>
             <p id="saved-notice" class="notice" hidden></p>
             <p id="stale-notice" class="notice" role="status" hidden></p>
             <div id="planning-recovery" class="planning-recovery" hidden>
               <button id="recover-planning" class="text-button" type="button">
-                Erneut versuchen
+                <span
+                  class="recovery-icon"
+                  data-icon="refresh"
+                  aria-hidden="true"
+                ></span>
+                <span id="recovery-label">Erneut versuchen</span>
               </button>
               <span id="recovery-wait" class="message" hidden></span>
             </div>
@@ -1096,6 +1102,13 @@
     </div>
     <div class="history-feedback">
       <div id="toast" class="toast" role="status" hidden></div>
+      <span
+        id="planning-announcement"
+        class="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      ></span>
       <div id="history-undo" class="toast history-undo" hidden>
         <span role="status">Strecke gelöscht</span>
         <button id="history-undo-button" class="text-button" type="button">

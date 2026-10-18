@@ -37,8 +37,12 @@ export async function expectMotionSettled(element: Locator) {
 export async function expectPlanningComplete(page: Page) {
   await expect(page.locator(".route-choice").first()).toBeAttached();
   await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
-  await expect(page.locator("#status")).toBeEmpty();
-  await expect(page.locator("#status")).toHaveCSS("display", "none");
+  const status = page.locator("#status");
+  await expect(status).toHaveText(/^(?:Suche abgeschlossen\.)?$/);
+  await expect(page.locator("#journey-panel")).toHaveAttribute(
+    "data-search-status",
+    "complete",
+  );
 }
 
 export async function openSelectedDetails(page: Page) {

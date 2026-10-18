@@ -15,6 +15,7 @@ import {
   journeyOutline,
 } from "./model";
 import { type PlanningState } from "./planning-state";
+import { planningProgress } from "./planning-progress";
 import {
   el,
   node,
@@ -116,6 +117,11 @@ export class JourneyView {
       requestAnimationFrame(() => {
         pending = false;
         const panel = el("journey-panel");
+        const wasScrolling = panel.classList.contains("result-scroll-all");
+        const scrollTop = panel.scrollTop;
+        // Always measure the same layout: switching scroll containers changes
+        // available width and can otherwise alternate the result every frame.
+        if (wasScrolling) panel.classList.remove("result-scroll-all");
         const fixed =
           el("result-header").offsetHeight +
           (el("result-nav").parentElement === panel
@@ -134,7 +140,7 @@ export class JourneyView {
             : 180;
         // Wrapping changes between scroll modes. Leave spare room before
         // returning to the fixed header and footer to avoid resize oscillation.
-        const spare = panel.classList.contains("result-scroll-all")
+        const spare = wasScrolling
           ? 2 * parseFloat(getComputedStyle(panel).fontSize)
           : 0;
         panel.classList.toggle(
@@ -142,6 +148,8 @@ export class JourneyView {
           (this.desktop.matches || this.screen !== "map") &&
             el("map-view").clientHeight < fixed + row + spare,
         );
+        if (wasScrolling && panel.classList.contains("result-scroll-all"))
+          panel.scrollTop = scrollTop;
       });
     });
     for (const element of [
@@ -294,7 +302,10 @@ export class JourneyView {
     el("map-preview").hidden = !map;
     const recovery = el("planning-recovery");
     const recoveryAnchor = el(map ? "map-preview-status" : "stale-notice");
-    if (recovery.previousElementSibling !== recoveryAnchor)
+    if (
+      !recovery.dataset.planningToast &&
+      recovery.previousElementSibling !== recoveryAnchor
+    )
       recoveryAnchor.after(recovery);
     const start = el("navigation-start");
     const startParent = this.restored
@@ -398,7 +409,15 @@ export class JourneyView {
         : `${journeyEndpointTime(selected, "arrival")} an`
       : "";
     cyclingLimit = state.resultSettings?.maxCyclingMinutes ?? cyclingLimit;
-    el("status").textContent = state.message;
+    const progress = planningProgress(state);
+    const errorInToast =
+      el("toast").dataset.planningStage === "error" &&
+      !el("toast").hidden &&
+      el("toast").dataset.planningId === state.calculationId;
+    const progressMessage = errorInToast ? "" : progress.message;
+    const status = el("status");
+    if (status.textContent !== progressMessage)
+      status.textContent = progressMessage;
     el("stale-notice").textContent = state.staleReason ?? "";
     el("stale-notice").hidden = !state.staleReason;
     el("refresh-route").textContent = state.staleReason
@@ -410,9 +429,12 @@ export class JourneyView {
       !state.request || !navigator.onLine;
     el<HTMLButtonElement>("adjust-route").disabled =
       !state.pendingRequest && !state.request;
-    el("issues").textContent = state.issues.join(" ");
-    el("issues").hidden = !state.issues.length;
-    el("journey-panel").classList.toggle("is-loading", state.busy);
+    const issuesInStatus =
+      progress.ready || (state.searchStatus === "partial" && !!state.message);
+    el("issues").textContent = issuesInStatus ? "" : state.issues.join(" ");
+    el("issues").hidden = !el("issues").textContent;
+    el("journey-panel").classList.toggle("is-loading", progress.loading);
+    el("journey-panel").dataset.searchStatus = state.searchStatus ?? "";
     const j = state.selected;
     this.savePosition();
     this.displayedID = j?.id;
@@ -424,25 +446,31 @@ export class JourneyView {
         ? `${state.restored ? "Gespeichert" : "Stand"}: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}`
         : "";
     const mapStatus = el("map-preview-status");
-    mapStatus.textContent = state.recovery
-      ? state.message
+    const mapMessage = state.recovery
+      ? progressMessage
       : state.restored
         ? `Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`
-        : (state.staleReason ?? (state.busy ? state.message : ""));
+        : (state.staleReason ?? progressMessage);
+    if (mapStatus.textContent !== mapMessage)
+      mapStatus.textContent = mapMessage;
     mapStatus.hidden = !mapStatus.textContent;
     clearTimeout(this.recoveryTimer);
     const recovery = state.recovery;
     el("planning-recovery").hidden = !recovery || state.busy;
     const recover = el<HTMLButtonElement>("recover-planning");
-    recover.textContent =
+    const recoveryLabel =
       recovery?.action === "adjust" ? "Route anpassen" : "Erneut versuchen";
+    if (el("recovery-label").textContent !== recoveryLabel)
+      el("recovery-label").textContent = recoveryLabel;
     const wait = Math.max(0, (recovery?.retryAt ?? 0) - Date.now() / 1000);
     recover.disabled =
       recovery?.action === "retry" && (!navigator.onLine || wait > 0);
     el("recovery-wait").hidden = !wait || recovery?.action !== "retry";
-    el("recovery-wait").textContent = wait
+    const waitMessage = wait
       ? `Erneut möglich ab ${clock(recovery!.retryAt!)}.`
       : "";
+    if (el("recovery-wait").textContent !== waitMessage)
+      el("recovery-wait").textContent = waitMessage;
     if (wait && recovery?.action === "retry")
       this.recoveryTimer = setTimeout(
         () => {
@@ -458,7 +486,7 @@ export class JourneyView {
       );
     if (onlyComparison && !state.busy)
       el("status").textContent =
-        `${state.message ? state.message + " " : ""}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`;
+        `${progressMessage ? progressMessage + " " : ""}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`;
     el("cycling-comparison").textContent = j
       ? cyclingComparisonLabel(j, cyclingLimit)
       : "";

@@ -11,7 +11,7 @@ import {
   errorText,
 } from "./model";
 import { distance } from "./geometry";
-import { ApiClient, type RequestBudget } from "./transitous";
+import type { RequestBudget, RoutingClient } from "./transitous";
 
 export interface WalkingBlock {
   journey: Journey;
@@ -121,9 +121,13 @@ export async function* optimizeWalking(
   request: RouteRequest,
   settings: RoutingSettings,
   signal: AbortSignal,
-  client: ApiClient,
+  client: RoutingClient,
   parentBudget?: RequestBudget,
-): AsyncGenerator<{ journeys: Journey[]; issues: string[] }> {
+): AsyncGenerator<{
+  journeys: Journey[];
+  issues: string[];
+  incomplete: boolean;
+}> {
   const chosen = selectJourneys(
     journeys.filter((j) => !j.isDirect),
     request.timing,
@@ -138,6 +142,9 @@ export async function* optimizeWalking(
     client.retryAt > Date.now() / 1000
   )
     return;
+  signal.throwIfAborted();
+  yield { journeys, issues: [], incomplete: false };
+  signal.throwIfAborted();
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), 10000);
   const combined = AbortSignal.any([signal, deadline.signal]);
@@ -154,7 +161,9 @@ export async function* optimizeWalking(
   const latest = new Map(chosen.map((j) => [j.id, j]));
   const improvements: Journey[] = [],
     issues: string[] = [];
-  let stopped = false;
+  let stopped = false,
+    incomplete = false,
+    processed = 0;
   const fetchBlock = async (block: WalkingBlock) => {
     const lower = block.first
       ? block.journey.legs[block.first - 1].end
@@ -186,9 +195,15 @@ export async function* optimizeWalking(
         .then((batch) => {
           if (batch.stop) {
             stopped = true;
+            incomplete = true;
             if (parentBudget) parentBudget.stopped = true;
           }
+          incomplete ||= !!batch.issues.length || !!batch.rejected;
           issues.push(...batch.issues);
+          if (batch.rejected)
+            issues.push(
+              "Einige Radprüfungen enthalten fehlerhafte Streckendaten.",
+            );
           return batch.journeys;
         });
       cache.set(key, pending);
@@ -198,14 +213,15 @@ export async function* optimizeWalking(
     } catch (error) {
       signal.throwIfAborted();
       if (error instanceof PlannerError && error.stops) stopped = true;
+      if (error instanceof PlannerError && error.code === "empty") return [];
+      incomplete = true;
       if (
         !combined.aborted &&
-        !(
-          error instanceof PlannerError &&
-          ["budget", "empty"].includes(error.code)
-        )
+        !(error instanceof PlannerError && error.code === "budget")
       )
         issues.push(errorText(error));
+      if (error instanceof PlannerError && error.code === "budget")
+        issues.push("Prüfung kürzerer Fußwege: Anfragelimit erreicht.");
       return [];
     }
   };
@@ -218,6 +234,7 @@ export async function* optimizeWalking(
       const jobs = blocks.slice(i, i + 2);
       const responses = await Promise.all(jobs.map(fetchBlock));
       signal.throwIfAborted();
+      processed = i + jobs.length;
       for (let n = 0; n < jobs.length; n++) {
         const originalBlock = jobs[n];
         const current = latest.get(originalBlock.journey.id)!;
@@ -249,6 +266,20 @@ export async function* optimizeWalking(
       yield {
         journeys: [...journeys, ...improvements],
         issues: [...new Set(issues)],
+        incomplete,
+      };
+    }
+    if (deadline.signal.aborted || (count >= 6 && processed < blocks.length)) {
+      incomplete = true;
+      issues.push(
+        deadline.signal.aborted
+          ? "Prüfung kürzerer Fußwege: Zeitlimit erreicht."
+          : "Prüfung kürzerer Fußwege: Anfragelimit erreicht.",
+      );
+      yield {
+        journeys: [...journeys, ...improvements],
+        issues: [...new Set(issues)],
+        incomplete,
       };
     }
   } finally {

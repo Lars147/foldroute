@@ -173,9 +173,21 @@ describe("selection and delayed departures", () => {
       const old = journey("old", 1000, 3760),
         better = journey("better", 1000, 1900);
       vi.mocked(planRoutes).mockImplementation(async function* () {
-        yield { journeys: [old], status: "searching", issues: [] };
+        yield {
+          phase: "base",
+          incompletePhases: [],
+          journeys: [old],
+          status: "searching",
+          issues: [],
+        };
         await gate;
-        yield { journeys: [better], status: "complete", issues: [] };
+        yield {
+          phase: "base",
+          incompletePhases: [],
+          journeys: [better],
+          status: "complete",
+          issues: [],
+        };
       });
       const session = new PlanningSession(new ApiClient(), () => {});
       const task = session.calculate(request, defaults, false);
@@ -195,9 +207,21 @@ describe("selection and delayed departures", () => {
       release = resolve;
     });
     vi.mocked(planRoutes).mockImplementation(async function* () {
-      yield { journeys: [journey("old")], status: "searching", issues: [] };
+      yield {
+        phase: "base",
+        incompletePhases: [],
+        journeys: [journey("old")],
+        status: "searching",
+        issues: [],
+      };
       await gate;
-      yield { journeys: [journey("late")], status: "complete", issues: [] };
+      yield {
+        phase: "base",
+        incompletePhases: [],
+        journeys: [journey("late")],
+        status: "complete",
+        issues: [],
+      };
     });
     const session = new PlanningSession(new ApiClient(), () => {});
     const task = session.calculate(request, defaults, false);
