@@ -25,6 +25,10 @@ import { NavigationSession } from "../src/navigation-session";
 import { LocationError, type LocationFix } from "../src/live-location";
 import type { NavigationStore } from "../src/navigation-store";
 import { ApiClient } from "../src/transitous";
+import {
+  emptyNavigationStatistics,
+  recordNavigation,
+} from "../src/navigation-summary";
 import { clock } from "../src/ui";
 import {
   assessConnection,
@@ -335,19 +339,26 @@ function sessionHarness(
   const store = {
     save: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
+    readStatistics: vi
+      .fn()
+      .mockResolvedValue({ epoch: 0, statistics: emptyNavigationStatistics() }),
+    completeTrip: vi.fn(async (summary) =>
+      recordNavigation(emptyNavigationStatistics(), summary),
+    ),
   };
+  const storageEnabled = vi.fn(() => true);
   const locate = vi.fn(async (): Promise<LocationFix> => fix());
   const session = new NavigationSession({
     changed: vi.fn(),
     locate,
     routingSettings,
-    storageEnabled: () => true,
+    storageEnabled,
     api: new ApiClient(),
     store: store as unknown as NavigationStore,
     plan,
     refresher: { refresh: async () => new Map() } as any,
   });
-  return { session, store, plan, locate };
+  return { session, store, plan, locate, storageEnabled };
 }
 const request = {
   origin: a,
@@ -1412,4 +1423,152 @@ it("starts the waiting prefix of a proposed stop continuation at the current sto
   await session.acceptAlternative();
   expect(session.engine!.progress.confirmedStops).toEqual(["pause"]);
   await session.stop();
+});
+
+it("freezes elapsed navigation time at arrival, including time outside the app", async () => {
+  const { session, store } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  session.setForeground(false);
+  await vi.advanceTimersByTimeAsync(90000);
+  session.setForeground(true);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.summary).toMatchObject({
+    elapsedSeconds: 90,
+    distanceMeters: 370,
+    sinceResume: false,
+  });
+  await vi.advanceTimersByTimeAsync(60000);
+  session.updateLocation(fix(c, 150), "current");
+  session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.summary!.elapsedSeconds).toBe(90);
+  expect(store.completeTrip).toHaveBeenCalledTimes(1);
+  expect(session.statistics?.completedIds).toHaveLength(1);
+  await session.stop();
+});
+
+it("keeps distance and start time across a mid-leg reroute", async () => {
+  const replacement = journey([
+    { ...bike(), from: b, coordinates: [b, c], maneuvers: [], distance: 222 },
+  ]);
+  const { session } = sessionHarness(vi.fn().mockResolvedValue(replacement));
+  await session.start(journey(), request, defaults);
+  vi.setSystemTime((now + 10) * 1000);
+  session.updateLocation(fix(b, 10), "current");
+  const partial =
+    (370 * projectPath(b, [a, b, c]).meters) / projectPath(a, [a, b, c]).length;
+  await session.reroute();
+  vi.setSystemTime((now + 30) * 1000);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.summary!.distanceMeters).toBeCloseTo(partial + 222);
+  expect(session.summary!.elapsedSeconds).toBe(30);
+  expect(session.summary!.originName).toBe(a.name);
+  await session.stop();
+});
+
+it("does not count retained transit progress twice when accepting an onboard alternative", async () => {
+  const rail = { ...train(), distance: 1000 };
+  const onward = journey([
+    {
+      ...bike(),
+      from: rail.to,
+      to: a,
+      coordinates: [rail.to, a],
+      maneuvers: [],
+      distance: 200,
+    },
+  ]);
+  const { session } = sessionHarness(vi.fn().mockResolvedValue(onward));
+  const original = journey([bike(), rail]);
+  await session.start(original, { ...request, destination: rail.to }, defaults);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  session.engine!.progress.meters =
+    projectPath(rail.from, rail.coordinates).length / 2;
+  session.setForeground(false);
+  session.setForeground(true);
+  session.disruption = { id: "change", message: "Andere Verbindung" };
+  await session.proposeAlternative();
+  expect(session.alternative).toBeDefined();
+  await session.acceptAlternative();
+  for (let i = 0; i < 3; i++)
+    session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.summary!.distanceMeters).toBeCloseTo(1570);
+  await session.stop();
+});
+
+it.each([false, true])(
+  "resumes tracking with legacy snapshot = %s",
+  async (legacy) => {
+    const original = sessionHarness();
+    await original.session.start(journey(), request, defaults);
+    vi.setSystemTime((now + 10) * 1000);
+    original.session.updateLocation(fix(b, 10), "current");
+    const snapshot = structuredClone(original.store.save.mock.calls.at(-1)![0]);
+    if (legacy) delete snapshot.trip;
+    await original.session.stop();
+    vi.setSystemTime((now + 60) * 1000);
+    const resumed = sessionHarness();
+    resumed.locate.mockResolvedValue(fix(b, 60));
+    await resumed.session.start(snapshot.journey, request, defaults, snapshot);
+    vi.setSystemTime((now + 120) * 1000);
+    resumed.session.completeLeg(resumed.session.engine!.leg.navigationId!);
+    expect(resumed.session.summary!.elapsedSeconds).toBe(legacy ? 60 : 120);
+    expect(resumed.session.summary!.sinceResume).toBe(legacy);
+    if (!legacy) {
+      expect(resumed.session.summary!.id).toBe(snapshot.trip.id);
+      expect(resumed.session.summary!.distanceMeters).toBeCloseTo(370);
+    } else {
+      expect(resumed.session.summary!.distanceMeters).toBeGreaterThan(0);
+      expect(resumed.session.summary!.distanceMeters).toBeLessThan(370);
+    }
+    await resumed.session.stop();
+  },
+);
+
+it("does not record early stops or trips with storage disabled", async () => {
+  const early = sessionHarness();
+  await early.session.start(journey(), request, defaults);
+  await early.session.stop();
+  expect(early.store.completeTrip).not.toHaveBeenCalled();
+  const disabled = sessionHarness();
+  disabled.storageEnabled.mockReturnValue(false);
+  await disabled.session.start(journey(), request, defaults);
+  disabled.session.completeLeg(disabled.session.engine!.leg.navigationId!);
+  expect(disabled.session.summary).toBeDefined();
+  expect(disabled.session.statisticsMessage).toBe(
+    "Gesamtstatistik ist ausgeschaltet.",
+  );
+  expect(disabled.store.completeTrip).not.toHaveBeenCalled();
+  expect(disabled.store.save).not.toHaveBeenCalled();
+  await disabled.session.stop();
+});
+
+it("waits for pending completion before clearing the session, even when dismissed immediately", async () => {
+  const { session, store } = sessionHarness();
+  let finish!: (value: ReturnType<typeof emptyNavigationStatistics>) => void;
+  store.completeTrip.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await session.start(journey(), request, defaults);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  const stopping = session.stop();
+  expect(store.clear).not.toHaveBeenCalled();
+  finish(recordNavigation(emptyNavigationStatistics(), session.summary!));
+  await stopping;
+  expect(store.clear).toHaveBeenCalledTimes(1);
+  expect(session.statistics?.completedIds).toHaveLength(1);
+});
+
+it("keeps the summary usable when saving totals fails", async () => {
+  const { session, store } = sessionHarness();
+  store.completeTrip.mockRejectedValue(new Error("Storage unavailable"));
+  await session.start(journey(), request, defaults);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  await session.stop();
+  expect(session.summary!.distanceMeters).toBe(370);
+  expect(session.statisticsMessage).toBe(
+    "Gesamtstatistik konnte nicht gespeichert werden.",
+  );
 });

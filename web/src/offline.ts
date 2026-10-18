@@ -1,3 +1,4 @@
+import { resetNavigationStatistics } from "./navigation-summary";
 import {
   coordinateKey,
   genericHistoryName,
@@ -275,6 +276,7 @@ export class OfflineStore {
     change?: (state: StoredHistory) => void,
     generation = this.generation,
     databaseGeneration = localDatabase.generation,
+    resetStatistics = false,
   ): Promise<StoredHistory | undefined> {
     const db = await localDatabase.open();
     if (
@@ -311,6 +313,10 @@ export class OfflineStore {
           store.put(data, "history");
           store.put(result.enabled, "enabled");
           if (!result.enabled) store.delete("activeNavigation");
+          if (resetStatistics) {
+            store.delete("activeNavigation");
+            resetNavigationStatistics(store);
+          }
           // Keep the existing latest-journey record compatible with older clients.
           if (result.snapshot) store.put(result.snapshot, "last");
           else store.delete("last");
@@ -396,17 +402,27 @@ export class OfflineStore {
   async setEnabled(enabled: boolean): Promise<void> {
     this.undoEpoch++;
     this.generation++;
-    await this.transaction((state) => {
-      state.enabled = enabled;
-      if (!enabled) state.entries = [];
-    });
+    await this.transaction(
+      (state) => {
+        state.enabled = enabled;
+        if (!enabled) state.entries = [];
+      },
+      this.generation,
+      localDatabase.generation,
+      !enabled,
+    );
   }
   async clear(): Promise<void> {
     this.undoEpoch++;
     this.generation++;
-    await this.transaction((state) => {
-      state.entries = [];
-    });
+    await this.transaction(
+      (state) => {
+        state.entries = [];
+      },
+      this.generation,
+      localDatabase.generation,
+      true,
+    );
   }
   async remove(id: string): Promise<HistoryDeletion | undefined> {
     this.generation++;

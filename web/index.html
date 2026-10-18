@@ -862,8 +862,9 @@
           <label class="toggle-row">
             <span
               >Strecken auf diesem Gerät speichern<small
-                >Bis zu 20 Strecken, auch offline. Ausschalten löscht den
-                Verlauf.</small
+                >Bis zu 20 Strecken, Navigation zur Wiederaufnahme und
+                Gesamtstatistik abgeschlossener Fahrten – nur auf diesem Gerät.
+                Ausschalten löscht alle drei.</small
               ></span
             >
             <input id="offline-enabled" type="checkbox" role="switch" checked />
@@ -877,7 +878,7 @@
             type="button"
             class="text-button settings-delete"
           >
-            Streckenverlauf löschen
+            Verlauf und Gesamtstatistik löschen
           </button>
           <button
             id="clear-data"
@@ -1019,10 +1020,11 @@
       </form>
     </dialog>
     <dialog id="delete-history-dialog" aria-labelledby="delete-history-heading">
-      <h2 id="delete-history-heading">Streckenverlauf löschen?</h2>
+      <h2 id="delete-history-heading">Verlauf und Gesamtstatistik löschen?</h2>
       <p>
-        Alle gespeicherten Planungen werden von diesem Gerät entfernt. Favoriten
-        und Einstellungen bleiben erhalten.
+        Gespeicherte Planungen, der Wiederaufnahmezustand einer Navigation und
+        die Gesamtstatistik werden von diesem Gerät entfernt. Favoriten und
+        Einstellungen bleiben erhalten.
       </p>
       <p id="delete-history-status" class="message" role="status"></p>
       <div class="form-actions">
@@ -1030,15 +1032,16 @@
           Abbrechen
         </button>
         <button id="confirm-delete-history" class="primary" type="button">
-          Verlauf löschen
+          Verlauf und Statistik löschen
         </button>
       </div>
     </dialog>
     <dialog id="delete-data-dialog" aria-labelledby="delete-data-heading">
       <h2 id="delete-data-heading">Alle lokalen Daten löschen?</h2>
       <p>
-        Favoriten, letzte Orte, Einstellungen und gespeicherte Strecken werden
-        unwiderruflich entfernt.
+        Favoriten, letzte Orte, Einstellungen, gespeicherte Strecken,
+        Wiederaufnahmezustand und Gesamtstatistik werden unwiderruflich
+        entfernt.
       </p>
       <p id="delete-data-status" class="message" role="status"></p>
       <div class="form-actions">
