@@ -102,7 +102,8 @@ test("license page and original notices remain accessible offline", async ({
   ).toBeVisible();
   await production(page);
   await page.locator("#tab-settings").click();
-  await openSettingsSection(page, "help");
+  await expect(page.locator("#settings-help")).not.toHaveAttribute("open", "");
+  await expect(page.locator(".settings-licenses")).toBeVisible();
   await context.setOffline(true);
   await page
     .getByRole("link", { name: "Lizenzen & Datenquellen", exact: true })
@@ -120,7 +121,9 @@ test("license page and original notices remain accessible offline", async ({
     await page.locator(`#${id} summary`).focus();
     await page.keyboard.press("Enter");
     await expect(page.locator(`#${id} pre`)).toBeVisible();
-    const notice = await page.locator(`#${id} a`).getAttribute("href");
+    const notice = await page
+      .locator(`#${id} a[href$="-LICENSE.txt"]`)
+      .getAttribute("href");
     const downloaded = await page.evaluate(async (name) => {
       const response = await fetch(name!);
       return { ok: response.ok, text: await response.text() };
@@ -130,13 +133,61 @@ test("license page and original notices remain accessible offline", async ({
       await page.locator(`#${id} pre`).textContent(),
     );
   }
+  for (const name of [
+    "OpenLayers 10.11.0",
+    "Leaflet 1.9.4",
+    "MapLibre GL JS 6.14.0",
+    "@maplibre/maplibre-gl-leaflet 0.1.4",
+    "ol-mapbox-style 13.8.0",
+    "Motion 14.3.0",
+    "Workbox 7.4.1",
+    "Lucide / Feather",
+  ])
+    await expect(
+      page.locator("section[aria-labelledby=licenses-heading]"),
+    ).toContainText(name);
+  await page.locator("#motion summary").click();
+  await expect(page.locator("#motion")).toContainText("tslib 2.8.1 unter 0BSD");
+  const notices = await page
+    .locator('a[href$="-LICENSE.txt"]')
+    .evaluateAll((links) => [
+      ...new Set(links.map((link) => link.getAttribute("href")!)),
+    ]);
+  for (const notice of notices) {
+    const downloaded = await page.evaluate(async (name) => {
+      const response = await fetch(name);
+      return { ok: response.ok, text: await response.text() };
+    }, notice);
+    expect(downloaded.ok, notice).toBe(true);
+    expect(downloaded.text, notice).toContain("Copyright");
+    if (notice === "motion-LICENSE.txt") {
+      for (const name of [
+        "motion",
+        "framer-motion",
+        "motion-dom",
+        "motion-utils",
+        "tslib",
+      ])
+        expect(downloaded.text).toContain(`${name} `);
+    }
+  }
+  await page.locator("details").evaluateAll((entries) =>
+    entries.forEach((entry) => {
+      (entry as HTMLDetailsElement).open = true;
+    }),
+  );
   for (const width of [320, 390, 1660]) {
     await page.setViewportSize({ width, height: 900 });
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
+    for (const fontSize of ["16px", "32px"]) {
+      await page.evaluate((size) => {
+        document.documentElement.style.fontSize = size;
+      }, fontSize);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    }
   }
   await page.getByRole("link", { name: "Zum Webplaner", exact: true }).click();
   await expect(page.locator("#offline-empty")).toBeVisible();

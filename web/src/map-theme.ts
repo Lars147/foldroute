@@ -3,7 +3,7 @@ import { mapStyle } from "./map-style";
 
 export const appearanceEvent = "foldroute:appearance";
 export const mapAttribution =
-  '<a href="https://openfreemap.org/">OpenFreeMap</a> · <a href="https://openmaptiles.org/">© OpenMapTiles</a> · <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap-Mitwirkende</a>';
+  '<a href="https://openmaptiles.org/">© OpenMapTiles</a> · <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a>';
 
 export function mapTheme() {
   const styles = getComputedStyle(document.documentElement);

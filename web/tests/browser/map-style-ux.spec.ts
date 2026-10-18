@@ -539,7 +539,8 @@ for (const colorScheme of ["light", "dark"] as const) {
     await page.setViewportSize({ width: 425, height: 812 });
     await example(page);
     const credit = page.locator(".map-credit");
-    await expect(credit.locator("a")).toHaveCount(4);
+    await expect(credit.locator("a")).toHaveCount(2);
+    await expect(credit).toHaveText("© OpenMapTiles · © OpenStreetMap");
     const expectMobileCredit = async () => {
       await expect
         .poll(() =>
@@ -610,6 +611,12 @@ for (const colorScheme of ["light", "dark"] as const) {
     await expect(credit).toHaveCSS("left", "460px");
     await expect(credit).toHaveCSS("transform", "none");
     await expect(credit).toBeInViewport();
+    const sources = page.locator("#panel-details .journey-sources a");
+    await expect(sources).toBeVisible();
+    await expect(sources).toHaveAttribute(
+      "href",
+      "https://transitous.org/sources/",
+    );
     expect(layoutErrors).toEqual([]);
   });
 
