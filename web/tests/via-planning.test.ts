@@ -113,6 +113,11 @@ describe("free intermediate stops", () => {
       };
       const client = new Client();
       const updates = await collect(request, client);
+      expect(updates[0]).toMatchObject({
+        phase: "via",
+        journeys: [],
+        status: "searching",
+      });
       const journey = updates.at(-1)!.journeys[0];
       expect(timing === "arrive" ? journey.arrival : journey.departure).toBe(
         past,

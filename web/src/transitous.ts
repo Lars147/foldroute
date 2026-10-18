@@ -297,6 +297,7 @@ export interface Batch {
   issues: string[];
   stop: boolean;
 }
+export type RoutingClient = Pick<ApiClient, "batch" | "retryAt">;
 export function mapResponse(
   value: unknown,
   request: RouteRequest,

@@ -247,10 +247,13 @@ export interface Journey {
   transfers: number;
   isDirect: boolean;
 }
+export type PlanningPhase = "base" | "bike-transfers" | "walking" | "via";
 export interface PlanningUpdate {
   journeys: Journey[];
   status: "searching" | "complete" | "partial";
   issues: string[];
+  phase: PlanningPhase;
+  incompletePhases: PlanningPhase[];
 }
 export const kindNames: Record<LegKind, string> = {
   bike: "Rad",

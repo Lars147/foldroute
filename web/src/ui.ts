@@ -52,6 +52,8 @@ export const dateLabel = (seconds: number) =>
 export const localDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 const paths: Record<string, string> = {
+  check: '<path d="m5 12 4 4L19 6"/>',
+  warning: '<path d="m12 3 10 18H2L12 3ZM12 9v4m0 4h.01"/>',
   trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
   swap: '<path d="M8 20V4m-4 4 4-4 4 4M16 4v16m-4-4 4 4 4-4"/>',
   volume:
@@ -82,8 +84,7 @@ const paths: Record<string, string> = {
   flag: '<path d="M5 21V3m0 0c5-4 9 4 14 0v10c-5 4-9-4-14 0"/>',
   close: '<path d="m6 6 12 12M6 18 18 6"/>',
   chevron: '<path d="m9 5 7 7-7 7"/>',
-  refresh:
-    '<path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.7-6.4L21 8M21 3v5h-5"/>',
 };
 export function icon(name: LegKind | keyof typeof paths) {
   const span = node("span", "", "icon");

@@ -64,6 +64,7 @@ import {
 import { setupPWA } from "./pwa";
 import { afterStartup } from "./startup";
 import { PlaceBook } from "./places";
+import { PlanningFeedback, type PlanningToastStage } from "./planning-feedback";
 import { localDatabase } from "./storage";
 import {
   readRouteURL,
@@ -213,9 +214,10 @@ function clearStorageMessage(...sources: StorageMessageSource[]) {
     el("storage-message").textContent = "";
   }
   if (toastStorageSource && sources.includes(toastStorageSource)) {
-    clearTimeout(toastTimer);
+    clearToastCountdown();
     el("toast").hidden = true;
     toastStorageSource = undefined;
+    planningFeedback.resume();
   }
 }
 
@@ -239,14 +241,107 @@ document
   .forEach((element) => element.append(icon(element.dataset.icon!)));
 let toastTimer: ReturnType<typeof setTimeout>;
 let toastStorageSource: StorageMessageSource | undefined;
-function toast(message: string, source?: StorageMessageSource) {
-  toastStorageSource = source;
-  el("toast").textContent = message;
-  el("toast").hidden = false;
-  reveal(el("toast"), { y: 8 });
+let toastStartedAt = 0;
+// Motion preferences restart CSS animations; retain the original dismissal deadline.
+matchMedia("(prefers-reduced-motion: reduce)").addEventListener(
+  "change",
+  () => {
+    const countdown =
+      el("toast").querySelector<HTMLElement>(".toast-countdown");
+    if (countdown)
+      countdown.style.setProperty(
+        "--toast-elapsed",
+        `${Math.max(0, performance.now() - toastStartedAt)}ms`,
+      );
+  },
+);
+function clearToastCountdown() {
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el("toast").hidden = true), 6000);
+  el("toast").querySelector(".toast-countdown")?.remove();
 }
+function clearPlanningToast() {
+  const element = el("toast");
+  if (!element.dataset.planningId) return;
+  clearToastCountdown();
+  planningFeedback.releaseRecovery();
+  element.hidden = true;
+  delete element.dataset.planningId;
+  delete element.dataset.planningStage;
+  el("status").setAttribute("aria-live", "polite");
+}
+function toast(
+  message: string,
+  source?: StorageMessageSource,
+  planningId?: string,
+  stage?: PlanningToastStage,
+) {
+  const element = el("toast");
+  if (planningId && !element.hidden && !element.dataset.planningId)
+    return false;
+  if (
+    planningId &&
+    !element.hidden &&
+    element.dataset.planningId === planningId &&
+    element.dataset.planningStage === stage &&
+    element.querySelector(".planning-toast-message")?.textContent === message
+  )
+    return true;
+  clearToastCountdown();
+  planningFeedback.releaseRecovery();
+  toastStorageSource = source;
+  if (planningId) {
+    element.dataset.planningId = planningId;
+    element.dataset.planningStage = stage!;
+    const label = node("span", message, "planning-toast-message");
+    if (stage === "searching" || stage === "optimizing") {
+      const spinner = document.createElement("span");
+      spinner.className = "planning-toast-spinner";
+      spinner.setAttribute("aria-hidden", "true");
+      element.replaceChildren(spinner, label);
+    } else if (stage === "ready") element.replaceChildren(icon("check"), label);
+    else if (stage === "error") {
+      const warning = icon("warning");
+      warning.classList.add("planning-toast-warning");
+      element.replaceChildren(warning, label);
+    } else element.replaceChildren(label);
+  } else {
+    planningFeedback.interrupt();
+    delete element.dataset.planningId;
+    delete element.dataset.planningStage;
+    element.textContent = message;
+  }
+  el("status").setAttribute("aria-live", stage ? "off" : "polite");
+  element.hidden = false;
+  if (!planningId || planningFeedback.position()) {
+    reveal(element, { y: 8 });
+    if (!stage || stage === "ready") {
+      const duration = stage === "ready" ? 3000 : 6000;
+      const countdown = node("span", "", "toast-countdown");
+      countdown.setAttribute("aria-hidden", "true");
+      countdown.style.setProperty("--toast-duration", `${duration}ms`);
+      countdown.append(node("span", "", "toast-countdown-fill"));
+      toastStartedAt = performance.now();
+      element.append(countdown);
+      toastTimer = setTimeout(() => {
+        clearToastCountdown();
+        element.hidden = true;
+        planningFeedback.resume();
+      }, duration);
+    }
+    return true;
+  }
+  return false;
+}
+const planningFeedback = new PlanningFeedback(
+  (id, message, stage) => toast(message, undefined, id, stage),
+  clearPlanningToast,
+  () =>
+    view === "map" &&
+    !document.hidden &&
+    !navigationChecking &&
+    !navigationView?.visible &&
+    !document.querySelector("dialog[open]"),
+);
 const routeMap = new RouteMap(
   (id) => session.select(id),
   () => {},
@@ -1292,6 +1387,7 @@ function showRouteMap(state: PlanningState) {
   );
 }
 function renderPlanning(state: PlanningState) {
+  planningFeedback.update(state);
   if (navigationChecking && navigationCheckKey !== navigationContextKey())
     cancelNavigationCheck();
   if (activePlanId && activePlan && (state.request || state.pendingRequest)) {
@@ -1339,6 +1435,7 @@ function renderPlanning(state: PlanningState) {
     !navigator.onLine || state.busy;
   pwa?.refresh();
   renderNavigationCheck();
+  planningFeedback.position();
 }
 const destination = new PlaceSearch(
   "destination",
@@ -2428,6 +2525,10 @@ el("recover-planning").onclick = async () => {
     return;
   }
   if (!navigator.onLine || (recovery.retryAt ?? 0) > Date.now() / 1000) return;
+  if (recovery.mode === "optimization") {
+    await session.resumeOptimization();
+    return;
+  }
   const request = structuredClone(recovery.request);
   const result = await session.calculate(
     request,

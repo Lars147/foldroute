@@ -2,15 +2,21 @@ import {
   type Journey,
   type RouteRequest,
   type RoutingSettings,
+  type PlanningPhase,
+  type PlanningUpdate,
   errorText,
   PlannerError,
   retainSelectedJourney,
+  selectJourneys,
 } from "./model";
+import { searchMessage, stoppedSearchMessage } from "./planning-progress";
 import { planRoutes } from "./planner";
 import { ApiClient } from "./transitous";
 import { locate } from "./search";
+import { PlanningRoutingClient } from "./planning-routing";
 export interface PlanningRecovery {
   action: "retry" | "adjust";
+  mode?: "search" | "optimization";
   request: RouteRequest;
   retryAt?: number;
 }
@@ -30,6 +36,9 @@ export interface PlanningState {
   pendingRequestResolved?: boolean;
   staleReason?: string;
   recovery?: PlanningRecovery;
+  phase?: PlanningPhase;
+  incompletePhases?: PlanningPhase[];
+  searchStatus?: PlanningUpdate["status"] | "stopped";
 }
 function routingContext(request: RouteRequest, settings: RoutingSettings) {
   const place = (value: RouteRequest["origin"]) => [
@@ -65,6 +74,12 @@ export class PlanningSession {
   private generation = 0;
   private explicitlySelectedID?: string;
   private selectionHeld = false;
+  private continuation?: {
+    calculationId: string;
+    request: RouteRequest;
+    settings: RoutingSettings;
+    client: PlanningRoutingClient;
+  };
   constructor(
     private client: ApiClient,
     private change: (s: PlanningState) => void,
@@ -76,6 +91,35 @@ export class PlanningSession {
   private emit() {
     this.change(this.state);
   }
+  private progress(
+    update: PlanningUpdate,
+    request: RouteRequest,
+    hasResults: boolean,
+  ) {
+    return {
+      busy: update.status === "searching",
+      searchStatus: update.status,
+      phase: update.phase,
+      incompletePhases: update.incompletePhases,
+      message: searchMessage(
+        update.status,
+        update.phase,
+        update.incompletePhases,
+        hasResults,
+        update.issues,
+      ),
+      issues: update.issues,
+      recovery:
+        update.status === "partial"
+          ? {
+              action: "retry" as const,
+              ...(hasResults ? { mode: "optimization" as const } : {}),
+              request: structuredClone(request),
+              retryAt: this.client.retryAt || undefined,
+            }
+          : undefined,
+    };
+  }
   stop(
     message = "Suche abgebrochen. Bisherige Ergebnisse bleiben verfügbar.",
     recovery?: PlanningRecovery,
@@ -83,12 +127,14 @@ export class PlanningSession {
     this.generation++;
     this.controller?.abort();
     this.controller = undefined;
+    this.continuation = undefined;
     this.state = {
       ...this.state,
       busy: false,
       locating: false,
       message,
       recovery,
+      searchStatus: this.state.busy ? "stopped" : this.state.searchStatus,
     };
     this.emit();
   }
@@ -158,15 +204,30 @@ export class PlanningSession {
     this.stop("");
     this.explicitlySelectedID = undefined;
     this.selectionHeld = false;
+    let message = context.busy
+      ? "Bisherige Ergebnisse dieser Planung. Bei Bedarf erneut versuchen."
+      : context.message;
+    if (!message && context.phase && context.searchStatus)
+      message =
+        context.searchStatus === "stopped"
+          ? stoppedSearchMessage
+          : searchMessage(
+              context.searchStatus,
+              context.phase,
+              context.incompletePhases ?? [],
+              context.journeys.length > 0,
+              context.issues,
+            );
     this.state = {
       ...structuredClone(context),
       busy: false,
       locating: false,
       restored: true,
       calculationId: undefined,
-      message: context.busy
-        ? "Bisherige Ergebnisse dieser Planung. Bei Bedarf erneut versuchen."
-        : context.message,
+      recovery: context.recovery
+        ? { ...structuredClone(context.recovery), mode: "search" }
+        : undefined,
+      message,
     };
     this.emit();
   }
@@ -244,6 +305,9 @@ export class PlanningSession {
         : "Verbindungen werden gesucht …",
       issues: [],
       recovery: undefined,
+      phase: undefined,
+      incompletePhases: [],
+      searchStatus: undefined,
     };
     this.emit();
     let locating = false,
@@ -275,6 +339,13 @@ export class PlanningSession {
           ...request,
           time: Math.floor(queriedAt),
         };
+      const continuation = {
+        calculationId,
+        request: structuredClone(request),
+        settings: structuredClone(calculationSettings),
+        client: new PlanningRoutingClient(this.client),
+      };
+      this.continuation = continuation;
       resolved = true;
       this.resolved?.(request, calculationSettings);
       this.state = {
@@ -289,28 +360,18 @@ export class PlanningSession {
         request,
         calculationSettings,
         signal,
-        this.client,
+        continuation.client,
       )) {
         if (generation !== this.generation) return;
+        const progress = this.progress(
+          update,
+          request,
+          received || update.journeys.length > 0,
+        );
         if (!update.journeys.length) {
           this.state = {
             ...this.state,
-            busy: update.status === "searching",
-            message:
-              update.status === "searching"
-                ? "Verbindungen optimieren …"
-                : update.status === "partial"
-                  ? "Suche teilweise abgeschlossen."
-                  : "",
-            issues: update.issues,
-            recovery:
-              update.status === "partial"
-                ? {
-                    action: "retry",
-                    request: structuredClone(request),
-                    retryAt: this.client.retryAt || undefined,
-                  }
-                : undefined,
+            ...progress,
           };
           this.emit();
           continue;
@@ -337,24 +398,9 @@ export class PlanningSession {
           calculationId,
           request,
           queriedAt,
-          busy: update.status === "searching",
+          ...progress,
           locating: false,
           restored: false,
-          message:
-            update.status === "searching"
-              ? "Verbindungen optimieren …"
-              : update.status === "partial"
-                ? "Suche teilweise abgeschlossen."
-                : "",
-          issues: update.issues,
-          recovery:
-            update.status === "partial"
-              ? {
-                  action: "retry",
-                  request: structuredClone(request),
-                  retryAt: this.client.retryAt || undefined,
-                }
-              : undefined,
         };
         this.emit();
       }
@@ -366,6 +412,14 @@ export class PlanningSession {
         );
     } catch (error) {
       if (signal.aborted || generation !== this.generation) return;
+      const phase =
+        this.state.phase ?? (request.stops?.length ? "via" : "base");
+      const incompletePhases = received
+        ? [...new Set([...(this.state.incompletePhases ?? []), phase])]
+        : [];
+      const issues = received
+        ? [...new Set([...this.state.issues, errorText(error)])]
+        : this.state.issues;
       this.state = {
         ...(received ? this.state : previous),
         request: received
@@ -375,6 +429,10 @@ export class PlanningSession {
             : request,
         busy: false,
         locating: false,
+        phase: received ? phase : undefined,
+        incompletePhases,
+        searchStatus: received ? "partial" : undefined,
+        issues,
         pendingRequest: received ? undefined : request,
         pendingRequestResolved: received ? undefined : resolved,
         staleReason: received
@@ -383,20 +441,23 @@ export class PlanningSession {
             ? (previous.staleReason ??
               "Die Aktualisierung ist nicht abgeschlossen. Diese Verbindung stammt aus der bisherigen Abfrage.")
             : undefined,
-        message:
-          error instanceof PlannerError &&
-          error.code === "empty" &&
-          request.timing !== "now" &&
-          request.time < Date.now() / 1000
+        message: received
+          ? searchMessage("partial", phase, incompletePhases, true, issues)
+          : error instanceof PlannerError &&
+              error.code === "empty" &&
+              request.timing !== "now" &&
+              request.time < Date.now() / 1000
             ? "Für diesen Zeitpunkt wurden keine passenden Verbindungen gefunden."
             : errorText(error),
         recovery: {
           action:
-            locating ||
-            (error instanceof PlannerError &&
-              ["input", "empty"].includes(error.code))
+            !received &&
+            (locating ||
+              (error instanceof PlannerError &&
+                ["input", "empty"].includes(error.code)))
               ? "adjust"
               : "retry",
+          ...(received ? { mode: "optimization" as const } : {}),
           request: structuredClone(request),
           retryAt:
             error instanceof PlannerError && error.retryAt
@@ -406,6 +467,106 @@ export class PlanningSession {
       };
       this.emit();
       if (locating) return "location-error";
+    } finally {
+      if (generation === this.generation) {
+        this.controller = undefined;
+        this.state = { ...this.state, busy: false, locating: false };
+        this.emit();
+      }
+    }
+  }
+  async resumeOptimization() {
+    const continuation = this.continuation;
+    if (
+      !continuation ||
+      this.state.busy ||
+      this.state.recovery?.mode !== "optimization" ||
+      this.state.calculationId !== continuation.calculationId ||
+      this.state.restored ||
+      this.state.staleReason ||
+      this.state.pendingRequest ||
+      !this.state.journeys.length ||
+      !this.state.request ||
+      !this.state.resultSettings ||
+      routingContext(this.state.request, this.state.resultSettings) !==
+        routingContext(continuation.request, continuation.settings) ||
+      !navigator.onLine ||
+      Math.max(this.state.recovery.retryAt ?? 0, this.client.retryAt) >
+        Date.now() / 1000
+    )
+      return;
+
+    const generation = ++this.generation;
+    this.controller = new AbortController();
+    const signal = this.controller.signal;
+    const { request, settings, client } = continuation;
+    const candidates = new Map(this.state.journeys.map((j) => [j.id, j]));
+    this.state = {
+      ...this.state,
+      busy: true,
+      locating: false,
+      message: "Optimierung läuft …",
+      issues: [],
+      incompletePhases: [],
+      searchStatus: "searching",
+      recovery: undefined,
+    };
+    this.emit();
+    try {
+      for await (const update of planRoutes(
+        structuredClone(request),
+        structuredClone(settings),
+        signal,
+        client,
+      )) {
+        if (generation !== this.generation) return;
+        for (const journey of update.journeys)
+          candidates.set(journey.id, journey);
+        const selected = this.state.selected;
+        let journeys = selectJourneys(
+          [...candidates.values()],
+          request.timing,
+          4,
+          settings.maxCyclingMinutes,
+          settings.showCyclingComparison,
+        );
+        if (selected)
+          journeys = retainSelectedJourney(
+            journeys,
+            selected,
+            settings.maxCyclingMinutes,
+            settings.showCyclingComparison,
+          );
+        this.state = {
+          ...this.state,
+          ...this.progress(update, request, true),
+          journeys,
+          selected: journeys.find((j) => j.id === selected?.id) ?? journeys[0],
+        };
+        this.emit();
+      }
+    } catch (error) {
+      if (signal.aborted || generation !== this.generation) return;
+      const phase = this.state.phase ?? "base";
+      this.state = {
+        ...this.state,
+        ...this.progress(
+          {
+            journeys: this.state.journeys,
+            status: "partial",
+            phase,
+            incompletePhases: [
+              ...new Set([...(this.state.incompletePhases ?? []), phase]),
+            ],
+            issues: [...new Set([...this.state.issues, errorText(error)])],
+          },
+          request,
+          true,
+        ),
+      };
+      if (error instanceof PlannerError && error.retryAt)
+        this.state.recovery!.retryAt = error.retryAt;
+      this.emit();
     } finally {
       if (generation === this.generation) {
         this.controller = undefined;

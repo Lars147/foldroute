@@ -123,7 +123,7 @@ export function previewPlannerModule(recording, fixture) {
             request[key].longitude !== recording.request[key].longitude) ||
           Object.entries(recording.settings).some(([key, value]) => JSON.stringify(settings[key]) !== JSON.stringify(value)))
         throw new Error("Screenshot planning must use the recorded context");
-      yield { journeys: structuredClone(journeys), status: "complete", issues: [] };
+      yield { journeys: structuredClone(journeys), status: "complete", phase: "base", incompletePhases: [], issues: [] };
     }
   `;
 }
