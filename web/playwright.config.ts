@@ -4,7 +4,9 @@ const ci = !!process.env.CI;
 export default defineConfig({
   testDir: "tests/browser",
   forbidOnly: ci,
+  fullyParallel: ci,
   globalTimeout: ci ? 30 * 60 * 1000 : undefined,
+  maxFailures: ci ? 10 : undefined,
   retries: ci ? 1 : 0,
   workers: ci ? 1 : 2,
   reporter: ci ? [["line"], ["html", { open: "never" }]] : undefined,
