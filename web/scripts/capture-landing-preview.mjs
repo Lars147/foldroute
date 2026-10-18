@@ -142,7 +142,7 @@ try {
   await expect(page.locator(".app-tabs")).toBeVisible();
   await expect(page.locator(".app-tabs > button .app-tab-label")).toHaveText([
     "Route",
-    "Strecken",
+    "Verlauf",
     "Einstellungen",
   ]);
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");

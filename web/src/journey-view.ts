@@ -259,10 +259,10 @@ export class JourneyView {
       ? "‹ Beispielroute"
       : map
         ? this.savedOrigin
-          ? "‹ Strecken"
+          ? "‹ Verlauf"
           : "‹ Alle Verbindungen"
         : this.savedOrigin === "history"
-          ? "‹ Strecken"
+          ? "‹ Verlauf"
           : this.savedOrigin === "search"
             ? "‹ Zur Suche"
             : "‹ Alle Verbindungen";

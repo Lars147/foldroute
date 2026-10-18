@@ -199,7 +199,7 @@ for (const width of [320, 390, 1280])
         requests.push(new URL(request.url()));
     });
     await page.locator("#tab-history").click();
-    await expect(page.locator("#tab-history")).toHaveText("Strecken");
+    await expect(page.locator("#tab-history")).toHaveText("Verlauf");
     await expect(page.locator(".history-via")).toHaveText(
       `Über ${stops.map((stop) => stop.place.name).join(" · ")}`,
     );

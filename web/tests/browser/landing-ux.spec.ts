@@ -199,7 +199,7 @@ test("landing provides PWA installation and opens the fixed interactive example"
   const privacyAnswer = page.locator("details").filter({ has: privacy });
   await expect(privacyAnswer).toContainText("Ortssuchen sowie Start, Ziel, gewählte Zwischenziele, Zeitpunkt und Routing-Einstellungen an Transitous");
   await expect(privacyAnswer).toContainText("„Strecken auf diesem Gerät speichern“");
-  await expect(privacyAnswer).toContainText("Einzelne Strecken lassen sich im Tab „Strecken“ löschen.");
+  await expect(privacyAnswer).toContainText("Einzelne Strecken lassen sich im Tab „Verlauf“ löschen.");
   const example = page.locator("#idee").getByRole("link", { name: "Beispiel öffnen", exact: true });
   await expect(example).toBeVisible();
   await expect(page.locator(".comparison-panel #example-route")).toHaveCount(1);

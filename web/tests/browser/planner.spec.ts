@@ -4283,7 +4283,7 @@ for (const width of [320, 390]) {
 }
 
 for (const origin of ["history", "search"]) {
-  test(`saved map returns to Strecken from ${origin}`, async ({ page }) => {
+  test(`saved map returns to Verlauf from ${origin}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setup(page);
     await plan(page);
@@ -4298,7 +4298,7 @@ for (const origin of ["history", "search"]) {
       if (request.url().includes("/api/v6/plan?")) requests++;
     });
     await showMap(page);
-    await expect(page.locator("#result-back")).toHaveText("‹ Strecken");
+    await expect(page.locator("#result-back")).toHaveText("‹ Verlauf");
     await page.locator("#result-back").click();
     await expect(page.locator("#history-view")).toBeVisible();
     await expect(page.locator(".history-open")).toBeFocused();

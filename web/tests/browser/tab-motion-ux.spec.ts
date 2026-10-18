@@ -173,7 +173,7 @@ for (const width of [390, 1280])
       await settled(page);
       await expect(page.locator(".app-tabs").getByRole("button")).toHaveText([
         "Route",
-        "Strecken",
+        "Verlauf",
         "Einstellungen",
       ]);
       await expect(page.locator(".tab-indicator")).toHaveAttribute(
