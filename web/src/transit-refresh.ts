@@ -3,7 +3,9 @@ import {
   type Journey,
   type Leg,
   type TransitReference,
+  type TransitStop,
 } from "./model";
+import { parseTransitStops } from "./transit-stops";
 import { assessConnection } from "./connection-assessment";
 import { platform, retryAfter, service } from "./transitous";
 
@@ -15,12 +17,16 @@ export interface TransitUpdate {
   realtime: boolean;
   cancelled: boolean;
   updatedAt: number;
+  stops?: TransitStop[];
 }
 export type TransitResult =
   | { kind: "updated"; update: TransitUpdate }
   | { kind: "unavailable" }
   | { kind: "failed"; retryAt?: number };
 type Stop = {
+  name?: string;
+  lat?: number;
+  lon?: number;
   stopId?: string;
   departure?: string;
   arrival?: string;
@@ -64,12 +70,29 @@ export function matchTrip(
     )
   )
     return { kind: "unavailable" };
-  const stops = legs.flatMap((leg) =>
-    [leg.from, ...(leg.intermediateStops ?? []), leg.to].map((stop) => ({
-      stop,
-      leg,
-    })),
-  );
+  const stops: { stop: Stop; leg: TripLeg }[] = [];
+  for (const leg of legs) {
+    const previous = stops.at(-1);
+    // Adjacent trip legs can share one stay-seated stop. Merge that boundary
+    // only; repeated stops within a leg must retain their own occurrences.
+    if (previous?.stop.stopId && previous.stop.stopId === leg.from.stopId) {
+      previous.stop = {
+        ...previous.stop,
+        ...Object.fromEntries(
+          Object.entries(leg.from).filter(([, value]) => value !== undefined),
+        ),
+      };
+      previous.leg = {
+        ...leg,
+        cancelled: leg.cancelled || previous.leg.cancelled,
+        realTime: leg.realTime === true && previous.leg.realTime === true,
+      };
+    } else stops.push({ stop: leg.from, leg });
+    stops.push(
+      ...(leg.intermediateStops ?? []).map((stop) => ({ stop, leg })),
+      { stop: leg.to, leg },
+    );
+  }
   const board = stops.flatMap(({ stop }, i) =>
     stop?.stopId === ref.fromId &&
     timestamp(stop.scheduledDeparture) === ref.scheduledDeparture
@@ -103,6 +126,13 @@ export function matchTrip(
   return {
     kind: "updated",
     update: {
+      stops: stops
+        .slice(board[0], alight[0] + 1)
+        .every(({ leg }) => Array.isArray(leg.intermediateStops))
+        ? parseTransitStops(
+            stops.slice(board[0], alight[0] + 1).map(({ stop }) => stop),
+          )
+        : undefined,
       departure,
       arrival,
       platform: track(from.stop),
@@ -235,6 +265,7 @@ export function applyTransit(
       return;
     }
     const u = result.update;
+    if (u.stops) leg.transitStops = u.stops;
     Object.assign(leg, {
       start: u.departure,
       end: u.arrival,

@@ -8,10 +8,16 @@ import {
 } from "./motion";
 import type { NavigationMap } from "./navigation-map";
 import { NavigationGuidance } from "./navigation-guidance";
+import { NavigationStations } from "./navigation-stations";
 import { clock, duration, el, node, icon, setLocationFeedback } from "./ui";
 import type { Leg } from "./model";
 import { movement, freshTransit } from "./navigation-engine";
-import { renderJourneyDetails } from "./journey-detail";
+import {
+  TransitTimeline,
+  type TransitEstimate,
+  type TransitEstimateSource,
+} from "./navigation-estimate";
+import { detailTime, renderJourneyDetails } from "./journey-detail";
 import { closeMapStylePickers, mountMapStylePicker } from "./map-style-picker";
 import {
   navigationSections,
@@ -20,11 +26,12 @@ import {
 } from "./navigation-sections";
 
 const transitStatus = (transit: Leg) =>
-  `${transit.transitStatus?.failure === "network" ? "Abruf fehlgeschlagen" : transit.transitStatus?.failure === "unavailable" ? "Aktualisierung nicht verfügbar" : !freshTransit(transit, Date.now() / 1000) ? "Fahrtdaten veraltet" : transit.realtime ? "Echtzeit" : "Fahrplan"}${transit.transitStatus?.updatedAt ? ` · Stand ${clock(transit.transitStatus.updatedAt)}` : ""}`;
+  `${transit.transitStatus?.cancelled ? "Fahrt fällt aus" : transit.transitStatus?.failure === "network" ? "Abruf fehlgeschlagen" : transit.transitStatus?.failure === "unavailable" ? "Aktualisierung nicht verfügbar" : !freshTransit(transit, Date.now() / 1000) ? "Fahrtdaten veraltet" : transit.realtime ? "Echtzeit" : "Fahrplan"}${transit.transitStatus?.updatedAt ? ` · Stand ${clock(transit.transitStatus.updatedAt)}` : ""}`;
 
 export class NavigationView {
   readonly root: HTMLElement;
   private map?: NavigationMap;
+  private stationLists: NavigationStations[];
   private loading?: Promise<void>;
   private session?: NavigationSession;
   private voiceMessage = "";
@@ -36,6 +43,8 @@ export class NavigationView {
   private currentSectionId?: string;
   private tabsKey = "";
   private sectionDetailKey = "";
+  private timelineKey = "";
+  private timeline?: TransitTimeline;
   private dragY?: number;
   private confirmationTrigger?: HTMLElement;
   private guidance = new NavigationGuidance((message) => {
@@ -53,7 +62,7 @@ export class NavigationView {
     this.root.innerHTML = `
       <div id="navigation-map" tabindex="0" aria-label="Navigationskarte in Fahrtrichtung"></div>
       <div class="navigation-top" id="navigation-top"><div id="navigation-phases" role="tablist" aria-label="Reiseabschnitte"></div></div>
-      <div id="navigation-gps-status" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+      <div id="navigation-gps-status" role="status" aria-live="polite" aria-atomic="true" hidden><strong id="navigation-gps-primary"></strong> <span id="navigation-gps-estimate" hidden></span></div>
       <div class="navigation-map-controls" role="group" aria-label="Kartensteuerung">
         <button id="navigation-audio" class="navigation-icon-button secondary" type="button" aria-label="Ton ausschalten" title="Ton ausschalten"></button>
         <button id="navigation-center" class="navigation-center navigation-icon-button secondary" type="button" aria-label="Navigation zentrieren" title="Navigation zentrieren" aria-pressed="true"></button>
@@ -64,19 +73,25 @@ export class NavigationView {
         <div class="navigation-instruction" id="navigation-guidance"><span id="navigation-arrow" aria-hidden="true">↑</span><div><strong id="navigation-distance"></strong><h1 id="navigation-instruction" tabindex="-1">Navigation wird vorbereitet …</h1><p id="navigation-detail"></p></div></div>
         <div id="navigation-alert" hidden><p id="navigation-alert-summary" role="status"></p><button id="navigation-alert-open" class="secondary" type="button">Details</button></div>
         <div id="navigation-summary">
-          <button id="navigation-details-toggle" type="button" aria-expanded="false" aria-controls="navigation-details"><span class="navigation-grip" aria-hidden="true"></span><strong id="navigation-remaining"></strong><span id="navigation-summary-arrival"></span></button>
+          <button id="navigation-details-toggle" type="button" aria-expanded="false" aria-controls="navigation-details" aria-describedby="navigation-context-title navigation-context-detail navigation-context-status navigation-remaining"><span class="navigation-grip" aria-hidden="true"></span><strong id="navigation-remaining"></strong><span id="navigation-summary-label">Reisedetails</span></button>
           <div id="navigation-end-slot"></div>
         </div>
+        <div id="navigation-context-slot"><span id="navigation-context" hidden><strong id="navigation-context-title"></strong><span id="navigation-context-detail"></span><span id="navigation-context-status"></span></span></div>
+        <ol id="navigation-stations-preview" class="navigation-stations" aria-label="Kommende Halte" hidden></ol>
+        <span id="navigation-stations-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
         <div id="navigation-phases-slot"></div>
         <div id="navigation-quick-actions" class="navigation-actions"></div>
         <div id="navigation-details">
         <div id="navigation-section-detail" role="tabpanel" tabindex="0">
-          <div class="navigation-arrival"><span id="navigation-stage"></span><strong id="navigation-arrival"></strong></div>
+          <span id="navigation-stage" class="sr-only"></span>
           <div id="navigation-section-content"></div>
+          <ol id="navigation-stations-detail" class="navigation-stations" aria-label="Stationen bis zum Ausstieg" hidden></ol>
+          <p id="navigation-transit-status"></p>
         </div>
+        <div id="navigation-journey-summary" role="group" aria-label="Gesamte Reise" hidden><p id="navigation-summary-arrival"></p><p id="navigation-arrival-warning" role="status"></p></div>
         <div id="navigation-location" hidden><p id="navigation-location-status" role="status"></p><div class="navigation-actions"><button id="navigation-locate" class="secondary" hidden>Standort erneut anfragen</button></div></div>
         <p id="navigation-network-status"></p>
-        <p id="navigation-transit-status"></p><p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
+        <p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
         <div id="navigation-alternative" hidden><p id="navigation-alternative-text"></p><button id="navigation-accept" class="primary">Verbindung übernehmen</button><button id="navigation-dismiss" class="secondary">Bisherige behalten</button></div>
         <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
         <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
@@ -84,6 +99,10 @@ export class NavigationView {
       </article>
       <dialog id="navigation-confirm" aria-labelledby="navigation-confirm-title" aria-describedby="navigation-confirm-message"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary" type="button">Bestätigen</button><button id="navigation-confirm-no" class="secondary" type="button">Abbrechen</button></div></dialog>`;
     el("main").append(this.root);
+    this.stationLists = [
+      new NavigationStations(el("navigation-stations-preview"), true),
+      new NavigationStations(el("navigation-stations-detail")),
+    ];
     mountMapStylePicker(el("navigation-style-control"), "navigation");
     el("navigation-center").append(icon("crosshair"));
     const toggle = el("navigation-details-toggle");
@@ -337,10 +356,16 @@ export class NavigationView {
     const panel = el("navigation-section-detail");
     if (selected) panel.setAttribute("aria-labelledby", this.selectedTab()!.id);
     else panel.removeAttribute("aria-labelledby");
+    const compactMovement =
+      engine?.phase === "active" &&
+      selected === current &&
+      selected?.main === engine.leg &&
+      movement(selected.main);
     const detailKey = JSON.stringify([
       engine?.journey.departure,
       engine?.journey.arrival,
       selected,
+      compactMovement,
     ]);
     if (detailKey !== this.sectionDetailKey) {
       const scrollTop = el("navigation-details").scrollTop;
@@ -361,19 +386,136 @@ export class NavigationView {
             .classList.remove("detail-preparation");
         if (movement(selected.main)) {
           const meters = selected.main.distance;
-          list
-            .querySelector(
-              '[data-kind="bike"] .detail-meta, [data-kind="walk"] .detail-meta',
-            )
-            ?.append(
-              ` · ${meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`}`,
+          const distance =
+            meters >= 1000
+              ? `${(meters / 1000).toFixed(1)} km`
+              : `${Math.round(meters)} m`;
+          const step = list.querySelector<HTMLElement>(
+            `[data-kind="${selected.main.kind}"]`,
+          )!;
+          if (compactMovement) {
+            step.classList.add("navigation-current-movement");
+            step.replaceChildren(
+              node(
+                "small",
+                `Geplant: ${duration(selected.main.end - selected.main.start)} · ${distance}`,
+                "navigation-section-summary",
+              ),
             );
+          } else step.querySelector(".detail-meta")!.append(` · ${distance}`);
         }
+        // Navigation shows the source and update time together below this section.
+        for (const source of list.querySelectorAll(".detail-source"))
+          source.remove();
         content.append(list);
       }
       el("navigation-details").scrollTop = selectionChanged ? 0 : scrollTop;
     }
     return { current, selected, revealCurrent: currentChanged || tabsChanged };
+  }
+  private renderTransitContext(
+    transit: Leg | undefined,
+    viewed: Leg | undefined,
+    estimate?: TransitEstimate,
+  ) {
+    const session = this.session!;
+    const engine = session.engine;
+    const active = engine?.phase === "active";
+    const onboard = active && engine.leg.kind === "transit";
+    const leg = active ? transit : undefined;
+    const context = el("navigation-context");
+    context.hidden = !leg;
+    el("navigation-context-slot").hidden = !leg;
+    this.root.dataset.transitContext = String(!!leg);
+    let title = "",
+      detail = "",
+      status = "";
+    const confirmedIndex = onboard ? engine.transitStopIndex : -1;
+    const index = estimate?.stopIndex ?? confirmedIndex;
+    const stops = onboard ? engine.leg.transitStops : undefined;
+    if (leg && engine) {
+      if (onboard) {
+        const remaining = stops?.filter(
+          (stop, i) => i > index && !stop.cancelled,
+        );
+        const confirmed =
+          session.hasCurrentLocation &&
+          !session.resumeNeedsConfirmation &&
+          engine.transitPositionConfirmed;
+        title = leg.transitStatus?.cancelled
+          ? `${leg.line || "ÖPNV"} · Fahrt fällt aus`
+          : !stops
+            ? "Stationsdaten nicht verfügbar"
+            : index === stops.length - 1 && confirmed
+              ? "Hier aussteigen"
+              : remaining?.length
+                ? `Nächster Halt: ${remaining[0].name}`
+                : `Ausstieg: ${leg.to.name}`;
+        detail = `${leg.line || "ÖPNV"}${remaining?.length ? ` · Noch ${remaining.length} ${remaining.length === 1 ? "Halt" : "Halte"}` : ""} · Ausstieg ${leg.to.name}`;
+        status =
+          !confirmed && stops && session.hasCurrentLocation
+            ? "Stationsstand wird bestätigt"
+            : "";
+        if (!freshTransit(leg, Date.now() / 1000))
+          status = [status, transitStatus(leg)].filter(Boolean).join(" · ");
+      } else {
+        const seconds = leg.start - Date.now() / 1000;
+        const countdown = leg.transitStatus?.cancelled
+          ? "Fahrt fällt aus"
+          : seconds < 0
+            ? "Abfahrtszeit überschritten"
+            : seconds < 60
+              ? "in <1 Min."
+              : `in ${Math.ceil(seconds / 60)} Min.`;
+        title = `${leg.line || "ÖPNV"} · ${countdown}`;
+        const target = engine.leg.to;
+        const samePlace =
+          target.stopId && leg.from.stopId
+            ? target.stopId === leg.from.stopId
+            : target.name === leg.from.name &&
+              target.latitude === leg.from.latitude &&
+              target.longitude === leg.from.longitude;
+        const namedAbove =
+          samePlace &&
+          ["navigation-instruction", "navigation-detail"].some((id) =>
+            el(id).textContent?.includes(leg.from.name),
+          );
+        detail = `Abfahrt ${detailTime(engine.journey, leg.start, Date.now() / 1000)}${namedAbove ? "" : ` · ${leg.from.name}`}${leg.platform ? ` · Gleis ${leg.platform}` : ""}`;
+        status = freshTransit(leg, Date.now() / 1000) ? "" : transitStatus(leg);
+      }
+    }
+    for (const [id, text] of [
+      ["navigation-context-title", title],
+      ["navigation-context-detail", detail],
+      ["navigation-context-status", status],
+    ]) {
+      const element = el(id);
+      if (element.textContent !== text) element.textContent = text;
+    }
+    this.stationLists[0].update(
+      onboard ? engine.leg : undefined,
+      index,
+      confirmedIndex,
+    );
+    const selectedTransit =
+      active && viewed?.kind === "transit" ? viewed : undefined;
+    this.stationLists[1].update(
+      selectedTransit,
+      onboard && selectedTransit?.navigationId === engine.leg.navigationId
+        ? index
+        : -1,
+      onboard && selectedTransit?.navigationId === engine.leg.navigationId
+        ? confirmedIndex
+        : -1,
+    );
+    const announcement = el("navigation-stations-announcement");
+    const message = onboard
+      ? [estimate ? "Stationsstand geschätzt" : "", title, detail, status]
+          .filter(Boolean)
+          .join(". ")
+      : "";
+    if (announcement.textContent !== message)
+      announcement.textContent = message;
   }
   private layout() {
     const mobile = this.mobile.matches;
@@ -388,6 +530,11 @@ export class NavigationView {
       else container.append(element);
       focused?.focus({ preventScroll: true });
     };
+    move(
+      "navigation-context",
+      mobile ? "navigation-details-toggle" : "navigation-context-slot",
+      mobile,
+    );
     move(
       "navigation-guidance",
       mobile ? "navigation-top" : "navigation-panel",
@@ -468,6 +615,9 @@ export class NavigationView {
               button.setAttribute("title", label);
               button.setAttribute("aria-pressed", String(following));
             },
+            (position) => {
+              for (const list of this.stationLists) list.setPosition(position);
+            },
           );
         })
         .finally(() => {
@@ -490,6 +640,7 @@ export class NavigationView {
     el<HTMLDialogElement>("navigation-confirm").close();
     this.map?.dispose();
     this.map = undefined;
+    for (const list of this.stationLists) list.update(undefined, -1);
   }
   pause() {
     this.guidance.cancel();
@@ -571,11 +722,44 @@ export class NavigationView {
     const engine = session.engine,
       arrived = engine?.phase === "arrived",
       leg = engine?.leg;
+    let estimateSource: TransitEstimateSource | undefined;
+    if (
+      engine?.phase === "active" &&
+      leg?.kind === "transit" &&
+      !session.hasCurrentLocation &&
+      !session.resumeNeedsConfirmation
+    ) {
+      const key = JSON.stringify([
+        leg.navigationId,
+        leg.start,
+        leg.end,
+        leg.coordinates,
+        leg.transitStops,
+        leg.transitStatus?.cancelled,
+      ]);
+      if (key !== this.timelineKey) {
+        this.timelineKey = key;
+        this.timeline = TransitTimeline.create(leg);
+      }
+      if (this.timeline)
+        estimateSource = {
+          timeline: this.timeline,
+          confirmedIndex: engine.transitStopIndex,
+          confirmedMeters: engine.progress.meters,
+        };
+    }
+    const estimate = estimateSource?.timeline.sample(
+      Date.now() / 1000,
+      estimateSource.confirmedIndex,
+      estimateSource.confirmedMeters,
+    );
     el("navigation-instruction").textContent =
-      engine?.instruction ??
-      (session.busy || !session.message
-        ? "Navigation wird vorbereitet …"
-        : "Navigation konnte nicht starten");
+      engine && !arrived && leg?.kind === "bike" && !engine.maneuver
+        ? `Nach ${leg.to.name}`
+        : (engine?.instruction ??
+          (session.busy || !session.message
+            ? "Navigation wird vorbereitet …"
+            : "Navigation konnte nicht starten"));
     const arrows: Record<string, string> = {
       LEFT: "↰",
       HARD_LEFT: "↰",
@@ -614,12 +798,9 @@ export class NavigationView {
           : movement(leg) &&
               !leg?.maneuvers?.length &&
               !engine?.hasManeuverGuidance
-            ? "Keine Abbiegehinweise für diesen Abschnitt. Folge dem Streckenverlauf."
+            ? ""
             : (leg?.to.name ?? "");
     const { current, selected, revealCurrent } = this.renderSections();
-    el("navigation-arrival").textContent = engine
-      ? `Ankunft ${clock(engine.journey.arrival)}`
-      : "";
     el("navigation-status").textContent = session.resumeNeedsConfirmation
       ? "Zeitpunkt dieses Abschnitts liegt zurück. Prüfe und bestätige deinen aktuellen Abschnitt."
       : session.message;
@@ -634,18 +815,30 @@ export class NavigationView {
           ? "GPS ungenau"
           : "Kein GPS"
         : "";
-    if (gpsStatus.textContent !== gpsMessage)
-      gpsStatus.textContent = gpsMessage;
-    gpsStatus.hidden = !gpsMessage;
-    const locationMessage =
+    const gpsEstimate = estimate && gpsMessage ? "Position geschätzt" : "";
+    for (const [id, message] of [
+      ["navigation-gps-primary", gpsMessage],
+      ["navigation-gps-estimate", gpsEstimate],
+    ]) {
+      const text = el(id);
+      if (text.textContent !== message) text.textContent = message;
+    }
+    const gpsEstimateText = el("navigation-gps-estimate");
+    if (gpsEstimateText.hidden !== !gpsEstimate)
+      gpsEstimateText.hidden = !gpsEstimate;
+    if (gpsStatus.hidden !== !gpsMessage) gpsStatus.hidden = !gpsMessage;
+    let locationMessage =
       !engine || arrived
         ? ""
         : session.locating
           ? "Standort wird gesucht …"
           : (session.locationError?.message ??
             (invalidLocation
-              ? `${!session.fix ? "Kein Standort verfügbar." : session.locationQuality === "inaccurate" ? "Standort zu ungenau." : "Letzter Standort nicht aktuell."} Automatischer Fortschritt pausiert.`
+              ? `${!session.fix ? "Kein Standort verfügbar." : session.locationQuality === "inaccurate" ? "Standort zu ungenau." : "Letzter Standort nicht aktuell."}${estimate ? "" : " Automatischer Fortschritt pausiert."}`
               : ""));
+    if (estimate)
+      locationMessage +=
+        " Position und Stationsstand werden anhand der Fahrzeiten geschätzt. Bestätige den Ausstieg selbst.";
     const locationStatus = el("navigation-location-status");
     setLocationFeedback(locationStatus, locationMessage, !session.locating);
     el("navigation-network-status").textContent = navigator.onLine
@@ -654,9 +847,8 @@ export class NavigationView {
     const transit = engine?.journey.legs
       .slice(engine.progress.legIndex)
       .find((l) => l.kind === "transit");
-    const viewedTransit =
-      selected?.legs.find((l) => l.kind === "transit") ??
-      (selected === current ? transit : undefined);
+    this.renderTransitContext(transit, selected?.main, estimate);
+    const viewedTransit = selected?.legs.find((l) => l.kind === "transit");
     el("navigation-transit-status").textContent = viewedTransit
       ? `${viewedTransit.line || "ÖPNV"} · ${transitStatus(viewedTransit)}`
       : "";
@@ -728,22 +920,27 @@ export class NavigationView {
     el("navigation-remaining").textContent = engine
       ? arrived
         ? "Ziel erreicht"
-        : duration(Math.max(0, engine.journey.arrival - Date.now() / 1000))
+        : ""
       : "Navigation";
+    el("navigation-remaining").hidden = !!engine && !arrived;
+    el("navigation-summary-label").hidden =
+      !engine || !!arrived || !el("navigation-context").hidden;
+    el("navigation-journey-summary").hidden = !engine || !!arrived;
     el("navigation-summary-arrival").textContent =
-      engine && !arrived ? `Ankunft ${clock(engine.journey.arrival)}` : "";
-    if (
+      engine && !arrived ? `Am Ziel ${clock(engine.journey.arrival)}` : "";
+    const requestedArrival =
+      session.request?.timing === "arrive" ? session.request.time : undefined;
+    const arrivalWarning =
       engine &&
       !arrived &&
-      session.request?.timing === "arrive" &&
-      engine.journey.arrival > session.request.time
-    ) {
-      const target = ` · Gewünscht bis ${clock(session.request.time)}`;
-      el("navigation-summary-arrival").textContent += target;
-      el("navigation-arrival").textContent += target;
-    }
+      requestedArrival !== undefined &&
+      engine.journey.arrival > requestedArrival
+        ? `Gewünschte Ankunft ${clock(requestedArrival)} wird nicht erreicht.`
+        : "";
+    el("navigation-arrival-warning").textContent = arrivalWarning;
     const notices = [
       session.disruption?.message ?? session.assessment?.message ?? "",
+      arrivalWarning,
       !navigator.onLine ? "Offline · Neue Routen benötigen Internet" : "",
       session.resumeNeedsConfirmation
         ? el("navigation-status").textContent
@@ -807,6 +1004,11 @@ export class NavigationView {
       if (session.disruption)
         this.guidance.speak(session.disruption.id, session.disruption.message);
     }
-    this.map?.update(engine, session.fix, session.locationQuality);
+    this.map?.update(
+      engine,
+      session.fix,
+      session.locationQuality,
+      estimateSource,
+    );
   }
 }

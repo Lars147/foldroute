@@ -25,6 +25,8 @@ export function validNavigationSnapshot(
   const p = s.progress;
   if (
     !p ||
+    (p.transitStop !== undefined &&
+      (typeof p.transitStop !== "string" || !p.transitStop.length)) ||
     !Number.isInteger(p.legIndex) ||
     p.legIndex < 0 ||
     !s.journey.legs[p.legIndex] ||

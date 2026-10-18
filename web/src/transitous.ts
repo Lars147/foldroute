@@ -1,4 +1,5 @@
 import { reverseAddress } from "./history-names";
+import { parseTransitStops } from "./transit-stops";
 import {
   type Place,
   type Leg,
@@ -134,6 +135,7 @@ interface RawLeg {
   scheduledEndTime?: string;
   realTime?: boolean;
   cancelled?: boolean;
+  intermediateStops?: unknown[] | null;
   legGeometry?: Polyline;
   steps?: {
     relativeDirection: string;
@@ -234,6 +236,9 @@ function mapLeg(raw: RawLeg, request: RouteRequest): Leg {
   if (!coordinates.every(validCoordinate)) throw geometryError();
   return {
     kind: "transit",
+    transitStops: Array.isArray(raw.intermediateStops)
+      ? parseTransitStops([raw.from, ...raw.intermediateStops, raw.to])
+      : undefined,
     transitReference:
       raw.tripId &&
       raw.from.stopId &&
