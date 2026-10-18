@@ -8,6 +8,7 @@ import {
   type RouteRequest,
 } from "../../src/model";
 import { distance } from "../../src/geometry";
+import { mockRasterBasemap } from "./basemap";
 const now = Date.parse("2026-10-06T10:00:00Z") / 1000;
 const a: Place = { name: "Start", detail: "", latitude: 48, longitude: 11 };
 const b: Place = {
@@ -1164,6 +1165,85 @@ test("System appearance changes navigation panels without resetting progress", a
   await expect(page.locator(".navigation-panel")).toHaveCSS(
     "background-color",
     "rgb(255, 255, 255)",
+  );
+});
+
+async function expectNavigationBasemap(page: Page) {
+  await expect
+    .poll(() =>
+      page.locator("#navigation-map canvas").evaluateAll((canvases) =>
+        canvases
+          .filter((canvas) => canvas.getBoundingClientRect().width > 0)
+          .map((canvas) => {
+            const context = (canvas as HTMLCanvasElement).getContext("2d")!;
+            return [...context.getImageData(16, 16, 1, 1).data];
+          }),
+      ),
+    )
+    .toContainEqual([12, 150, 90, 255]);
+}
+
+test("navigation keeps loaded basemap pixels through connection changes and GPS updates", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await mockRasterBasemap(page);
+  await page.evaluate(async () => {
+    const { mapStyle } = await import("/src/map-style.ts");
+    mapStyle.set("liberty");
+  });
+  await page.clock.runFor(1000);
+  await expectNavigationBasemap(page);
+  const instruction = await page.locator("#navigation-instruction").innerText();
+  for (const offline of [true, false, true, false]) {
+    await context.setOffline(offline);
+    await page.evaluate(() => (window as any).navProbe.push(48, 11));
+    await page.clock.runFor(1000);
+    await expectNavigationBasemap(page);
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      instruction,
+    );
+  }
+});
+
+test("navigation keeps a basemap that finishes loading after going offline", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await mockRasterBasemap(page);
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => (release = resolve));
+  await page.route(
+    "https://tiles.openfreemap.org/styles/liberty",
+    async (route) => {
+      await ready;
+      await route.fallback();
+    },
+  );
+  const requested = page.waitForRequest(
+    "https://tiles.openfreemap.org/styles/liberty",
+  );
+  await page.evaluate(async () => {
+    const { mapStyle } = await import("/src/map-style.ts");
+    mapStyle.set("liberty");
+  });
+  await requested;
+  // Keep fixture responses reachable to simulate a style finishing from an in-flight request.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+    window.dispatchEvent(new Event("offline"));
+  });
+  release();
+  await page.clock.runFor(1000);
+  await expectNavigationBasemap(page);
+  await expect(page.locator("#navigation-network-status")).toContainText(
+    "Offline",
   );
 });
 

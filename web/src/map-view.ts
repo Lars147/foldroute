@@ -85,6 +85,8 @@ export class RouteMap {
     context?: string,
   ) {
     const theme = mapTheme();
+    if (online && !this.online) el("map-error").hidden = true;
+    this.online = online;
     if (!this.map) {
       this.map = L.map("map", {
         zoomControl: false,
@@ -120,6 +122,7 @@ export class RouteMap {
     }
     if (online && (!this.tiles || !this.map.hasLayer(this.tiles))) {
       const unavailable = () => {
+        if (!this.online) return;
         el("map-error").hidden = false;
         el("map-error").textContent =
           "Straßenkarte nicht verfügbar. Deine Reise bleibt nutzbar.";
@@ -143,17 +146,12 @@ export class RouteMap {
     this.updateLocation(this.liveFix, this.liveQuality);
     el("map-route").hidden = !selected;
     if (!selected) this.pendingRouteFit = false;
-    this.online = online;
-    if (!online && this.tiles && this.map.hasLayer(this.tiles))
-      this.tiles.remove();
     el("map").classList.toggle("offline-map", !online);
-    if (online) el("map-label").innerHTML = mapAttribution;
-    else
-      el("map-label").textContent =
-        "Gespeicherter Streckenverlauf · Ohne Straßenkarte";
+    el("map-label").innerHTML = mapAttribution;
     if (!online) {
       el("map-error").hidden = false;
-      el("map-error").textContent = "Offline · Straßenkarte nicht verfügbar.";
+      el("map-error").textContent =
+        "Offline · Geladene Kartenbereiche bleiben sichtbar. Neue Bereiche benötigen Internet.";
     }
     const routes =
       selected && !journeys.some((j) => j.id === selected.id)

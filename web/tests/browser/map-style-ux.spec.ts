@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { showMap } from "./assertions";
+import { mockRasterBasemap } from "./basemap";
 
 const key = "foldroute.mapStyle";
 
@@ -54,6 +55,44 @@ async function expectMobileSheet(page: Page) {
     panel.getByRole("button", { name: "Kartenstile schließen", exact: true }),
   ).toBeInViewport({ ratio: 1 });
 }
+
+test("route map retains its basemap and attribution through connection changes", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await example(page);
+  const styles = await mockRasterBasemap(page);
+  await page.evaluate(async () => {
+    const { mapStyle } = await import("/src/map-style.ts");
+    mapStyle.set("liberty");
+  });
+  await expect.poll(() => styles.length).toBe(1);
+  const canvas = page.locator("#map canvas.maplibregl-canvas");
+  await expect(canvas).toBeVisible();
+  const loaded = await canvas.elementHandle();
+  for (const offline of [true, false, true, false]) {
+    await context.setOffline(offline);
+    await expect(canvas).toBeVisible();
+    expect(
+      await canvas.evaluate(
+        (current, previous) => current === previous,
+        loaded,
+      ),
+    ).toBe(true);
+    await expect(
+      page.locator(
+        '#map-label a[href="https://www.openstreetmap.org/copyright"]',
+      ),
+    ).toBeVisible();
+    if (offline)
+      await expect(page.locator("#map-error")).toContainText(
+        "Neue Bereiche benötigen Internet",
+      );
+    else await expect(page.locator("#map-error")).toBeHidden();
+  }
+  expect(styles).toEqual(["https://tiles.openfreemap.org/styles/liberty"]);
+});
 
 test("mobile layers slide up smoothly on every opening", async ({ page }) => {
   await page.setViewportSize({ width: 425, height: 812 });
