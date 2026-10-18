@@ -84,6 +84,9 @@ export class RouteMap {
     );
     observer.observe(el("journey-panel"));
     observer.observe(el("map-controls"));
+    observer.observe(el("map"));
+    observer.observe(el("connection"));
+    observer.observe(document.querySelector<HTMLElement>(".app-tabs")!);
     observer.observe(document.querySelector<HTMLElement>(".map-credit")!);
     window.addEventListener("resize", () => this.resize());
     const redraw = () => {
@@ -525,12 +528,15 @@ export class RouteMap {
       this.centerLocation();
       return;
     }
+    const safe = this.safeInsets();
     const layout = JSON.stringify([
       el("map").clientWidth,
       el("map").clientHeight,
-      window.innerWidth >= 900,
+      this.hasSidePanel(),
       bounds.right - controls.left,
       this.markerHalfWidth,
+      safe,
+      bounds.bottom - panelBounds.bottom,
     ]);
     let changed = layout !== this.layoutKey;
     const height = panelBounds.height;
@@ -573,15 +579,23 @@ export class RouteMap {
   private fitOverview(explicit = false) {
     if (!this.map || !this.selected || !this.envelope) return;
     const coordinates = this.envelope;
-    const desktop = window.innerWidth >= 900,
+    const sidebar = this.hasSidePanel(),
       bounds = el("map").getBoundingClientRect(),
       panel = el("journey-panel").getBoundingClientRect(),
       controls = el("map-controls").getBoundingClientRect(),
       height = bounds.height,
-      leftInset = desktop ? Math.max(0, panel.right - bounds.left) : 0;
+      safe = this.safeInsets(),
+      leftInset = sidebar
+        ? Math.max(safe.left, panel.right - bounds.left)
+        : safe.left,
+      bottom = sidebar
+        ? height - safe.bottom
+        : Math.max(0, Math.min(height, panel.top - bounds.top)),
+      visibleHeight = bottom - safe.top;
     if (bounds.width - leftInset <= 1 || !height) return;
+    if (visibleHeight <= 1) return;
     // Expanded details prioritize reading. Refit once enough map is visible again.
-    if (!explicit && !desktop && height - panel.height < 100) return;
+    if (!explicit && !sidebar && visibleHeight < 100) return;
     this.fitPending = false;
     if (
       !explicit &&
@@ -598,17 +612,19 @@ export class RouteMap {
     const left = leftInset + markerPadding;
     // Reserve the entire control column, plus room for the marker and an 8px gap.
     const right = Math.min(
-      Math.max(0, bounds.right - controls.left) + markerPadding,
+      Math.max(safe.right, bounds.right - controls.left) + markerPadding,
       bounds.width - left - 1,
     );
+    const creditHeight = document
+      .querySelector<HTMLElement>(".map-credit")!
+      .getBoundingClientRect().height;
     if (explicit) {
-      const bottom = desktop
-        ? bounds.height
-        : Math.max(0, Math.min(bounds.height, panel.top - bounds.top));
-      if (bottom <= 1) return;
-      const vertical = Math.min(30, (bottom - 1) / 2);
+      const vertical = Math.min(
+        Math.max(30, creditHeight + 8),
+        (visibleHeight - 1) / 2,
+      );
       this.setOverviewBounds(coordinates, {
-        paddingTopLeft: [left, vertical],
+        paddingTopLeft: [left, safe.top + vertical],
         paddingBottomRight: [right, bounds.height - bottom + vertical],
         maxZoom: 15,
         animate: false,
@@ -616,13 +632,34 @@ export class RouteMap {
       return;
     }
     this.setOverviewBounds(coordinates, {
-      paddingTopLeft: [left, 35],
-      paddingBottomRight: desktop
-        ? [right, 40]
-        : [right, Math.max(panel.height, this.reservedPanelHeight) + 45],
+      paddingTopLeft: [left, safe.top + 35],
+      paddingBottomRight: sidebar
+        ? [right, safe.bottom + Math.max(40, creditHeight + 8)]
+        : [
+            right,
+            Math.max(panel.height, this.reservedPanelHeight, height - bottom) +
+              Math.max(45, creditHeight + 8),
+          ],
       maxZoom: 15,
       animate: false,
     });
+  }
+  private safeInsets() {
+    const style = getComputedStyle(el("map-view"));
+    return {
+      top: parseFloat(style.paddingTop),
+      left: parseFloat(style.paddingLeft),
+      right: parseFloat(style.paddingRight),
+      bottom: parseFloat(style.paddingBottom),
+    };
+  }
+  private hasSidePanel() {
+    return (
+      window.innerWidth >= 900 ||
+      getComputedStyle(el("map-view"))
+        .getPropertyValue("--map-panel-layout")
+        .trim() === "side"
+    );
   }
   private setOverviewBounds(
     bounds: L.LatLngBounds,
@@ -705,16 +742,20 @@ export class RouteMap {
       panel.left < bounds.right &&
       panel.bottom > bounds.top &&
       panel.top < bounds.bottom;
+    const safe = this.safeInsets();
     const left =
-        overlaps && window.innerWidth >= 900
+        overlaps && this.hasSidePanel()
           ? Math.min(bounds.width, Math.max(0, panel.right - bounds.left))
-          : 0,
+          : safe.left,
       bottom =
-        overlaps && window.innerWidth < 900
+        overlaps && !this.hasSidePanel()
           ? Math.min(bounds.height, Math.max(0, panel.top - bounds.top))
-          : bounds.height;
-    if (left === bounds.width || bottom === 0) return;
-    const target = L.point((left + bounds.width) / 2, bottom / 2),
+          : bounds.height - safe.bottom;
+    if (left >= bounds.width - safe.right || bottom <= safe.top) return;
+    const target = L.point(
+        (left + bounds.width - safe.right) / 2,
+        (safe.top + bottom) / 2,
+      ),
       offset = this.map.getSize().divideBy(2).subtract(target),
       place = this.locationFocus,
       center = this.map.unproject(

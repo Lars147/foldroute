@@ -14,8 +14,18 @@
   --line: var(--color-divider);
   --yellow: var(--color-brand);
   --header: 64px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --status-bar-background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-asphalt) 80%, transparent),
+    color-mix(in srgb, var(--color-asphalt) 65%, transparent) 75%,
+    transparent
+  );
   --mobile-status-height: 0px;
-  --tabs: calc(max(64px, 4rem) + env(safe-area-inset-bottom, 0px));
+  --tabs: calc(max(64px, 4rem) + var(--safe-bottom));
   --motion-feedback: 120ms;
   --motion-selection: 220ms;
   --motion-page: 300ms;
@@ -40,6 +50,16 @@
 }
 body {
   margin: 0;
+}
+/* Translucent iOS status bars use light system text over every app surface. */
+:root[data-standalone] body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--safe-top);
+  z-index: 1100;
+  pointer-events: none;
+  background: var(--status-bar-background);
 }
 button,
 input,
@@ -113,8 +133,8 @@ body[data-starting] .app-tabs {
   flex-shrink: 0;
 }
 .app-header {
-  height: calc(var(--header) + env(safe-area-inset-top, 0px));
-  padding: env(safe-area-inset-top, 0px) 20px 0;
+  height: calc(var(--header) + var(--safe-top));
+  padding: var(--safe-top) 20px 0;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -143,7 +163,7 @@ body[data-starting] .app-tabs {
 }
 #connection {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + var(--header) / 2);
+  top: calc(var(--safe-top) + var(--header) / 2);
   right: 86px;
   transform: translateY(-50%);
   z-index: 20;
@@ -159,7 +179,7 @@ body[data-starting] .app-tabs {
   left: 0;
   right: 0;
   height: var(--tabs);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--safe-bottom);
   display: flex;
   justify-content: center;
   gap: 56px;
@@ -206,10 +226,11 @@ body[data-starting] .app-tabs {
   width: min(620px, 100%);
   margin: auto;
   padding: calc(
-      var(--header) + var(--mobile-status-height) +
-        env(safe-area-inset-top, 0px) + 28px
+      var(--header) + var(--mobile-status-height) + var(--safe-top) + 28px
     )
     24px calc(var(--tabs) + 35px);
+  padding-left: max(24px, calc(var(--safe-left) + 12px));
+  padding-right: max(24px, calc(var(--safe-right) + 12px));
 }
 .search-screen {
   height: calc(
@@ -469,11 +490,8 @@ input[type="search"]::-webkit-search-cancel-button {
 }
 .map-screen {
   position: fixed;
-  inset: calc(
-      var(--header) + var(--mobile-status-height) +
-        env(safe-area-inset-top, 0px)
-    )
-    0 var(--tabs);
+  inset: calc(var(--header) + var(--mobile-status-height) + var(--safe-top))
+    var(--safe-right) var(--tabs) var(--safe-left);
   overflow: hidden;
 }
 .map-screen > #map {
@@ -696,7 +714,7 @@ input[type="search"]::-webkit-search-cancel-button {
     font-size: 1.25rem;
   }
   .map-style-body {
-    padding: 16px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+    padding: 16px 20px calc(20px + var(--safe-bottom));
   }
   .map-style-section-title {
     display: block;
@@ -1052,7 +1070,7 @@ fieldset:after {
 }
 /* Settings: important controls first, secondary choices disclosed on demand. */
 .settings-screen {
-  --settings-safe-top: env(safe-area-inset-top, 0px);
+  --settings-safe-top: var(--safe-top);
   --settings-top-offset: calc(
     var(--header) + var(--mobile-status-height) + var(--settings-safe-top)
   );
@@ -1434,7 +1452,7 @@ dialog::backdrop {
 }
 .shared-pending {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 8px);
+  top: calc(var(--safe-top) + 8px);
   left: 12px;
   z-index: 1200;
 }
@@ -1483,7 +1501,7 @@ dialog form {
   overflow: auto;
 }
 .dialog-actions {
-  padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+  padding: 14px 20px calc(14px + var(--safe-bottom));
   display: grid;
   gap: 8px;
   border-top: 1px solid var(--line);
@@ -2112,8 +2130,7 @@ body:has(#toast[data-planning-stage="searching"]:not([hidden]))
 }
 .search-screen.compact {
   padding-top: calc(
-    var(--header) + var(--mobile-status-height) +
-      env(safe-area-inset-top, 0px) + 12px
+    var(--header) + var(--mobile-status-height) + var(--safe-top) + 12px
   );
 }
 .search-screen.compact .search-intro {
@@ -2135,8 +2152,7 @@ body:has(#toast[data-planning-stage="searching"]:not([hidden]))
 @media (max-height: 700px) {
   .search-screen {
     padding-top: calc(
-      var(--header) + var(--mobile-status-height) +
-        env(safe-area-inset-top, 0px) + 12px
+      var(--header) + var(--mobile-status-height) + var(--safe-top) + 12px
     );
   }
   .search-screen .search-intro {
@@ -2164,10 +2180,12 @@ body:has(#toast[data-planning-stage="searching"]:not([hidden]))
 }
 /* Keep modal actions above the software keyboard, including iOS visual viewports. */
 dialog {
-  top: var(--visual-top, 0px);
+  top: calc(var(--visual-top, 0px) + var(--safe-top));
   bottom: auto;
   margin: 12px auto;
-  max-height: calc(var(--visual-height, 100dvh) - 24px);
+  max-height: calc(
+    var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom) - 24px
+  );
 }
 dialog form {
   max-height: calc(var(--visual-height, 100dvh) - 24px);
@@ -2176,7 +2194,7 @@ dialog.compact .dialog-heading {
   padding-block: 8px;
 }
 dialog.compact .dialog-actions {
-  padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding-block: 8px calc(8px + var(--safe-bottom));
   gap: 6px;
 }
 .location-error p {
@@ -2659,10 +2677,12 @@ dialog.compact .dialog-actions {
   /* Modal dialogs sit above the body overlay in the browser's top layer. */
   body.search-focus-mode dialog[open]:has(.search-focus-input) {
     position: fixed;
-    inset: 0;
+    inset: calc(var(--visual-top, 0px) + var(--safe-top)) 0 var(--safe-bottom);
     width: 100%;
     max-width: none;
-    height: 100%;
+    height: calc(
+      var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom)
+    );
     max-height: none;
     margin: 0;
     border-radius: 0;
@@ -2675,20 +2695,29 @@ dialog.compact .dialog-actions {
     background: var(--paper);
     backdrop-filter: none;
   }
+  :root[data-standalone]
+    body.search-focus-mode
+    dialog[open]:has(.search-focus-input)::backdrop {
+    background-image: var(--status-bar-background);
+    background-size: 100% var(--safe-top);
+    background-repeat: no-repeat;
+  }
   body.search-focus-mode .search-focus-back {
     position: fixed;
     z-index: 1000;
-    left: calc(var(--visual-left, 0px) + 12px);
-    top: calc(var(--visual-top, 0px) + 8px);
+    left: calc(var(--visual-left, 0px) + var(--safe-left) + 12px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top) + 8px);
     min-height: 44px;
     background: var(--paper);
   }
   body.search-focus-mode .search-focus-input {
     position: fixed;
     z-index: 1000;
-    left: calc(var(--visual-left, 0px) + 12px);
-    top: calc(var(--visual-top, 0px) + 60px);
-    width: calc(var(--visual-width, 100vw) - 24px);
+    left: calc(var(--visual-left, 0px) + var(--safe-left) + 12px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top) + 60px);
+    width: calc(
+      var(--visual-width, 100vw) - var(--safe-left) - var(--safe-right) - 24px
+    );
     height: 52px;
     margin: 0;
     padding: 12px;
@@ -2705,20 +2734,30 @@ dialog.compact .dialog-actions {
   body.search-focus-mode .search-focus-status {
     position: fixed;
     z-index: 1000;
-    left: calc(var(--visual-left, 0px) + 12px);
-    top: calc(var(--visual-top, 0px) + 116px);
+    left: calc(var(--visual-left, 0px) + var(--safe-left) + 12px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top) + 116px);
     margin: 0;
     font-size: 12px;
     line-height: 1.4;
-    max-width: calc(var(--visual-width, 100vw) - 24px);
+    max-width: calc(
+      var(--visual-width, 100vw) - var(--safe-left) - var(--safe-right) - 24px
+    );
   }
   body.search-focus-mode .search-focus-results {
     position: fixed;
     z-index: 1000;
-    left: calc(var(--visual-left, 0px) + 12px);
-    top: calc(var(--visual-top, 0px) + 150px);
-    width: calc(var(--visual-width, 100vw) - 24px);
-    height: max(44px, calc(var(--visual-height, 100dvh) - 158px));
+    left: calc(var(--visual-left, 0px) + var(--safe-left) + 12px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top) + 150px);
+    width: calc(
+      var(--visual-width, 100vw) - var(--safe-left) - var(--safe-right) - 24px
+    );
+    height: max(
+      44px,
+      calc(
+        var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom) -
+          158px
+      )
+    );
     max-height: none;
     margin: 0;
     overflow-y: auto;
@@ -2859,10 +2898,14 @@ dialog.compact .dialog-actions {
   dialog.editing-time {
     width: 100%;
     max-width: none;
-    height: var(--visual-height, 100dvh);
-    max-height: var(--visual-height, 100dvh);
+    height: calc(
+      var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom)
+    );
+    max-height: calc(
+      var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom)
+    );
     margin: 0;
-    top: var(--visual-top, 0px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top));
     border-radius: 0;
   }
   #time-editor {
@@ -2882,12 +2925,56 @@ dialog.compact .dialog-actions {
   :root {
     --header: 0px;
     --mobile-status-height: var(--connection-height, 0px);
+    --tab-height: max(56px, 3.5rem);
+    --tab-bottom: max(12px, calc(var(--safe-bottom) + 4px));
+    --tabs: calc(var(--tab-height) + var(--tab-bottom));
+  }
+  .app-tabs {
+    bottom: var(--tab-bottom);
+    left: max(12px, calc(var(--safe-left) + 12px));
+    right: max(12px, calc(var(--safe-right) + 12px));
+    height: var(--tab-height);
+    padding: 0 4px;
+    gap: 0;
+    border: 1px solid var(--panel-line);
+    border-radius: 20px;
+    background: var(--surface);
+    box-shadow: 0 5px 20px var(--color-shadow);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+  .app-tabs button {
+    flex: 1;
+    padding: 4px 6px;
+    min-height: 44px;
+  }
+  .app-tabs .app-tab-content {
+    gap: 1px;
+  }
+  .app-tabs .icon {
+    width: 22px;
+    height: 22px;
+  }
+  .app-tabs button[aria-current]::before,
+  .app-tabs .tab-indicator {
+    border-radius: 14px;
+  }
+  .map-screen[data-result-screen="map"] {
+    inset: 0;
+    padding-top: calc(var(--safe-top) + var(--mobile-status-height));
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--tabs);
+  }
+  [data-result-screen="map"] .map-controls {
+    top: calc(var(--safe-top) + var(--mobile-status-height) + 14px);
+    right: max(16px, calc(var(--safe-right) + 12px));
   }
   .app-header {
     display: none;
   }
   #connection {
-    top: env(safe-area-inset-top, 0px);
+    top: var(--safe-top);
     right: 0;
     left: 0;
     transform: none;
@@ -3276,7 +3363,8 @@ dialog.compact .dialog-actions {
     box-shadow: none;
   }
   [data-result-screen="map"] .journey-panel {
-    inset: auto 10px 8px;
+    inset: auto max(10px, calc(var(--safe-right) + 10px))
+      calc(var(--tabs) + 12px) max(10px, calc(var(--safe-left) + 10px));
     height: auto;
     max-height: calc(100% - 16px);
     border-radius: 20px;
@@ -3320,14 +3408,34 @@ dialog.compact .dialog-actions {
     transform: translateY(-100%);
   }
   [data-result-screen="map"] .journey-panel {
-    max-height: calc(100% - var(--map-controls-space, 286px));
+    max-height: calc(
+      100% - var(--tabs) - var(--safe-top) - var(--mobile-status-height) -
+        var(--map-controls-space, 286px)
+    );
   }
 }
 
-@media (max-width: 899px) and (max-height: 500px) {
+@media (min-width: 600px) and (max-width: 899px) and (max-height: 500px) {
+  .map-screen[data-result-screen="map"] {
+    --map-panel-layout: side;
+    --map-side-width: min(380px, calc(50vw - var(--safe-left) - 10px));
+  }
   [data-result-screen="map"] .journey-panel {
-    right: 80px;
-    max-height: calc(100% - 140px);
+    top: calc(var(--safe-top) + var(--mobile-status-height) + 12px);
+    right: auto;
+    width: var(--map-side-width);
+    max-height: calc(
+      100% - var(--tabs) - var(--safe-top) - var(--mobile-status-height) - 24px
+    );
+  }
+  [data-result-screen="map"] .map-credit {
+    top: auto;
+    bottom: calc(var(--tabs) + 12px);
+    left: calc(var(--safe-left) + var(--map-side-width) + 20px);
+    right: calc(var(--safe-right) + 10px);
+    max-width: none;
+    transform: none;
+    text-align: right;
   }
 }
 
@@ -3340,9 +3448,7 @@ dialog.compact .dialog-actions {
   display: none !important;
 }
 .navigation-screen[data-arrived="true"] .navigation-panel {
-  max-height: calc(
-    100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
-  );
+  max-height: calc(100dvh - 48px - var(--safe-top) - var(--safe-bottom));
   display: flex;
   overflow: hidden;
   padding: 0;
@@ -3522,7 +3628,7 @@ dialog.compact .dialog-actions {
 }
 @media (min-width: 900px) {
   .navigation-screen[data-arrived="true"] .navigation-panel {
-    left: max(24px, env(safe-area-inset-left));
+    left: max(24px, var(--safe-left));
     right: auto;
     width: 380px;
     transform: none;
@@ -3547,9 +3653,9 @@ body[data-navigation="active"] .app-tabs {
 }
 .navigation-top {
   position: absolute;
-  top: max(12px, env(safe-area-inset-top));
-  left: max(12px, env(safe-area-inset-left));
-  right: calc(max(12px, env(safe-area-inset-right)) + 56px);
+  top: max(12px, var(--safe-top));
+  left: max(12px, var(--safe-left));
+  right: calc(max(12px, var(--safe-right)) + 56px);
   min-height: 48px;
   display: flex;
   gap: 8px;
@@ -3635,8 +3741,8 @@ body[data-navigation="active"] .app-tabs {
 }
 .navigation-map-controls {
   position: absolute;
-  right: max(12px, env(safe-area-inset-right));
-  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, var(--safe-right));
+  top: max(12px, var(--safe-top));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -3695,10 +3801,10 @@ body[data-navigation="active"] .app-tabs {
 }
 .navigation-panel {
   position: absolute;
-  bottom: max(28px, env(safe-area-inset-bottom));
+  bottom: max(28px, var(--safe-bottom));
   left: 12px;
   right: 12px;
-  max-height: calc(100dvh - 155px - env(safe-area-inset-top));
+  max-height: calc(100dvh - 155px - var(--safe-top));
   overflow-y: auto;
   border-radius: 22px;
   background: var(--panel);
@@ -3794,7 +3900,7 @@ body[data-navigation="active"] .app-tabs {
 .navigation-credit {
   position: absolute;
   bottom: 5px;
-  right: max(12px, env(safe-area-inset-right, 0px));
+  right: max(12px, var(--safe-right));
   font-size: 10px;
   color: var(--panel-text);
   background: var(--color-raised);
@@ -3833,11 +3939,10 @@ body[data-navigation="active"] .app-tabs {
   #navigation-confirm[data-kind="end"] {
     top: calc(
       var(--visual-top, 0px) + var(--visual-height, 100dvh) - 12px -
-        env(safe-area-inset-bottom, 0px)
+        var(--safe-bottom)
     );
     max-height: calc(
-      var(--visual-height, 100dvh) - 24px - env(safe-area-inset-top, 0px) -
-        env(safe-area-inset-bottom, 0px)
+      var(--visual-height, 100dvh) - 24px - var(--safe-top) - var(--safe-bottom)
     );
     transform: translateY(-100%);
   }
@@ -4013,7 +4118,7 @@ body[data-navigation="active"] .app-tabs {
 }
 @media (max-width: 899px) {
   .navigation-top {
-    right: max(12px, env(safe-area-inset-right));
+    right: max(12px, var(--safe-right));
     min-height: 0;
     pointer-events: none;
   }
@@ -4049,9 +4154,9 @@ body[data-navigation="active"] .app-tabs {
     top: calc(var(--navigation-header-bottom, 120px) + 8px);
   }
   .navigation-panel {
-    left: max(12px, env(safe-area-inset-left));
-    right: max(12px, env(safe-area-inset-right));
-    bottom: max(12px, env(safe-area-inset-bottom));
+    left: max(12px, var(--safe-left));
+    right: max(12px, var(--safe-right));
+    bottom: max(12px, var(--safe-bottom));
     padding: 0;
     border-radius: 20px;
     max-height: calc(100dvh - var(--navigation-header-bottom, 120px) - 60px);
@@ -4187,13 +4292,11 @@ body[data-navigation="active"] .app-tabs {
     top: calc(var(--navigation-panel-top, 100%) - 6px);
     bottom: auto;
     right: calc(
-      max(12px, env(safe-area-inset-right, 0px)) +
-        var(--navigation-credit-offset, 0px)
+      max(12px, var(--safe-right)) + var(--navigation-credit-offset, 0px)
     );
     transform: translateY(-100%);
     max-width: calc(
-      100% - max(12px, env(safe-area-inset-left, 0px)) -
-        max(12px, env(safe-area-inset-right, 0px)) -
+      100% - max(12px, var(--safe-left)) - max(12px, var(--safe-right)) -
         var(--navigation-credit-offset, 0px)
     );
   }
@@ -4428,7 +4531,7 @@ body[data-navigation="active"] .app-tabs {
 
 /* The example uses the usual result layout without personal app controls. */
 body[data-example] {
-  --tabs: env(safe-area-inset-bottom, 0px);
+  --tabs: var(--safe-bottom);
 }
 body[data-example] .example-route-request {
   cursor: default;

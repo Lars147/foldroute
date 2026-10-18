@@ -186,15 +186,25 @@ export async function locationCenterError(page: Page) {
       panel = document.getElementById("journey-panel")!.getBoundingClientRect(),
       marker = document
         .querySelector("#map .route-marker-start")!
-        .getBoundingClientRect();
-    const x =
-        innerWidth >= 900
-          ? (panel.right + map.right) / 2
-          : (map.left + map.right) / 2,
-      y =
-        innerWidth >= 900
-          ? (map.top + map.bottom) / 2
-          : (map.top + panel.top) / 2;
+        .getBoundingClientRect(),
+      safe = getComputedStyle(document.getElementById("map-view")!),
+      sidebar =
+        innerWidth >= 900 ||
+        safe.getPropertyValue("--map-panel-layout").trim() === "side";
+    const x = sidebar
+        ? (panel.right + map.right - parseFloat(safe.paddingRight)) / 2
+        : (map.left +
+            map.right +
+            parseFloat(safe.paddingLeft) -
+            parseFloat(safe.paddingRight)) /
+          2,
+      y = sidebar
+        ? (map.top +
+            map.bottom +
+            parseFloat(safe.paddingTop) -
+            parseFloat(safe.paddingBottom)) /
+          2
+        : (map.top + panel.top + parseFloat(safe.paddingTop)) / 2;
     return Math.hypot(
       marker.x + marker.width / 2 - x,
       marker.y + marker.height / 2 - y,
@@ -287,8 +297,17 @@ export async function expectRouteFits(page: Page) {
         const panel = document
           .getElementById("journey-panel")!
           .getBoundingClientRect();
-        const left = innerWidth >= 900 ? panel.right : map.left;
-        const bottom = innerWidth >= 900 ? map.bottom : panel.top;
+        const safe = getComputedStyle(document.getElementById("map-view")!);
+        const sidebar =
+          innerWidth >= 900 ||
+          safe.getPropertyValue("--map-panel-layout").trim() === "side";
+        const left = sidebar
+          ? panel.right
+          : map.left + parseFloat(safe.paddingLeft);
+        const top = map.top + parseFloat(safe.paddingTop);
+        const bottom = sidebar
+          ? map.bottom - parseFloat(safe.paddingBottom)
+          : panel.top;
         const controls = document
           .getElementById("map-controls")!
           .getBoundingClientRect();
@@ -298,7 +317,7 @@ export async function expectRouteFits(page: Page) {
             return (
               box.left >= left - 1 &&
               box.right <= controls.left - 8 + 1 &&
-              box.top >= map.top - 1 &&
+              box.top >= top - 1 &&
               box.bottom <= bottom + 1
             );
           },

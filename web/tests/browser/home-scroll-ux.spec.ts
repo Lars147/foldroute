@@ -322,8 +322,7 @@ for (const { width, height, fontSize, safeArea } of layouts) {
     });
     await page.reload();
     await page.addStyleTag({
-      content: `:root { font-size: ${fontSize}px; --tabs: calc(max(64px, 4rem) + ${safeArea}px); }
-        .app-tabs { padding-bottom: ${safeArea}px; }`,
+      content: `:root { font-size: ${fontSize}px; --safe-bottom: ${safeArea}px; }`,
     });
     const rows = page
       .locator("#destination-options li[role=row]")

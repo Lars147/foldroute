@@ -765,7 +765,17 @@ for (const [width, height] of [
       }, hadTouchClass);
       if (width < 900) {
         const panel = (await page.locator("#journey-panel").boundingBox())!;
-        expect(route.y + route.height).toBeLessThanOrEqual(panel.y);
+        const sidebar = await page
+          .locator("#map-view")
+          .evaluate(
+            (map) =>
+              getComputedStyle(map)
+                .getPropertyValue("--map-panel-layout")
+                .trim() === "side",
+          );
+        if (sidebar)
+          expect(route.x).toBeGreaterThanOrEqual(panel.x + panel.width);
+        else expect(route.y + route.height).toBeLessThanOrEqual(panel.y);
       }
       await expect(page.locator("#map-route")).toBeInViewport({ ratio: 1 });
     }

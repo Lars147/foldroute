@@ -228,8 +228,7 @@ test("main tabs resize with large text and safe area, then restore without a gli
   await settled(page);
   await page.setViewportSize({ width: 320, height: 844 });
   await page.addStyleTag({
-    content:
-      ":root { font-size: 32px; --tabs: calc(max(64px, 4rem) + 34px); } .app-tabs { padding-bottom: 34px; }",
+    content: ":root { font-size: 32px; --safe-bottom: 34px; }",
   });
   await settled(page);
   const geometry = await page.locator(".app-tabs").evaluate((tabs) => {
@@ -237,6 +236,7 @@ test("main tabs resize with large text and safe area, then restore without a gli
     return {
       height: tabs.getBoundingClientRect().height,
       bottom: tabs.getBoundingClientRect().bottom - frame.bottom,
+      safeBottom: innerHeight - tabs.getBoundingClientRect().bottom,
       fits: [...tabs.querySelectorAll("button .app-tab-content")].every(
         (content) => {
           const box = content.getBoundingClientRect();
@@ -251,8 +251,9 @@ test("main tabs resize with large text and safe area, then restore without a gli
       ),
     };
   });
-  expect(geometry.height).toBeGreaterThanOrEqual(162);
-  expect(geometry.bottom).toBeCloseTo(38, 0);
+  expect(geometry.height).toBeGreaterThanOrEqual(112);
+  expect(geometry.bottom).toBeCloseTo(5, 0);
+  expect(geometry.safeBottom).toBeGreaterThanOrEqual(38);
   expect(geometry.fits).toBe(true);
   await page
     .locator(".app-tabs")
