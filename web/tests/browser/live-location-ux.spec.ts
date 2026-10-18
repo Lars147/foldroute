@@ -250,9 +250,7 @@ test("screen stays awake only on visible route and preference persists", async (
   await expect
     .poll(() => wakeCounts(page))
     .toEqual({ requested: 2, released: 2 });
-  await page
-    .locator("#route-editor")
-    .evaluate((dialog: HTMLDialogElement) => dialog.close());
+  await page.locator("#cancel-adjust").click();
   await expect
     .poll(() => wakeCounts(page))
     .toEqual({ requested: 3, released: 2 });

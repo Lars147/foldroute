@@ -1711,8 +1711,8 @@ el("route-form").addEventListener("input", () => {
   el("adjust-status").querySelector(".location-help")?.remove();
 });
 el("route-form").addEventListener("focusout", editorSummary);
-el("route-form").addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
+el("search-view").addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && (editorExpanded || adjustMode === "replan")) {
     event.preventDefault();
     closeAdjust();
   }

@@ -4175,9 +4175,7 @@ test("new GPS planning enriches history without renaming the active origin", asy
   await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
-  await page
-    .locator("#route-editor")
-    .evaluate((dialog: HTMLDialogElement) => dialog.close());
+  await page.locator("#cancel-adjust").click();
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-open").first()).toContainText(
     "Marienplatz 22, München",
@@ -4528,6 +4526,7 @@ test.describe("history touch gestures", () => {
     });
     await expect(row).toHaveClass(/swipe-open/);
     await expect(page.locator("#history-view")).toBeVisible();
+    await expectMotionSettled(row.locator(".history-open"));
     await page.locator(".history-remove").tap();
     await expect(page.locator(".history-row")).toHaveCount(0);
     await client.detach();
