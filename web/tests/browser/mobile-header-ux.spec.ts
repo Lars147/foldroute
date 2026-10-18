@@ -91,6 +91,35 @@ for (const width of [320, 390, 430]) {
   });
 }
 
+test("route header stays fixed when browser history opens and closes details", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.locator("#destination").fill("Ziel");
+  await page.locator("#destination-options .place-select").click();
+  await expectPlanningComplete(page);
+  const header = page.locator("#result-header");
+  const initial = (await header.boundingBox())!;
+  for (let visit = 0; visit < 2; visit++) {
+    await openSelectedDetails(page);
+    await expect(page.locator("#journey-heading")).toBeFocused();
+    expect(await header.boundingBox()).toEqual(initial);
+    await page.goBack();
+    await expect(page.locator("#choices")).toBeVisible();
+    await expect(
+      page.locator(".route-choice-row.selected .route-detail-link"),
+    ).toBeFocused();
+    expect(await header.boundingBox()).toEqual(initial);
+    await page.goForward();
+    await expect(page.locator("#panel-details")).toBeVisible();
+    expect(await header.boundingBox()).toEqual(initial);
+    await page.locator("#result-back").click();
+    await expect(page.locator("#choices")).toBeVisible();
+    expect(await header.boundingBox()).toEqual(initial);
+  }
+});
+
 test("map and accordion use reclaimed space across offline, desktop and landscape", async ({
   page,
 }, info) => {
