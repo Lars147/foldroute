@@ -136,6 +136,7 @@ let historyPosition = Number.isSafeInteger(history.state?.position)
 let restoringSettingsPosition: number | undefined;
 let view: View = "search",
   settings: RoutingSettings = structuredClone(defaults);
+let pwa: ReturnType<typeof setupPWA> | undefined;
 let settingsReplanPending = false;
 let activePlan: RouteLink | undefined;
 let activePlanId: string | undefined;
@@ -423,10 +424,10 @@ navigation = new NavigationSession({
   changed: () => {
     if (navigation?.statistics)
       hasNavigationStatistics = navigation.statistics.completedIds.length > 0;
+    pwa?.refresh();
     navigationView?.render();
     if (!navigationView?.visible) renderNavigationCheck();
     if (navigationView?.visible) {
-      el<HTMLButtonElement>("update-now").disabled = true;
       if (navigation?.engine?.phase === "arrived") syncLiveLocation();
     }
   },
@@ -483,6 +484,7 @@ function cancelNavigationCheck(preserveResume = false) {
   syncLiveLocation();
 }
 function renderNavigationCheck() {
+  pwa?.refresh();
   if (!navigation || navigationView?.visible) return;
   const state = session.state;
   const selected = state.selected;
@@ -1335,8 +1337,7 @@ function renderPlanning(state: PlanningState) {
   el("replan-saved").hidden = !state.restored || !state.selected;
   el<HTMLButtonElement>("replan-saved").disabled =
     !navigator.onLine || state.busy;
-  el<HTMLButtonElement>("update-now").disabled =
-    state.busy || dialog.open || !!navigationView?.visible;
+  pwa?.refresh();
   renderNavigationCheck();
 }
 const destination = new PlaceSearch(
@@ -1666,6 +1667,7 @@ function setEditorExpanded(expanded: boolean) {
     updateSearchEmpty();
   }
   if (expanded) reveal(el("route-editor"), { y: 8 });
+  pwa?.refresh();
 }
 function openAdjust(mode: "context" | "replan", target?: Place) {
   cancelNavigationCheck();
@@ -1756,6 +1758,7 @@ el("origin-location").onclick = async () => {
     if (draftLocationRequest === controller) {
       draftLocationRequest = undefined;
       el<HTMLButtonElement>("origin-location").disabled = false;
+      pwa?.refresh();
     }
   }
 };
@@ -1909,6 +1912,7 @@ el("map-location").onclick = async () => {
   const signal = mapLocationRequest.signal;
   const button = el<HTMLButtonElement>("map-location");
   button.disabled = true;
+  pwa?.refresh();
   try {
     const fix = await liveLocation.center();
     if (!signal.aborted) routeMap.center(fixPlace(fix));
@@ -1919,6 +1923,7 @@ el("map-location").onclick = async () => {
     }
   } finally {
     if (!signal.aborted) button.disabled = false;
+    pwa?.refresh();
   }
 };
 
@@ -2127,9 +2132,10 @@ new ResizeObserver(() => {
     `${settingsHeading.getBoundingClientRect().height}px`,
   );
 }).observe(settingsHeading);
-el("settings-form").addEventListener("focusin", (event) => {
+el("settings-view").addEventListener("focusin", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
+  if (!(target instanceof HTMLElement) || settingsHeading.contains(target))
+    return;
   requestAnimationFrame(() => {
     if (document.activeElement !== target) return;
     if (
@@ -2576,7 +2582,36 @@ destination.activate();
 settingsUI();
 contextUI();
 connectionChanged();
-setupPWA();
+pwa = setupPWA({
+  context: () => {
+    const editingSearch =
+      editorExpanded ||
+      adjustMode === "replan" ||
+      ((view === "search" ||
+        (view === "settings" && beforeSettings === "search")) &&
+        destination.input.value.trim().length > 0);
+    const blockedReason =
+      navigationView?.visible || navigationChecking
+        ? "Nach Ende der Navigation kannst du die App aktualisieren."
+        : session.state.busy
+          ? "Warte zuerst, bis die Routensuche beendet ist."
+          : session.state.locating ||
+              draftLocationRequest ||
+              (mapLocationRequest &&
+                !mapLocationRequest.signal.aborted &&
+                el<HTMLButtonElement>("map-location").disabled)
+            ? "Warte zuerst, bis die Standortabfrage beendet ist."
+            : editingSearch || sharingPlan
+              ? "Beende zuerst die aktuelle Eingabe."
+              : el("settings-form").querySelector("input:invalid")
+                ? "Korrigiere zuerst die ungültigen Einstellungen."
+                : undefined;
+    return { home: view === "search", blockedReason };
+  },
+  notify: (message) => {
+    if (!navigationView?.visible) toast(message);
+  },
+});
 
 let editorScrollFrame: number | undefined;
 function updateRouteConnection() {

@@ -1078,7 +1078,7 @@ fieldset:after {
   background: var(--paper);
   pointer-events: none;
 }
-.settings-screen form :is(input, button, summary, a) {
+.settings-screen :is(input, button, summary, a) {
   scroll-margin-top: calc(
     var(--settings-top-offset) + var(--settings-heading-height, 60px) + 8px
   );
@@ -1829,6 +1829,63 @@ dialog form {
   display: grid;
   width: 360px;
   gap: 12px;
+}
+.settings-tab-icon {
+  position: relative;
+}
+.update-badge {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--color-brand);
+}
+.settings-screen .app-updates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+  border-width: 2px;
+}
+.app-update-copy {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.app-update-copy .message {
+  margin-bottom: 0;
+}
+.app-updates[data-update-available] {
+  border-color: var(--color-brand);
+  background: color-mix(in srgb, var(--color-brand) 8%, var(--panel));
+}
+.app-updates h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+#update-availability {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 1rem;
+  color: var(--panel-text);
+}
+.app-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-inline-start: auto;
+  max-width: 100%;
+}
+.app-update-actions:not(:has(> button:not([hidden]))) {
+  display: none;
+}
+.app-update-actions button {
+  min-height: 48px;
+  max-width: 100%;
+  white-space: normal;
 }
 .update-actions {
   display: grid;
