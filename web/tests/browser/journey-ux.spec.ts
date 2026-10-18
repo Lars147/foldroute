@@ -736,10 +736,25 @@ for (const [width, height] of [
     await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
     await page.locator("#result-back").scrollIntoViewIfNeeded();
     await page.locator("#result-back").click();
-    await page.locator('[data-journey="comparison"]').scrollIntoViewIfNeeded();
-    await expect(page.locator('[data-journey="comparison"]')).toBeInViewport({
-      ratio: 1,
-    });
+    const comparison = page.locator('[data-journey="comparison"]');
+    // At large text sizes a card can exceed the viewport. Every summary part
+    // must remain reachable by scrolling, and the whole card must stay usable.
+    for (const selector of [
+      ".route-choice-arrival",
+      ".route-choice-schedule",
+      ".route-outline",
+      ".route-effort-label",
+      '.route-effort-metric[data-kind="bike"]',
+      '.route-effort-metric[data-kind="transfer"]',
+    ]) {
+      const content = comparison.locator(selector);
+      await content.scrollIntoViewIfNeeded();
+      // Scroll positions round to pixels; tolerate subpixel clipping at the edge.
+      await expect(content).toBeInViewport({ ratio: 0.99 });
+    }
+    await comparison.focus();
+    await comparison.press("Enter");
+    await expect(comparison).toHaveAttribute("aria-pressed", "true");
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
