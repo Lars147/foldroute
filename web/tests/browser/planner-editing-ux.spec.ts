@@ -1391,7 +1391,9 @@ for (const width of [320, 390, 430]) {
     await expect(page.locator("#route-more")).toBeFocused();
     await page.locator("#close-route").click();
     await expect(page.locator("#destination")).toBeVisible();
-    await expect(page.locator("#destination")).toBeFocused();
+    await expect(page.locator("#search-heading")).toBeFocused();
+    await expect(page.locator("#destination")).not.toBeFocused();
+    await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
     await expect(page.locator("#map-view")).toBeHidden();
   });
 }

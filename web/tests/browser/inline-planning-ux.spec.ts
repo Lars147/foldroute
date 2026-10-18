@@ -110,6 +110,13 @@ for (const width of [390, 1280])
     await expect(page.locator("#calculate")).toHaveText("Route neu berechnen");
     await expect(page.locator("#calculate")).toBeVisible();
     await expect(page.locator("#cancel-adjust")).toBeVisible();
+    await page.locator("#destination").click();
+    await expect(page.locator("#destination-options")).toBeVisible();
+    if (width < 900) await page.locator(".search-focus-back").click();
+    else await page.locator("#destination").press("Escape");
+    await expect(page.locator("#destination-options")).toBeHidden();
+    await expect(page.locator("#home-places")).toBeHidden();
+    await expect(page.locator("#destination")).toHaveValue("Bergstraße 1");
     await page.locator("#cancel-adjust").click();
     await expect(page.locator("#map-view")).toBeVisible();
     await expect(page.locator("#adjust-route")).toBeFocused();

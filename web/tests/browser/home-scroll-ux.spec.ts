@@ -1,4 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
+import {
+  expectMotionSettled,
+  expectSelectedJourneySaved,
+  openCachedJourney,
+} from "./assertions";
+import { setup, plan } from "./planner-fixture";
 
 async function populateHome(page: Page) {
   await page.goto("/");
@@ -41,6 +47,143 @@ async function populateHome(page: Page) {
     2,
   );
   await expect(page.locator("#open-saved")).toBeVisible();
+}
+
+for (const width of [390, 1280]) {
+  test(`closing fresh and saved routes restores home and its suggestions at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await setup(page);
+    await populateHome(page);
+    await page.clock.setFixedTime(new Date("2026-09-04T08:00:01Z"));
+    let plans = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/v6/plan")) plans++;
+    });
+    const input = page.locator("#destination");
+    const list = page.locator("#destination-options");
+    for (const source of ["fresh", "saved"]) {
+      if (source === "fresh") {
+        await plan(page);
+        await expectSelectedJourneySaved(page);
+      } else await openCachedJourney(page, page.locator("#open-saved"));
+      const beforeClose = plans;
+      const summary = await page.locator("#saved-description").textContent();
+      await page.locator("#close-route").click();
+      await expect(page.locator("#search-view")).toBeVisible();
+      await expect(page.locator("#map-view")).toBeHidden();
+      await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
+      await expect(input).toHaveValue("");
+      await expect(list).toBeVisible();
+      await expect(list).toContainText("Favoriten");
+      await expect(list).toContainText("Zuletzt verwendet");
+      await expect(
+        page.locator(width < 900 ? "#search-heading" : "#destination"),
+      ).toBeFocused();
+      await expectMotionSettled(page.locator(".search-content"));
+      await page.screenshot({
+        path: test.info().outputPath(`home-after-${source}-route.png`),
+      });
+      for (const close of width < 900
+        ? ["back", "input-escape", "list-escape"]
+        : ["input-escape", "list-escape"]) {
+        await input.click();
+        if (close === "back") await page.locator(".search-focus-back").click();
+        else if (close === "list-escape") {
+          const option = list.locator(".place-select").first();
+          await option.focus();
+          await option.press("Escape");
+        } else await input.press("Escape");
+        await expect(list).toBeVisible();
+        await expect(list).toContainText("Favoriten");
+        await expect(list).toContainText("Zuletzt verwendet");
+        await expect(list.locator(".place-select strong")).toHaveText([
+          "Bergstraße 1",
+          "Ziel",
+          "Letztes Ziel",
+        ]);
+        await expect(page.locator("#search-empty")).toBeHidden();
+        await expect(page.locator("#open-saved")).toBeVisible();
+        await expect(page.locator("#saved-description")).toHaveText(summary!);
+        await expect(page.locator(".search-focus-back")).toHaveCount(0);
+        await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
+        await expect(
+          page.locator(width < 900 ? "#search-heading" : "#destination"),
+        ).toBeFocused();
+      }
+      expect(plans).toBe(beforeClose);
+
+      await openCachedJourney(page, page.locator("#open-saved"));
+      await page.goBack();
+      await expect(page.locator("#search-view")).toBeVisible();
+      await expect(list).toBeVisible();
+      await expect(list).toContainText("Favoriten");
+      await expect(list).toContainText("Zuletzt verwendet");
+      await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
+      expect(plans).toBe(beforeClose);
+    }
+  });
+
+  test(`dismissing home search preserves its query and ignores late results at ${width}`, async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await populateHome(page);
+    await page.evaluate(async () => {
+      const { ApiClient } = await import("/src/transitous.ts");
+      ApiClient.prototype.searchPlaces = function (_query, signal) {
+        (window as any).searchSignal = signal;
+        return ((window as any).searchRun = new Promise((resolve) => {
+          (window as any).releaseSearch = () =>
+            resolve([
+              {
+                name: "Berg verspätet",
+                detail: "München",
+                latitude: 48.15,
+                longitude: 11.6,
+              },
+            ]);
+        }));
+      };
+    });
+    const input = page.locator("#destination");
+    const list = page.locator("#destination-options");
+    await input.fill("Berg");
+    await expect(page.locator("#place-status")).toHaveText(
+      "Orte werden gesucht …",
+    );
+    if (width < 900) await page.locator(".search-focus-back").click();
+    else await input.press("Escape");
+    await page.evaluate(async () => {
+      if (!(window as any).searchSignal.aborted)
+        throw new Error("Dismissed search was not aborted");
+      (window as any).releaseSearch();
+      await (window as any).searchRun;
+    });
+    await expect(input).toHaveValue("Berg");
+    await expect(list).toBeVisible();
+    await expect(list.locator(".place-select strong")).toHaveText([
+      "Bergstraße 1",
+    ]);
+    await expect(page.locator("#place-status")).toBeEmpty();
+    await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
+
+    await context.setOffline(true);
+    await input.fill("");
+    if (width < 900) await page.locator(".search-focus-back").click();
+    else await input.press("Escape");
+    await expect(list).toBeVisible();
+    await expect(list.locator(".place-select strong")).toHaveText([
+      "Bergstraße 1",
+      "Letztes Ziel",
+    ]);
+    await expect(page.locator("#open-saved")).toBeVisible();
+    await expect(page.locator("#place-status")).toBeEmpty();
+    await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
+  });
 }
 
 for (const width of [390, 1280])
@@ -116,7 +259,7 @@ test("collapsing home preserves the query and adjustment draft", async ({
   await page.locator("#search-adjust").click();
 });
 
-test("home greeting remains visible after cancelling without saved places", async ({
+test("home greeting remains visible after cancelling adjustments and searches without saved places", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -129,6 +272,15 @@ test("home greeting remains visible after cancelling without saved places", asyn
     await expect(page.locator("#search-empty")).toBeVisible();
     await expect(page.locator("#destination-options")).toBeHidden();
     await expect(page.locator("#search-adjust")).toBeFocused();
+  }
+  for (const close of ["back", "escape"]) {
+    await page.locator("#destination").click();
+    if (close === "back") await page.locator(".search-focus-back").click();
+    else await page.locator("#destination").press("Escape");
+    await expect(page.locator("#search-empty")).toBeVisible();
+    await expect(page.locator("#destination-options")).toBeHidden();
+    await expect(page.locator("#search-heading")).toBeFocused();
+    await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
   }
 });
 

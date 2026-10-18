@@ -1350,7 +1350,17 @@ const destination = new PlaceSearch(
   },
   book,
   toast,
-  { showCurrentLocation: false },
+  {
+    showCurrentLocation: false,
+    onDismiss: () => {
+      if (view !== "search" || editorExpanded || adjustMode === "replan")
+        return;
+      el("place-status").textContent = "";
+      destination.activate();
+      updateSearchEmpty();
+      homeFocusTarget().focus({ preventScroll: true });
+    },
+  },
 );
 const sharedDialog = el<HTMLDialogElement>("shared-dialog");
 const sharedNavigationDialog = el<HTMLDialogElement>(
@@ -1871,7 +1881,12 @@ async function refreshRoute(interactive = true) {
   }
 }
 el("refresh-route").onclick = () => void refreshRoute();
-function closeRoute(push = true, focus: HTMLElement = destination.input) {
+function homeFocusTarget(): HTMLElement {
+  return matchMedia("(max-width: 899px)").matches
+    ? el("search-heading")
+    : destination.input;
+}
+function closeRoute(push = true, focus: HTMLElement = homeFocusTarget()) {
   settingsReplanPending = false;
   session.clear();
   releasePlan();

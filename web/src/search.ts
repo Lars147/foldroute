@@ -50,10 +50,7 @@ export class PlaceSearch {
     PlaceSearch.focusedSearch = this;
     const back = node("button", "‹ Zurück", "search-focus-back");
     back.type = "button";
-    back.onclick = () => {
-      this.cancel();
-      this.exitFocusMode();
-    };
+    back.onclick = () => this.dismiss();
     this.focusBack = back;
     window.addEventListener("resize", this.resizeFocus);
     (this.input.closest("dialog") ?? document.body).append(back);
@@ -84,6 +81,7 @@ export class PlaceSearch {
     private settings: {
       showCurrentLocation?: boolean;
       focusDriven?: boolean;
+      onDismiss?: () => void;
     } = {},
   ) {
     this.input = el(id);
@@ -171,8 +169,7 @@ export class PlaceSearch {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        this.cancel();
-        this.exitFocusMode();
+        this.dismiss();
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -215,8 +212,7 @@ export class PlaceSearch {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        this.cancel();
-        this.exitFocusMode();
+        this.dismiss();
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         const index = this.buttons.findIndex((b) =>
@@ -320,6 +316,10 @@ export class PlaceSearch {
         if (version === this.version) this.setMessage(errorText(error));
       }
     }, 280);
+  }
+  private dismiss() {
+    this.cancel();
+    this.settings.onDismiss?.();
   }
   cancel(keepFocus = false) {
     if (PlaceSearch.dialogSearch === this) PlaceSearch.dialogSearch = undefined;
