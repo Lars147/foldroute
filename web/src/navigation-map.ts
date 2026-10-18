@@ -195,10 +195,7 @@ export class NavigationMap {
       { signal: this.events.signal },
     );
     const credit = target.parentElement!.querySelector(".navigation-credit");
-    if (credit)
-      credit.innerHTML =
-        mapAttribution +
-        ' · <a href="https://transitous.org/sources/">Fahrtdaten</a>';
+    if (credit) credit.innerHTML = mapAttribution;
   }
   pause() {
     this.following = false;

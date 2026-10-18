@@ -20,6 +20,7 @@ import {
 import { detailTime, renderJourneyDetails } from "./journey-detail";
 import { closeMapStylePickers, mountMapStylePicker } from "./map-style-picker";
 import { supportProviders } from "./project-support";
+import { mapAttribution } from "./map-theme";
 import {
   navigationSections,
   sectionLabel,
@@ -70,7 +71,7 @@ export class NavigationView {
         <button id="navigation-center" class="navigation-center navigation-icon-button secondary" type="button" aria-label="Navigation zentrieren" title="Navigation zentrieren" aria-pressed="true"></button>
         <div id="navigation-style-control"></div>
       </div>
-      <div class="navigation-credit"><a href="https://www.openstreetmap.org/copyright">© OpenStreetMap-Mitwirkende</a> · <a href="https://transitous.org/sources/">Fahrtdaten</a></div>
+      <div class="navigation-credit">${mapAttribution}</div>
       <article class="navigation-panel" id="navigation-panel" aria-label="Navigationshinweise">
         <div class="navigation-instruction" id="navigation-guidance"><span id="navigation-arrow" aria-hidden="true">↑</span><div><strong id="navigation-distance"></strong><h1 id="navigation-instruction" tabindex="-1">Navigation wird vorbereitet …</h1><p id="navigation-detail"></p></div></div>
         <div id="navigation-alert" hidden><p id="navigation-alert-summary" role="status"></p><button id="navigation-alert-open" class="secondary" type="button">Details</button></div>
@@ -96,6 +97,7 @@ export class NavigationView {
         <p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
         <div id="navigation-alternative" hidden><p id="navigation-alternative-text"></p><button id="navigation-accept" class="primary">Verbindung übernehmen</button><button id="navigation-dismiss" class="secondary">Bisherige behalten</button></div>
         <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
+        <p class="journey-sources"><a href="https://transitous.org/sources/">Fahrtdaten und Quellen</a></p>
         <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
         </div>
         <div id="navigation-finish" hidden>

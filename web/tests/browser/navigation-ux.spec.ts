@@ -453,23 +453,26 @@ test("navigation credits move between mobile panel and desktop bottom right", as
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   const links = page.locator(".navigation-credit a");
-  await expect(links).toHaveCount(4);
+  await expect(links).toHaveCount(2);
   await expect(links.nth(0)).toHaveAttribute(
-    "href",
-    "https://openfreemap.org/",
-  );
-  await expect(links.nth(1)).toHaveAttribute(
     "href",
     "https://openmaptiles.org/",
   );
-  await expect(links.nth(2)).toHaveAttribute(
+  await expect(links.nth(1)).toHaveAttribute(
     "href",
     "https://www.openstreetmap.org/copyright",
   );
-  await expect(links.nth(3)).toHaveAttribute(
+  await expect(page.locator(".navigation-credit")).toHaveText(
+    "© OpenMapTiles · © OpenStreetMap",
+  );
+  await page.locator("#navigation-details-toggle").click();
+  const sources = page.locator("#navigation-details .journey-sources a");
+  await expect(sources).toBeVisible();
+  await expect(sources).toHaveAttribute(
     "href",
     "https://transitous.org/sources/",
   );
+  await page.locator("#navigation-details-toggle").click();
   await expectMobileCredit(page);
   await page.locator("#navigation-map").press("ArrowRight");
   await expect(page.locator("#navigation-map")).toHaveAttribute(

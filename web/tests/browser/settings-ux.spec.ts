@@ -273,6 +273,7 @@ for (const installed of [false, true]) {
       Object.defineProperty(navigator, "standalone", { value: standalone });
     }, installed);
     await open(page);
+    await expect(page.locator(".settings-licenses")).toBeVisible();
     await openSettingsSection(page, "help");
     if (installed) {
       await expect(page.locator("#install")).toBeHidden();
@@ -291,7 +292,9 @@ for (const installed of [false, true]) {
         "FoldRoute wurde installiert.",
       );
     }
-    const links = page.locator(".settings-help-links a, .settings-feedback");
+    const links = page.locator(
+      ".settings-help-links a, .settings-feedback, .settings-licenses",
+    );
     await expect(links).toHaveCount(5);
     for (const link of await links.all()) {
       expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(48);

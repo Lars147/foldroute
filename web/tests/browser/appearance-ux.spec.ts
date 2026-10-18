@@ -148,7 +148,7 @@ for (const width of [390, 1280])
       await expectPanelContrast(page);
       await expect(page.locator(".map-credit")).toHaveCSS(
         "background-color",
-        value === "dark" ? "rgb(30, 35, 37)" : canvas,
+        "rgba(0, 0, 0, 0)",
       );
       await page
         .locator(".journey-panel")

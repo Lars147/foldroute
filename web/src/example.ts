@@ -92,9 +92,6 @@ names.append(
 places.append(names);
 el("adjust-route").before(places);
 
-const sources = node("a", "Fahrtdaten");
-sources.href = "https://transitous.org/sources/";
-document.querySelector(".map-credit")!.append(sources);
 el("map-route").onclick = () => routeMap.fitRoute();
 el("close-route").setAttribute("aria-label", "Zur Landingpage");
 el("close-route").onclick = () =>

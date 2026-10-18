@@ -816,6 +816,13 @@ input[type="search"]::-webkit-search-cancel-button {
   opacity: 0.5;
   cursor: default;
 }
+.map-credit,
+.navigation-credit {
+  padding: 1px 3px;
+  background: transparent;
+  font-size: 0.5rem;
+  color: var(--color-map-secondary);
+}
 .map-credit {
   position: absolute;
   top: 12px;
@@ -824,14 +831,14 @@ input[type="search"]::-webkit-search-cancel-button {
   z-index: 1;
   width: fit-content;
   max-width: calc(100% - 90px);
-  padding: 3px 6px;
-  background: var(--color-raised);
-  border-radius: 5px;
-  font-size: 0.5625rem;
-  color: var(--ink);
 }
 .map-credit a {
   margin-left: 5px;
+}
+.journey-sources {
+  margin: 16px 0 0;
+  font-size: 0.75rem;
+  color: var(--panel-muted);
 }
 .map-screen .offline-map {
   background-color: var(--color-map);
@@ -1354,7 +1361,8 @@ fieldset:after {
   color: var(--danger);
   font-size: 0.875rem;
 }
-.settings-feedback {
+.settings-feedback,
+.settings-licenses {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1365,7 +1373,8 @@ fieldset:after {
   line-height: 1.5;
   text-decoration: none;
 }
-.settings-feedback > span:last-child {
+.settings-feedback > span:last-child,
+.settings-licenses > span:last-child {
   flex-shrink: 0;
   color: var(--muted);
 }
@@ -3921,11 +3930,6 @@ body[data-navigation="active"] .app-tabs {
   position: absolute;
   bottom: 5px;
   right: max(12px, var(--safe-right));
-  font-size: 10px;
-  color: var(--panel-text);
-  background: var(--color-raised);
-  padding: 2px 6px;
-  border-radius: 4px;
 }
 .navigation-credit a {
   color: inherit;

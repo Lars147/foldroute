@@ -12,15 +12,16 @@
     :root {  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; color: var(--color-text); background: var(--color-canvas); }
     * { box-sizing: border-box; }
     body { margin: 0; }
-    main { max-width: 860px; margin: auto; padding: 36px 24px 72px; }
+    main { max-width: 860px; margin: auto; padding: 36px 24px 72px; overflow-wrap: anywhere; }
     nav { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-bottom: 56px; }
-    a { color: inherit; text-underline-offset: 4px; }
+    a { color: inherit; text-underline-offset: 4px; overflow-wrap: anywhere; }
     a:hover { text-decoration-thickness: 2px; }
     :focus-visible { outline: 3px solid var(--color-selection-indicator); outline-offset: 5px; }
     .kicker { font-size: .8rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
     h1 { font-size: clamp(2rem, 7vw, 3.8rem); line-height: 1.05; letter-spacing: -.04em; margin: 16px 0 24px; overflow-wrap: anywhere; }
     h2 { margin: 40px 0 18px; font-size: 1.5rem; }
     p { line-height: 1.65; }
+    li { line-height: 1.65; margin-block: 8px; }
     .intro { font-size: 1.15rem; }
     .sources { background: var(--color-subtle); border-radius: 20px; padding: 4px 24px 20px; }
     details { border-bottom: 1px solid var(--color-divider); padding: 20px 0; }
@@ -67,8 +68,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 </pre></details>
-<details id="openlayers"><summary>OpenLayers · BSD-2-Clause</summary><p>Drehbare Navigationskarte der PWA.</p><p><a href="openlayers-LICENSE.txt">OpenLayers-Lizenz</a> · <a href="navigation-dependencies-LICENSE.txt">Lizenzen der Kartenbibliothek und ihrer Abhängigkeiten</a></p></details>
-<details id="leaflet"><summary>Leaflet · BSD-2-Clause</summary><p>Kartenbibliothek im Webplaner.</p><p><a href="leaflet-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>BSD 2-Clause License
+<details id="openlayers"><summary>OpenLayers 10.11.0 · BSD-2-Clause</summary><p>Drehbare Navigationskarte der PWA.</p><p><a href="https://openlayers.org/">Projektseite</a> · <a href="openlayers-LICENSE.txt">OpenLayers-Lizenz</a> · <a href="navigation-dependencies-LICENSE.txt">Lizenzen der Kartenbibliothek und ihrer Abhängigkeiten</a></p></details>
+<details id="leaflet"><summary>Leaflet 1.9.4 · BSD-2-Clause</summary><p>Kartenbibliothek im Webplaner. <a href="https://leafletjs.com/">Projektseite</a></p><p><a href="leaflet-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>BSD 2-Clause License
 
 Copyright (c) 2010-2023, Volodymyr Agafonkin
 Copyright (c) 2010-2011, CloudMade
@@ -139,7 +140,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 </pre></details>
-<details id="workbox"><summary>Workbox · MIT</summary><p>Offline-Funktionen und Service Worker des Webplaners.</p><p><a href="workbox-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>Copyright 2018 Google LLC
+<details id="workbox"><summary>Workbox 7.4.1 · MIT</summary><p>Offline-Funktionen und Service Worker des Webplaners. <a href="https://developer.chrome.com/docs/workbox/">Projektseite</a></p><p><a href="workbox-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>Copyright 2018 Google LLC
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the &quot;Software&quot;), to deal
@@ -159,7 +160,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 </pre></details>
-    <details id="map-rendering"><summary>MapLibre GL JS · BSD-3-Clause / Leaflet-Adapter · ISC / ol-mapbox-style · BSD-2-Clause</summary><p>Darstellung der OpenFreeMap-Basiskarten. Die Lizenztexte einschließlich der Produktionsabhängigkeiten bleiben auch offline verfügbar.</p><p><a href="map-rendering-LICENSE.txt">Vollständige Lizenztexte</a></p></details>
+    <details id="map-rendering"><summary>MapLibre und Kartenstile · BSD und ISC</summary><p>Darstellung der OpenFreeMap-Basiskarten:</p><ul><li><a href="https://maplibre.org/maplibre-gl-js/docs/">MapLibre GL JS 6.14.0</a> · BSD-3-Clause</li><li><a href="https://github.com/maplibre/maplibre-gl-leaflet">@maplibre/maplibre-gl-leaflet 0.1.4</a> · ISC</li><li><a href="https://github.com/openlayers/ol-mapbox-style">ol-mapbox-style 13.8.0</a> · BSD-2-Clause</li></ul><p><a href="map-rendering-LICENSE.txt">Vollständige Lizenztexte einschließlich der Abhängigkeiten</a></p></details>
+    <details id="motion"><summary>Motion 14.3.0 · MIT</summary><p>Animationen und Übergänge im Webplaner. <a href="https://motion.dev/">Projektseite</a></p><p>Enthalten sind motion 14.3.0, framer-motion 14.3.0, motion-dom 14.3.0 und motion-utils 14.1.1 unter MIT sowie tslib 2.8.1 unter 0BSD.</p><p><a href="motion-LICENSE.txt">Original-Lizenztexte aller Animationsabhängigkeiten</a></p></details>
   </section>
   <footer><p>Die Software-Lizenztexte sind im installierten Webplaner auch offline lesbar. Externe Quellenlinks benötigen Internet.</p></footer>
 </main>
