@@ -182,7 +182,100 @@ for (const width of [320, 390, 1280]) {
   });
 }
 
-test("map action follows mobile view and stays unique across desktop resizing", async ({
+for (const width of [320, 390, 430, 768]) {
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    test(`route header stays fixed through details and back at ${width} with ${reducedMotion} motion`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ reducedMotion });
+      await preview(page);
+      await page.locator('[data-journey="best"]').click();
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        const elements = [
+          ...document.querySelectorAll<HTMLElement>(
+            "#result-header, .planning-context, #route-origin, #route-destination, #adjust-route, #route-more, #close-route, #route-request-meta, #result-stand, #panel-map-toggle",
+          ),
+        ];
+        const bounds = () =>
+          elements.flatMap((element) => {
+            const { x, y, width, height } = element.getBoundingClientRect();
+            return [x, y, width, height];
+          });
+        const baseline = bounds();
+        const recording = { baseline, samples: [baseline], active: true };
+        (window as any).headerGeometry = recording;
+        const sample = () => {
+          if (!recording.active) return;
+          recording.samples.push(bounds());
+          requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      });
+      const details = page.locator(
+        ".route-choice-row.selected .route-detail-link",
+      );
+      const content = page.locator("#panel-content");
+      let detailScroll = 0;
+      for (let visit = 0; visit < 2; visit++) {
+        await details.click();
+        await expect(page.locator("#journey-heading")).toBeFocused();
+        await expect(page.locator("#close-route")).toBeVisible();
+        await expect(content).toHaveJSProperty("scrollTop", detailScroll);
+        await expect
+          .poll(() =>
+            page
+              .locator("#panel-details")
+              .evaluate(
+                (element) => element.getAnimations({ subtree: true }).length,
+              ),
+          )
+          .toBe(0);
+        const header = (await page.locator("#result-header").boundingBox())!;
+        const back = (await page.locator("#result-back").boundingBox())!;
+        expect(back.y).toBeGreaterThanOrEqual(header.y + header.height - 1);
+        expect(back.height).toBeGreaterThanOrEqual(44);
+        await content.evaluate((element) => (element.scrollTop = 150));
+        detailScroll = await content.evaluate((element) => element.scrollTop);
+        expect(detailScroll).toBeGreaterThan(0);
+        await expect(page.locator("#result-back")).toBeInViewport({ ratio: 1 });
+        if (visit === 0)
+          await page.screenshot({ path: info.outputPath("stable-header.png") });
+        await page.locator("#result-back").click();
+        await expect(details).toBeFocused();
+        await expect(content).toHaveJSProperty("scrollTop", 0);
+        await expect
+          .poll(() =>
+            page
+              .locator("#choices")
+              .evaluate(
+                (element) => element.getAnimations({ subtree: true }).length,
+              ),
+          )
+          .toBe(0);
+      }
+      const maximumShift = await page.evaluate(() => {
+        const recording = (window as any).headerGeometry as {
+          active: boolean;
+          baseline: number[];
+          samples: number[][];
+        };
+        recording.active = false;
+        return Math.max(
+          ...recording.samples.flatMap((sample) =>
+            sample.map((value, index) =>
+              Math.abs(value - recording.baseline[index]),
+            ),
+          ),
+        );
+      });
+      expect(maximumShift).toBeLessThanOrEqual(1);
+    });
+  }
+}
+
+test("map action stays in the route header across desktop resizing", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -198,7 +291,9 @@ test("map action follows mobile view and stays unique across desktop resizing", 
   await page.locator("#result-back").click();
   await expect(page.locator("#choices")).toBeVisible();
   await page.locator(".route-choice-row.selected .route-detail-link").click();
-  await expect(page.locator("#result-nav #panel-map-toggle")).toBeVisible();
+  await expect(
+    page.locator("#planning-context-footer #panel-map-toggle"),
+  ).toBeVisible();
   await toggle.click();
   await page.locator("#map-open-details").click();
   await expect(page.locator("#panel-details")).toBeVisible();
@@ -206,7 +301,9 @@ test("map action follows mobile view and stays unique across desktop resizing", 
   await expect(page.locator("#panel-map-toggle")).toBeHidden();
   await expect(page.locator("#result-nav")).toBeHidden();
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator("#result-nav #panel-map-toggle")).toBeVisible();
+  await expect(
+    page.locator("#planning-context-footer #panel-map-toggle"),
+  ).toBeVisible();
   await page.locator("#result-back").click();
   await expect(
     page.locator("#planning-context-footer #panel-map-toggle"),
@@ -578,14 +675,18 @@ for (const [width, height] of [
   [844, 390],
   [390, 844],
 ]) {
-  test(`large text keeps content and actions reachable at ${width}x${height}`, async ({
+  test(`200% text and long places keep content and actions reachable at ${width}x${height}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
     await preview(page);
-    await page.evaluate(
-      () => (document.documentElement.style.fontSize = "24px"),
-    );
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "200%";
+      const { state, view } = (window as any).uxPreview;
+      state.request.origin.name = "München Hauptbahnhof, Ausgang Arnulfstraße";
+      state.request.destination.name = "Bahnhofstraße 3a, 82166 Gräfelfing";
+      view.render(state, 30);
+    });
     await page.locator('[data-journey="selected"]').click();
     await page.locator(".route-choice-row.selected .route-detail-link").click();
     await page.locator("#adjust-route").scrollIntoViewIfNeeded();

@@ -118,6 +118,9 @@ export class JourneyView {
         const panel = el("journey-panel");
         const fixed =
           el("result-header").offsetHeight +
+          (el("result-nav").parentElement === panel
+            ? el("result-nav").offsetHeight
+            : 0) +
           panel.querySelector<HTMLElement>(".panel-actions")!.offsetHeight +
           48;
         const row =
@@ -144,6 +147,7 @@ export class JourneyView {
     for (const element of [
       el("map-view"),
       el("result-header"),
+      el("result-nav"),
       el("choices"),
       el("journey-panel").querySelector<HTMLElement>(".panel-actions")!,
     ])
@@ -271,11 +275,17 @@ export class JourneyView {
           : this.savedOrigin === "search"
             ? "‹ Zur Suche"
             : "‹ Alle Verbindungen";
+    const resultNav = el("result-nav");
+    const resultHeader = el("result-header");
+    if (map) {
+      if (resultNav.parentElement !== resultHeader)
+        resultHeader.prepend(resultNav);
+    } else if (resultNav.previousElementSibling !== resultHeader) {
+      resultHeader.after(resultNav);
+    }
     const mapToggle = el<HTMLButtonElement>("panel-map-toggle");
     const mapToggleParent = el(
-      mobile && this.screen === "list"
-        ? "planning-context-footer"
-        : "result-nav",
+      mobile && !map ? "planning-context-footer" : "result-nav",
     );
     if (mapToggle.parentElement !== mapToggleParent)
       mapToggleParent.append(mapToggle);
@@ -329,7 +339,7 @@ export class JourneyView {
       );
     el("result-context").hidden = detail || map;
     el("result-freshness").hidden = this.example;
-    el("close-route").hidden = mobile && this.screen !== "list";
+    el("close-route").hidden = map;
     for (const element of [
       el("map"),
       el("map-controls"),
