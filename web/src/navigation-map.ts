@@ -163,7 +163,6 @@ export class NavigationMap {
           }
           const previous = this.tiles;
           this.tiles = next;
-          next.setVisible(navigator.onLine);
           this.map.getLayers().setAt(0, next);
           previous.dispose();
           delete this.target.dataset.tileError;
@@ -174,7 +173,6 @@ export class NavigationMap {
             this.target.dataset.tileError = "true";
         });
     }
-    this.tiles.setVisible(navigator.onLine);
     const signature = JSON.stringify([
       theme.name,
       engine.journey.legs.map((l) => [l.navigationId, l.coordinates]),
