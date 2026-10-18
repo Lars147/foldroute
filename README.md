@@ -31,8 +31,14 @@ Für den iPhone-Prototyp öffne `ios/FoldRoute.xcodeproj` in Xcode. Voraussetzun
 
 - `ios/`: native App, Xcode-Projekt und Swift-Tests.
 - `web/`: Webplaner, PWA, Build-Konfiguration und Webtests.
-- `docs/`: Landingpage und gebauter Webplaner unter `plan/`; dieses Verzeichnis dient der Website-Auslieferung.
+- `docs/`: Landingpage und deren Assets; der Build ergänzt den nicht versionierten Webplaner unter `plan/` für die Website-Auslieferung.
 - `documentation/`: aktuelle Bedienungs- und technische Dokumentation.
+
+## Automatische Prüfungen und Veröffentlichung
+
+Der [Web-Workflow](https://github.com/Lars147/foldroute/actions/workflows/web.yml) prüft Pull Requests nach `main` und Pushes auf `main`: Unit-Tests, TypeScript und Produktionsbuild sowie die bestehenden Browserprüfungen in Chromium und WebKit. GitHub Pages veröffentlicht nach erfolgreichen Prüfungen dieselbe gebaute Website. Ein manueller Start ist ebenfalls möglich; veröffentlicht wird ausschließlich von `main`.
+
+Generierte Dateien unter `docs/plan/` werden nicht mehr committed. Für Änderungen an der PWA reichen Quellcode und gegebenenfalls Tests; CI baut die Produktionsassets. Lokale Builds und Vorschauen funktionieren weiterhin mit den Befehlen in der [Web-Anleitung](web/README.md#entwickeln-und-bauen). Die nativen iOS-Tests und der Swift-Paritätslauf bleiben separate lokale Prüfungen.
 
 ## Dokumentation
 

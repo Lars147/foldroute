@@ -13,6 +13,9 @@ web/node_modules/
 web/test-results/
 web/playwright-report/
 
+# Generated PWA; GitHub Actions builds and publishes it.
+/docs/plan/
+
 # Local planning notes
 /notes.md
 /task_plan.md

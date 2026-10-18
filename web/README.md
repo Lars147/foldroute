@@ -22,7 +22,17 @@ npm test
 npm run build
 ```
 
-Der Build ersetzt ausschließlich `docs/plan/`. Landingpage und deren Assets bleiben erhalten. GitHub Pages kann weiterhin das Verzeichnis `docs/` ausliefern; der Planer liegt unter `plan/`. Relative Bundle-URLs funktionieren auch unter einem Repository-Unterpfad. Zum lokalen Testen die Seite über HTTP öffnen, nicht über `file://`. `npm run preview` liefert den fertigen Build aus.
+Der Build ersetzt ausschließlich `docs/plan/`. Dieses generierte Verzeichnis wird von Git ignoriert; Landingpage und deren Assets bleiben erhalten. GitHub Actions baut den Planer und veröffentlicht die geprüfte Website über GitHub Pages. Der Planer liegt weiterhin unter `plan/`; relative Bundle-URLs funktionieren auch unter einem Repository-Unterpfad. Zum lokalen Testen die Seite über HTTP öffnen, nicht über `file://`. `npm run preview` liefert den fertigen Build aus.
+
+## CI und Veröffentlichung
+
+Der [Web-Workflow](https://github.com/Lars147/foldroute/actions/workflows/web.yml) startet für Pull Requests nach `main`, Pushes auf `main` und manuell. Er verwendet Ubuntu 24.04 und Node.js 24. Nach `npm ci`, allen Unit-Tests und `npm run build` speichert er die vollständige Website aus `docs/` als Artefakt. Je vier nachgelagerte Jobs übernehmen dieses Artefakt und prüfen die vorhandenen Chromium- beziehungsweise WebKit-Projekte. Die Tests werden einzeln auf die vier Teile verteilt, damit auch große Testdateien die Laufzeit nicht bestimmen. Python 3.12 stellt den statischen Testserver bereit. Für die Veröffentlichung wird der getestete Build übernommen und nicht erneut gebaut.
+
+In CI läuft je Teil ein Worker; ein fehlgeschlagener Test wird einmal wiederholt. Playwright beendet einen Teil nach spätestens 30 Minuten oder zehn fehlgeschlagenen Tests, der Job endet spätestens nach 45 Minuten. HTML-Berichte sind je Browser und Teil sieben Tage als Workflow-Artefakte verfügbar, bei fehlgeschlagenen Jobs zusätzlich Screenshots und Traces. Mit `npx playwright show-report <Verzeichnis>` lässt sich ein heruntergeladener HTML-Bericht aus `web/` öffnen. Ein versehentlich eingechecktes `.only` lässt CI fehlschlagen.
+
+Pages ist auf **GitHub Actions** als Veröffentlichungsquelle eingestellt. Nur erfolgreiche Läufe auf `main` veröffentlichen über die Umgebung `github-pages`; Pull Requests erhalten ausschließlich Prüfungen. Fehlgeschlagene Prüfungen erhalten die zuletzt veröffentlichte Website. Neuere Commits brechen ältere PR-Läufe ab; Läufe auf `main` werden nacheinander ausgeführt. Die Prüfjobs besitzen nur Leserechte auf den Quellcode, der Deployment-Job zusätzlich die Pages- und ID-Token-Schreibrechte. Die offiziellen Actions sind auf vollständige Commit-SHAs fixiert.
+
+Für Änderungen am Webplaner werden Quellcode und Tests committed, keine Dateien aus `docs/plan/`. Ein frischer Checkout benötigt vor lokalen Produktionstests `npm run build`. Für einen Rollback den betreffenden Quellcode-Commit auf `main` zurücknehmen; der Workflow prüft und veröffentlicht den daraus gebauten Stand erneut. Die öffentlich erreichbaren Pfade für Landingpage, Planer, Manifest und Service Worker bleiben unverändert.
 
 ## PWA-Start
 
@@ -74,13 +84,13 @@ Die echte App rendert beide Aufzeichnungen in einem isolierten Browserkontext in
 Die folgenden Befehle werden in `web/` ausgeführt. Die Browsertests benötigen standardmäßig die Ports 4173 und 4174 exklusiv. Mit `FOLDROUTE_TEST_PORT=4283 npm run test:browser` nutzen sie stattdessen 4283 und 4284, ohne laufende Vorschauen zu beenden. Ihr Testserver liefert das Repository-Hauptverzeichnis aus, weshalb der interne Testpfad `/docs/plan/` von der obigen Website-Vorschau abweicht.
 
 ```sh
-npm run test:parity
+npm test
 npx playwright install chromium webkit
 npm run build
 npm run test:browser
 ```
 
-Die Browsertests benötigen zusätzlich Python 3 für den statischen Testserver. Service-Worker-Tests laufen auf dem fertigen Build unter einem Unterpfad. Der Paritätstest benötigt macOS und Swift. Er kompiliert die unveränderten nativen Routingdateien aus `../ios/` und führt sie mit `URLProtocol`-Testantworten aus, ohne Netzwerkzugriff. `tests/fixtures/swift-parity.json` enthält dieselben normalisierten Transitous-Antworten und native Referenzergebnisse. Vitest vergleicht daraus Abfahrten, Ankünfte, Etappen, Faltzeiten und Auswahl. Nach bewussten nativen Änderungen: `sh scripts/parity.sh --update`; anschließend die Referenzänderungen prüfen. Der Harness ersetzt ausschließlich den für Routing irrelevanten Typ `NavigationProgress`.
+Die Browsertests benötigen zusätzlich Python 3 für den statischen Testserver. Service-Worker-Tests laufen auf dem fertigen Build unter einem Unterpfad. Der separate Paritätstest `npm run test:parity` benötigt macOS und Swift. Er kompiliert die unveränderten nativen Routingdateien aus `../ios/` und führt sie mit `URLProtocol`-Testantworten aus, ohne Netzwerkzugriff. `tests/fixtures/swift-parity.json` enthält dieselben normalisierten Transitous-Antworten und native Referenzergebnisse. Vitest vergleicht daraus Abfahrten, Ankünfte, Etappen, Faltzeiten und Auswahl. Nach bewussten nativen Änderungen: `sh scripts/parity.sh --update`; anschließend die Referenzänderungen prüfen. Der Harness ersetzt ausschließlich den für Routing irrelevanten Typ `NavigationProgress`.
 
 Zusätzliche Tests prüfen Anfrageparameter, Ausschlüsse, Geometrie, Zeitvorteil, Vorwärts-/Rückwärts-Verknüpfung, Teilergebnisse, Abbruch und Rate-Limits. Browsertests verwenden abgefangene API-Anfragen und keine echten Routingdienste. Screenshots entstehen für 320, 390, 768 und 1479 Pixel Breite. Das sind gezielte Paritätsfälle, kein Beweis identischer Ergebnisse für alle denkbaren Netze und Datenfehler. Der Vergleich prüft gemeinsame Standardwerte von jeweils 180 Sekunden und zusätzlich Abfahrts-/Ankunftsfälle mit 60, 150 und 360 Sekunden je Vorgang. Weitere Tests prüfen Favoriten, Migrationen, Auswahl während der Nachsuche und Einstellungen. Die browserseitige Distanzprüfung verwendet Haversine, die App CoreLocation; Grenzfälle direkt an Abstandstoleranzen können abweichen.
 
