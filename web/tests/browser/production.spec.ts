@@ -706,9 +706,7 @@ test("installed shell resumes navigation and loads its map while fully offline",
     false,
   );
   await page.locator("#navigation-resume").click();
-  await expect(page.locator("#navigation-instruction")).toHaveText(
-    "Mit dem Rad nach Ziel",
-  );
+  await expect(page.locator("#navigation-instruction")).toHaveText("Nach Ziel");
   await expect(page.locator("#navigation-map canvas")).toBeVisible();
   await expect(page.locator("#navigation-network-status")).toContainText(
     "Offline",

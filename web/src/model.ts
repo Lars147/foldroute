@@ -205,11 +205,19 @@ export interface TransitStatus {
   failure?: "network" | "unavailable";
   cancelled?: boolean;
 }
+export interface TransitStop extends Place {
+  arrival?: number;
+  departure?: number;
+  scheduledArrival?: number;
+  scheduledDeparture?: number;
+  cancelled?: boolean;
+}
 export interface Leg {
   navigationId?: string;
   maneuvers?: Maneuver[];
   transitReference?: TransitReference;
   transitStatus?: TransitStatus;
+  transitStops?: TransitStop[];
   stop?: RouteStop;
   kind: LegKind;
   from: Place;
@@ -530,6 +538,25 @@ export function validNavigationLegData(value: Leg): boolean {
   const reference = value.transitReference,
     status = value.transitStatus;
   return (
+    (value.transitStops === undefined ||
+      (Array.isArray(value.transitStops) &&
+        value.transitStops.length >= 2 &&
+        value.transitStops.every(
+          (stop) =>
+            point(stop) &&
+            typeof stop.name === "string" &&
+            stop.name.length > 0 &&
+            typeof stop.detail === "string" &&
+            (stop.stopId === undefined || typeof stop.stopId === "string") &&
+            [
+              stop.arrival,
+              stop.departure,
+              stop.scheduledArrival,
+              stop.scheduledDeparture,
+            ].every((time) => time === undefined || Number.isFinite(time)) &&
+            (stop.cancelled === undefined ||
+              typeof stop.cancelled === "boolean"),
+        ))) &&
     [value.scheduledStart, value.scheduledEnd].every(
       (time) => time === undefined || Number.isFinite(time),
     ) &&

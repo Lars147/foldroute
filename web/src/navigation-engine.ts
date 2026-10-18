@@ -1,6 +1,7 @@
 import type { Coordinate, Journey, Leg, Maneuver } from "./model";
 import { distance } from "./geometry";
 import { quality, type LocationFix } from "./live-location";
+import { transitStopKey } from "./transit-stops";
 import {
   navigationCues,
   verticalManeuver,
@@ -12,6 +13,7 @@ export interface NavigationProgress {
   maneuverIndex: number;
   meters: number;
   confirmedStops: string[];
+  transitStop?: string;
 }
 export interface Projection {
   meters: number;
@@ -67,6 +69,29 @@ export function projectPath(
   }
   return { ...best, length };
 }
+
+/** Reject off-route and ambiguous projections, including overlapping route loops. */
+export function projectTransitPath(
+  fix: LocationFix,
+  path: Coordinate[],
+  min: number,
+): Projection | undefined {
+  const projection = projectPath(fix, path, min);
+  if (projection.distance > 100) return;
+  let offset = 0;
+  for (let i = 1; i < path.length; i++) {
+    const alternative = projectPath(fix, [path[i - 1], path[i]]);
+    const position = offset + alternative.meters;
+    if (
+      position >= min &&
+      Math.abs(position - projection.meters) > 200 &&
+      alternative.distance <= projection.distance + Math.max(10, fix.accuracy)
+    )
+      return;
+    offset += alternative.length;
+  }
+  return projection;
+}
 export function maneuverText(maneuver: Maneuver): string {
   const text: Record<string, string> = {
     DEPART: "Losfahren",
@@ -111,6 +136,9 @@ export class NavigationEngine {
   private offsets: number[] = [];
   private cues: NavigationCue[] = [];
   private cue?: NavigationCue;
+  transitPositionConfirmed = false;
+  private transitOffsets?: number[];
+  private transitSample?: { index: number; meters?: number; fix: LocationFix };
   constructor(
     public journey: Journey,
     progress?: NavigationProgress,
@@ -129,6 +157,17 @@ export class NavigationEngine {
   }
   get leg(): Leg {
     return this.journey.legs[this.progress.legIndex];
+  }
+  get transitStopIndex(): number {
+    const stops = this.leg.transitStops;
+    return stops && this.progress.transitStop
+      ? Math.max(
+          0,
+          stops.findIndex(
+            (_, i) => transitStopKey(stops, i) === this.progress.transitStop,
+          ),
+        )
+      : 0;
   }
   get maneuver(): Maneuver | undefined {
     return this.phase === "active" ? this.cue?.maneuver : undefined;
@@ -189,6 +228,102 @@ export class NavigationEngine {
       ? navigationCues(this.leg, this.path, this.offsets)
       : [];
     this.updateManeuver();
+    this.prepareTransitStops();
+  }
+  private prepareTransitStops() {
+    this.transitOffsets = undefined;
+    this.transitSample = undefined;
+    const stops = this.leg.transitStops;
+    if (this.leg.kind !== "transit" || !stops) return;
+    const offsets: number[] = [];
+    for (const stop of stops) {
+      const projection = projectPath(
+        stop,
+        this.path,
+        offsets.length ? offsets.at(-1)! + 1 : 0,
+      );
+      if (projection.distance > 100) return;
+      offsets.push(projection.meters);
+    }
+    this.transitOffsets = offsets;
+  }
+  private updateTransit(fix: LocationFix) {
+    const stops = this.leg.transitStops;
+    if (!stops || this.leg.transitStatus?.cancelled) return;
+    const currentIndex = this.transitStopIndex;
+    let index = -1;
+    let meters: number | undefined;
+    const offsets = this.transitOffsets;
+    if (offsets) {
+      const min = Math.max(0, this.progress.meters - 100);
+      const projection = projectTransitPath(fix, this.path, min);
+      if (projection) {
+        meters = projection.meters;
+        offsets.forEach((anchor, i) => {
+          if (!stops[i].cancelled && anchor <= projection.meters + 1) index = i;
+        });
+        // A platform fix can land just before the station's shape anchor.
+        // Only the distinctly nearest station may be confirmed this early.
+        const nearby = stops
+          .flatMap((stop, i) => {
+            const separation = distance(fix, stop);
+            return i >= currentIndex &&
+              !stop.cancelled &&
+              separation <= 100 &&
+              Math.abs(offsets[i] - projection.meters) <= 100
+              ? [{ index: i, distance: separation }]
+              : [];
+          })
+          .sort((a, b) => a.distance - b.distance);
+        if (
+          nearby[0] &&
+          (!nearby[1] ||
+            nearby[1].distance - nearby[0].distance >
+              Math.max(10, fix.accuracy))
+        )
+          index = Math.max(index, nearby[0].index);
+      }
+    } else {
+      // Without a usable shape, only an unambiguous station vicinity is evidence.
+      const nearby = stops.flatMap((stop, i) =>
+        i >= currentIndex && !stop.cancelled && distance(fix, stop) <= 100
+          ? [i]
+          : [],
+      );
+      if (nearby.length === 1) index = nearby[0];
+    }
+    const previous = this.transitSample;
+    this.transitSample = undefined;
+    if (index < currentIndex) {
+      this.transitPositionConfirmed = false;
+      return;
+    }
+    const elapsed = previous
+      ? (fix.timestamp - previous.fix.timestamp) / 1000
+      : 0;
+    const change =
+      previous && meters !== undefined && previous.meters !== undefined
+        ? meters - previous.meters
+        : previous
+          ? distance(previous.fix, fix)
+          : 0;
+    if (
+      previous &&
+      elapsed > 0 &&
+      elapsed <= 60 &&
+      change >= -100 &&
+      change <= 100 + elapsed * 100
+    ) {
+      const confirmed = Math.max(currentIndex, Math.min(index, previous.index));
+      this.progress.transitStop = transitStopKey(stops, confirmed);
+      if (meters !== undefined && previous.meters !== undefined)
+        this.progress.meters = Math.max(
+          this.progress.meters,
+          Math.min(meters, previous.meters),
+        );
+      this.transitPositionConfirmed = true;
+    } else this.transitPositionConfirmed = false;
+    this.transitSample = { index, meters, fix };
   }
   private updateManeuver() {
     // Preserve source-step indices for existing saved navigation snapshots.
@@ -218,6 +353,8 @@ export class NavigationEngine {
     this.offSamples = 0;
     this.distanceToNext = undefined;
     this.lastTimestamp = 0;
+    this.transitSample = undefined;
+    this.transitPositionConfirmed = false;
   }
   update(fix: LocationFix, now = Date.now()): boolean {
     if (this.phase !== "active" || quality(fix, now) !== "current") {
@@ -231,6 +368,7 @@ export class NavigationEngine {
     this.lastTimestamp = fix.timestamp;
     if (!movement(this.leg)) {
       this.distanceToNext = distance(fix, this.leg.to);
+      if (this.leg.kind === "transit") this.updateTransit(fix);
       return false;
     }
     const projection = projectPath(
@@ -311,6 +449,8 @@ export class NavigationEngine {
     }
     this.progress.meters = 0;
     this.progress.maneuverIndex = 0;
+    delete this.progress.transitStop;
+    this.transitPositionConfirmed = false;
     this.offSamples = 0;
     this.offRoute = false;
     this.lastTimestamp = 0;
@@ -325,6 +465,23 @@ export class NavigationEngine {
       )
     )
       throw new Error("Navigationsabschnitte stimmen nicht überein.");
+    const previousStops = this.leg.transitStops;
     this.journey = journey;
+    if (
+      JSON.stringify(previousStops) !== JSON.stringify(this.leg.transitStops)
+    ) {
+      const stops = this.leg.transitStops;
+      if (
+        this.progress.transitStop &&
+        !stops?.some(
+          (_, i) => transitStopKey(stops, i) === this.progress.transitStop,
+        )
+      ) {
+        delete this.progress.transitStop;
+        this.progress.meters = 0;
+        this.transitPositionConfirmed = false;
+      }
+      this.prepareTransitStops();
+    }
   }
 }

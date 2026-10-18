@@ -1020,6 +1020,7 @@ export class NavigationSession {
       engine.progress.maneuverIndex,
       Math.floor(engine.progress.meters / progressCheckpointMeters),
       engine.progress.confirmedStops,
+      engine.progress.transitStop,
     ]);
     if (!force && key === this.savedKey) return;
     this.savedKey = key;
