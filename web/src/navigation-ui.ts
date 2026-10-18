@@ -19,6 +19,7 @@ import {
 } from "./navigation-estimate";
 import { detailTime, renderJourneyDetails } from "./journey-detail";
 import { closeMapStylePickers, mountMapStylePicker } from "./map-style-picker";
+import { supportProviders } from "./project-support";
 import {
   navigationSections,
   sectionLabel,
@@ -31,6 +32,7 @@ const transitStatus = (transit: Leg) =>
 export class NavigationView {
   readonly root: HTMLElement;
   private map?: NavigationMap;
+  private finishedMap?: NavigationMap;
   private stationLists: NavigationStations[];
   private loading?: Promise<void>;
   private session?: NavigationSession;
@@ -95,6 +97,36 @@ export class NavigationView {
         <div id="navigation-alternative" hidden><p id="navigation-alternative-text"></p><button id="navigation-accept" class="primary">Verbindung übernehmen</button><button id="navigation-dismiss" class="secondary">Bisherige behalten</button></div>
         <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
         <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
+        </div>
+        <div id="navigation-finish" hidden>
+          <div class="navigation-finish-content" id="navigation-finish-content">
+            <div class="navigation-finish-trip">
+              <header class="navigation-finish-header">
+                <span class="navigation-finish-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m5 12 4 4L19 6"/></svg></span>
+                <div><h1 id="navigation-finish-heading" tabindex="-1">Ziel erreicht</h1><p id="navigation-finish-route"><span id="navigation-finish-origin"></span><span aria-hidden="true"> → </span><span class="sr-only"> nach </span><span id="navigation-finish-destination"></span></p></div>
+              </header>
+              <dl class="navigation-finish-metrics" aria-label="Diese Fahrt">
+                <div><dt>Unterwegs</dt><dd id="navigation-finish-time"></dd></div>
+                <div><dt>Routenlänge</dt><dd id="navigation-finish-distance"></dd></div>
+              </dl>
+              <p id="navigation-finish-resumed" hidden>Zeit und Strecke seit Wiederaufnahme erfasst.</p>
+            </div>
+            <section id="navigation-finish-totals" aria-labelledby="navigation-finish-totals-heading" hidden>
+              <h2 id="navigation-finish-totals-heading">Deine Wege mit FoldRoute</h2>
+              <dl class="navigation-finish-metrics navigation-finish-overall">
+                <div><dt>Fahrten</dt><dd id="navigation-finish-count"></dd></div>
+                <div><dt>Strecke</dt><dd id="navigation-finish-total-distance"></dd></div>
+                <div><dt>Zeit</dt><dd id="navigation-finish-total-time"></dd></div>
+              </dl>
+            </section>
+            <p id="navigation-finish-storage" role="status"></p>
+            <nav id="navigation-support" aria-label="FoldRoute unterstützen" hidden>
+              <div id="navigation-support-links"></div>
+            </nav>
+          </div>
+          <div class="navigation-finish-actions">
+            <button id="navigation-finish-close" class="primary" type="button">Fahrt abschließen</button>
+          </div>
         </div>
       </article>
       <dialog id="navigation-confirm" aria-labelledby="navigation-confirm-title" aria-describedby="navigation-confirm-message"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary" type="button">Bestätigen</button><button id="navigation-confirm-no" class="secondary" type="button">Abbrechen</button></div></dialog>`;
@@ -182,6 +214,7 @@ export class NavigationView {
     };
     el("navigation-center").onclick = () => this.map?.center();
     el("navigation-end").onclick = () => this.confirmEnd();
+    el("navigation-finish-close").onclick = () => this.exit();
     el("navigation-replan").onclick = () => this.restart(true);
     el("navigation-retry").onclick = () => {
       if (!this.session?.engine) this.restart(false);
@@ -640,6 +673,7 @@ export class NavigationView {
     el<HTMLDialogElement>("navigation-confirm").close();
     this.map?.dispose();
     this.map = undefined;
+    this.finishedMap = undefined;
     for (const list of this.stationLists) list.update(undefined, -1);
   }
   pause() {
@@ -722,6 +756,75 @@ export class NavigationView {
     const engine = session.engine,
       arrived = engine?.phase === "arrived",
       leg = engine?.leg;
+    const enteringSummary = this.root.dataset.arrived !== "true";
+    this.root.dataset.arrived = String(!!arrived);
+    el("navigation-finish").hidden = !arrived;
+    el("navigation-panel").setAttribute(
+      "aria-label",
+      arrived ? "Fahrtzusammenfassung" : "Navigationshinweise",
+    );
+    if (arrived && session.summary) {
+      const summary = session.summary;
+      const kilometers = (meters: number) =>
+        `${(meters / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km`;
+      el("navigation-instruction").textContent = "Ziel erreicht";
+      el("navigation-finish-origin").textContent = summary.originName;
+      el("navigation-finish-destination").textContent = summary.destinationName;
+      el("navigation-finish-time").textContent = duration(
+        summary.elapsedSeconds,
+      );
+      el("navigation-finish-distance").textContent = kilometers(
+        summary.distanceMeters,
+      );
+      el("navigation-finish-resumed").hidden = !summary.sinceResume;
+      el("navigation-finish-totals").hidden = !session.statistics;
+      if (session.statistics) {
+        el("navigation-finish-count").textContent =
+          session.statistics.completedIds.length.toLocaleString("de-DE");
+        el("navigation-finish-total-distance").textContent = kilometers(
+          session.statistics.distanceMeters,
+        );
+        el("navigation-finish-total-time").textContent = duration(
+          session.statistics.elapsedSeconds,
+        );
+      }
+      const storage = el("navigation-finish-storage");
+      if (storage.textContent !== session.statisticsMessage)
+        storage.textContent = session.statisticsMessage;
+      if (enteringSummary) {
+        this.dismissConfirmation();
+        const support = el("navigation-support-links");
+        support.replaceChildren();
+        for (const provider of supportProviders) {
+          if (!provider.url) continue;
+          const link = node("a", provider.label);
+          link.setAttribute(
+            "aria-label",
+            provider.label === provider.name
+              ? `Über ${provider.name} unterstützen`
+              : `${provider.label} (über ${provider.name})`,
+          );
+          link.href = provider.url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          const external = node("span", "↗");
+          external.setAttribute("aria-hidden", "true");
+          link.append(external);
+          support.append(link);
+        }
+        el("navigation-support").hidden = !support.childElementCount;
+        el("navigation-finish-content").scrollTop = 0;
+        this.guidance.cancel();
+        this.guidance.speak(`arrived-${summary.id}`, "Ziel erreicht");
+        el("navigation-finish-heading").focus({ preventScroll: true });
+      }
+      if (this.map && this.finishedMap !== this.map) {
+        this.map.update(engine, session.fix, session.locationQuality);
+        this.map.freeze();
+        this.finishedMap = this.map;
+      }
+      return;
+    }
     let estimateSource: TransitEstimateSource | undefined;
     if (
       engine?.phase === "active" &&

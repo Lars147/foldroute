@@ -1,3 +1,5 @@
+import { resetNavigationStatistics } from "./navigation-summary";
+
 export class LocalDatabase {
   generation = 0;
   private database?: Promise<IDBDatabase>;
@@ -37,6 +39,7 @@ export class LocalDatabase {
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(["state", "places"], "readwrite");
+      resetNavigationStatistics(tx.objectStore("state"));
       tx.objectStore("state").clear();
       tx.objectStore("places").clear();
       tx.oncomplete = () => resolve();

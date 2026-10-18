@@ -252,6 +252,7 @@ const routeMap = new RouteMap(
 );
 let navigation: NavigationSession | undefined;
 let navigationView: NavigationView | undefined;
+let hasNavigationStatistics = false;
 const navigationStore = new NavigationStore();
 let navigationLaunchGeneration = 0;
 let navigationChecking = false;
@@ -420,6 +421,8 @@ navigation = new NavigationSession({
   storageEnabled: () => offlineEnabled,
   routingSettings: () => settings,
   changed: () => {
+    if (navigation?.statistics)
+      hasNavigationStatistics = navigation.statistics.completedIds.length > 0;
     navigationView?.render();
     if (!navigationView?.visible) renderNavigationCheck();
     if (navigationView?.visible) {
@@ -697,6 +700,7 @@ el("navigation-search-now").onclick = async () => {
 async function endNavigation() {
   navigationLaunchGeneration++;
   navigationStart = undefined;
+  const arrived = navigation?.engine?.phase === "arrived";
   const journey = navigation?.engine?.journey;
   const request = navigation?.request;
   const options = navigation?.settings;
@@ -709,6 +713,10 @@ async function endNavigation() {
     toast(
       "Navigation beendet. Gespeicherter Zustand konnte nicht gelöscht werden.",
     );
+  }
+  if (arrived) {
+    closeRoute(false, el("search-heading"));
+    return;
   }
   if (journey && request && options) {
     activePlan = structuredClone({ request, settings: options });
@@ -1091,7 +1099,8 @@ function historyUI() {
   el("history-empty").textContent = offlineEnabled
     ? "Noch keine Strecken. Erfolgreiche Planungen werden hier automatisch gespeichert."
     : "Speicherung ausgeschaltet. Aktiviere sie in den Einstellungen, um deine nächsten Planungen zu behalten.";
-  el<HTMLButtonElement>("delete-saved").disabled = !historyEntries.length;
+  el<HTMLButtonElement>("delete-saved").disabled =
+    !historyEntries.length && !hasNavigationStatistics;
   for (const entry of historyEntries) {
     const { journey, request } = historySnapshot(entry);
     const row = node("li", "", "history-row");
@@ -1246,7 +1255,8 @@ function savedUI() {
   el("saved-description").textContent = saved
     ? `${saved.journey.destination.name} · ${dateLabel(saved.savedAt)}, ${clock(saved.savedAt)}`
     : "";
-  el<HTMLButtonElement>("delete-saved").disabled = !saved;
+  el<HTMLButtonElement>("delete-saved").disabled =
+    !saved && !hasNavigationStatistics;
   el("offline-empty").hidden = navigator.onLine || !!saved;
   el<HTMLInputElement>("offline-enabled").checked = offlineEnabled;
 }
@@ -1858,7 +1868,7 @@ async function refreshRoute(interactive = true) {
   }
 }
 el("refresh-route").onclick = () => void refreshRoute();
-el("close-route").onclick = () => {
+function closeRoute(push = true, focus: HTMLElement = destination.input) {
   settingsReplanPending = false;
   session.clear();
   releasePlan();
@@ -1875,10 +1885,11 @@ el("close-route").onclick = () => {
   contextUI();
   el("search-empty").hidden = false;
   el("place-status").textContent = "";
-  show("search");
-  writeHistory();
-  destination.input.focus({ preventScroll: true });
-};
+  show("search", push);
+  writeHistory(false, 0);
+  focus.focus({ preventScroll: true });
+}
+el("close-route").onclick = () => closeRoute();
 el("dismiss-location-error").onclick = () => {
   el("map-location-error").hidden = true;
 };
@@ -2160,6 +2171,7 @@ el("confirm-delete-data").onclick = async () => {
   clearSearchLocation();
   try {
     await localDatabase.clearAll();
+    hasNavigationStatistics = false;
     forgetShared();
     localStorage.removeItem(sharedStorageKey);
     historySwipe.resetHint();
@@ -2246,12 +2258,13 @@ el("offline-enabled").onchange = async () => {
     if (generation !== storageGeneration) return;
     clearStorageMessage("toggle", "disabled");
     if (!enabled) {
+      hasNavigationStatistics = false;
       suppressCurrentSave();
       saved = undefined;
       historyEntries = [];
       storageMessage(
         "disabled",
-        "Strecken gelöscht. Speicherung ausgeschaltet.",
+        "Strecken, Wiederaufnahmezustand und Gesamtstatistik gelöscht. Speicherung ausgeschaltet.",
       );
     } else {
       if (activeSnapshot && session.state.calculationId)
@@ -2290,9 +2303,10 @@ el("confirm-delete-history").onclick = async () => {
   suppressCurrentSave();
   try {
     await store.clear();
+    hasNavigationStatistics = false;
     await reloadHistory();
     el<HTMLDialogElement>("delete-history-dialog").close();
-    storageMessage("history", "Streckenverlauf gelöscht.");
+    storageMessage("history", "Streckenverlauf und Gesamtstatistik gelöscht.");
   } catch {
     el("delete-history-status").textContent =
       "Löschen fehlgeschlagen. Bitte erneut versuchen.";
@@ -2443,6 +2457,14 @@ const restoredStartup = store
   .read()
   .then(async (result) => {
     if (storageGeneration === 0) offlineEnabled = result.enabled;
+    const generation = storageGeneration;
+    try {
+      const { statistics } = await navigationStore.readStatistics();
+      if (generation === storageGeneration)
+        hasNavigationStatistics = statistics.completedIds.length > 0;
+    } catch {
+      // Route restoration remains available when statistics cannot be read.
+    }
     if (!activeSnapshot && storageGeneration === 0) {
       saved = result.snapshot;
       historyEntries = result.entries;

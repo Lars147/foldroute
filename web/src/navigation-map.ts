@@ -205,6 +205,11 @@ export class NavigationMap {
     this.target.dataset.following = "false";
     this.changed(false);
   }
+  freeze() {
+    this.stopAnimation();
+    this.view.cancelAnimations();
+    this.frame = undefined;
+  }
   center() {
     this.view.cancelAnimations();
     this.view.setZoom(this.defaultZoom);

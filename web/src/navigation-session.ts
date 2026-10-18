@@ -42,6 +42,13 @@ import {
 } from "./transit-refresh";
 import { ApiClient } from "./transitous";
 import { planRoutes } from "./planner";
+import {
+  navigatedRouteMeters,
+  routeLegMeters,
+  type NavigationStatistics,
+  type NavigationTrip,
+  type TripSummary,
+} from "./navigation-summary";
 
 const alternativeDecisionSeconds = 30;
 const progressCheckpointMeters = 50;
@@ -81,6 +88,9 @@ export interface PreparedNavigation {
   assessment: ConnectionAssessment;
   restored: boolean;
   generation: number;
+  trip?: NavigationTrip;
+  storageEpoch: number;
+  tripId?: string;
 }
 export interface NavigationDependencies {
   routingSettings?: () => RoutingSettings;
@@ -98,6 +108,11 @@ export interface NavigationDependencies {
 }
 export class NavigationSession {
   engine?: NavigationEngine;
+  summary?: TripSummary;
+  statistics?: NavigationStatistics;
+  statisticsMessage = "";
+  private trip?: NavigationTrip;
+  private completion?: Promise<void>;
   settings?: RoutingSettings;
   request?: RouteRequest;
   fix?: LocationFix;
@@ -277,6 +292,11 @@ export class NavigationSession {
   ) {
     this.abortTasks();
     this.engine = undefined;
+    this.trip = undefined;
+    this.summary = undefined;
+    this.statistics = undefined;
+    this.statisticsMessage = "";
+    this.completion = undefined;
     this.routeChanged = replan;
     this.assessment = undefined;
     this.settings = structuredClone(settings);
@@ -412,6 +432,16 @@ export class NavigationSession {
         onboard: !!restored && candidate.legs[index].kind === "transit",
       });
       this.message = this.assessment.message;
+      let storageEpoch = 0;
+      if (this.deps.storageEnabled()) {
+        try {
+          storageEpoch = (await this.store.readStatistics()).epoch;
+        } catch {
+          this.storageMessage =
+            "Navigation läuft. Gesamtstatistik konnte nicht gelesen werden.";
+        }
+        signal.throwIfAborted();
+      }
       return {
         journey: candidate,
         request: structuredClone(request),
@@ -420,6 +450,9 @@ export class NavigationSession {
         assessment: this.assessment,
         restored: !!restored,
         generation,
+        trip: restored?.trip,
+        storageEpoch,
+        tripId: restored?.sessionId,
       } satisfies PreparedNavigation;
     } finally {
       if (generation === this.generation) {
@@ -454,6 +487,20 @@ export class NavigationSession {
     if (blocksNavigation(prepared.assessment) && !prepared.restored)
       return false;
     this.request = structuredClone(prepared.request);
+    this.trip = prepared.trip
+      ? structuredClone(prepared.trip)
+      : {
+          id: prepared.tripId ?? crypto.randomUUID(),
+          startedAt: Date.now() / 1000,
+          originName: prepared.journey.origin.name,
+          distanceMeters: 0,
+          routeMeters:
+            prepared.restored && prepared.progress
+              ? navigatedRouteMeters(prepared.journey, prepared.progress)
+              : 0,
+          sinceResume: prepared.restored,
+          storageEpoch: prepared.storageEpoch,
+        };
     this.activate(prepared.journey, prepared.progress, prepared.settings);
     if (!prepared.restored && this.fix) this.engine!.update(this.fix);
     this.assessment = prepared.assessment;
@@ -476,9 +523,35 @@ export class NavigationSession {
     validateNavigationGeometry(journey);
     this.locationGeneration++;
     this.locating = false;
-    if (this.engine) this.routeChanged = true;
+    const replacing = !!this.engine;
+    const previous = this.engine;
+    if (replacing) {
+      this.updateTrip();
+      this.routeChanged = true;
+    }
     this.settings = structuredClone(settings);
     this.engine = new NavigationEngine(navigationJourney(journey), progress);
+    if (replacing && this.trip) {
+      const retainedMeters =
+        previous!.leg.navigationId === this.engine.leg.navigationId
+          ? this.trip.routeMeters -
+            previous!.journey.legs
+              .slice(0, previous!.progress.legIndex)
+              .reduce((sum, leg) => sum + routeLegMeters(leg), 0)
+          : 0;
+      this.trip.routeMeters = navigatedRouteMeters(
+        this.engine.journey,
+        this.engine.progress,
+      );
+      if (retainedMeters > 0)
+        this.trip.routeMeters = Math.max(
+          this.trip.routeMeters,
+          this.engine.journey.legs
+            .slice(0, this.engine.progress.legIndex)
+            .reduce((sum, leg) => sum + routeLegMeters(leg), 0) +
+            retainedMeters,
+        );
+    }
     this.request = {
       ...this.request!,
       origin: journey.origin,
@@ -1001,15 +1074,29 @@ export class NavigationSession {
   private persist(force = false) {
     const engine = this.engine;
     if (!engine) return;
+    this.updateTrip();
     if (engine.phase === "arrived") {
       if (!this.arrivalCleared) {
         this.arrivalCleared = true;
         this.transitController?.abort();
-        void this.store.clear().catch(() => {
-          this.storageMessage =
-            "Beendete Navigation konnte nicht gelöscht werden.";
-          this.emit();
+        this.controller?.abort();
+        if (this.timer) clearInterval(this.timer);
+        this.timer = undefined;
+        this.alternative = undefined;
+        this.disruption = undefined;
+        const trip = this.trip!;
+        const arrivedAt = Date.now() / 1000;
+        this.summary = Object.freeze({
+          id: trip.id,
+          originName: trip.originName,
+          destinationName: engine.journey.destination.name,
+          arrivedAt,
+          elapsedSeconds: Math.max(0, arrivedAt - trip.startedAt),
+          distanceMeters: trip.distanceMeters,
+          sinceResume: trip.sinceResume,
+          storageEpoch: trip.storageEpoch,
         });
+        this.completion = this.finishTrip(this.summary);
       }
       return;
     }
@@ -1034,6 +1121,7 @@ export class NavigationSession {
       },
       settings: this.settings!,
       progress: engine.progress,
+      trip: this.trip,
     });
     void this.store.save(snapshot).catch(() => {
       this.storageMessage =
@@ -1041,7 +1129,39 @@ export class NavigationSession {
       this.emit();
     });
   }
+  private updateTrip() {
+    if (!this.engine || !this.trip || this.summary) return;
+    const meters = navigatedRouteMeters(
+      this.engine.journey,
+      this.engine.progress,
+      this.engine.phase === "arrived",
+    );
+    this.trip.distanceMeters += Math.max(0, meters - this.trip.routeMeters);
+    this.trip.routeMeters = Math.max(this.trip.routeMeters, meters);
+  }
+  private async finishTrip(summary: TripSummary) {
+    if (!this.deps.storageEnabled()) {
+      this.statisticsMessage = "Gesamtstatistik ist ausgeschaltet.";
+      return;
+    }
+    this.statisticsMessage = "Gesamtstatistik wird gespeichert …";
+    try {
+      const statistics = await this.store.completeTrip(summary);
+      if (this.summary !== summary) return;
+      this.statistics = statistics;
+      this.statisticsMessage = statistics
+        ? ""
+        : "Gesamtstatistik wurde gelöscht oder Speicherung ausgeschaltet.";
+    } catch {
+      if (this.summary !== summary) return;
+      this.statisticsMessage =
+        "Gesamtstatistik konnte nicht gespeichert werden.";
+    }
+    this.emit();
+  }
   async stop() {
+    const tripId = this.trip?.id;
+    const completion = this.completion;
     this.abortTasks();
     this.engine = undefined;
     this.busy = false;
@@ -1051,6 +1171,7 @@ export class NavigationSession {
     this.message = "";
     this.savedKey = "";
     this.emit();
-    await this.store.clear();
+    await completion;
+    await this.store.clear(tripId);
   }
 }

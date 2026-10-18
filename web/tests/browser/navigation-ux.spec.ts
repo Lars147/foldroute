@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { distance } from "../../src/geometry";
-import { expectMotionSettled } from "./assertions";
+import { openCachedJourney, expectMotionSettled } from "./assertions";
 import { mockRasterBasemap } from "./basemap";
 import {
   now,
@@ -569,9 +569,12 @@ for (const width of [390, 1280])
       "Ziel erreicht",
     );
     await expect.poll(() => savedActive(page)).toBe(false);
-    await page.locator("#navigation-end").click();
+    await expect(page.locator("#navigation-finish-heading")).toBeVisible();
+    await page
+      .getByRole("button", { name: "Fahrt abschließen", exact: true })
+      .click();
     await expect(page.locator("#navigation-view")).toBeHidden();
-    await expect(page.locator("#map-view")).toBeVisible();
+    await expect(page.locator("#search-view")).toBeVisible();
     expect(errors).toEqual([]);
   });
 test("mobile touch drag moves the unfocused map and following restores its center", async ({
@@ -721,4 +724,427 @@ test("editing during a delayed start check prevents late navigation activation",
   expect(await savedActive(page)).toBe(false);
   await page.locator("#cancel-adjust").click();
   await expect(page.locator("#panel-details")).toBeVisible();
+});
+
+for (const width of [320, 390, 1280])
+  for (const colorScheme of ["light", "dark"] as const)
+    test(`arrival summary stays compact and freezes time at ${width}px in ${colorScheme}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+      await setup(page);
+      let searches = 0;
+      await page.route("**/api/v6/plan?*", async (request) => {
+        searches++;
+        await request.fulfill({ json: { direct: [], itineraries: [] } });
+      });
+      await page.evaluate(async () => {
+        const { supportProviders } = await import("/src/project-support.ts");
+        for (const provider of supportProviders) provider.url = undefined;
+      });
+      await page.clock.runFor(90000);
+      await complete(page);
+      const panel = page.getByRole("article", { name: "Fahrtzusammenfassung" });
+      await expect(panel).toBeVisible();
+      await expect(page.locator("#navigation-finish-heading")).toBeFocused();
+      await expect(page.locator("#navigation-finish-time")).toHaveText("2 min");
+      await expect(page.locator("#navigation-finish-origin")).toHaveText(
+        "Start",
+      );
+      await expect(page.locator("#navigation-finish-destination")).toHaveText(
+        "Bahnhof",
+      );
+      await expect(page.locator("#navigation-finish-count")).toHaveText("1");
+      await expect(page.locator("#navigation-finish-storage")).toBeEmpty();
+      await expect(page.locator("#navigation-support")).toBeHidden();
+      await expect(page.locator("#navigation-top")).toBeHidden();
+      await expect(page.locator("#navigation-details-toggle")).toBeHidden();
+      await expect
+        .poll(() => page.evaluate(() => (window as any).navProbe.active))
+        .toBe(0);
+      await expect.poll(() => savedActive(page)).toBe(false);
+      const bounds = (await panel.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(844);
+      if (width > 900) expect(bounds.x).toBeLessThan(40);
+      await page.screenshot({ path: info.outputPath("arrival-summary.png") });
+      await page.clock.runFor(120000);
+      await expect(page.locator("#navigation-finish-time")).toHaveText("2 min");
+      await expect(page.locator("#navigation-finish-count")).toHaveText("1");
+      await page.locator("#navigation-finish-close").click();
+      await expect(page.locator("#navigation-view")).toBeHidden();
+      await expect(page.locator("#search-view")).toBeVisible();
+      await expect(page.locator("#map-view")).toBeHidden();
+      await expect(page.locator("#route-editor")).toBeHidden();
+      await expect(page.locator("#destination")).toHaveValue("");
+      await expect(page.locator("#search-heading")).toBeFocused();
+      expect(new URL(page.url()).searchParams.has("from")).toBe(false);
+      expect(await page.evaluate(() => history.state.navigation)).not.toBe(
+        true,
+      );
+      expect(searches).toBe(0);
+      if (width >= 390 && colorScheme === "light") {
+        await page.screenshot({
+          path: info.outputPath("home-after-finish.png"),
+        });
+        await page.reload();
+        await expect(page.locator("#search-view")).toBeVisible();
+        await expect(page.locator("#navigation-resume-dialog")).toBeHidden();
+        await expect(page.locator("#destination")).toHaveValue("");
+        expect(
+          await page.evaluate(async () => {
+            const { NavigationStore } =
+              await import("/src/navigation-store.ts");
+            return (await new NavigationStore().readStatistics()).statistics
+              .completedIds.length;
+          }),
+        ).toBe(1);
+        expect(searches).toBe(0);
+      }
+    });
+
+test("arrival summary includes configured support providers and counts repeated routes", async ({
+  page,
+  browserName,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.evaluate(async () => {
+    const { supportProviders } = await import("/src/project-support.ts");
+    supportProviders[0].url = "https://ko-fi.com/foldroute-test";
+    supportProviders[1].url = "https://github.com/sponsors/foldroute-test";
+  });
+  await complete(page);
+  const support = page.getByRole("navigation", {
+    name: "FoldRoute unterstützen",
+  });
+  await expect(support.getByRole("link")).toHaveCount(2);
+  const koFi = support.getByRole("link", {
+    name: "Halte FoldRoute am Rollen 💛 (über Ko-fi)",
+  });
+  await expect(koFi).toHaveAttribute(
+    "href",
+    "https://ko-fi.com/foldroute-test",
+  );
+  await expect(koFi).toContainText("Halte FoldRoute am Rollen 💛");
+  await expect(
+    support.getByRole("link", { name: "Über GitHub Sponsors unterstützen" }),
+  ).toHaveAttribute("target", "_blank");
+  await expect(
+    support.getByRole("link", { name: "Über GitHub Sponsors unterstützen" }),
+  ).toHaveAttribute("rel", "noopener noreferrer");
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const link of await support.getByRole("link").all()) {
+      const bounds = (await link.boundingBox())!;
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      expect(
+        await link.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      ).toBe(true);
+    }
+    await page.screenshot({
+      path: info.outputPath(`arrival-support-${width}.png`),
+    });
+  }
+  const tab = browserName === "webkit" ? "Alt+Tab" : "Tab";
+  await page.keyboard.press(tab);
+  await expect(koFi).toBeFocused();
+  await page.keyboard.press(tab);
+  await expect(
+    support.getByRole("link", { name: "Über GitHub Sponsors unterstützen" }),
+  ).toBeFocused();
+  await page.keyboard.press(tab);
+  await expect(page.locator("#navigation-finish-close")).toBeFocused();
+  await expect(page.locator("#navigation-finish-count")).toHaveText("1");
+  await page.locator("#navigation-finish-close").click();
+  await expect(page.locator("#search-heading")).toBeFocused();
+  await openCachedJourney(page, page.locator("#open-saved"));
+  await startSelected(page);
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Links abbiegen auf Zweite Straße",
+  );
+  await expect(page.locator("#navigation-finish")).toBeHidden();
+  await complete(page);
+  await expect(page.locator("#navigation-finish-count")).toHaveText("2");
+});
+
+for (const viewport of [
+  { width: 320, height: 568 },
+  { width: 667, height: 375 },
+])
+  test(`arrival summary supports 200% text, long names and a single provider at ${viewport.width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize(viewport);
+    const journey = route();
+    journey.origin = {
+      ...journey.origin,
+      name: "Flughafen München Besucherzentrum",
+    };
+    journey.destination = {
+      ...journey.destination,
+      name: "Garching-Forschungszentrum, Haupteingang",
+    };
+    await setup(page, false, true, {}, journey);
+    await page.evaluate(async () => {
+      document.documentElement.style.fontSize = "32px";
+      const { supportProviders } = await import("/src/project-support.ts");
+      for (const provider of supportProviders) provider.url = undefined;
+      supportProviders[1].url = "https://github.com/sponsors/foldroute-test";
+    });
+    await complete(page);
+    await expect(page.locator("#navigation-finish-count")).toHaveText("1");
+    await expect(page.locator("#navigation-support a")).toHaveCount(1);
+    await expect(page.locator("#navigation-finish-close")).toBeInViewport();
+    const panel = page.locator("#navigation-panel");
+    expect(
+      await panel.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+    const content = page.locator(".navigation-finish-content");
+    expect(
+      await content.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+    expect(
+      await content.evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    ).toBe(true);
+    await page.locator("#navigation-support a").focus();
+    await expect(page.locator("#navigation-support a")).toBeInViewport();
+    await expect(page.locator("#navigation-finish-close")).toBeInViewport();
+    await page.screenshot({ path: info.outputPath("arrival-large-text.png") });
+    await page.locator("#navigation-finish-close").click();
+    await expect(page.locator("#navigation-view")).toBeHidden();
+  });
+
+test("arrival summary stays usable after statistics storage fails", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.evaluate(async () => {
+    const { NavigationStore } = await import("/src/navigation-store.ts");
+    NavigationStore.prototype.completeTrip = async () => {
+      throw new Error("Storage unavailable");
+    };
+  });
+  await complete(page);
+  await expect(page.locator("#navigation-finish-storage")).toHaveText(
+    "Gesamtstatistik konnte nicht gespeichert werden.",
+  );
+  await expect(page.locator("#navigation-finish-totals")).toBeHidden();
+  await page.locator("#navigation-finish-close").click();
+  await expect(page.locator("#search-heading")).toBeFocused();
+  await expect.poll(() => savedActive(page)).toBe(false);
+});
+
+test("arrival summary obeys storage opt-out and early stops do not count", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.locator("#navigation-end").click();
+  await page.locator("#navigation-confirm-yes").click();
+  expect(
+    await page.evaluate(async () => {
+      const { NavigationStore } = await import("/src/navigation-store.ts");
+      return (await new NavigationStore().readStatistics()).statistics
+        .completedIds.length;
+    }),
+  ).toBe(0);
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#offline-enabled").locator("..")).toContainText(
+    "Gesamtstatistik",
+  );
+  await page.locator("#offline-enabled").uncheck();
+  await page.locator("#tab-route").click();
+  await startSelected(page);
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Links abbiegen auf Zweite Straße",
+  );
+  await complete(page);
+  await expect(page.locator("#navigation-finish-storage")).toHaveText(
+    "Gesamtstatistik ist ausgeschaltet.",
+  );
+  await expect(page.locator("#navigation-finish-totals")).toBeHidden();
+  await expect(page.locator("#navigation-finish-distance")).not.toBeEmpty();
+});
+
+test("arrival summary statistics are atomic across concurrent writers", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const statistics = await page.evaluate(async () => {
+    const { NavigationStore } = await import("/src/navigation-store.ts");
+    const store = new NavigationStore();
+    const { epoch } = await store.readStatistics();
+    const summary = {
+      id: "one",
+      originName: "A",
+      destinationName: "B",
+      arrivedAt: 1000,
+      distanceMeters: 500,
+      elapsedSeconds: 60,
+      sinceResume: false,
+      storageEpoch: epoch,
+    };
+    await Promise.all([
+      new NavigationStore().completeTrip(summary),
+      new NavigationStore().completeTrip(summary),
+      new NavigationStore().completeTrip({ ...summary, id: "two" }),
+    ]);
+    return (await store.readStatistics()).statistics;
+  });
+  expect(statistics.completedIds).toHaveLength(2);
+  expect(statistics.distanceMeters).toBe(1000);
+  expect(statistics.elapsedSeconds).toBe(120);
+});
+
+for (const deletion of ["history", "disabled", "all"] as const)
+  test(`arrival summary statistics resist late writes after deleting ${deletion}`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const result = await page.evaluate(async (deletion) => {
+      const { NavigationStore } = await import("/src/navigation-store.ts");
+      const { OfflineStore } = await import("/src/offline.ts");
+      const { localDatabase } = await import("/src/storage.ts");
+      const store = new NavigationStore();
+      const { epoch } = await store.readStatistics();
+      const summary = {
+        id: "old",
+        originName: "A",
+        destinationName: "B",
+        arrivedAt: 1000,
+        distanceMeters: 500,
+        elapsedSeconds: 60,
+        sinceResume: false,
+        storageEpoch: epoch,
+      };
+      await store.completeTrip(summary);
+      const history = new OfflineStore();
+      if (deletion === "history") await history.clear();
+      if (deletion === "disabled") {
+        await history.setEnabled(false);
+        await history.setEnabled(true);
+      }
+      if (deletion === "all") await localDatabase.clearAll();
+      await new NavigationStore().completeTrip(summary);
+      const afterDeletion = await store.readStatistics();
+      await store.completeTrip({
+        ...summary,
+        id: "new",
+        storageEpoch: afterDeletion.epoch,
+      });
+      return {
+        afterDeletion,
+        fresh: (await store.readStatistics()).statistics,
+      };
+    }, deletion);
+    expect(result.afterDeletion.statistics.completedIds).toHaveLength(0);
+    expect(result.afterDeletion.epoch).toBeGreaterThan(0);
+    expect(result.fresh.completedIds).toEqual(["new"]);
+  });
+
+test("arrival summary stale checkpoints and dismissal preserve a newer navigation", async ({
+  page,
+}) => {
+  await setup(page);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  const retained = await page.evaluate(async () => {
+    const { NavigationStore } = await import("/src/navigation-store.ts");
+    const { OfflineStore } = await import("/src/offline.ts");
+    const oldStore = new NavigationStore();
+    const oldSnapshot = (await oldStore.read())!;
+    await new OfflineStore().clear();
+    const fresh = structuredClone(oldSnapshot);
+    fresh.trip!.id = "new-navigation";
+    fresh.trip!.storageEpoch = (await oldStore.readStatistics()).epoch;
+    await new NavigationStore().save(fresh);
+    await oldStore.save(oldSnapshot);
+    await oldStore.clear(oldSnapshot.trip!.id);
+    return (await new NavigationStore().read())?.trip?.id;
+  });
+  expect(retained).toBe("new-navigation");
+});
+
+test("arrival summary totals can be deleted after removing every history entry", async ({
+  page,
+}) => {
+  await setup(page);
+  await complete(page);
+  await expect(page.locator("#navigation-finish-count")).toHaveText("1");
+  await page.locator("#navigation-finish-close").click();
+  await expect(page.locator("#search-heading")).toBeFocused();
+  await page.locator("#tab-history").click();
+  await page.locator(".history-remove").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".history-row")).toHaveCount(0);
+  await page.locator("#tab-settings").click();
+  await page.locator("#settings-data > summary").click();
+  await expect(page.locator("#delete-saved")).toBeEnabled();
+  await page.locator("#delete-saved").click();
+  await expect(page.locator("#delete-history-dialog")).toContainText(
+    "Gesamtstatistik",
+  );
+  await page.locator("#confirm-delete-history").click();
+  await expect(page.locator("#delete-saved")).toBeDisabled();
+  expect(
+    await page.evaluate(async () => {
+      const { NavigationStore } = await import("/src/navigation-store.ts");
+      return (await new NavigationStore().readStatistics()).statistics
+        .completedIds.length;
+    }),
+  ).toBe(0);
+});
+
+test("arrival summary gives legacy snapshots one random identity across concurrent resumes", async ({
+  page,
+}) => {
+  await setup(page);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  const result = await page.evaluate(async () => {
+    const { NavigationStore } = await import("/src/navigation-store.ts");
+    const store = new NavigationStore();
+    const snapshot = (await store.read())!;
+    delete snapshot.trip;
+    delete snapshot.sessionId;
+    snapshot.journey.id = "route-with-coordinates-48.0-11.0";
+    await store.save(snapshot);
+    const [first, second] = await Promise.all([
+      new NavigationStore().read(),
+      new NavigationStore().read(),
+    ]);
+    const { epoch } = await store.readStatistics();
+    await store.completeTrip({
+      id: first!.sessionId!,
+      originName: "A",
+      destinationName: "B",
+      arrivedAt: 1000,
+      distanceMeters: 500,
+      elapsedSeconds: 60,
+      sinceResume: true,
+      storageEpoch: epoch,
+    });
+    return {
+      firstId: first!.sessionId,
+      secondId: second!.sessionId,
+      statistics: (await store.readStatistics()).statistics,
+      active: await store.read(),
+    };
+  });
+  expect(result.firstId).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  expect(result.secondId).toBe(result.firstId);
+  expect(result.statistics.completedIds).toEqual([result.firstId]);
+  expect(result.active).toBeUndefined();
 });
