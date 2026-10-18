@@ -1,59 +1,20 @@
-import { openCachedJourney } from "./assertions";
-import { openSettingsSection } from "./assertions";
-import { openSelectedDetails } from "./assertions";
-import { expect, test, type Page } from "@playwright/test";
-import { defaults } from "../../src/model";
-import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 import {
+  openCachedJourney,
+  openSettingsSection,
+  openSelectedDetails,
   expectPlanningComplete,
   expectSelectedJourneySaved,
 } from "./assertions";
+import { expect, test, type Page } from "@playwright/test";
+import {
+  setup as setupPlanner,
+  choose,
+  cors,
+  fixture,
+} from "./planner-fixture";
 
-const cors = { "Access-Control-Allow-Origin": "*" };
 async function setup(page: Page) {
-  await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
-  await page.context().grantPermissions(["geolocation"]);
-  await page.context().setGeolocation({ latitude: 48.132, longitude: 11.5756 });
-  await page.route("https://tiles.openfreemap.org/**", (route) =>
-    route.abort(),
-  );
-  await page.route("**/api/v1/geocode?*", (route) =>
-    route.fulfill({
-      headers: cors,
-      json: [
-        { name: "Start", lat: 48.132, lon: 11.5756 },
-        { name: "Ziel", lat: 48.175, lon: 11.6 },
-      ],
-    }),
-  );
-  await page.route("**/api/v6/plan?*", (route) =>
-    route.fulfill({
-      headers: cors,
-      json:
-        new URL(route.request().url()).searchParams.get("directModes") ===
-        "BIKE"
-          ? fixture.direct
-          : fixture.multimodal,
-    }),
-  );
-  await page.goto("/");
-  await page.evaluate(
-    (value) =>
-      localStorage.setItem("foldroute.routing.v3", JSON.stringify(value)),
-    {
-      ...defaults,
-      maxCyclingMinutes: 60,
-      maxBikeTransfers: 0,
-    },
-  );
-  await page.reload();
-}
-async function choose(page: Page, id: string, name: string) {
-  await page.locator(`#${id}`).fill(name);
-  await page
-    .locator(`#${id}-options .place-select`)
-    .filter({ hasText: name })
-    .click();
+  await setupPlanner(page, true, { maxBikeTransfers: 0 });
 }
 async function plan(page: Page) {
   await choose(page, "destination", "Ziel");
@@ -227,14 +188,8 @@ test("entry focus and archive timestamps remain stable without background focus 
   );
   await page.locator("#close-route").click();
   await expect(page.locator("#destination")).toBeFocused();
-  await expect(page.locator("#destination")).toHaveCSS(
-    "outline-style",
-    "none",
-  );
-  await expect(page.locator(".search-box")).toHaveCSS(
-    "outline-style",
-    "solid",
-  );
+  await expect(page.locator("#destination")).toHaveCSS("outline-style", "none");
+  await expect(page.locator(".search-box")).toHaveCSS("outline-style", "solid");
   await page.locator("#tab-history").click();
   const timestamp = page.locator(".history-timestamp").first();
   const savedTime = await timestamp.getAttribute("datetime");

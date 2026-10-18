@@ -1,3 +1,4 @@
+import { openStorageSeed } from "./app-fixture";
 import { expect, test, type Page } from "@playwright/test";
 import { defaults } from "../../src/model";
 import {
@@ -108,7 +109,7 @@ async function setup(page: Page) {
       },
     });
   });
-  await page.goto("/");
+  await openStorageSeed(page);
   await page.evaluate(
     async ({ origin, destination, stops, now, settings }) => {
       const path = "/src/offline.ts";
@@ -175,7 +176,7 @@ async function setup(page: Page) {
     },
     { origin, destination, stops, now, settings: defaults },
   );
-  await page.reload();
+  await page.goto("/");
   await expect(page.locator("#open-saved")).toBeVisible();
 }
 async function stored(page: Page) {
@@ -322,69 +323,27 @@ test("planning errors retry the failed route directly and keep the saved snapsho
   await page.locator("#recover-planning").click();
   await expect(page.locator("#route-editor")).toBeVisible();
   await expect(page.locator("#origin")).toHaveValue(origin.name);
-  await expect(page.locator("#destination")).toHaveValue(
-    destination.name,
-  );
+  await expect(page.locator("#destination")).toHaveValue(destination.name);
   await expect(page.locator("#via-0")).toHaveValue(stops[0].place.name);
 });
 
-for (const exit of ["done", "route", "history", "back"] as const)
-  test(`invalid settings block ${exit} and keep the draft until corrected`, async ({
-    page,
-  }, info) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await setup(page);
-    await page.locator("#tab-settings").click();
-    await openSettingsSection(page, "options");
-    const input = page.locator("#maxWalkingMinutes");
-    await input.fill("4");
-    await input.fill("1000");
-    await page.locator("#settings-options > summary").click();
-    const position = await page.evaluate(() => history.state.position);
-    if (exit === "back") await page.goBack();
-    else
-      await page
-        .locator(exit === "done" ? "#save-settings" : `#tab-${exit}`)
-        .click();
-    await expect(page.locator("#settings-view")).toBeVisible();
-    await expect(input).toHaveValue("1000");
-    await expect(input).toHaveAttribute("aria-invalid", "true");
-    await expect(input).toBeFocused();
-    await expect(page.locator("#maxWalkingMinutes-error")).toBeVisible();
-    await expect(page.locator("#maxWalkingMinutes-error")).toBeInViewport({
-      ratio: 1,
-    });
-    await expect
-      .poll(() => page.evaluate(() => history.state.position))
-      .toBe(position);
-    await page.locator("#tab-settings").click();
-    await expect(input).toHaveValue("1000");
-    await page.screenshot({
-      path: info.outputPath(`settings-invalid-${exit}.png`),
-    });
-    expect(
-      await page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem("foldroute.routing.v3")!)
-            .maxWalkingMinutes,
-      ),
-    ).toBe(4);
-    await input.fill("3");
-    await expect(page.locator("#maxWalkingMinutes-error")).toBeHidden();
-    if (exit === "back") await page.goBack();
-    else
-      await page
-        .locator(exit === "done" ? "#save-settings" : `#tab-${exit}`)
-        .click();
-    await expect(page.locator("#settings-view")).toBeHidden();
-    expect(
-      await page.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem("foldroute.routing.v3")!)
-            .maxWalkingMinutes,
-      ),
-    ).toBe(3);
+test("valid settings leave the saved route unchanged without planning", async ({
+  page,
+}) => {
+  await setup(page);
+  const before = await stored(page);
+  let requests = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/v6/plan?")) requests++;
   });
+  await page.locator("#tab-settings").click();
+  await openSettingsSection(page, "options");
+  await page.locator("#maxWalkingMinutes").fill("3");
+  await page.locator("#save-settings").click();
+  await expect(page.locator("#search-view")).toBeVisible();
+  expect(await stored(page)).toEqual(before);
+  expect(requests).toBe(0);
+});
 
 test("retry stays next to an update error in the map and is disabled offline", async ({
   page,

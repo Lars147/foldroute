@@ -301,6 +301,12 @@ test("app carousel centers each screen and reveals neighboring screens at every 
   for (const width of [320, 390, 761, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto(landing);
+    // Measure the settled layout: late font metrics and the initial resize
+    // observer can otherwise recenter the carousel during the first key press.
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
     const carousel = page.locator(".planner-preview");
     const visibleWidth = (index: number) => carousel.evaluate((el, index) => {
       const viewport = el.getBoundingClientRect();
