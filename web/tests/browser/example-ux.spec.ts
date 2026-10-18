@@ -185,7 +185,7 @@ test("example retains the usual map, details and browser navigation on small scr
     .click();
   await expect(page.locator("#map")).toBeVisible();
   await expect(
-    page.locator("#map svg path.leaflet-interactive"),
+    page.locator("#map .leaflet-overlay-pane svg path:visible"),
   ).not.toHaveCount(0);
   await expect(
     page.getByRole("link", { name: "Eigene Route planen", exact: true }),
@@ -208,7 +208,7 @@ test("example retains the usual map, details and browser navigation on small scr
     .click();
   await expect(page.locator("#map-error")).toContainText("Offline");
   await expect(
-    page.locator("#map svg path.leaflet-interactive"),
+    page.locator("#map .leaflet-overlay-pane svg path:visible"),
   ).not.toHaveCount(0);
   await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.locator("#journey-detail")).toContainText(
@@ -299,7 +299,7 @@ test("fixed example also loads from the built static subpath", async ({
   await page.goto(new URL(examplePath, production).href);
   await expectExample(page);
   await expect(
-    page.locator("#map svg path.leaflet-interactive"),
+    page.locator("#map .leaflet-overlay-pane svg path:visible"),
   ).not.toHaveCount(0);
   await expectNoEffects(page, result);
 });
