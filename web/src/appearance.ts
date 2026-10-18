@@ -62,7 +62,9 @@ class AppearanceController {
     document.documentElement.dataset.theme = effective;
     document.querySelector<HTMLMetaElement>(
       'meta[name="theme-color"]',
-    )!.content = effective === "dark" ? "#101314" : "#f5f6f3";
+    )!.content = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-canvas")
+      .trim();
     this.onChange?.();
     if (changed) window.dispatchEvent(new Event("foldroute:appearance"));
   }

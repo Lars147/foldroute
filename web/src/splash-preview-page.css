@@ -52,9 +52,9 @@ button {
 }
 button[aria-pressed="true"],
 button.primary {
-  background: #ffd43b;
-  color: #171a1c;
-  border-color: #ffd43b;
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  border-color: var(--color-brand);
 }
 button:disabled {
   opacity: 0.5;

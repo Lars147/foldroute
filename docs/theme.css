@@ -4,23 +4,23 @@
   --color-asphalt: #171a1c;
   --color-cloud: #f5f6f3;
   --color-brand: #ffd43b;
-  --color-on-brand: #171a1c;
+  --color-on-brand: var(--color-asphalt);
   --color-inverse-bike: #2ec5ce;
   --color-inverse-transit: #bdb5ff;
   --color-danger-action: #b42332;
   --color-on-danger: #fff;
   --color-action-hover: #f1c01e;
   --color-action-pressed: #e2b316;
-  --color-canvas: #f5f6f3;
+  --color-canvas: var(--color-cloud);
   --color-surface: var(--color-cloud);
-  --color-raised: #fff;
+  --color-raised: var(--color-surface);
   --color-subtle: #e9ece6;
-  --color-text: #171a1c;
+  --color-text: var(--color-asphalt);
   --color-secondary: #596167;
   --color-divider: #d7dbd5;
   --color-control-border: #7b878b;
   --color-selected: #fff4c2;
-  --color-selection-indicator: #171a1c;
+  --color-selection-indicator: var(--color-asphalt);
   --color-disabled: #e2e7e4;
   --color-bike-text: #086c74;
   --color-bike-stroke: #087f8c;
@@ -30,7 +30,7 @@
   --color-success-surface: #ecf7f1;
   --color-warning: #8a4b08;
   --color-warning-surface: #fff4da;
-  --color-danger: #b42332;
+  --color-danger: var(--color-danger-action);
   --color-danger-surface: #fff0ed;
   --color-location: #245b9e;
   --color-map: #eef0eb;
@@ -39,7 +39,7 @@
   --color-map-park: #dbe5d1;
   --color-map-water: #abd9df;
   --color-map-network: #b7b1ce;
-  --color-map-text: #171a1c;
+  --color-map-text: var(--color-asphalt);
   --color-map-surface: #fff;
   --color-map-secondary: #596167;
   --color-route-halo: #fff;
@@ -50,18 +50,18 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --color-canvas: #101314;
-  --color-surface: #171a1c;
+  --color-surface: var(--color-asphalt);
   --color-raised: #1e2325;
   --color-subtle: #262d30;
-  --color-text: #f5f6f3;
+  --color-text: var(--color-cloud);
   --color-secondary: #b8c2c7;
   --color-divider: #343c3f;
   --color-control-border: #768386;
   --color-selected: #2d2b20;
-  --color-selection-indicator: #ffd43b;
+  --color-selection-indicator: var(--color-brand);
   --color-disabled: #343e41;
-  --color-bike-text: #2ec5ce;
-  --color-transit-text: #bdb5ff;
+  --color-bike-text: var(--color-inverse-bike);
+  --color-transit-text: var(--color-inverse-transit);
   --color-success: #6ee7b7;
   --color-success-surface: #14372b;
   --color-warning: #ffd18a;
@@ -73,7 +73,8 @@
 }
 
 @media (prefers-contrast: more) {
-  :root {
+  :root,
+  :root[data-theme="dark"] {
     --color-secondary: var(--color-text);
     --color-control-border: var(--color-text);
     --color-divider: var(--color-control-border);
@@ -84,11 +85,11 @@
 :root[data-map-style="dark"] {
   --color-map: #192123;
   --color-map-street: #2d393c;
-  --color-map-text: #f5f6f3;
-  --color-map-surface: #171a1c;
+  --color-map-text: var(--color-cloud);
+  --color-map-surface: var(--color-asphalt);
   --color-map-secondary: #b8c2c7;
-  --color-bike-stroke: #2ec5ce;
-  --color-transit-stroke: #bdb5ff;
+  --color-bike-stroke: var(--color-inverse-bike);
+  --color-transit-stroke: var(--color-inverse-transit);
   --color-location: #79b8ff;
-  --color-route-halo: #171a1c;
+  --color-route-halo: var(--color-asphalt);
 }

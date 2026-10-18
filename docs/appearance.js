@@ -14,7 +14,9 @@
       preference === "system" ? (media.matches ? "dark" : "light") : preference;
     document.documentElement.dataset.theme = theme;
     document.querySelector('meta[name="theme-color"]').content =
-      theme === "dark" ? "#101314" : "#f5f6f3";
+      getComputedStyle(document.documentElement)
+        .getPropertyValue("--color-canvas")
+        .trim();
   }
   apply();
   media.addEventListener("change", apply);

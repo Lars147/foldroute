@@ -2647,7 +2647,7 @@ for (const colorScheme of ["light", "dark"] as const)
       await expect(secondary).toHaveText("Position geschätzt");
       await expect(secondary).toHaveCSS("font-size", "12px");
       await expect(secondary).toHaveCSS("font-weight", "400");
-      await expect(secondary).toHaveCSS("color", "rgb(75, 75, 64)");
+      await expect(secondary).toHaveCSS("color", "rgb(23, 26, 28)");
       await expect(status).toHaveCSS("background-color", "rgb(255, 212, 59)");
       await expect(status).toHaveAttribute("role", "status");
       await expect(status).toHaveAttribute("aria-live", "polite");

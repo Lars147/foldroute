@@ -11,7 +11,7 @@
       :root {
         --startup-paper: #f5f6f3;
         --startup-ink: #171a1c;
-        background: var(--startup-paper);
+        background: var(--color-canvas, var(--startup-paper));
       }
       :root[data-theme="dark"] {
         --startup-paper: #101314;
@@ -31,8 +31,8 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        background: var(--startup-paper);
-        color: var(--startup-ink);
+        background: var(--color-canvas, var(--startup-paper));
+        color: var(--color-text, var(--startup-ink));
         font:
           16px/1.5 system-ui,
           sans-serif;
@@ -111,8 +111,8 @@
         padding: 12px 24px;
         border: 0;
         border-radius: 12px;
-        background: #ffd43b;
-        color: #171a1c;
+        background: var(--color-brand, #ffd43b);
+        color: var(--color-on-brand, #171a1c);
         font: inherit;
         font-weight: 650;
         cursor: pointer;
@@ -146,7 +146,7 @@
                 : "light";
         root.dataset.theme = theme;
         document.querySelector('meta[name="theme-color"]').content =
-          theme === "dark" ? "#101314" : "#f5f6f3";
+          getComputedStyle(root).getPropertyValue("--startup-paper").trim();
         if (preview === "light" || preview === "dark")
           root.dataset.startupPreview = preview;
         if (

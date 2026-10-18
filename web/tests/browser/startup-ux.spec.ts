@@ -180,12 +180,21 @@ for (const theme of ["light", "dark"] as const) {
     });
     await page.goto("/", { waitUntil: "commit" });
     const splash = page.locator("#app-startup");
+    let initialColors!: { background: string; color: string };
     try {
       await expect(splash).toBeVisible();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await expect(splash).toHaveCSS(
         "background-color",
         theme === "dark" ? "rgb(16, 19, 20)" : "rgb(245, 246, 243)",
+      );
+      initialColors = await splash.evaluate((element) => ({
+        background: getComputedStyle(element).backgroundColor,
+        color: getComputedStyle(element).color,
+      }));
+      await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+        "content",
+        theme === "dark" ? "#101314" : "#f5f6f3",
       );
       await expect(page.locator("#main")).toHaveAttribute("inert", "");
       const logo = await page.locator(".startup-mark").boundingBox();
@@ -209,6 +218,15 @@ for (const theme of ["light", "dark"] as const) {
     await expect(splash).toBeHidden();
     await expect(page.locator("#main")).not.toHaveAttribute("inert");
     await expect(page.locator("#destination")).toBeVisible();
+    await expect(page.locator("html")).toHaveCSS(
+      "background-color",
+      initialColors.background,
+    );
+    await expect(page.locator("html")).toHaveCSS("color", initialColors.color);
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+      "content",
+      theme === "dark" ? "#101314" : "#f5f6f3",
+    );
     await page.evaluate(() => {
       window.dispatchEvent(
         new PageTransitionEvent("pageshow", { persisted: true }),
