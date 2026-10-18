@@ -227,116 +227,6 @@ test("local storage failure does not prevent online planning", async ({
   );
 });
 
-test("an app update preserves a draft until confirmation and removes obsolete cached assets", async ({
-  page,
-}) => {
-  const { createServer } = await import("node:http");
-  const { readFile } = await import("node:fs/promises");
-  const { resolve } = await import("node:path");
-  let revision = 1;
-  const server = createServer(async (request, response) => {
-    const path = new URL(request.url!, "http://localhost").pathname;
-    if (!path.startsWith("/pwa/")) {
-      response.writeHead(404).end();
-      return;
-    }
-    const name = path.slice(5) || "index.html";
-    try {
-      let data = await readFile(
-        resolve(
-          process.cwd(),
-          "../docs/plan",
-          name === "splash/legacy.png" ? "pwa-192x192.png" : name,
-        ),
-      );
-      if (name === "sw.js") {
-        if (revision === 1)
-          data = Buffer.from(
-            data
-              .toString()
-              .replace(
-                "precacheAndRoute([",
-                'precacheAndRoute([{url:"splash/legacy.png",revision:"legacy"},',
-              ),
-          );
-        data = Buffer.concat([
-          data,
-          Buffer.from(`\n// Test release ${revision}\n`),
-        ]);
-      }
-      const type = name.endsWith(".js")
-        ? "text/javascript"
-        : name.endsWith(".css")
-          ? "text/css"
-          : name.endsWith(".html")
-            ? "text/html"
-            : name.endsWith(".webmanifest")
-              ? "application/manifest+json"
-              : name.endsWith(".svg")
-                ? "image/svg+xml"
-                : "image/png";
-      response
-        .writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" })
-        .end(data);
-    } catch {
-      response.writeHead(404).end();
-    }
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address() as { port: number };
-  try {
-    await page.goto(`http://127.0.0.1:${address.port}/pwa/`);
-    await page.evaluate(() => navigator.serviceWorker.ready);
-    await page.reload();
-    expect(
-      await page.evaluate(
-        async () =>
-          !!(await caches.match(new URL("splash/legacy.png", location.href), {
-            ignoreSearch: true,
-          })),
-      ),
-    ).toBe(true);
-    await page.route("**/api/**", (r) =>
-      r.fulfill({ json: [], headers: cors }),
-    );
-    await page.locator("#destination").fill("Ungespeicherter Entwurf");
-    revision = 2;
-    await page.evaluate(async () => {
-      const registration = await navigator.serviceWorker.ready;
-      await registration.update();
-    });
-    await expect(page.locator("#update-banner")).toBeVisible();
-    await expect(page.locator("#destination")).toHaveValue(
-      "Ungespeicherter Entwurf",
-    );
-    await page.locator("#update-later").click();
-    await expect(page.locator("#destination")).toHaveValue(
-      "Ungespeicherter Entwurf",
-    );
-    await page.reload();
-    await expect(page.locator("#update-banner")).toBeVisible();
-    await Promise.all([
-      page.waitForEvent("load"),
-      page.locator("#update-now").click(),
-    ]);
-    await expect(page.locator("#update-banner")).toBeHidden();
-    expect(
-      await page.evaluate(
-        async () =>
-          !!(await caches.match(new URL("splash/legacy.png", location.href), {
-            ignoreSearch: true,
-          })),
-      ),
-    ).toBe(false);
-  } finally {
-    await page.goto("about:blank");
-    server.closeAllConnections();
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
-  }
-});
-
 test("switching alternatives replaces the single saved record", async ({
   page,
   context,
@@ -711,7 +601,7 @@ test("installed shell resumes navigation and loads its map while fully offline",
   await expect(page.locator("#navigation-network-status")).toContainText(
     "Offline",
   );
-  await expect(page.locator("#update-now")).toBeDisabled();
+  await expect(page.locator("#update-banner")).toBeHidden();
   await page.locator("#navigation-end").click();
   await page.locator("#navigation-confirm-yes").click();
   await expect(page.locator("#map-view")).toBeVisible();

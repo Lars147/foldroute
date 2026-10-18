@@ -790,6 +790,39 @@
             Fertig
           </button>
         </div>
+        <section
+          id="app-updates"
+          class="group app-updates"
+          aria-labelledby="app-updates-heading"
+          hidden
+        >
+          <div class="app-update-copy">
+            <h2 id="app-updates-heading" tabindex="-1">App-Updates</h2>
+            <p id="update-status" class="message" role="status">
+              <strong id="update-availability" hidden></strong>
+              <span id="update-description"></span>
+            </p>
+          </div>
+          <div class="app-update-actions">
+            <button
+              id="check-updates"
+              class="secondary"
+              type="button"
+              aria-describedby="update-status"
+            >
+              Nach Updates suchen
+            </button>
+            <button
+              id="settings-update-now"
+              class="primary"
+              type="button"
+              aria-describedby="update-status"
+              hidden
+            >
+              Jetzt neu laden
+            </button>
+          </div>
+        </section>
         <form id="settings-form" novalidate>
           <p id="settings-replan" class="message" role="status" hidden></p>
           <section class="group">
@@ -932,7 +965,8 @@
         ></button
       ><button id="tab-settings">
         <span class="app-tab-content"
-          ><span data-icon="settings"></span
+          ><span class="settings-tab-icon" data-icon="settings"
+            ><span class="update-badge" aria-hidden="true" hidden></span></span
           ><span class="app-tab-label">Einstellungen</span></span
         >
       </button>
@@ -1070,11 +1104,14 @@
       </div>
     </div>
     <div id="update-banner" class="update-banner" role="status" hidden>
-      <span>Neue Version verfügbar.</span>
+      <span
+        >Neue Version von FoldRoute verfügbar. Zum Aktualisieren wird die App
+        neu geladen.</span
+      >
       <div class="update-actions">
         <button id="update-later" type="button">Später</button>
         <button id="update-now" type="button" class="primary">
-          Aktualisieren
+          Jetzt neu laden
         </button>
       </div>
     </div>
