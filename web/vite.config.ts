@@ -1,9 +1,15 @@
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const buildCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+  cwd: fileURLToPath(new URL("..", import.meta.url)),
+  encoding: "utf8",
+}).trim();
+const shortCommit = buildCommit.slice(0, 7);
 const landingRoot = fileURLToPath(new URL("../docs", import.meta.url));
 const startupMark = fileURLToPath(
   new URL("./public/foldroute-mark.svg", import.meta.url),
@@ -21,6 +27,15 @@ export default defineConfig({
     : "node_modules/.vite",
   base: "./",
   plugins: [
+    {
+      name: "foldroute-build-version",
+      transformIndexHtml(html) {
+        return html.replace(
+          "<!-- build-version -->",
+          `<a id="app-version" href="https://github.com/Lars147/foldroute/commit/${buildCommit}" target="_blank" rel="noopener noreferrer" aria-label="Commit ${shortCommit} auf GitHub öffnen (neuer Tab)">${shortCommit}</a>`,
+        );
+      },
+    },
     {
       name: "foldroute-startup-mark",
       async transformIndexHtml(html) {

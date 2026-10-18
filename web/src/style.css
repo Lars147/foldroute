@@ -1406,6 +1406,20 @@ fieldset:after {
 .settings-help-links a:hover {
   background: var(--paper);
 }
+.settings-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.settings-version a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-family: ui-monospace, monospace;
+}
 @media (forced-colors: active) {
   .settings-screen input[role="switch"] {
     appearance: auto;

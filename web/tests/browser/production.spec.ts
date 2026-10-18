@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { openSettingsSection, openSelectedDetails } from "./assertions";
 import {
   expectPlanningComplete,
@@ -86,6 +87,38 @@ test("scoped PWA manifest, icons and cache work under a static subpath", async (
     await page.evaluate(() => navigator.serviceWorker.controller),
   ).toBeNull();
   expect(errors).toEqual([]);
+});
+test("settings show the built commit and preserve it after an offline restart", async ({
+  page,
+  context,
+}) => {
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: new URL("../../..", import.meta.url),
+    encoding: "utf8",
+  }).trim();
+  await production(page);
+  await page.locator("#tab-settings").click();
+  const version = page.locator("#app-version");
+  await expect(version).toHaveText(commit.slice(0, 7));
+  await expect(version).toHaveAttribute(
+    "href",
+    `https://github.com/Lars147/foldroute/commit/${commit}`,
+  );
+  await expect(version).toHaveAttribute("target", "_blank");
+  await expect(version).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(version).not.toHaveAttribute("title");
+  await expect(page.locator(".settings-version")).toHaveText(
+    `Version ${commit.slice(0, 7)}`,
+  );
+  await context.setOffline(true);
+  await page.reload();
+  await page.locator("#tab-settings").click();
+  await expect(version).toBeVisible();
+  await expect(version).toHaveText(commit.slice(0, 7));
+  await expect(version).toHaveAttribute(
+    "href",
+    `https://github.com/Lars147/foldroute/commit/${commit}`,
+  );
 });
 test("license page and original notices remain accessible offline", async ({
   page,
