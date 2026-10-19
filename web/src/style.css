@@ -3692,6 +3692,7 @@ body[data-navigation="active"] .app-tabs {
   gap: 4px;
   padding: 0 8px;
   background: var(--panel);
+  border: 1px solid var(--panel-line);
   border-radius: 16px;
   flex: 1;
   scrollbar-width: none;
@@ -3830,6 +3831,7 @@ body[data-navigation="active"] .app-tabs {
   right: 12px;
   max-height: calc(100dvh - 155px - var(--safe-top));
   overflow-y: auto;
+  border: 1px solid var(--panel-line);
   border-radius: 22px;
   background: var(--panel);
   padding: 20px;
@@ -4145,6 +4147,7 @@ body[data-navigation="active"] .app-tabs {
     width: 100%;
     gap: 12px;
     padding: 12px 16px;
+    border: 1px solid var(--panel-line);
     border-radius: 18px;
     background: var(--panel);
     box-shadow: 0 4px 16px var(--color-shadow);
@@ -4276,6 +4279,7 @@ body[data-navigation="active"] .app-tabs {
   #navigation-phases {
     padding: 0 4px;
     background: transparent;
+    border: 0;
     border-radius: 0;
   }
   #navigation-alert {
