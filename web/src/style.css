@@ -1918,6 +1918,19 @@ dialog form {
   height: 1rem;
   margin-right: 6px;
 }
+@media (max-width: 899px) {
+  #planning-feedback-slot #toast[data-planning-id] {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    width: 100%;
+    max-width: none;
+    margin: 0 0 12px;
+    border-radius: 12px;
+    box-shadow: none;
+    text-align: left;
+  }
+}
 #toast[data-planning-stage="error"] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

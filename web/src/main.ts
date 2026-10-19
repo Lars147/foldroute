@@ -265,6 +265,7 @@ function clearPlanningToast() {
   clearToastCountdown();
   planningFeedback.releaseRecovery();
   element.hidden = true;
+  planningFeedback.restoreToast();
   delete element.dataset.planningId;
   delete element.dataset.planningStage;
   el("status").setAttribute("aria-live", "polite");
@@ -324,7 +325,7 @@ function toast(
       element.append(countdown);
       toastTimer = setTimeout(() => {
         clearToastCountdown();
-        element.hidden = true;
+        if (!element.dataset.planningId) element.hidden = true;
         planningFeedback.resume();
       }, duration);
     }

@@ -5,8 +5,9 @@ import { el } from "./ui";
 export const planningReadyMessage = "Verbindungen gefunden";
 export type PlanningToastStage = "searching" | "ready" | "optimizing" | "error";
 
-/** Live planning status shares the toast channel without replaying old readiness notices. */
+/** Live status sits above mobile results and shares the desktop toast channel. */
 export class PlanningFeedback {
+  private readonly toastHome = el("toast").parentElement!;
   private announced = new Set<string>();
   private previousCalculation?: string;
   private wasOptimizing = false;
@@ -98,6 +99,21 @@ export class PlanningFeedback {
   interrupt() {
     this.readyId = undefined;
     this.releaseRecovery();
+    this.restoreToast();
+  }
+
+  restoreToast() {
+    this.moveToast(this.toastHome);
+  }
+
+  private moveToast(parent: HTMLElement) {
+    const toast = el("toast");
+    if (toast.parentElement === parent) return;
+    const focused = toast.contains(document.activeElement)
+      ? (document.activeElement as HTMLElement)
+      : undefined;
+    parent.prepend(toast);
+    focused?.focus({ preventScroll: true });
   }
 
   releaseRecovery() {
@@ -151,6 +167,26 @@ export class PlanningFeedback {
   }
 
   private render() {
+    const slot = el("planning-feedback-slot");
+    const panel = el("journey-panel");
+    const container = panel.classList.contains("result-scroll-all")
+      ? panel
+      : el("panel-content");
+    const anchor = el(el("panel-details").hidden ? "choices" : "panel-details");
+    const preserve =
+      !matchMedia("(min-width: 900px)").matches &&
+      container.scrollTop > 0 &&
+      slot.parentElement === el("panel-content");
+    const top = preserve ? anchor.getBoundingClientRect().top : undefined;
+    this.renderStatus();
+    // Keep the reading position when an inline message changes height or disappears.
+    if (top !== undefined && slot.parentElement === el("panel-content")) {
+      const change = anchor.getBoundingClientRect().top - top;
+      if (change) container.scrollTop += change;
+    }
+  }
+
+  private renderStatus() {
     if (!this.state) return;
     const state = this.state;
     const progress = planningProgress(state);
@@ -198,6 +234,23 @@ export class PlanningFeedback {
       this.dismiss();
       return false;
     }
+    const desktop = matchMedia("(min-width: 900px)").matches;
+    if (!desktop && this.state && planningProgress(this.state).ready) {
+      const slot = el("planning-feedback-slot");
+      const map = el("map-view").dataset.resultScreen === "map";
+      const parent = el(map ? "map-preview" : "panel-content");
+      if (slot.parentElement !== parent) {
+        const focused = slot.contains(document.activeElement)
+          ? (document.activeElement as HTMLElement)
+          : undefined;
+        if (map) parent.prepend(slot);
+        else el("status").before(slot);
+        focused?.focus({ preventScroll: true });
+      }
+      this.moveToast(slot);
+      return true;
+    }
+    this.restoreToast();
     const viewport = window.visualViewport;
     const viewLeft = viewport?.offsetLeft ?? 0;
     const viewTop = viewport?.offsetTop ?? 0;
@@ -205,7 +258,6 @@ export class PlanningFeedback {
     const viewBottom = viewTop + (viewport?.height ?? innerHeight);
     const map = el("map-view").getBoundingClientRect();
     const panel = el("journey-panel").getBoundingClientRect();
-    const desktop = matchMedia("(min-width: 900px)").matches;
     const controls = el("map-controls").getBoundingClientRect();
     const left = desktop ? Math.max(viewLeft, panel.right) + 12 : viewLeft + 16;
     const right = desktop
