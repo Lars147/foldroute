@@ -80,11 +80,12 @@ async function publish(
   );
 }
 
-async function expectToastPosition(page: Page, width: number) {
+async function expectFeedbackPosition(page: Page, width: number) {
   await expectMotionSettled(page.locator("#toast"));
   await expect(async () => {
     const geometry = await page.evaluate(() => {
-      const toast = document.getElementById("toast")!.getBoundingClientRect();
+      const feedback = document.getElementById("toast")!;
+      const toast = feedback.getBoundingClientRect();
       const panel = document
         .getElementById("journey-panel")!
         .getBoundingClientRect();
@@ -92,10 +93,13 @@ async function expectToastPosition(page: Page, width: number) {
         .getElementById("map-controls")!
         .getBoundingClientRect();
       const map = document.getElementById("map-view")!;
-      const anchor =
+      const content = document.getElementById(
         map.dataset.resultScreen === "map"
-          ? document.getElementById("map-open-details")!
-          : document.querySelector<HTMLElement>(".panel-actions")!;
+          ? "map-preview-summary"
+          : map.dataset.resultScreen === "detail"
+            ? "panel-details"
+            : "choices",
+      )!;
       return {
         left: toast.left,
         right: toast.right,
@@ -104,13 +108,17 @@ async function expectToastPosition(page: Page, width: number) {
         panelRight: panel.right,
         controlsLeft: controls.left,
         mapTop: map.getBoundingClientRect().top,
-        actionTop: anchor.getBoundingClientRect().top,
-        tabsTop: document.querySelector(".app-tabs")!.getBoundingClientRect()
-          .top,
+        inline: feedback.parentElement?.id === "planning-feedback-slot",
+        inlineParent: feedback.parentElement?.parentElement?.id,
+        position: getComputedStyle(feedback).position,
+        contentTop: content.getBoundingClientRect().top,
+        screen: map.dataset.resultScreen,
         viewport: innerWidth,
       };
     });
     if (width >= 900) {
+      expect(geometry.inline).toBe(false);
+      expect(geometry.position).toBe("fixed");
       expect(geometry.left).toBeGreaterThanOrEqual(geometry.panelRight + 11);
       expect(geometry.right).toBeLessThanOrEqual(geometry.controlsLeft - 11);
       expect((geometry.left + geometry.right) / 2).toBeCloseTo(
@@ -119,10 +127,14 @@ async function expectToastPosition(page: Page, width: number) {
       );
       expect(geometry.top).toBeGreaterThanOrEqual(geometry.mapTop + 11);
     } else {
+      expect(geometry.inline).toBe(true);
+      expect(geometry.position).toBe("relative");
+      expect(geometry.inlineParent).toBe(
+        geometry.screen === "map" ? "map-preview" : "panel-content",
+      );
       expect(geometry.left).toBeGreaterThanOrEqual(15);
       expect(geometry.right).toBeLessThanOrEqual(geometry.viewport - 15);
-      expect(geometry.bottom).toBeLessThanOrEqual(geometry.tabsTop - 11);
-      expect(geometry.bottom).toBeLessThanOrEqual(geometry.actionTop - 11);
+      expect(geometry.bottom).toBeLessThanOrEqual(geometry.contentTop + 1);
     }
   }).toPass({ timeout: 5000 });
 }
@@ -234,7 +246,7 @@ async function expectCountdownAt(
 
 for (const width of [320, 390, 1280])
   test(
-    "planning toast keeps results usable at " + width + "px",
+    "planning feedback keeps results usable at " + width + "px",
     async ({ page }, info) => {
       await page.setViewportSize({ width, height: 844 });
       await page.emulateMedia({
@@ -256,13 +268,16 @@ for (const width of [320, 390, 1280])
       const countdown = toast.locator(".toast-countdown");
       if (width === 320) await expect(countdown).toBeHidden();
       else await expect(countdown).toBeVisible();
-      await expectToastPosition(page, width);
+      await expectFeedbackPosition(page, width);
       await expect(page.locator("#toast .icon")).toHaveCount(1);
       await expect(page.locator("#status")).toBeEmpty();
       await expect(page.locator("#journey-panel")).not.toHaveClass(
         /is-loading/,
       );
       await expect(page.locator("#navigation-start")).toBeEnabled();
+      await page.screenshot({
+        path: info.outputPath("search-results-feedback.png"),
+      });
       await page.locator('.route-choice[data-journey="chosen"]').click();
       await openSelectedDetails(page);
       await expect(page.locator("#panel-details")).toContainText("S8");
@@ -290,7 +305,7 @@ for (const width of [320, 390, 1280])
         await expect(page.locator("#panel-details")).toBeVisible();
       }
       await showMap(page);
-      await expectToastPosition(page, width);
+      await expectFeedbackPosition(page, width);
       expect(await page.evaluate(() => (window as any).toastMutations)).toBe(0);
       await expect(page.locator("#toast .planning-toast-spinner")).toHaveCount(
         0,
@@ -317,6 +332,35 @@ for (const width of [320, 390, 1280])
       await expect(toast).toBeHidden();
     },
   );
+
+test("live feedback follows mobile and desktop layouts without replaying readiness", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await open(page, true);
+  await publish(page, { phase: "base", ids: ["first"] });
+  await expectFeedbackPosition(page, 390);
+  await page.clock.fastForward(3100);
+  await expect(page.locator("#toast")).toHaveAttribute(
+    "data-planning-stage",
+    "optimizing",
+  );
+  for (const width of [768, 1280, 899, 900, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expectFeedbackPosition(page, width);
+    await expect(page.locator("#toast")).toHaveAttribute(
+      "data-planning-stage",
+      "optimizing",
+    );
+  }
+  await openSelectedDetails(page);
+  await expectFeedbackPosition(page, 390);
+  await showMap(page);
+  await expectFeedbackPosition(page, 390);
+  await page.locator("#result-back").click();
+  await expectFeedbackPosition(page, 390);
+});
 
 for (const [width, colorScheme] of [
   [320, "light"],
@@ -371,6 +415,7 @@ for (const [width, colorScheme] of [
     await page.clock.runFor(350);
     await page.locator("#share-plan").click();
     await expect(toast).toHaveText("Planungslink kopiert.");
+    await expect(page.locator(".history-feedback > #toast")).toBeVisible();
     const deadline = await page.evaluate(() => performance.now() + 6000);
     await page.clock.runFor(350);
     await expectMotionSettled(toast);
@@ -423,6 +468,7 @@ for (const [width, colorScheme] of [
     await page.clock.fastForward(1);
     await expect(toast).toHaveAttribute("data-planning-stage", "optimizing");
     await expect(toast.locator(".toast-countdown")).toHaveCount(0);
+    await expectFeedbackPosition(page, width);
   });
 
 for (const status of ["searching", "complete"])
@@ -478,7 +524,7 @@ test("searching persists then readiness expires once without shifting the header
     "animation-name",
     "route-loading",
   );
-  await expectToastPosition(page, 390);
+  await expectFeedbackPosition(page, 390);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(page.locator("#toast .planning-toast-spinner")).toHaveCSS(
     "animation-name",
@@ -572,7 +618,7 @@ test("user messages take priority over searching and readiness toasts", async ({
   await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
 });
 
-test("partial optimization shows floating retry and honors the pause in map", async ({
+test("partial optimization shows inline retry and honors the pause in map", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -609,7 +655,7 @@ test("partial optimization shows floating retry and honors the pause in map", as
   await expect(page.locator("#map-preview-status")).toBeHidden();
   await expect(page.locator("#toast #recover-planning")).toBeVisible();
   await expectRetryIcon(page);
-  await expectToastPosition(page, 390);
+  await expectFeedbackPosition(page, 390);
   await expect(page.locator("#recover-planning")).toBeVisible();
   await expect(page.locator("#recover-planning")).toBeDisabled();
   await expect(page.locator("#recovery-wait")).toBeVisible();
@@ -622,13 +668,13 @@ test("partial optimization shows floating retry and honors the pause in map", as
     "Optimierung nicht vollständig.",
   );
   await expect(page.locator("#toast #recover-planning")).toBeVisible();
-  await expectToastPosition(page, 390);
+  await expectFeedbackPosition(page, 390);
   await expect(page.locator("#issues")).toBeHidden();
   await page.clock.fastForward(60_100);
   await expect(page.locator("#recover-planning")).toBeEnabled();
   await expect(page.locator("#recovery-wait")).toBeHidden();
   await expectRetryIcon(page);
-  await expectToastPosition(page, 390);
+  await expectFeedbackPosition(page, 390);
 });
 
 for (const [cause, message] of [
@@ -673,7 +719,7 @@ for (const [cause, message] of [
         message,
       );
       await expect(page.locator("#toast #recover-planning")).toBeVisible();
-      await expectToastPosition(page, 390);
+      await expectFeedbackPosition(page, 390);
       await expect(page.locator("#recover-planning")).toBeVisible();
       await page.context().setOffline(true);
       await expect(page.locator("#recover-planning")).toBeDisabled();
@@ -734,7 +780,11 @@ for (const width of [390, 1280])
       };
     });
     expect(position.scrollTop).toBeGreaterThan(0);
-    await page.locator("#recover-planning").click();
+    // Start continuation without scrolling the inline action back into view.
+    // The assertion covers background updates while the user reads the details.
+    await page
+      .locator("#recover-planning")
+      .evaluate((button) => (button as HTMLButtonElement).click());
     await expect(page.locator("#toast")).toHaveAttribute(
       "data-planning-stage",
       "optimizing",
@@ -752,11 +802,11 @@ for (const width of [390, 1280])
       page.locator('.route-choice[aria-pressed="true"]'),
     ).toHaveAttribute("data-journey", "chosen");
     // Browser anchoring may adjust scrollTop when alternatives above the details change.
-    expect(
-      await page
-        .locator("#journey-heading")
-        .evaluate((element) => element.getBoundingClientRect().top),
-    ).toBeCloseTo(position.headingTop, 0);
+    const headingTop = await page
+      .locator("#journey-heading")
+      .evaluate((element) => element.getBoundingClientRect().top);
+    // Scrolling can round the fractional inline row heights to device pixels.
+    expect(Math.abs(headingTop - position.headingTop)).toBeLessThanOrEqual(1);
   });
 
 test("completed search keeps errors out of the result area", async ({
@@ -796,7 +846,7 @@ test("failure before any result shows the original error without readiness", asy
 });
 
 for (const width of [320, 1280])
-  test(`floating error persists and resumes after another toast at ${width}px`, async ({
+  test(`optimization error persists and resumes after another toast at ${width}px`, async ({
     page,
   }, info) => {
     await page.setViewportSize({ width, height: 844 });
@@ -825,7 +875,7 @@ for (const width of [320, 1280])
     await expect(toast).toHaveAttribute("data-planning-stage", "error");
     await expect(page.locator("#toast #recover-planning")).toBeEnabled();
     await expectRetryIcon(page);
-    await expectToastPosition(page, width);
+    await expectFeedbackPosition(page, width);
     await page.evaluate(() => {
       (window as any).errorToastMutations = 0;
       new MutationObserver((records) => {
@@ -871,7 +921,7 @@ for (const width of [320, 1280])
     await expect(retry).toBeFocused();
     await expectRetryIcon(page);
     await expect(page.locator("#status")).toBeEmpty();
-    await expectToastPosition(page, width);
+    await expectFeedbackPosition(page, width);
     await retry.click();
     await expect(toast).toHaveAttribute("data-planning-stage", "optimizing");
     await expect(page.locator("#toast #recover-planning")).toHaveCount(0);
