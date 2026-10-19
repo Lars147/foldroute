@@ -227,10 +227,13 @@ function setupTabMotion() {
     stopMotionWithin(indicator);
     const area = tabs.getBoundingClientRect(),
       target = button.getBoundingClientRect();
-    const left = target.left - area.left - tabs.clientLeft + 4;
-    const top = target.top - area.top - tabs.clientTop + 4;
-    const width = target.width - 8;
-    const height = target.height - 8;
+    const inset = parseFloat(
+      getComputedStyle(tabs).getPropertyValue("--tab-indicator-inset"),
+    );
+    const left = target.left - area.left - tabs.clientLeft + inset;
+    const top = target.top - area.top - tabs.clientTop + inset;
+    const width = target.width - inset * 2;
+    const height = target.height - inset * 2;
     indicator.style.left = `${left}px`;
     indicator.style.top = `${top}px`;
     indicator.style.width = `${width}px`;
@@ -248,8 +251,8 @@ function setupTabMotion() {
       copy.style.font = getComputedStyle(caption).font;
     }
     if (moving && selected !== button.id && tabs.dataset.motion === "ready") {
-      const x = old.left - (target.left + 4);
-      const y = old.top - (target.top + 4);
+      const x = old.left - (target.left + inset);
+      const y = old.top - (target.top + inset);
       play(indicator, x, y, motionTime.selection, false, true, {
         width: [old.width, width],
         height: [old.height, height],

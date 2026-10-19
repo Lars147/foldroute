@@ -13,11 +13,12 @@ async function aligned(page: Page) {
         const button = tabs
           .querySelector("button[aria-current]")!
           .getBoundingClientRect();
+        const inset = innerWidth < 900 ? 0 : 4;
         return Math.max(
-          Math.abs(frame.left - button.left - 4),
-          Math.abs(frame.top - button.top - 4),
-          Math.abs(frame.width - button.width + 8),
-          Math.abs(frame.height - button.height + 8),
+          Math.abs(frame.left - button.left - inset),
+          Math.abs(frame.top - button.top - inset),
+          Math.abs(frame.width - button.width + inset * 2),
+          Math.abs(frame.height - button.height + inset * 2),
         );
       }),
     )
@@ -49,7 +50,7 @@ async function open(page: Page) {
   await settled(page);
 }
 
-for (const width of [390, 1280])
+for (const width of [320, 390, 768, 1280])
   for (const colorScheme of ["light", "dark"] as const)
     test(`main selection glides behind fixed icons and labels at ${width} in ${colorScheme}`, async ({
       page,
@@ -189,9 +190,66 @@ for (const width of [390, 1280])
       });
     });
 
+test("mobile selection fills the inner contour and matches the static fallback", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await open(page);
+  for (const width of [320, 390, 768, 899]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const id of ["tab-route", "tab-history", "tab-settings"]) {
+      await page.locator(`#${id}`).click();
+      await settled(page);
+      const geometry = await page.locator(".app-tabs").evaluate((tabs) => {
+        const area = tabs.getBoundingClientRect();
+        const indicator = tabs.querySelector(".tab-indicator")!;
+        const frame = indicator.getBoundingClientRect();
+        const button = tabs.querySelector<HTMLElement>("button[aria-current]")!;
+        const target = button.getBoundingClientRect();
+        const radius = getComputedStyle(indicator).borderRadius;
+        delete (tabs as HTMLElement).dataset.motion;
+        const fallback = getComputedStyle(button, "::before");
+        const result = {
+          top: frame.top - area.top,
+          bottom: area.bottom - frame.bottom,
+          edge:
+            button.id === "tab-route"
+              ? frame.left - area.left
+              : button.id === "tab-settings"
+                ? area.right - frame.right
+                : 1,
+          radius,
+          fallbackDisplay: fallback.display,
+          fallbackRadius: fallback.borderRadius,
+          fallbackGap: Math.max(
+            Math.abs(target.left + parseFloat(fallback.left) - frame.left),
+            Math.abs(target.top + parseFloat(fallback.top) - frame.top),
+            Math.abs(parseFloat(fallback.width) - frame.width),
+            Math.abs(parseFloat(fallback.height) - frame.height),
+          ),
+        };
+        (tabs as HTMLElement).dataset.motion = "ready";
+        return result;
+      });
+      expect(geometry.top).toBeCloseTo(1, 0);
+      expect(geometry.bottom).toBeCloseTo(1, 0);
+      expect(geometry.edge).toBeCloseTo(1, 0);
+      expect(geometry.radius).toBe("19px");
+      expect(geometry.fallbackDisplay).not.toBe("none");
+      expect(geometry.fallbackRadius).toBe(geometry.radius);
+      expect(geometry.fallbackGap).toBeLessThanOrEqual(1);
+      if (width === 390)
+        await page.locator(".app-tabs").screenshot({
+          path: test.info().outputPath(`flush-${id}.png`),
+        });
+    }
+  }
+});
+
 test("main tabs preserve keyboard focus and only animate successful navigation", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await open(page);
   await page.locator("#tab-settings").focus();
@@ -254,7 +312,7 @@ test("main tabs resize with large text and safe area, then restore without a gli
     };
   });
   expect(geometry.height).toBeGreaterThanOrEqual(112);
-  expect(geometry.bottom).toBeCloseTo(5, 0);
+  expect(geometry.bottom).toBeCloseTo(1, 0);
   expect(geometry.safeBottom).toBeGreaterThanOrEqual(38);
   expect(geometry.fits).toBe(true);
   await page
