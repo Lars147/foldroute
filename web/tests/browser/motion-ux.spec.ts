@@ -172,11 +172,12 @@ test("rapid main navigation keeps the indicator aligned after resizing", async (
             const button = document
               .querySelector("#tab-settings")!
               .getBoundingClientRect();
+            const inset = innerWidth < 900 ? 0 : 4;
             return Math.max(
-              Math.abs(marker.left - button.left - 4),
-              Math.abs(marker.top - button.top - 4),
-              Math.abs(marker.width - button.width + 8),
-              Math.abs(marker.height - button.height + 8),
+              Math.abs(marker.left - button.left - inset),
+              Math.abs(marker.top - button.top - inset),
+              Math.abs(marker.width - button.width + inset * 2),
+              Math.abs(marker.height - button.height + inset * 2),
             );
           }),
         )
