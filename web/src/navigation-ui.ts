@@ -97,7 +97,6 @@ export class NavigationView {
         <p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
         <div id="navigation-alternative" hidden><p id="navigation-alternative-text"></p><button id="navigation-accept" class="primary">Verbindung übernehmen</button><button id="navigation-dismiss" class="secondary">Bisherige behalten</button></div>
         <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
-        <p class="journey-sources"><a href="https://transitous.org/sources/">Fahrtdaten und Quellen</a></p>
         <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
         </div>
         <div id="navigation-finish" hidden>

@@ -466,12 +466,7 @@ test("navigation credits move between mobile panel and desktop bottom right", as
     "© OpenMapTiles · © OpenStreetMap",
   );
   await page.locator("#navigation-details-toggle").click();
-  const sources = page.locator("#navigation-details .journey-sources a");
-  await expect(sources).toBeVisible();
-  await expect(sources).toHaveAttribute(
-    "href",
-    "https://transitous.org/sources/",
-  );
+  await expectMobileCredit(page);
   await page.locator("#navigation-details-toggle").click();
   await expectMobileCredit(page);
   await page.locator("#navigation-map").press("ArrowRight");

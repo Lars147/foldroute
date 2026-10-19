@@ -835,11 +835,6 @@ input[type="search"]::-webkit-search-cancel-button {
 .map-credit a {
   margin-left: 5px;
 }
-.journey-sources {
-  margin: 16px 0 0;
-  font-size: 0.75rem;
-  color: var(--panel-muted);
-}
 .map-screen .offline-map {
   background-color: var(--color-map);
   background-image:

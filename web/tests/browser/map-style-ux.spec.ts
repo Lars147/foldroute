@@ -611,12 +611,6 @@ for (const colorScheme of ["light", "dark"] as const) {
     await expect(credit).toHaveCSS("left", "460px");
     await expect(credit).toHaveCSS("transform", "none");
     await expect(credit).toBeInViewport();
-    const sources = page.locator("#panel-details .journey-sources a");
-    await expect(sources).toBeVisible();
-    await expect(sources).toHaveAttribute(
-      "href",
-      "https://transitous.org/sources/",
-    );
     expect(layoutErrors).toEqual([]);
   });
 
