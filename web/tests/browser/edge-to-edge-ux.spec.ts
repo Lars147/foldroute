@@ -102,10 +102,10 @@ for (const layout of layouts)
         await expectMotionSettled(page.locator(".tab-indicator"));
         const highlight = (await page.locator(".tab-indicator").boundingBox())!;
         const button = (await page.locator(`#tab-${name}`).boundingBox())!;
-        expect(highlight.x).toBeCloseTo(button.x + 4, 0);
-        expect(highlight.y).toBeCloseTo(button.y + 4, 0);
-        expect(highlight.width).toBeCloseTo(button.width - 8, 0);
-        expect(highlight.height).toBeCloseTo(button.height - 8, 0);
+        expect(highlight.x).toBeCloseTo(button.x, 0);
+        expect(highlight.y).toBeCloseTo(button.y, 0);
+        expect(highlight.width).toBeCloseTo(button.width, 0);
+        expect(highlight.height).toBeCloseTo(button.height, 0);
       }
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
