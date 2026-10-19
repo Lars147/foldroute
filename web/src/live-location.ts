@@ -24,6 +24,8 @@ export class LocationError extends Error {
 }
 const permissionDeniedMessage = "Standortzugriff nicht erlaubt.";
 const timeoutMessage = "Standortabfrage dauert zu lange.";
+const refreshInterval = 30000;
+const refreshTimeout = 12000;
 export function geolocationError(code: number): LocationError {
   return code === 1
     ? new LocationError("permission-denied", permissionDeniedMessage)
@@ -96,6 +98,12 @@ export class LiveLocation {
   private fix?: LocationFix;
   private failure?: LocationError;
   private timer?: ReturnType<typeof setInterval>;
+  private activeSince = 0;
+  private lastRefreshAt = -Infinity;
+  private refreshing?: {
+    startedAt: number;
+    timer: ReturnType<typeof setTimeout>;
+  };
   private pending?: {
     accurate: boolean;
     resolve: (fix: LocationFix) => void;
@@ -130,8 +138,12 @@ export class LiveLocation {
       this.timer = undefined;
       return;
     }
+    this.activeSince = Date.now();
     this.publish();
-    this.timer = setInterval(() => this.publish(), 5000);
+    this.timer = setInterval(() => {
+      this.publish();
+      this.refreshIfNeeded();
+    }, 5000);
     if (this.sessionAllowed) this.start(true);
     void this.checkPermission(this.generation);
   }
@@ -189,14 +201,7 @@ export class LiveLocation {
       },
       (error) => {
         if (generation !== this.generation || !this.active) return;
-        if (error.code === 1) {
-          this.stop();
-          this.sessionAllowed = false;
-          this.fix = undefined;
-        }
-        this.failure = geolocationError(error.code);
-        this.publish();
-        this.fail(this.failure);
+        this.locationFailed(error.code);
       },
       {
         enableHighAccuracy: true,
@@ -208,6 +213,9 @@ export class LiveLocation {
   private accept(position: GeolocationPosition) {
     const fix = readFix(position);
     if (!fix || (this.fix && fix.timestamp < this.fix.timestamp)) return;
+    if (this.active) this.sessionAllowed = true;
+    if (this.refreshing && fix.timestamp >= this.refreshing.startedAt)
+      this.cancelRefresh();
     this.fix = fix;
     this.failure = undefined;
     this.publish();
@@ -235,7 +243,72 @@ export class LiveLocation {
       this.failure,
     );
   }
+  private refreshIfNeeded() {
+    const now = Date.now();
+    if (
+      !this.active ||
+      this.watch === undefined ||
+      this.pending ||
+      this.refreshing ||
+      !navigator.geolocation?.getCurrentPosition ||
+      (this.permission
+        ? this.permission.state !== "granted"
+        : !this.sessionAllowed) ||
+      now - Math.max(this.activeSince, this.fix?.timestamp ?? 0) <
+        refreshInterval ||
+      now - this.lastRefreshAt < refreshInterval
+    )
+      return;
+    const generation = this.generation;
+    const refresh = {
+      startedAt: now,
+      timer: setTimeout(() => {
+        if (this.refreshing === refresh) this.cancelRefresh();
+      }, refreshTimeout),
+    };
+    this.refreshing = refresh;
+    this.lastRefreshAt = now;
+    const current = () =>
+      this.active &&
+      this.generation === generation &&
+      this.refreshing === refresh;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (!current()) return;
+        this.cancelRefresh();
+        const fix = readFix(position);
+        if (fix && fix.timestamp >= refresh.startedAt) this.accept(position);
+      },
+      (error) => {
+        if (!current()) return;
+        this.cancelRefresh();
+        // A failed refresh must not invalidate a still-current measurement.
+        if (error.code === 1) this.locationFailed(error.code);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: refreshTimeout,
+      },
+    );
+  }
+  private cancelRefresh() {
+    if (!this.refreshing) return;
+    clearTimeout(this.refreshing.timer);
+    this.refreshing = undefined;
+  }
+  private locationFailed(code: number) {
+    if (code === 1) {
+      this.stop();
+      this.sessionAllowed = false;
+      this.fix = undefined;
+    }
+    this.failure = geolocationError(code);
+    this.publish();
+    this.fail(this.failure);
+  }
   private stop() {
+    this.cancelRefresh();
     this.generation++;
     if (this.watch !== undefined) navigator.geolocation.clearWatch(this.watch);
     this.watch = undefined;
@@ -255,6 +328,7 @@ export class LiveLocation {
     accurate = false,
     options: LocationRequestOptions = {},
   ): Promise<LocationFix> {
+    this.cancelRefresh();
     this.cancelCenter();
     if (!this.active)
       return Promise.reject(

@@ -11,19 +11,22 @@ async function setup(page: Page, permission = "granted") {
     const watches = new Map<number, PositionCallback>();
     const errors = new Map<number, PositionErrorCallback>();
     const status = { state, onchange: null as (() => void) | null };
+    let lastPosition: GeolocationPosition | undefined;
     const probe = {
       started: 0,
       stopped: 0,
+      refreshLookups: 0,
+      refreshSilent: true,
       permission(value: string) {
         status.state = value;
         status.onchange?.();
       },
       push(latitude: number, accuracy: number, age = 0) {
-        for (const callback of watches.values())
-          callback({
-            coords: { latitude, longitude: 11.5756, accuracy },
-            timestamp: Date.now() - age,
-          } as GeolocationPosition);
+        lastPosition = {
+          coords: { latitude, longitude: 11.5756, accuracy },
+          timestamp: Date.now() - age,
+        } as GeolocationPosition;
+        for (const callback of watches.values()) callback(lastPosition);
       },
       fail() {
         for (const callback of errors.values())
@@ -56,8 +59,16 @@ async function setup(page: Page, permission = "granted") {
           watches.delete(id);
           errors.delete(id);
         },
-        getCurrentPosition() {
-          throw new Error("This fixed-origin plan must not query its origin");
+        getCurrentPosition(
+          success: PositionCallback,
+          _error: PositionErrorCallback,
+          options?: PositionOptions,
+        ) {
+          if (!options?.enableHighAccuracy)
+            throw new Error("This fixed-origin plan must not query its origin");
+          probe.refreshLookups++;
+          if (!probe.refreshSilent && lastPosition)
+            success({ ...lastPosition, timestamp: Date.now() });
         },
       },
     });
@@ -103,6 +114,40 @@ const push = (page: Page, latitude: number, accuracy: number, age = 0) =>
 const marker = (page: Page) => page.locator(".live-location-marker");
 
 for (const width of [390, 1280]) {
+  test(`stationary route location refreshes without changing the route or camera at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 986 });
+    await setup(page);
+    await push(page, 48.132, 10);
+    await page.evaluate(() => {
+      (window as any).liveProbe.refreshSilent = false;
+    });
+    const url = page.url();
+    const start = await page.locator(".route-marker-start").boundingBox();
+    const dot = await marker(page).boundingBox();
+    let planned = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/v6/plan?")) planned++;
+    });
+    for (let i = 0; i < 4; i++) {
+      await page.clock.runFor(35000);
+      await expect(marker(page)).toHaveAttribute("data-quality", "current");
+    }
+    expect(
+      await page.evaluate(() => (window as any).liveProbe.refreshLookups),
+    ).toBeGreaterThanOrEqual(4);
+    expect(await page.evaluate(() => (window as any).liveProbe.started)).toBe(
+      1,
+    );
+    expect(await page.locator(".route-marker-start").boundingBox()).toEqual(
+      start,
+    );
+    expect(await marker(page).boundingBox()).toEqual(dot);
+    expect(page.url()).toBe(url);
+    expect(planned).toBe(0);
+  });
+
   test(`live point and accuracy change without moving route or camera at ${width}`, async ({
     page,
   }) => {

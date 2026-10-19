@@ -23,6 +23,22 @@ const flush = async () => {
   await Promise.resolve();
   await Promise.resolve();
 };
+function singleRequests() {
+  const requests: {
+    success: PositionCallback;
+    error: PositionErrorCallback;
+    options?: PositionOptions;
+  }[] = [];
+  const single = vi.fn(
+    (
+      success: PositionCallback,
+      error: PositionErrorCallback,
+      options?: PositionOptions,
+    ) => requests.push({ success, error, options }),
+  );
+  Object.assign(navigator.geolocation, { getCurrentPosition: single });
+  return requests;
+}
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-09-25T12:00:00Z"));
@@ -443,3 +459,256 @@ it("does not let a delayed permission query interrupt an explicit fresh request"
   callbacks.get(1)!.success(position());
   expect(await pending).toEqual(readFix(position()));
 });
+
+it("refreshes a stationary location after 30 seconds without restarting its watch", async () => {
+  const requests = singleRequests();
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position());
+  await vi.advanceTimersByTimeAsync(29999);
+  expect(requests).toHaveLength(0);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(requests[0].options).toEqual({
+    enableHighAccuracy: true,
+    maximumAge: 0,
+    timeout: 12000,
+  });
+  for (let i = 0; i < 4; i++) {
+    if (i) await vi.advanceTimersByTimeAsync(30000);
+    expect(requests).toHaveLength(i + 1);
+    requests[i].success(position());
+    expect(changed).toHaveBeenLastCalledWith(
+      readFix(position()),
+      "current",
+      undefined,
+    );
+  }
+  expect(watch).toHaveBeenCalledTimes(1);
+  expect(clear).not.toHaveBeenCalled();
+});
+
+it("does not request extra positions while the watch supplies fresh measurements", async () => {
+  const requests = singleRequests();
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  for (let i = 0; i < 6; i++) {
+    callbacks.get(1)!.success(position());
+    await vi.advanceTimersByTimeAsync(20000);
+  }
+  expect(requests).toHaveLength(0);
+});
+
+it.each([undefined, 2, 3])(
+  "bounds silent or failed refreshes (%s) while retaining the last measurement",
+  async (code) => {
+    const requests = singleRequests();
+    const changed = vi.fn();
+    const service = new LiveLocation(changed);
+    service.setActive(true);
+    await flush();
+    const original = position();
+    callbacks.get(1)!.success(original);
+    await vi.advanceTimersByTimeAsync(30000);
+    if (code) requests[0].error({ code } as GeolocationPositionError);
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(requests).toHaveLength(1);
+    expect(changed).toHaveBeenLastCalledWith(
+      readFix(original),
+      "current",
+      undefined,
+    );
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(requests).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(changed).toHaveBeenLastCalledWith(
+      readFix(original),
+      "stale",
+      undefined,
+    );
+    requests[0].success(position(10, Date.now(), 49));
+    requests[0].error({ code: 1 } as GeolocationPositionError);
+    expect(changed.mock.lastCall?.[0]).toEqual(readFix(original));
+    expect(clear).not.toHaveBeenCalled();
+    requests[1].success(position());
+    expect(changed).toHaveBeenLastCalledWith(
+      readFix(position()),
+      "current",
+      undefined,
+    );
+  },
+);
+
+it("rejects cached and invalid refresh replies without renewing their timestamps", async () => {
+  const requests = singleRequests();
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  const original = position();
+  callbacks.get(1)!.success(original);
+  await vi.advanceTimersByTimeAsync(30000);
+  requests[0].success(position(10, Date.now() - 1));
+  expect(changed.mock.lastCall?.[0]).toEqual(readFix(original));
+  await vi.advanceTimersByTimeAsync(30000);
+  requests[1].success(position(10, Date.now(), 100));
+  expect(changed.mock.lastCall?.[0]).toEqual(readFix(original));
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(changed.mock.lastCall?.[1]).toBe("stale");
+});
+
+it("keeps the accuracy limit on fresh automatic measurements", async () => {
+  const requests = singleRequests();
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position());
+  await vi.advanceTimersByTimeAsync(30000);
+  requests[0].success(position(101));
+  expect(changed).toHaveBeenLastCalledWith(
+    readFix(position(101)),
+    "inaccurate",
+    undefined,
+  );
+});
+
+it("lets manual requests supersede automatic replies and suppress further refreshes", async () => {
+  const requests = singleRequests();
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position());
+  await vi.advanceTimersByTimeAsync(30000);
+  const resolved = vi.fn();
+  const pending = service.center(true, { fresh: true }).then(resolved);
+  expect(requests).toHaveLength(2);
+  changed.mockClear();
+  requests[0].success(position(10, Date.now(), 49));
+  requests[0].error({ code: 1 } as GeolocationPositionError);
+  await flush();
+  expect(changed).not.toHaveBeenCalled();
+  expect(resolved).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(requests).toHaveLength(2);
+  requests[1].success(position());
+  await pending;
+  expect(resolved).toHaveBeenCalledWith(readFix(position()));
+});
+
+it("does not start an automatic refresh while a manual request is pending", async () => {
+  const requests = singleRequests();
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position());
+  await vi.advanceTimersByTimeAsync(29000);
+  const pending = service.center(true, { fresh: true });
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(requests).toHaveLength(1);
+  requests[0].success(position());
+  await pending;
+});
+
+it("ignores automatic replies and errors superseded by a watch measurement", async () => {
+  const requests = singleRequests();
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position());
+  await vi.advanceTimersByTimeAsync(30000);
+  callbacks.get(1)!.success(position());
+  changed.mockClear();
+  requests[0].success(position(10, Date.now(), 49));
+  requests[0].error({ code: 1 } as GeolocationPositionError);
+  expect(changed).not.toHaveBeenCalled();
+  expect(clear).not.toHaveBeenCalled();
+});
+
+it("stops refreshing while inactive and ignores replies from the previous activation", async () => {
+  const requests = singleRequests();
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position());
+  await vi.advanceTimersByTimeAsync(30000);
+  service.setActive(false);
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(requests).toHaveLength(1);
+  service.setActive(true);
+  await flush();
+  changed.mockClear();
+  requests[0].success(position(10, Date.now(), 49));
+  requests[0].error({ code: 1 } as GeolocationPositionError);
+  expect(changed).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(requests).toHaveLength(2);
+  requests[1].success(position());
+  expect(changed.mock.lastCall?.[1]).toBe("current");
+});
+
+it.each(["prompt", "denied"] as const)(
+  "never prompts through automatic refresh when permission is %s",
+  async (state) => {
+    const requests = singleRequests();
+    permission.state = state;
+    const service = new LiveLocation(vi.fn());
+    service.setActive(true);
+    await flush();
+    await vi.advanceTimersByTimeAsync(90000);
+    expect(requests).toHaveLength(0);
+    expect(watch).not.toHaveBeenCalled();
+  },
+);
+
+it("refreshes without Permissions API only after a successful explicit fix in this activation", async () => {
+  query.mockRejectedValue(new Error("unsupported"));
+  const requests = singleRequests();
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(requests).toHaveLength(0);
+  const pending = service.center();
+  callbacks.get(1)!.success(position());
+  await pending;
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(requests).toHaveLength(1);
+  service.setActive(false);
+  service.setActive(true);
+  await flush();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(requests).toHaveLength(1);
+});
+
+it.each(["permission-change", "provider-error"])(
+  "removes the location and stops automatic refresh on denial through %s",
+  async (source) => {
+    const requests = singleRequests();
+    const changed = vi.fn();
+    const service = new LiveLocation(changed);
+    service.setActive(true);
+    await flush();
+    callbacks.get(1)!.success(position());
+    await vi.advanceTimersByTimeAsync(30000);
+    if (source === "permission-change") {
+      permission.state = "denied";
+      permission.onchange!();
+    } else requests[0].error({ code: 1 } as GeolocationPositionError);
+    expect(changed).toHaveBeenLastCalledWith(
+      undefined,
+      undefined,
+      expect.objectContaining({ reason: "permission-denied" }),
+    );
+    requests[0].success(position());
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(requests).toHaveLength(1);
+    expect(changed.mock.lastCall?.[0]).toBeUndefined();
+    expect(clear).toHaveBeenCalledWith(1);
+  },
+);

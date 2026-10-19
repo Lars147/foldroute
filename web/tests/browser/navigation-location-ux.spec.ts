@@ -8,6 +8,93 @@ import {
   savedActive,
 } from "./navigation-fixture";
 
+for (const width of [390, 1280])
+  test(`stationary navigation keeps its location fresh through single lookups at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await setup(page);
+    await page.evaluate(() => {
+      (window as any).navProbe.refreshSilent = false;
+    });
+    const instruction = await page
+      .locator("#navigation-instruction")
+      .innerText();
+    const watches = await page.evaluate(() => (window as any).navProbe.started);
+    for (let i = 0; i < 4; i++) {
+      await page.clock.runFor(35000);
+      await expect(page.locator("#navigation-gps-status")).toBeHidden();
+      await expect(page.locator("#navigation-location-status")).toBeEmpty();
+      await expect(page.locator("#navigation-map")).toHaveAttribute(
+        "data-position-source",
+        "gps",
+      );
+    }
+    expect(
+      await page.evaluate(() => (window as any).navProbe.refreshLookups),
+    ).toBeGreaterThanOrEqual(4);
+    expect(await page.evaluate(() => (window as any).navProbe.started)).toBe(
+      watches,
+    );
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      instruction,
+    );
+    expect(
+      await page.evaluate(() => (window as any).navProbe.lastRefreshOptions),
+    ).toEqual({ enableHighAccuracy: true, maximumAge: 0, timeout: 12000 });
+  });
+
+test("silent single lookups retain the stale warning and recover on a fresh measurement", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await setup(page);
+  await page.evaluate(() => {
+    (window as any).navProbe.cachedAt = Date.now();
+    (window as any).navProbe.refreshSilent = false;
+  });
+  await page.clock.runFor(70000);
+  await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
+  await expect(page.locator("#navigation-location-status")).toContainText(
+    "Letzter Standort nicht aktuell. Automatischer Fortschritt pausiert.",
+  );
+  await expect(page.locator("#navigation-locate")).toBeEnabled();
+  expect(
+    await page.evaluate(() => (window as any).navProbe.refreshLookups),
+  ).toBe(2);
+  await page.evaluate(() => {
+    (window as any).navProbe.cachedAt = undefined;
+  });
+  await page.clock.runFor(30000);
+  await expect(page.locator("#navigation-gps-status")).toBeHidden();
+  await expect(page.locator("#navigation-location-status")).toBeEmpty();
+});
+
+test("automatic navigation lookups pause in the background and resume after a fresh foreground fix", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.evaluate(() => {
+    (window as any).navProbe.refreshSilent = false;
+  });
+  await page.clock.runFor(35000);
+  const lookups = await page.evaluate(
+    () => (window as any).navProbe.refreshLookups,
+  );
+  await page.evaluate(() => (window as any).navProbe.hide(true));
+  await page.clock.runFor(70000);
+  expect(
+    await page.evaluate(() => (window as any).navProbe.refreshLookups),
+  ).toBe(lookups);
+  await page.evaluate(() => (window as any).navProbe.hide(false));
+  await page.clock.runFor(35000);
+  await expect(page.locator("#navigation-gps-status")).toBeHidden();
+  expect(
+    await page.evaluate(() => (window as any).navProbe.refreshLookups),
+  ).toBeGreaterThan(lookups);
+});
+
 test("GPS loss freezes the display without a usable timeline", async ({
   page,
 }) => {

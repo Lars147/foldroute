@@ -196,9 +196,13 @@ export async function setup(
       started: 0,
       stopped: 0,
       quickLookups: 0,
+      refreshLookups: 0,
+      // Unscripted refreshes stay silent; individual tests supply new measurements.
+      refreshSilent: true,
       cachedAt: undefined as number | undefined,
       lastWatchOptions: undefined as PositionOptions | undefined,
       lastQuickOptions: undefined as PositionOptions | undefined,
+      lastRefreshOptions: undefined as PositionOptions | undefined,
       get active() {
         return watchers.size;
       },
@@ -265,8 +269,14 @@ export async function setup(
           _error?: PositionErrorCallback,
           options?: PositionOptions,
         ) {
-          probe.quickLookups++;
-          probe.lastQuickOptions = options;
+          if (options?.enableHighAccuracy) {
+            probe.refreshLookups++;
+            probe.lastRefreshOptions = options;
+            if (probe.refreshSilent) return;
+          } else {
+            probe.quickLookups++;
+            probe.lastQuickOptions = options;
+          }
           if (probe.cachedAt !== undefined || !probe.silent)
             success({
               coords,
