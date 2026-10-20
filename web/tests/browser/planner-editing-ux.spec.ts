@@ -4,6 +4,7 @@ import {
   openSettingsSection,
   openSelectedDetails,
   showMap,
+  showConnections,
   expectPlanningComplete,
   expectMotionSettled,
 } from "./assertions";
@@ -67,6 +68,7 @@ for (const width of [320, 390, 1280]) {
     );
     await page.goto(link.href);
     await expectPlanningComplete(page);
+    await showConnections(page);
     await page
       .locator(".route-choice")
       .filter({ hasText: "U6" })
@@ -152,6 +154,7 @@ for (const width of [320, 390, 1280]) {
     });
     await search.click();
     await expectPlanningComplete(page);
+    await showConnections(page);
     expect(requests.length).toBeGreaterThan(0);
     expect(
       requests.every((url) => url.searchParams.get("arriveBy") === "false"),
@@ -804,6 +807,7 @@ for (const timing of ["depart", "arrive"] as const)
     expect(Date.parse(new URL(page.url()).searchParams.get("time")!)).toBe(
       Date.parse("2026-09-03T08:00:00Z"),
     );
+    await showConnections(page);
     if (timing === "arrive") {
       await page
         .locator(".route-choice")
@@ -1288,6 +1292,7 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   await expect(page.locator("#via-0")).toHaveValue("Café");
   await expect(page.locator("#via-0-minutes")).toHaveValue("10");
   await page.locator("#cancel-adjust").click();
+  await showConnections(page);
   await expect
     .poll(
       async () => (await page.locator("#journey-panel").boundingBox())!.height,
@@ -1378,6 +1383,7 @@ for (const width of [320, 390, 430]) {
     await setup(page);
     await plan(page);
     await expectPlanningComplete(page);
+    await showConnections(page);
     await expect(page.locator("#share-plan")).toBeHidden();
     await expect(page.locator("#refresh-route")).toBeHidden();
     await expect(page.locator(".panel-tools #close-route")).toBeVisible();
@@ -1397,6 +1403,7 @@ for (const width of [320, 390, 430]) {
     await page.setViewportSize({ width, height: 844 });
     await page.keyboard.press("Escape");
     await expect(page.locator("#route-more")).toBeFocused();
+    await showConnections(page);
     await page.locator("#close-route").click();
     await expect(page.locator("#destination")).toBeVisible();
     await expect(page.locator("#search-heading")).toBeFocused();

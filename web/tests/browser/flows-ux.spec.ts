@@ -245,7 +245,7 @@ for (const width of [320, 390, 1280])
     if (width < 900)
       await expect(page.locator("#map-view")).toHaveAttribute(
         "data-result-screen",
-        "list",
+        "map",
       );
     const count = requests.length;
     await page.goBack();

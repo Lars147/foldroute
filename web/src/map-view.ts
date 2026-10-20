@@ -55,11 +55,14 @@ export class RouteMap {
   private moving = false;
   private selected?: Journey;
   private journeys: Journey[] = [];
+  private resultsComplete = false;
   private envelope?: L.LatLngBounds;
   private context?: string;
   private manualCamera = false;
   private layoutKey = "";
-  private reservedPanelHeight = 0;
+  private panelLayoutKey = "";
+  private layoutSelection?: string;
+  private resizeFrame?: number;
   private fitPending = false;
   private overviewArea?: L.Bounds;
   private signature = "";
@@ -79,19 +82,23 @@ export class RouteMap {
     private onBackground: () => void,
   ) {
     mountMapStylePicker(el("map-style-control"), "overview");
-    const observer = new ResizeObserver(() =>
-      requestAnimationFrame(() => this.resize()),
-    );
+    const observer = new ResizeObserver(() => this.scheduleResize());
     observer.observe(el("journey-panel"));
     observer.observe(el("map-controls"));
     observer.observe(el("map"));
     observer.observe(el("connection"));
     observer.observe(document.querySelector<HTMLElement>(".app-tabs")!);
     observer.observe(document.querySelector<HTMLElement>(".map-credit")!);
-    window.addEventListener("resize", () => this.resize());
+    window.addEventListener("resize", () => this.scheduleResize());
     const redraw = () => {
       if (this.map)
-        this.show(this.journeys, this.selected, this.online, this.context);
+        this.show(
+          this.journeys,
+          this.selected,
+          this.online,
+          this.context,
+          this.resultsComplete,
+        );
     };
     window.addEventListener(appearanceEvent, redraw);
     window.addEventListener(mapStyleEvent, redraw);
@@ -104,7 +111,10 @@ export class RouteMap {
     selected?: Journey,
     online = navigator.onLine,
     context?: string,
+    complete = false,
   ) {
+    const finished = complete && !this.resultsComplete;
+    this.resultsComplete = complete;
     const theme = mapTheme();
     if (online && !this.online) el("map-error").hidden = true;
     this.online = online;
@@ -242,7 +252,18 @@ export class RouteMap {
     el("map-route").title = label;
     const coordinates = this.routeCoordinates();
     const bounds = coordinates.length ? L.latLngBounds(coordinates) : undefined;
-    if (bounds && (!this.envelope || !this.envelope.contains(bounds))) {
+    if (
+      bounds &&
+      complete &&
+      !this.manualCamera &&
+      (finished || !this.envelope?.equals(bounds))
+    ) {
+      // Optimization can discard detours. Finish with the current routes,
+      // using the same bounds as the route-fit button, unless the user moved.
+      this.envelope = bounds;
+      this.overviewArea = undefined;
+      this.fitPending = true;
+    } else if (bounds && (!this.envelope || !this.envelope.contains(bounds))) {
       this.envelope = this.envelope ? this.envelope.extend(bounds) : bounds;
       this.fitPending = true;
     }
@@ -330,7 +351,7 @@ export class RouteMap {
       }
       this.selectedPaths.forEach((path) => path.bringToFront());
     }
-    this.resize();
+    this.scheduleResize();
   }
   private hitRoute(point: L.Point, radius: number) {
     return routeHitTest(
@@ -492,7 +513,16 @@ export class RouteMap {
       });
     }
   }
+  private scheduleResize() {
+    if (this.resizeFrame !== undefined) return;
+    // Result rendering can still move status messages out of the map panel.
+    this.resizeFrame = requestAnimationFrame(() => this.resize());
+  }
   resize() {
+    if (this.resizeFrame !== undefined) {
+      cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = undefined;
+    }
     if (!this.map || el("map-view").hidden || el("map").inert) return;
     // Reserve room above the mobile panel for the currently visible controls.
     const controlsSpace = `${Math.ceil(el("map-controls").getBoundingClientRect().height) + 22}px`;
@@ -538,13 +568,22 @@ export class RouteMap {
       safe,
       bounds.bottom - panelBounds.bottom,
     ]);
-    let changed = layout !== this.layoutKey;
-    const height = panelBounds.height;
-    if (changed) this.reservedPanelHeight = height;
-
+    const changed = layout !== this.layoutKey;
+    const panelLayout = JSON.stringify([
+      this.hasSidePanel()
+        ? panelBounds.right - bounds.left
+        : panelBounds.top - bounds.top,
+    ]);
+    // Refit after result/status reflow, while comparing existing alternatives
+    // preserves the shared camera even when their summaries differ in height.
+    const panelChanged =
+      panelLayout !== this.panelLayoutKey &&
+      (this.fitPending || this.selected?.id === this.layoutSelection);
     this.layoutKey = layout;
-    if (!this.manualCamera && (this.fitPending || changed)) {
-      if (changed) this.overviewArea = undefined;
+    this.panelLayoutKey = panelLayout;
+    this.layoutSelection = this.selected?.id;
+    if (!this.manualCamera && (this.fitPending || changed || panelChanged)) {
+      if (changed || panelChanged) this.overviewArea = undefined;
       this.fitOverview();
     }
   }
@@ -618,28 +657,13 @@ export class RouteMap {
     const creditHeight = document
       .querySelector<HTMLElement>(".map-credit")!
       .getBoundingClientRect().height;
-    if (explicit) {
-      const vertical = Math.min(
-        Math.max(30, creditHeight + 8),
-        (visibleHeight - 1) / 2,
-      );
-      this.setOverviewBounds(coordinates, {
-        paddingTopLeft: [left, safe.top + vertical],
-        paddingBottomRight: [right, bounds.height - bottom + vertical],
-        maxZoom: 15,
-        animate: false,
-      });
-      return;
-    }
+    const vertical = Math.min(
+      Math.max(30, creditHeight + 8),
+      (visibleHeight - 1) / 2,
+    );
     this.setOverviewBounds(coordinates, {
-      paddingTopLeft: [left, safe.top + 35],
-      paddingBottomRight: sidebar
-        ? [right, safe.bottom + Math.max(40, creditHeight + 8)]
-        : [
-            right,
-            Math.max(panel.height, this.reservedPanelHeight, height - bottom) +
-              Math.max(45, creditHeight + 8),
-          ],
+      paddingTopLeft: [left, safe.top + vertical],
+      paddingBottomRight: [right, height - bottom + vertical],
       maxZoom: 15,
       animate: false,
     });

@@ -6,7 +6,9 @@ import {
   expectMotionSettled,
   openSelectedDetails,
   showMap,
+  showConnections,
 } from "./assertions";
+import { expectRouteFitUnchanged } from "./planner-fixture";
 
 // Keep the real application/session/view and control only the planner stream.
 // The stream deliberately allows a late response after its signal is aborted.
@@ -40,7 +42,12 @@ async function open(page: Page, clock = false) {
         "    if (event.retryAt) client.retryAt = event.retryAt;",
         "    const journeys = (event.ids ?? []).map((id, index) => ({",
         "      ...structuredClone(exampleRecording.journey), id,",
-        "      arrival: exampleRecording.journey.arrival + index * 60",
+        "      arrival: exampleRecording.journey.arrival + index * 60,",
+        "      legs: exampleRecording.journey.legs.map((leg, legIndex) => ({ ...leg,",
+        "        coordinates: event.detourIds?.includes(id) && legIndex === 0",
+        "          ? [...leg.coordinates, { latitude: exampleRecording.journey.origin.latitude - 0.3, longitude: exampleRecording.journey.origin.longitude }]",
+        "          : leg.coordinates",
+        "      }))",
         "    }));",
         '    yield { issues: [], incompletePhases: [], status: "searching", ...event, journeys };',
         '    if (event.status === "complete" || event.status === "partial") return;',
@@ -67,6 +74,7 @@ async function publish(
   event: {
     phase: string;
     ids?: string[];
+    detourIds?: string[];
     status?: string;
     incompletePhases?: string[];
     issues?: string[];
@@ -79,6 +87,274 @@ async function publish(
     event,
   );
 }
+
+for (const status of ["searching", "complete"] as const) {
+  test(`mobile results skip visual readiness when search is ${status}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, true);
+    await page.evaluate(() => {
+      (window as any).toastStages = [];
+      new MutationObserver((records) => {
+        for (const record of records)
+          if (record.attributeName === "data-planning-stage")
+            (window as any).toastStages.push(record.oldValue);
+      }).observe(document.getElementById("toast")!, {
+        attributes: true,
+        attributeOldValue: true,
+      });
+    });
+    await publish(page, { phase: "base", ids: ["first"], status });
+    const toast = page.locator("#toast");
+    await expect(page.locator("#map-preview-summary")).toBeVisible();
+    if (status === "complete") await expect(toast).toBeHidden();
+    else
+      await expect(toast).toHaveAttribute("data-planning-stage", "optimizing");
+    await expect(toast.locator(".toast-countdown")).toHaveCount(0);
+    await expect(page.locator("#planning-announcement")).toHaveText(
+      "Verbindungen gefunden",
+    );
+    expect(
+      await page.evaluate(() => (window as any).toastStages),
+    ).not.toContain("ready");
+    await showConnections(page);
+    await openSelectedDetails(page);
+    await showMap(page);
+    await page.setViewportSize({ width: 1280, height: 844 });
+    if (status === "complete") await expect(toast).toBeHidden();
+    else
+      await expect(toast).toHaveAttribute("data-planning-stage", "optimizing");
+  });
+}
+
+for (const [width, height, fontSize] of [
+  [320, 844, 16],
+  [390, 844, 16],
+  [844, 390, 16],
+  [320, 568, 32],
+]) {
+  test(`mobile map toasts stay above the route panel at ${width}x${height} with ${fontSize}px text`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "share", {
+        configurable: true,
+        value: undefined,
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async () => {} },
+      });
+    });
+    await open(page, true);
+    await page.evaluate((fontSize) => {
+      const style = document.documentElement.style;
+      style.fontSize = `${fontSize}px`;
+      for (const edge of ["top", "left", "right", "bottom"])
+        style.setProperty(`--safe-${edge}`, edge === "top" ? "24px" : "8px");
+    }, fontSize);
+    await publish(page, { phase: "bike-transfers", ids: ["first"] });
+    const toast = page.locator("#toast");
+    await expect(toast).toHaveText("Optimierung läuft …");
+    await expectFeedbackPosition(page, width);
+    await expect(page.locator("#map-error")).toBeVisible();
+    const panel = page.locator("#journey-panel");
+    const panelHeight = (await panel.boundingBox())!.height;
+    await publish(page, {
+      phase: "bike-transfers",
+      ids: ["first"],
+      status: "complete",
+    });
+    await expect(toast).toBeHidden();
+    await expect
+      .poll(async () => (await panel.boundingBox())!.height)
+      .toBe(panelHeight);
+    await page.locator("#route-more").click();
+    await page.locator("#share-plan").click();
+    await expect(toast).toHaveText("Planungslink kopiert.");
+    await expectFeedbackPosition(page, width);
+    expect((await panel.boundingBox())!.height).toBe(panelHeight);
+    await expect(toast.locator(".toast-countdown")).toHaveCount(1);
+    await page.screenshot({ path: info.outputPath("map-toast-top.png") });
+    await page.clock.fastForward(6001);
+    await expect(toast).toBeHidden();
+  });
+}
+
+test("map error toast follows the offline banner and keeps retry reachable with large text", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await open(page, true);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "24px";
+    document.documentElement.style.setProperty("--safe-top", "24px");
+  });
+  await publish(page, {
+    phase: "walking",
+    ids: ["first"],
+    status: "partial",
+    incompletePhases: ["walking"],
+    issues: ["Der Dienst hat nicht rechtzeitig geantwortet."],
+  });
+  await expect(page.locator("#toast")).toHaveAttribute(
+    "data-planning-stage",
+    "error",
+  );
+  await expectFeedbackPosition(page, 390);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      get: () => false,
+    });
+    window.dispatchEvent(new Event("offline"));
+  });
+  await expect(page.locator("#connection")).toBeVisible();
+  await expectFeedbackPosition(page, 390);
+  const banner = (await page.locator("#connection").boundingBox())!;
+  const toast = (await page.locator("#toast").boundingBox())!;
+  expect(toast.y).toBeGreaterThanOrEqual(banner.y + banner.height + 12);
+  await expect(page.locator("#toast #recover-planning")).toBeDisabled();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      get: () => true,
+    });
+    window.dispatchEvent(new Event("online"));
+  });
+  await expect(page.locator("#connection")).toBeHidden();
+  await expectFeedbackPosition(page, 390);
+  await page.locator("#toast #recover-planning").click();
+  await expect(page.locator("#toast")).toHaveAttribute(
+    "data-planning-stage",
+    "optimizing",
+  );
+});
+
+test("finished optimization drops discarded detours before the route-fit button is clicked", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 425, height: 812 });
+  await open(page);
+  await publish(page, {
+    phase: "bike-transfers",
+    ids: ["first", "detour"],
+    detourIds: ["detour"],
+  });
+  await expect(page.locator("#toast")).toHaveAttribute(
+    "data-planning-stage",
+    "optimizing",
+  );
+  await expectRouteFitUnchanged(page);
+  await publish(page, {
+    phase: "bike-transfers",
+    ids: ["first"],
+    status: "complete",
+  });
+  await expect(page.locator("#toast")).toBeHidden();
+  await expectRouteFitUnchanged(page);
+});
+
+test("first current link result opens the map once and preserves explicit choices during optimization", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "list",
+  );
+  await publish(page, {
+    phase: "bike-transfers",
+    ids: ["first", "alternative"],
+  });
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  await expect(page.locator("#map-preview-summary")).toBeVisible();
+  await showConnections(page);
+  await page.locator('[data-journey="alternative"]').click();
+  await publish(page, {
+    phase: "bike-transfers",
+    ids: ["improved", "first", "alternative"],
+  });
+  await expect(page.locator('[data-journey="improved"]')).toBeAttached();
+  await expect(page.locator("#choices")).toBeVisible();
+  await expect(page.locator('[data-journey="alternative"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await openSelectedDetails(page);
+  await publish(page, {
+    phase: "bike-transfers",
+    ids: ["improved", "first", "alternative"],
+    status: "complete",
+  });
+  await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+  await expect(page.locator("#panel-details")).toBeVisible();
+  await expect(page.locator('[data-journey="alternative"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
+test("refresh opens the map only for current results and respects navigation while waiting", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  await publish(page, { phase: "base", ids: ["original"], status: "complete" });
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  const refresh = async (run: number) => {
+    await page.locator("#route-more").click();
+    await page.locator("#refresh-route").click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).searchControlRuns))
+      .toBe(run);
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      "list",
+    );
+    await expect(page.locator("#stale-notice")).toBeVisible();
+  };
+  await refresh(2);
+  await publish(page, { phase: "base", ids: ["fresh"], status: "complete" });
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  await expect(page.locator('[data-journey="fresh"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await refresh(3);
+  await publish(page, { phase: "base", error: "Verbindung fehlgeschlagen" });
+  await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "list",
+  );
+  await expect(page.locator("#stale-notice")).toBeVisible();
+  await page.locator("#recover-planning").click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).searchControlRuns))
+    .toBe(4);
+  await openSelectedDetails(page);
+  await publish(page, { phase: "base", ids: ["latest"], status: "complete" });
+  await expect(page.locator('[data-journey="latest"]')).toBeAttached();
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "detail",
+  );
+});
 
 async function expectFeedbackPosition(page: Page, width: number) {
   await expectMotionSettled(page.locator("#toast"));
@@ -106,7 +382,13 @@ async function expectFeedbackPosition(page: Page, width: number) {
         top: toast.top,
         bottom: toast.bottom,
         panelRight: panel.right,
+        panelTop: panel.top,
         controlsLeft: controls.left,
+        controlsTop: controls.top,
+        sidePanel:
+          getComputedStyle(map)
+            .getPropertyValue("--map-panel-layout")
+            .trim() === "side",
         mapTop: map.getBoundingClientRect().top,
         inline: feedback.parentElement?.id === "planning-feedback-slot",
         inlineParent: feedback.parentElement?.parentElement?.id,
@@ -116,16 +398,29 @@ async function expectFeedbackPosition(page: Page, width: number) {
         viewport: innerWidth,
       };
     });
-    if (width >= 900) {
+    if (width >= 900 || geometry.screen === "map") {
       expect(geometry.inline).toBe(false);
       expect(geometry.position).toBe("fixed");
-      expect(geometry.left).toBeGreaterThanOrEqual(geometry.panelRight + 11);
-      expect(geometry.right).toBeLessThanOrEqual(geometry.controlsLeft - 11);
-      expect((geometry.left + geometry.right) / 2).toBeCloseTo(
-        (geometry.panelRight + geometry.controlsLeft) / 2,
-        0,
+      expect(geometry.left).toBeGreaterThanOrEqual(
+        width >= 900 || geometry.sidePanel ? geometry.panelRight + 11 : 15,
       );
-      expect(geometry.top).toBeGreaterThanOrEqual(geometry.mapTop + 11);
+      expect(geometry.right).toBeLessThanOrEqual(geometry.controlsLeft - 11);
+      if (width >= 900) {
+        expect((geometry.left + geometry.right) / 2).toBeCloseTo(
+          (geometry.panelRight + geometry.controlsLeft) / 2,
+          0,
+        );
+        expect(geometry.top).toBeGreaterThanOrEqual(geometry.mapTop + 11);
+      } else {
+        expect((geometry.left + geometry.right) / 2).toBeCloseTo(
+          ((geometry.sidePanel ? geometry.panelRight : 0) + geometry.viewport) /
+            2,
+          0,
+        );
+        expect(geometry.top).toBeCloseTo(geometry.controlsTop, 0);
+        if (!geometry.sidePanel)
+          expect(geometry.bottom).toBeLessThanOrEqual(geometry.panelTop - 11);
+      }
     } else {
       expect(geometry.inline).toBe(true);
       expect(geometry.position).toBe("relative");
@@ -263,13 +558,20 @@ for (const width of [320, 390, 1280])
       await expect(page.locator("#status")).toBeHidden();
       await expect(page.locator("#planning-ready")).toHaveCount(0);
       await publish(page, { phase: "base", ids: ["first", "chosen"] });
-      await expect(toast).toHaveText("Verbindungen gefunden");
-      await expect(toast).toHaveAttribute("data-planning-stage", "ready");
+      await expect(toast).toHaveText(
+        width < 900 ? "Optimierung läuft …" : "Verbindungen gefunden",
+      );
+      await expect(toast).toHaveAttribute(
+        "data-planning-stage",
+        width < 900 ? "optimizing" : "ready",
+      );
       const countdown = toast.locator(".toast-countdown");
-      if (width === 320) await expect(countdown).toBeHidden();
+      if (width < 900) await expect(countdown).toHaveCount(0);
       else await expect(countdown).toBeVisible();
       await expectFeedbackPosition(page, width);
-      await expect(page.locator("#toast .icon")).toHaveCount(1);
+      await expect(page.locator("#toast .icon")).toHaveCount(
+        width < 900 ? 0 : 1,
+      );
       await expect(page.locator("#status")).toBeEmpty();
       await expect(page.locator("#journey-panel")).not.toHaveClass(
         /is-loading/,
@@ -278,6 +580,7 @@ for (const width of [320, 390, 1280])
       await page.screenshot({
         path: info.outputPath("search-results-feedback.png"),
       });
+      await showConnections(page);
       await page.locator('.route-choice[data-journey="chosen"]').click();
       await openSelectedDetails(page);
       await expect(page.locator("#panel-details")).toContainText("S8");
@@ -297,7 +600,10 @@ for (const width of [320, 390, 1280])
       await control.focus();
       for (const phase of ["bike-transfers", "walking", "via"]) {
         await publish(page, { phase, ids: ["optimized"] });
-        await expect(toast).toHaveAttribute("data-planning-stage", "ready");
+        await expect(toast).toHaveAttribute(
+          "data-planning-stage",
+          width < 900 ? "optimizing" : "ready",
+        );
         await expect(control).toBeFocused();
         await expect(
           page.locator('.route-choice[aria-pressed="true"]'),
@@ -308,7 +614,7 @@ for (const width of [320, 390, 1280])
       await expectFeedbackPosition(page, width);
       expect(await page.evaluate(() => (window as any).toastMutations)).toBe(0);
       await expect(page.locator("#toast .planning-toast-spinner")).toHaveCount(
-        0,
+        width < 900 ? 1 : 0,
       );
       expect(
         await page.evaluate(
@@ -366,7 +672,7 @@ for (const [width, colorScheme] of [
   [320, "light"],
   [1280, "dark"],
 ] as const)
-  test(`countdown shrinks across both toast durations at ${width}px in ${colorScheme}`, async ({
+  test(`toast countdown preserves duration and motion preference at ${width}px in ${colorScheme}`, async ({
     page,
   }, info) => {
     await page.setViewportSize({ width, height: 844 });
@@ -387,29 +693,33 @@ for (const [width, colorScheme] of [
       await page.addStyleTag({ content: "html { font-size: 24px; }" });
     await publish(page, { phase: "base", ids: ["first"] });
     const toast = page.locator("#toast");
-    await expect(toast).toHaveAttribute("data-planning-stage", "ready");
-    await page.clock.runFor(350);
-    await expectMotionSettled(toast);
-    const original = await toast.locator(".toast-countdown").elementHandle();
-    await expectCountdownAt(page, 3000, 0);
-    await expectCountdownAt(page, 3000, 0.5);
-    await publish(page, { phase: "walking", ids: ["first"] });
-    expect(await original!.evaluate((element) => element.isConnected)).toBe(
-      true,
-    );
-    expect(
-      await toast
-        .locator(".toast-countdown-fill")
-        .evaluate((fill) => fill.getAnimations()[0].currentTime),
-    ).toBe(1500);
-    await page.screenshot({ path: info.outputPath("readiness-countdown.png") });
-    await expectCountdownAt(page, 3000, 1);
-    await page.clock.fastForward(2650);
+    if (width >= 900) {
+      await expect(toast).toHaveAttribute("data-planning-stage", "ready");
+      await page.clock.runFor(350);
+      await expectMotionSettled(toast);
+      const original = await toast.locator(".toast-countdown").elementHandle();
+      await expectCountdownAt(page, 3000, 0);
+      await expectCountdownAt(page, 3000, 0.5);
+      await publish(page, { phase: "walking", ids: ["first"] });
+      expect(await original!.evaluate((element) => element.isConnected)).toBe(
+        true,
+      );
+      expect(
+        await toast
+          .locator(".toast-countdown-fill")
+          .evaluate((fill) => fill.getAnimations()[0].currentTime),
+      ).toBe(1500);
+      await page.screenshot({
+        path: info.outputPath("readiness-countdown.png"),
+      });
+      await expectCountdownAt(page, 3000, 1);
+      await page.clock.fastForward(2650);
+      expect(await original!.evaluate((element) => element.isConnected)).toBe(
+        false,
+      );
+    }
     await expect(toast).toHaveAttribute("data-planning-stage", "optimizing");
     await expect(toast.locator(".toast-countdown")).toHaveCount(0);
-    expect(await original!.evaluate((element) => element.isConnected)).toBe(
-      false,
-    );
 
     await page.locator("#route-more").click();
     await page.clock.runFor(350);
@@ -497,7 +807,7 @@ for (const status of ["searching", "complete"])
     await expect(toast.locator(".toast-countdown")).toHaveCount(0);
   });
 
-test("searching persists then readiness expires once without shifting the header", async ({
+test("mobile search switches directly to optimization without shifting the list header", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -511,8 +821,10 @@ test("searching persists then readiness expires once without shifting the header
   await publish(page, { phase: "base", ids: ["first"] });
   await expect(page.locator("#toast")).toHaveAttribute(
     "data-planning-stage",
-    "ready",
+    "optimizing",
   );
+  await showConnections(page);
+  await expectFeedbackPosition(page, 390);
   const header = await page.locator("#result-header").boundingBox();
   await page.clock.fastForward(3100);
   await expect(page.locator("#toast")).toHaveAttribute(
@@ -618,7 +930,7 @@ test("user messages take priority over searching and readiness toasts", async ({
   await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
 });
 
-test("partial optimization shows inline retry and honors the pause in map", async ({
+test("partial optimization keeps retry reachable across map and details during a server pause", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -635,7 +947,7 @@ test("partial optimization shows inline retry and honors the pause in map", asyn
   await expect(page.locator("#map-preview-status")).toBeHidden();
   await expect(page.locator("#toast")).toHaveAttribute(
     "data-planning-stage",
-    "ready",
+    "optimizing",
   );
   await publish(page, {
     phase: "walking",
@@ -764,6 +1076,7 @@ for (const width of [390, 1280])
       incompletePhases: ["walking"],
       issues: ["Zeitlimit erreicht"],
     });
+    await showConnections(page);
     await page.locator('.route-choice[data-journey="chosen"]').click();
     await openSelectedDetails(page);
     const position = await page.evaluate(() => {

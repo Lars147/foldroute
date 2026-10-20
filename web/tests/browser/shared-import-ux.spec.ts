@@ -1,5 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
-import { expectPlanningComplete, openSettingsSection } from "./assertions";
+import {
+  expectPlanningComplete,
+  openSettingsSection,
+  openSelectedDetails,
+} from "./assertions";
 import { defaults } from "../../src/model";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 
@@ -135,6 +139,7 @@ test("sharing does not silently replace saved navigation and can be deferred", a
     encodeURIComponent("https://maps.apple.com/?q=Sweet%20Spot&ll=48.175,11.6");
   await page.goto(directShare);
   await expectPlanningComplete(page);
+  await openSelectedDetails(page);
   await page.locator("#navigation-start").click();
   await expect(page.locator("#navigation-view")).toBeVisible();
   await expect

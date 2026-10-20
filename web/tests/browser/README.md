@@ -11,6 +11,10 @@ they never share pages, IndexedDB, localStorage, or mutable application state.
 - `planner-history-ux.spec.ts`: saved routes, history, offline snapshots, and storage failures.
 - `planner-fixture.ts`: deterministic API responses, location timestamps, and shared actions.
 
+Fresh mobile calculations open the map at the first current result. `plan` keeps
+that default entry visible. Tests that exercise the list use `showConnections`
+explicitly; tests that need the itinerary use `openSelectedDetails`.
+
 `openApp` installs routing preferences before the first app load, then disposes
 the initialization script. Reload and deletion tests therefore read the actual
 stored preferences, including an intentionally missing preference key.

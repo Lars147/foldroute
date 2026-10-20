@@ -3,6 +3,7 @@ import {
   openSettingsSection,
   openSelectedDetails,
   showMap,
+  showConnections,
   expectPlanningComplete,
   expectSelectedJourneySaved,
   expectMotionSettled,
@@ -109,6 +110,7 @@ test("a fresh risky connection stays startable until checking confirms a cancell
   );
   await choose(page, "destination", "Ziel");
   await expectPlanningComplete(page);
+  await showConnections(page);
   await page.locator(".route-choice").filter({ hasText: "U6" }).first().click();
   const start = page.locator("#navigation-start");
   await expect(start).toBeEnabled();
@@ -188,6 +190,7 @@ for (const width of [390, 1280])
     await page.locator("#save-settings").click();
     await choose(page, "destination", "Ziel");
     await expectPlanningComplete(page);
+    await showConnections(page);
     const choices = page.locator(".route-choice");
     const ids = await choices.evaluateAll((buttons) =>
       buttons.map((button) => (button as HTMLElement).dataset.journey),
@@ -308,6 +311,7 @@ test("closing the route cancels optimization and ignores delayed responses", asy
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("32 min");
+  await showConnections(page);
   await expect(page.locator("#adjust-route")).toBeEnabled();
   await expect(page.locator("#navigation-start")).toBeVisible();
   await expect(page.locator("#navigation-start")).toBeEnabled();
@@ -360,6 +364,7 @@ for (const width of [390, 1280]) {
       "data-search-status",
       "searching",
     );
+    await openSelectedDetails(page);
     await expect(page.locator("#navigation-start")).toBeEnabled();
     await expect.poll(() => requested).toBeGreaterThan(0);
     await page.locator("#navigation-start").click();
@@ -947,6 +952,7 @@ test("three regular routes keep their places and comparison is an optional fourt
   await choose(page, "destination", "Ziel");
   await expectPlanningComplete(page);
   await expect(page.locator(".route-choice")).toHaveCount(4);
+  await showConnections(page);
   await expect(page.locator(".route-choice").last()).toHaveAccessibleName(
     /Fahrradvergleich:/,
   );
@@ -1025,6 +1031,7 @@ for (const width of [320, 390, 430, 1479]) {
     await setup(page);
     await page.setViewportSize({ width, height: 844 });
     await plan(page);
+    await showConnections(page);
     await expect(page.locator(".route-choice").first()).toBeInViewport({
       ratio: 1,
     });
@@ -1046,7 +1053,7 @@ for (const width of [320, 390, 430, 1479]) {
 }
 
 for (const outcome of ["complete", "cancel", "error"] as const) {
-  test(`route status distinguishes readiness from ${outcome} and respects reduced motion`, async ({
+  test(`route status distinguishes optimization from ${outcome} and respects reduced motion`, async ({
     page,
   }) => {
     await setup(page);
@@ -1070,11 +1077,12 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
     });
     await choose(page, "destination", "Ziel");
     if (outcome !== "error")
-      await expect(page.locator("#toast")).toHaveText("Verbindungen gefunden");
+      await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
     else
       await expect(page.locator("#status")).toHaveText(
         "Verbindungen werden gesucht …",
       );
+    if (outcome !== "error") await showConnections(page);
     const animation = () =>
       page.locator("#toast").evaluate((e) => {
         const spinner = e.querySelector(".planning-toast-spinner");
@@ -1082,24 +1090,16 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
           ? getComputedStyle(spinner).animationName
           : "none";
       });
-    await expect
-      .poll(animation)
-      .toBe(outcome === "error" ? "route-loading" : "none");
+    await expect.poll(animation).toBe("route-loading");
     await expect(page.locator("#toast")).toHaveAttribute("role", "status");
-    await expect
-      .poll(animation)
-      .toBe(outcome === "error" ? "route-loading" : "none");
+    await expect.poll(animation).toBe("route-loading");
     await expect(page.locator("#toast")).toBeVisible();
     await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect.poll(animation).toBe("none");
-    await expect(page.locator("#toast .planning-toast-spinner")).toHaveCount(
-      outcome === "error" ? 1 : 0,
-    );
+    await expect(page.locator("#toast .planning-toast-spinner")).toHaveCount(1);
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect
-      .poll(animation)
-      .toBe(outcome === "error" ? "route-loading" : "none");
+    await expect.poll(animation).toBe("route-loading");
     if (outcome === "cancel") await page.locator("#close-route").click();
     release();
     await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
@@ -1138,6 +1138,11 @@ test("ready results keep scroll geometry stable while alternatives load", async 
     "data-search-status",
     "searching",
   );
+  // Measure the persistent state, away from the readiness toast's expiration.
+  await expect(page.locator("#toast")).toHaveAttribute(
+    "data-planning-stage",
+    "optimizing",
+  );
   for (const [width, height, fontSize] of [
     [390, 844, 16],
     [515, 600, 16],
@@ -1148,7 +1153,8 @@ test("ready results keep scroll geometry stable while alternatives load", async 
       document.documentElement.style.fontSize = size + "px";
     }, fontSize);
     for (const screen of ["list", "detail"]) {
-      if (screen === "detail") await openSelectedDetails(page);
+      if (screen === "list") await showConnections(page);
+      else await openSelectedDetails(page);
       await expectMotionSettled(page.locator("#panel-details"));
       await expectMotionSettled(page.locator("#choices"));
       await expectMotionSettled(page.locator("#panel-content"));
@@ -1395,6 +1401,7 @@ test("successful save retry clears its error without a success message", async (
   await page.evaluate(() => {
     (window as any).failJourneySave = false;
   });
+  await showConnections(page);
   await page.locator("#close-route").click();
   await plan(page);
   await expectSelectedJourneySaved(page);
