@@ -1187,11 +1187,11 @@ fieldset:after {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   clear: both;
-  gap: 4px;
-  padding: 4px;
-  background: var(--paper);
-  border: 1px solid var(--muted);
-  border-radius: 14px;
+  gap: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--panel-line);
+  border-radius: 20px;
 }
 .appearance-segments label {
   position: relative;
@@ -1216,7 +1216,8 @@ fieldset:after {
   min-height: 44px;
   padding: 8px 4px;
   border: 2px solid transparent;
-  border-radius: 9px;
+  border-radius: 19px;
+  color: var(--muted);
   overflow-wrap: anywhere;
   font-size: 1rem;
 }
@@ -1229,7 +1230,7 @@ fieldset:after {
   display: none;
   position: absolute;
   z-index: 2;
-  border-radius: 9px;
+  border-radius: 19px;
   overflow: hidden;
   color: var(--color-on-brand);
   background: var(--color-brand);
@@ -1251,7 +1252,7 @@ fieldset:after {
 }
 .appearance-segments[data-motion="ready"] input:checked + span {
   background: transparent;
-  color: inherit;
+  color: var(--muted);
 }
 .appearance-segments input:focus-visible + span,
 .appearance-segments[data-keyboard-focus] input:focus + span,

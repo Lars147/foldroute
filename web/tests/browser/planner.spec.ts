@@ -564,10 +564,54 @@ test("focused dialog fields stay inside the scroll area when the keyboard opens"
   await expect(page.locator("#adjust-route")).toBeFocused();
 });
 
-test("help opens direct topics and fits narrow screens with enlarged text", async ({
+test("help starts collapsed and opens topics through links and browser history", async ({
   page,
-}) => {
-  await page.goto("/hilfe.html#standort-freigabe");
+}, info) => {
+  await page.goto("/hilfe.html");
+  await expect(page.locator("details[open]")).toHaveCount(0);
+  for (const colorScheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [320, 390, 1660]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({
+        path: info.outputPath(`help-overview-${colorScheme}-${width}.png`),
+        fullPage: true,
+      });
+    }
+  }
+  await page.goto("/hilfe.html#navigation");
+  await expect(page.locator("#navigation-start")).toHaveAttribute("open", "");
+  await expect(page.locator("#navigation-start summary")).toBeInViewport();
+  const locationLink = page.getByRole("link", {
+    name: "Standortfreigabe",
+    exact: true,
+  });
+  await locationLink.click();
+  await expect(page).toHaveURL(/hilfe\.html#standort$/);
+  const locationAnswer = page.locator("#standort-freigabe");
+  await expect(locationAnswer).toHaveAttribute("open", "");
+  await expect(locationAnswer.locator("summary")).toBeInViewport();
+  await locationAnswer.locator("summary").click();
+  await expect(locationAnswer).not.toHaveAttribute("open", "");
+  await page.goBack();
+  await expect(page).toHaveURL(/hilfe\.html#navigation$/);
+  await expect(page.locator("#navigation-start")).toHaveAttribute("open", "");
+  await expect(page.locator("#navigation-start summary")).toBeInViewport();
+  await page.goForward();
+  await expect(page).toHaveURL(/hilfe\.html#standort$/);
+  await expect(locationAnswer).toHaveAttribute("open", "");
+  await expect(locationAnswer.locator("summary")).toBeInViewport();
+  await locationAnswer.locator("summary").click();
+  await locationLink.click();
+  await expect(page).toHaveURL(/hilfe\.html#standort$/);
+  await expect(locationAnswer).toHaveAttribute("open", "");
+  await expect(locationAnswer.locator("summary")).toBeInViewport();
+});
+
+test("help opens legacy topics and fits narrow screens with enlarged text", async ({
+  page,
+}, info) => {
+  await page.goto("/hilfe.html#standort-verfuegbar");
   await expect(page.locator("#standort-freigabe")).toHaveAttribute("open", "");
   await expect(page.locator("#standort-freigabe summary")).toBeInViewport();
   await page.locator("#standort-freigabe summary").focus();
@@ -576,7 +620,10 @@ test("help opens direct topics and fits narrow screens with enlarged text", asyn
     "open",
     "",
   );
-  await page.addStyleTag({ content: "html { font-size: 24px; }" });
+  await page.locator("details").evaluateAll((answers) => {
+    for (const answer of answers) answer.setAttribute("open", "");
+  });
+  await page.addStyleTag({ content: "html { font-size: 32px; }" });
   for (const colorScheme of ["dark", "light"] as const) {
     await page.emulateMedia({ colorScheme });
     for (const width of [320, 390, 1660]) {
@@ -586,6 +633,9 @@ test("help opens direct topics and fits narrow screens with enlarged text", asyn
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       ).toBe(true);
+      await page.locator(".help-header").screenshot({
+        path: info.outputPath(`help-header-${colorScheme}-${width}-200.png`),
+      });
     }
   }
 });

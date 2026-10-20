@@ -1,52 +1,210 @@
 <!doctype html>
 <html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f5f6f3">
-  <title>Lizenzen &amp; Datenquellen · FoldRoute</title>
-  <link rel="stylesheet" href="theme.css">
-
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f6f3" />
+    <title>Lizenzen &amp; Datenquellen · FoldRoute</title>
+    <meta
+      name="description"
+      content="Datenquellen und vollständige Lizenzhinweise für FoldRoute, Kartenbibliotheken und Icons."
+    />
+    <link rel="stylesheet" href="theme.css" />
     <script src="appearance.js"></script>
     <style>
-    :root {  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; color: var(--color-text); background: var(--color-canvas); }
-    * { box-sizing: border-box; }
-    body { margin: 0; }
-    main { max-width: 860px; margin: auto; padding: 36px 24px 72px; overflow-wrap: anywhere; }
-    nav { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-bottom: 56px; }
-    a { color: inherit; text-underline-offset: 4px; overflow-wrap: anywhere; }
-    a:hover { text-decoration-thickness: 2px; }
-    :focus-visible { outline: 3px solid var(--color-selection-indicator); outline-offset: 5px; }
-    .kicker { font-size: .8rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-    h1 { font-size: clamp(2rem, 7vw, 3.8rem); line-height: 1.05; letter-spacing: -.04em; margin: 16px 0 24px; overflow-wrap: anywhere; }
-    h2 { margin: 40px 0 18px; font-size: 1.5rem; }
-    p { line-height: 1.65; }
-    li { line-height: 1.65; margin-block: 8px; }
-    .intro { font-size: 1.15rem; }
-    .sources { background: var(--color-subtle); border-radius: 20px; padding: 4px 24px 20px; }
-    details { border-bottom: 1px solid var(--color-divider); padding: 20px 0; }
-    summary { cursor: pointer; font-size: 1.1rem; font-weight: 650; line-height: 1.5; }
-    pre { white-space: pre-wrap; overflow-wrap: anywhere; font: .9rem/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
-    footer { margin-top: 36px; font-size: .9rem; }
-  </style>
-</head>
-<body>
-<main>
-  <nav aria-label="Zurück zu FoldRoute"><a href="./">Zum Webplaner</a><a href="../">Zur Projektseite</a><a href="hilfe.html">Hilfe &amp; FAQ</a></nav>
-  <p class="kicker">FoldRoute</p>
-  <h1>Lizenzen &amp; Datenquellen</h1>
-  <p class="intro">FoldRoute baut auf offenem Code und offenen Daten auf. Hier findest du die Quellen und die zugehörigen Lizenzhinweise.</p>
-  <section class="sources" aria-labelledby="sources-heading">
-    <h2 id="sources-heading">Karten und Routen</h2>
-    <p><a href="https://transitous.org/sources/">Transitous und Fahrplandaten</a>: Routen und Fahrpläne für iPhone-App und Webplaner. Für die einzelnen Datenquellen gelten die dort aufgeführten Bedingungen.</p>
-    <p><a href="https://openfreemap.org/">OpenFreeMap</a> liefert die hellen und dunklen Basiskarten einschließlich Kartenschriften. <a href="https://openmaptiles.org/">© OpenMapTiles</a>; Daten von OpenStreetMap.</p>
-    <p><a href="https://www.openstreetmap.org/copyright">© OpenStreetMap-Mitwirkende</a>: Kartendaten im Webplaner und Grundlage der Routenberechnung über Transitous in beiden Anwendungen. Die Daten stehen unter der Open Database License (ODbL).</p>
-    <p>Die iPhone-App zeigt Karten mit Apple MapKit. Die zugehörigen Kartenhinweise findest du direkt in der Kartenansicht.</p>
-  </section>
-  <section aria-labelledby="licenses-heading">
-    <h2 id="licenses-heading">Software und Icons</h2>
-    <p>Die MIT-Lizenz von FoldRoute gilt für den eigenen Programmcode. Eingebundene Komponenten und Daten behalten ihre jeweiligen Lizenzbedingungen.</p>
-<details id="foldroute"><summary>FoldRoute · MIT</summary><p>Eigener Programmcode der iPhone-App, des Webplaners und der Landingpage.</p><p><a href="foldroute-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>MIT License
+      :root {
+        font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+        color: var(--color-text);
+        background: var(--color-canvas);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: calc(65ch + 48px);
+        margin: auto;
+        padding: 24px 24px 56px;
+        overflow-wrap: anywhere;
+      }
+      a {
+        color: inherit;
+        text-underline-offset: 4px;
+      }
+      a:hover {
+        text-decoration-thickness: 2px;
+      }
+      :focus-visible {
+        outline: 3px solid var(--color-selection-indicator);
+        outline-offset: 4px;
+      }
+      .back-link,
+      footer a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+      }
+      .back-link {
+        font-size: 0.9375rem;
+        font-weight: 400;
+      }
+      .page-header {
+        display: grid;
+        gap: 12px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 5vw, 2.75rem);
+        line-height: 1.15;
+        letter-spacing: -0.03em;
+        text-wrap: balance;
+      }
+      section {
+        margin-top: 28px;
+      }
+      .page-header + section {
+        margin-top: 24px;
+      }
+      h2 {
+        margin: 0 0 4px;
+        color: var(--color-secondary);
+        font-size: 1.125rem;
+        line-height: 1.5;
+      }
+      .sources {
+        margin: 12px 0 0;
+      }
+      .sources > div + div {
+        margin-top: 16px;
+      }
+      dt {
+        font-weight: 650;
+        line-height: 1.5;
+      }
+      dd {
+        margin: 4px 0 0;
+        line-height: 1.55;
+      }
+      details {
+        border-bottom: 1px solid var(--color-divider);
+        scroll-margin-top: 20px;
+      }
+      summary {
+        min-height: 56px;
+        padding-block: 16px;
+        cursor: pointer;
+        font-size: 1.0625rem;
+        font-weight: 650;
+        line-height: 1.5;
+      }
+      summary::marker {
+        color: var(--color-secondary);
+      }
+      details[open] summary {
+        margin-bottom: 4px;
+      }
+      p,
+      ul {
+        margin: 0 0 16px;
+        line-height: 1.55;
+      }
+      ul {
+        padding-left: 1.5rem;
+      }
+      li {
+        margin-block: 8px;
+      }
+      .license-meta {
+        color: var(--color-secondary);
+        font-size: 0.9375rem;
+      }
+      pre {
+        margin: 0 0 16px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font:
+          0.9rem/1.6 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+      }
+      footer {
+        margin-top: 32px;
+        font-size: 0.9rem;
+      }
+      footer nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 20px;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="page-header">
+        <nav aria-label="Zurück zu FoldRoute">
+          <a class="back-link" href="./">Zum Webplaner</a>
+        </nav>
+        <h1>Lizenzen &amp; Datenquellen</h1>
+      </header>
+
+      <section aria-labelledby="sources-heading">
+        <h2 id="sources-heading">Karten und Routen</h2>
+        <dl class="sources">
+          <div>
+            <dt><a href="https://transitous.org/sources/">Transitous</a></dt>
+            <dd>
+              Routen und Fahrpläne für Webplaner und iPhone-App. Es gelten die
+              Bedingungen der einzelnen Datenquellen.
+            </dd>
+          </div>
+          <div>
+            <dt><a href="https://openfreemap.org/">OpenFreeMap</a></dt>
+            <dd>
+              Basiskarten und Kartenschriften.
+              <a href="https://openmaptiles.org/">© OpenMapTiles</a>; Daten von
+              OpenStreetMap.
+            </dd>
+          </div>
+          <div>
+            <dt>
+              <a href="https://www.openstreetmap.org/copyright"
+                >© OpenStreetMap-Mitwirkende</a
+              >
+            </dt>
+            <dd>
+              Kartendaten unter der Open Database License (ODbL); auch Grundlage
+              der Routenberechnung.
+            </dd>
+          </div>
+          <div>
+            <dt>Apple MapKit</dt>
+            <dd>
+              Karten der iPhone-App. Kartenhinweise stehen in deren
+              Kartenansicht.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section aria-labelledby="licenses-heading">
+        <h2 id="licenses-heading">Software und Icons</h2>
+        <p>
+          Für eingebundene Komponenten gelten ihre jeweiligen Lizenzbedingungen.
+        </p>
+        <details id="foldroute">
+          <summary>FoldRoute</summary>
+          <p class="license-meta">FoldRoute · MIT</p>
+          <p>
+            Eigener Programmcode der iPhone-App, des Webplaners und der
+            Landingpage.
+          </p>
+          <p><a href="foldroute-LICENSE.txt">Lizenztext als Textdatei</a></p>
+          <pre>
+MIT License
 
 Copyright (c) 2026 FoldRoute Contributors
 
@@ -67,9 +225,30 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-</pre></details>
-<details id="openlayers"><summary>OpenLayers 10.11.0 · BSD-2-Clause</summary><p>Drehbare Navigationskarte der PWA.</p><p><a href="https://openlayers.org/">Projektseite</a> · <a href="openlayers-LICENSE.txt">OpenLayers-Lizenz</a> · <a href="navigation-dependencies-LICENSE.txt">Lizenzen der Kartenbibliothek und ihrer Abhängigkeiten</a></p></details>
-<details id="leaflet"><summary>Leaflet 1.9.4 · BSD-2-Clause</summary><p>Kartenbibliothek im Webplaner. <a href="https://leafletjs.com/">Projektseite</a></p><p><a href="leaflet-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>BSD 2-Clause License
+</pre>
+        </details>
+        <details id="openlayers">
+          <summary>OpenLayers</summary>
+          <p class="license-meta">OpenLayers 10.11.0 · BSD-2-Clause</p>
+          <p>Drehbare Navigationskarte der PWA.</p>
+          <p>
+            <a href="https://openlayers.org/">Projektseite</a> ·
+            <a href="openlayers-LICENSE.txt">OpenLayers-Lizenz</a> ·
+            <a href="navigation-dependencies-LICENSE.txt"
+              >Lizenzen der Kartenbibliothek und ihrer Abhängigkeiten</a
+            >
+          </p>
+        </details>
+        <details id="leaflet">
+          <summary>Leaflet</summary>
+          <p class="license-meta">Leaflet 1.9.4 · BSD-2-Clause</p>
+          <p>
+            Kartenbibliothek im Webplaner.
+            <a href="https://leafletjs.com/">Projektseite</a>
+          </p>
+          <p><a href="leaflet-LICENSE.txt">Lizenztext als Textdatei</a></p>
+          <pre>
+BSD 2-Clause License
 
 Copyright (c) 2010-2023, Volodymyr Agafonkin
 Copyright (c) 2010-2011, CloudMade
@@ -95,8 +274,18 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-</pre></details>
-<details id="lucide"><summary>Lucide / Feather · ISC und MIT</summary><p>Icons auf der Landingpage. Der Originalhinweis enthält auch die aus Feather übernommenen Icons.</p><p><a href="lucide-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>ISC License
+</pre>
+        </details>
+        <details id="lucide">
+          <summary>Lucide / Feather</summary>
+          <p class="license-meta">Lucide / Feather · ISC und MIT</p>
+          <p>
+            Icons auf der Landingpage. Der Originalhinweis enthält auch die aus
+            Feather übernommenen Icons.
+          </p>
+          <p><a href="lucide-LICENSE.txt">Lizenztext als Textdatei</a></p>
+          <pre>
+ISC License
 
 Copyright (c) 2026 Lucide Icons and Contributors
 
@@ -139,8 +328,20 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-</pre></details>
-<details id="workbox"><summary>Workbox 7.4.1 · MIT</summary><p>Offline-Funktionen und Service Worker des Webplaners. <a href="https://developer.chrome.com/docs/workbox/">Projektseite</a></p><p><a href="workbox-LICENSE.txt">Lizenztext als Textdatei</a></p><pre>Copyright 2018 Google LLC
+</pre>
+        </details>
+        <details id="workbox">
+          <summary>Workbox</summary>
+          <p class="license-meta">Workbox 7.4.1 · MIT</p>
+          <p>
+            Offline-Funktionen und Service Worker des Webplaners.
+            <a href="https://developer.chrome.com/docs/workbox/"
+              >Projektseite</a
+            >
+          </p>
+          <p><a href="workbox-LICENSE.txt">Lizenztext als Textdatei</a></p>
+          <pre>
+Copyright 2018 Google LLC
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the &quot;Software&quot;), to deal
@@ -159,11 +360,64 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-</pre></details>
-    <details id="map-rendering"><summary>MapLibre und Kartenstile · BSD und ISC</summary><p>Darstellung der OpenFreeMap-Basiskarten:</p><ul><li><a href="https://maplibre.org/maplibre-gl-js/docs/">MapLibre GL JS 6.14.0</a> · BSD-3-Clause</li><li><a href="https://github.com/maplibre/maplibre-gl-leaflet">@maplibre/maplibre-gl-leaflet 0.1.4</a> · ISC</li><li><a href="https://github.com/openlayers/ol-mapbox-style">ol-mapbox-style 13.8.0</a> · BSD-2-Clause</li></ul><p><a href="map-rendering-LICENSE.txt">Vollständige Lizenztexte einschließlich der Abhängigkeiten</a></p></details>
-    <details id="motion"><summary>Motion 14.3.0 · MIT</summary><p>Animationen und Übergänge im Webplaner. <a href="https://motion.dev/">Projektseite</a></p><p>Enthalten sind motion 14.3.0, framer-motion 14.3.0, motion-dom 14.3.0 und motion-utils 14.1.1 unter MIT sowie tslib 2.8.1 unter 0BSD.</p><p><a href="motion-LICENSE.txt">Original-Lizenztexte aller Animationsabhängigkeiten</a></p></details>
-  </section>
-  <footer><p>Die Software-Lizenztexte sind im installierten Webplaner auch offline lesbar. Externe Quellenlinks benötigen Internet.</p></footer>
-</main>
-</body>
+</pre>
+        </details>
+        <details id="map-rendering">
+          <summary>MapLibre und Kartenstile</summary>
+          <p class="license-meta">MapLibre und Kartenstile · BSD und ISC</p>
+          <p>Darstellung der OpenFreeMap-Basiskarten:</p>
+          <ul>
+            <li>
+              <a href="https://maplibre.org/maplibre-gl-js/docs/"
+                >MapLibre GL JS 6.14.0</a
+              >
+              · BSD-3-Clause
+            </li>
+            <li>
+              <a href="https://github.com/maplibre/maplibre-gl-leaflet"
+                >@maplibre/maplibre-gl-leaflet 0.1.4</a
+              >
+              · ISC
+            </li>
+            <li>
+              <a href="https://github.com/openlayers/ol-mapbox-style"
+                >ol-mapbox-style 13.8.0</a
+              >
+              · BSD-2-Clause
+            </li>
+          </ul>
+          <p>
+            <a href="map-rendering-LICENSE.txt"
+              >Vollständige Lizenztexte einschließlich der Abhängigkeiten</a
+            >
+          </p>
+        </details>
+        <details id="motion">
+          <summary>Motion</summary>
+          <p class="license-meta">Motion 14.3.0 · MIT</p>
+          <p>
+            Animationen und Übergänge im Webplaner.
+            <a href="https://motion.dev/">Projektseite</a>
+          </p>
+          <p>
+            Enthalten sind motion 14.3.0, framer-motion 14.3.0, motion-dom
+            14.3.0 und motion-utils 14.1.1 unter MIT sowie tslib 2.8.1 unter
+            0BSD.
+          </p>
+          <p>
+            <a href="motion-LICENSE.txt"
+              >Original-Lizenztexte aller Animationsabhängigkeiten</a
+            >
+          </p>
+        </details>
+      </section>
+
+      <footer>
+        <nav aria-label="Weitere Informationen">
+          <a href="../">Zur Projektseite</a>
+          <a href="hilfe.html">Hilfe &amp; FAQ</a>
+        </nav>
+      </footer>
+    </main>
+  </body>
 </html>

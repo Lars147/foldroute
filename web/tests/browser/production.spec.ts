@@ -123,7 +123,7 @@ test("settings show the built commit and preserve it after an offline restart", 
 test("license page and original notices remain accessible offline", async ({
   page,
   context,
-}) => {
+}, info) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto(new URL("../", root).href);
   await page
@@ -150,6 +150,17 @@ test("license page and original notices remain accessible offline", async ({
   await expect(
     page.getByRole("heading", { name: "Lizenzen & Datenquellen" }),
   ).toBeVisible();
+  await expect(page.locator("details[open]")).toHaveCount(0);
+  for (const colorScheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [320, 390, 1660]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({
+        path: info.outputPath(`licenses-overview-${colorScheme}-${width}.png`),
+        fullPage: true,
+      });
+    }
+  }
   for (const id of ["foldroute", "leaflet", "lucide", "workbox"]) {
     await page.locator(`#${id} summary`).focus();
     await page.keyboard.press("Enter");
@@ -166,20 +177,28 @@ test("license page and original notices remain accessible offline", async ({
       await page.locator(`#${id} pre`).textContent(),
     );
   }
+  for (const [id, name] of [
+    ["openlayers", "OpenLayers 10.11.0"],
+    ["leaflet", "Leaflet 1.9.4"],
+    ["lucide", "Lucide / Feather"],
+    ["workbox", "Workbox 7.4.1"],
+    ["map-rendering", "MapLibre und Kartenstile"],
+    ["motion", "Motion 14.3.0"],
+  ]) {
+    const entry = page.locator(`#${id}`);
+    if ((await entry.getAttribute("open")) === null)
+      await entry.locator("summary").click();
+    await expect(entry.locator(".license-meta")).toBeVisible();
+    await expect(entry.locator(".license-meta")).toContainText(name);
+  }
   for (const name of [
-    "OpenLayers 10.11.0",
-    "Leaflet 1.9.4",
     "MapLibre GL JS 6.14.0",
     "@maplibre/maplibre-gl-leaflet 0.1.4",
     "ol-mapbox-style 13.8.0",
-    "Motion 14.3.0",
-    "Workbox 7.4.1",
-    "Lucide / Feather",
   ])
     await expect(
-      page.locator("section[aria-labelledby=licenses-heading]"),
-    ).toContainText(name);
-  await page.locator("#motion summary").click();
+      page.locator("#map-rendering").getByRole("link", { name, exact: true }),
+    ).toBeVisible();
   await expect(page.locator("#motion")).toContainText("tslib 2.8.1 unter 0BSD");
   const notices = await page
     .locator('a[href$="-LICENSE.txt"]')
@@ -204,22 +223,32 @@ test("license page and original notices remain accessible offline", async ({
         expect(downloaded.text).toContain(`${name} `);
     }
   }
-  await page.locator("details").evaluateAll((entries) =>
-    entries.forEach((entry) => {
-      (entry as HTMLDetailsElement).open = true;
-    }),
-  );
-  for (const width of [320, 390, 1660]) {
-    await page.setViewportSize({ width, height: 900 });
-    for (const fontSize of ["16px", "32px"]) {
-      await page.evaluate((size) => {
-        document.documentElement.style.fontSize = size;
-      }, fontSize);
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true);
+  for (const colorScheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [320, 390, 1660]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const fontSize of ["16px", "32px"]) {
+        await page.evaluate((size) => {
+          document.documentElement.style.fontSize = size;
+        }, fontSize);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+        if (fontSize === "32px")
+          await page.locator(".page-header").screenshot({
+            path: info.outputPath(
+              `licenses-header-${colorScheme}-${width}-200.png`,
+            ),
+          });
+        if (width === 320)
+          await page.locator("#foldroute").screenshot({
+            path: info.outputPath(
+              `licenses-notice-${colorScheme}-${fontSize}.png`,
+            ),
+          });
+      }
     }
   }
   await page.getByRole("link", { name: "Zum Webplaner", exact: true }).click();
@@ -383,19 +412,24 @@ test("help topics and links work offline under the deployment subpath", async ({
     "rgb(16, 19, 20)",
   );
   await expect(page.locator("#datenschutz summary")).toBeInViewport();
-  for (const topic of [
-    "standort-pwa",
-    "standort-freigabe",
-    "standort-verfuegbar",
-    "installation",
-    "updates",
-    "offline",
-    "datenschutz",
+  for (const [topic, answer] of [
+    ["standort", "standort-freigabe"],
+    ["standort-pwa", "standort-pwa"],
+    ["standort-freigabe", "standort-freigabe"],
+    ["standort-verfuegbar", "standort-freigabe"],
+    ["app-offline", "installation"],
+    ["installation", "installation"],
+    ["updates", "updates"],
+    ["offline", "offline"],
+    ["navigation", "navigation-start"],
+    ["navigation-start", "navigation-start"],
+    ["navigation-pause", "navigation-pause"],
+    ["datenschutz", "datenschutz"],
   ]) {
     await page.goto(new URL(`hilfe.html#${topic}`, root).href);
     await page.reload();
-    await expect(page.locator(`#${topic}`)).toHaveAttribute("open", "");
-    await expect(page.locator(`#${topic} summary`)).toBeInViewport();
+    await expect(page.locator(`#${answer}`)).toHaveAttribute("open", "");
+    await expect(page.locator(`#${answer} summary`)).toBeInViewport();
   }
   for (const colorScheme of ["dark", "light"] as const) {
     await page.emulateMedia({ colorScheme });
