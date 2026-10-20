@@ -607,9 +607,6 @@ test("production startup shell stays inline and offline without generated splash
     page.locator('link[rel="apple-touch-startup-image"]'),
   ).toHaveCount(0);
   await page.evaluate(() => navigator.serviceWorker.ready);
-  await expect(page.locator("#offline-ready")).toContainText(
-    "offline verfügbar",
-  );
   // An activated worker can precede control of the first WebKit document.
   await page.reload();
   await expect(page.locator("#destination")).toBeVisible();

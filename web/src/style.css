@@ -1384,6 +1384,44 @@ fieldset:after {
 #settings-help .settings-install .message {
   margin: 12px 0 0;
 }
+.install-steps {
+  margin: 16px 0;
+  padding-left: 1.5rem;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.install-steps > li {
+  margin-block: 16px;
+  padding-left: 4px;
+}
+.install-steps > li::marker {
+  color: var(--color-secondary);
+  font-weight: 700;
+}
+.install-step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.install-step-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.install-guide p {
+  margin: 12px 0 0;
+}
+.installation-help {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 44px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
 .settings-help-links {
   border-top: 1px solid var(--line);
 }

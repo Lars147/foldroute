@@ -11,6 +11,7 @@ interface PWAOptions {
 }
 
 export function setupPWA(options: PWAOptions) {
+  const installGuide = el("ios-install-guide");
   let installEvent: InstallEvent | undefined,
     registration: ServiceWorkerRegistration | undefined;
   const standalone = () =>
@@ -18,11 +19,13 @@ export function setupPWA(options: PWAOptions) {
     (navigator as Navigator & { standalone?: boolean }).standalone === true;
   function installed() {
     el("install").hidden = standalone();
+    installGuide.hidden = true;
   }
   installed();
   window.addEventListener("appinstalled", () => {
     installEvent = undefined;
     el("install").hidden = true;
+    installGuide.hidden = true;
     el("install-message").textContent = "FoldRoute wurde installiert.";
   });
   window.addEventListener("beforeinstallprompt", (event) => {
@@ -30,17 +33,21 @@ export function setupPWA(options: PWAOptions) {
     installEvent = event as InstallEvent;
   });
   el("install").onclick = async () => {
+    installGuide.hidden = true;
     if (installEvent) {
+      el("install-message").textContent = "";
       await installEvent.prompt();
       await installEvent.userChoice;
       installEvent = undefined;
       return;
     }
-    el("install-message").textContent =
+    const ios =
       /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-        ? "In Safari: Teilen öffnen und „Zum Home-Bildschirm“ wählen. Falls angeboten, „Als Web-App öffnen“ aktivieren."
-        : "Öffne das Browsermenü und wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“, sofern dein Browser dies anbietet.";
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    el("install-message").textContent = ios
+      ? "So installierst du FoldRoute auf deinem Home-Bildschirm:"
+      : "Öffne das Browsermenü und wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“, sofern dein Browser dies anbietet.";
+    installGuide.hidden = !ios;
     reveal(el("install-message"), { y: 6 });
   };
   if (!import.meta.env.PROD) return { refresh: () => {} };
@@ -176,9 +183,6 @@ export function setupPWA(options: PWAOptions) {
     reloadCommitted = true;
     location.reload();
   }
-  const ready = () =>
-    (el("offline-ready").textContent =
-      "Oberfläche offline verfügbar. Neue Routen und Straßenkarten benötigen Internet.");
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (hadController) reloadNeeded = true;
     hadController = !!navigator.serviceWorker.controller;
@@ -191,7 +195,6 @@ export function setupPWA(options: PWAOptions) {
     const changed = () => {
       if (worker.state === "installed") {
         error = "";
-        ready();
       } else if (worker.state === "activated") {
         worker.removeEventListener("statechange", changed);
       } else if (worker.state === "redundant") {
@@ -220,7 +223,6 @@ export function setupPWA(options: PWAOptions) {
       .then((reg) => {
         registration = reg;
         error = "";
-        if (reg.active) ready();
         watch(reg.installing);
         watch(reg.waiting);
         reg.addEventListener("updatefound", () => watch(reg.installing));
@@ -229,8 +231,6 @@ export function setupPWA(options: PWAOptions) {
       })
       .catch(() => {
         error = "Updates konnten nicht geprüft werden. Bitte erneut versuchen.";
-        el("offline-ready").textContent =
-          "Oberfläche konnte nicht offline bereitgestellt werden. Online kannst du weiterplanen.";
         render();
         return undefined;
       })

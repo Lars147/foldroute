@@ -74,8 +74,8 @@ test("scoped PWA manifest, icons and cache work under a static subpath", async (
     const response = await page.request.get(new URL(entry.src, root).href);
     expect(response.ok()).toBe(true);
   }
-  await expect(page.locator("#offline-ready")).toContainText(
-    "offline verfügbar",
+  expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(
+    true,
   );
   await page.screenshot({
     path: "test-results/pwa-search.png",
@@ -409,6 +409,8 @@ test("help topics and links work offline under the deployment subpath", async ({
     }
   }
   await page.goto(new URL("hilfe.html#installation", root).href);
+  await expect(page.locator("#installation .install-steps li")).toHaveCount(3);
+  await expect(page.locator("#installation .install-step svg")).toHaveCount(3);
   await page.locator("#installation summary").focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#installation")).not.toHaveAttribute("open", "");

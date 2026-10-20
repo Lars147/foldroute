@@ -1024,7 +1024,50 @@
               FoldRoute installieren
             </button>
             <p id="install-message" class="message" role="status"></p>
-            <p id="offline-ready" class="message" role="status"></p>
+            <div id="ios-install-guide" class="install-guide" hidden>
+              <ol
+                class="install-steps"
+                aria-label="Installation auf iPhone und iPad"
+              >
+                <li>
+                  <div class="install-step">
+                    <span data-icon="share" aria-hidden="true"></span>
+                    <div>
+                      Öffne <strong>„Teilen“</strong> im Browser.
+                      <span class="install-step-note"
+                        >In Safari gegebenenfalls zuerst das Seitenmenü
+                        öffnen.</span
+                      >
+                    </div>
+                  </div>
+                </li>
+                <li>
+                  <div class="install-step">
+                    <span data-icon="plus-square" aria-hidden="true"></span>
+                    <div>
+                      Wähle <strong>„Zu Home-Bildschirm hinzufügen“</strong>.
+                      <span class="install-step-note"
+                        >In Chrome: „Zum Startbildschirm hinzufügen“.</span
+                      >
+                    </div>
+                  </div>
+                </li>
+                <li>
+                  <div class="install-step">
+                    <span data-icon="check" aria-hidden="true"></span>
+                    <div>
+                      Aktiviere <strong>„Als Web-App öffnen“</strong>, falls
+                      angeboten, und tippe auf <strong>„Hinzufügen“</strong>.
+                    </div>
+                  </div>
+                </li>
+              </ol>
+              <p>
+                <a class="installation-help" href="hilfe.html#installation"
+                  >Hilfe zur Installation</a
+                >
+              </p>
+            </div>
           </div>
           <nav class="settings-help-links" aria-label="Hilfe und Informationen">
             <a href="hilfe.html"
