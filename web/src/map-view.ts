@@ -9,7 +9,13 @@ import { GPUInitializationError, setWorkerUrl } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "leaflet/dist/leaflet.css";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Journey, Place } from "./model";
+import type {
+  Journey,
+  Leg,
+  Place,
+  PlanningRoutePreview,
+  RouteRequest,
+} from "./model";
 import { el, node, icon } from "./ui";
 import { appearanceEvent, mapAttribution, mapTheme } from "./map-theme";
 import { mapStyleEvent } from "./map-style";
@@ -39,6 +45,8 @@ export class RouteMap {
   private tiles?: L.MaplibreGL;
   private basemapTheme?: string;
   private routes?: L.FeatureGroup;
+  private places?: L.LayerGroup;
+  private placesSignature = "";
   private routeLines = new Map<string, L.Polyline[]>();
   private selectedPaths: L.Polyline[] = [];
   private hoverLayers?: L.LayerGroup;
@@ -54,6 +62,8 @@ export class RouteMap {
   private suppressRouteClick = false;
   private moving = false;
   private selected?: Journey;
+  private previewRequest?: RouteRequest;
+  private routePreview?: PlanningRoutePreview;
   private journeys: Journey[] = [];
   private resultsComplete = false;
   private envelope?: L.LatLngBounds;
@@ -61,6 +71,7 @@ export class RouteMap {
   private manualCamera = false;
   private layoutKey = "";
   private panelLayoutKey = "";
+  private mapMessageHeight = 0;
   private layoutSelection?: string;
   private resizeFrame?: number;
   private fitPending = false;
@@ -98,6 +109,8 @@ export class RouteMap {
           this.online,
           this.context,
           this.resultsComplete,
+          this.previewRequest,
+          this.routePreview,
         );
     };
     window.addEventListener(appearanceEvent, redraw);
@@ -112,7 +125,16 @@ export class RouteMap {
     online = navigator.onLine,
     context?: string,
     complete = false,
+    previewRequest?: RouteRequest,
+    routePreview?: PlanningRoutePreview,
   ) {
+    const keepPreviewCamera = !!(
+      selected &&
+      this.previewRequest &&
+      this.manualCamera
+    );
+    this.previewRequest = selected ? undefined : previewRequest;
+    this.routePreview = this.previewRequest ? routePreview : undefined;
     const finished = complete && !this.resultsComplete;
     this.resultsComplete = complete;
     const theme = mapTheme();
@@ -191,14 +213,16 @@ export class RouteMap {
         .addTo(this.map);
       el("map-zoom-control").replaceChildren(zoom.getContainer()!);
       this.routes = L.featureGroup().addTo(this.map);
+      this.places = L.layerGroup().addTo(this.map);
       this.hoverLayers = L.layerGroup().addTo(this.map);
     }
     if (online && (!this.tiles || !this.map.hasLayer(this.tiles))) {
       const unavailable = () => {
         if (!this.online) return;
         el("map-error").hidden = false;
-        el("map-error").textContent =
-          "Straßenkarte nicht verfügbar. Deine Reise bleibt nutzbar.";
+        el("map-error").textContent = this.previewRequest
+          ? "Straßenkarte nicht verfügbar. Die eingegebenen Orte bleiben sichtbar."
+          : "Straßenkarte nicht verfügbar. Deine Reise bleibt nutzbar.";
       };
       this.tiles = new BasemapLayer({
         style: theme.style,
@@ -217,8 +241,8 @@ export class RouteMap {
       this.basemapTheme = theme.name;
     }
     this.updateLocation(this.liveFix, this.liveQuality);
-    el("map-route").hidden = !selected;
-    if (!selected) this.pendingRouteFit = false;
+    el("map-route").hidden = !selected && !this.previewRequest;
+    if (!selected && !this.previewRequest) this.pendingRouteFit = false;
     el("map").classList.toggle("offline-map", !online);
     el("map-label").innerHTML = mapAttribution;
     if (!online) {
@@ -235,10 +259,10 @@ export class RouteMap {
       (selected
         ? JSON.stringify([selected.origin, selected.destination])
         : undefined);
-    if (nextContext !== this.context || !selected) {
+    if (nextContext !== this.context || (!selected && !this.previewRequest)) {
       this.context = nextContext;
       this.envelope = undefined;
-      this.manualCamera = false;
+      this.manualCamera = keepPreviewCamera;
       this.locationFocus = undefined;
       this.layoutKey = "";
       this.overviewArea = undefined;
@@ -246,15 +270,26 @@ export class RouteMap {
     }
     this.journeys = routes;
     this.selected = selected;
-    const label =
-      routes.length > 1 ? "Alle Routen anzeigen" : "Gesamte Route anzeigen";
+    this.drawPlaces(selected ?? this.previewRequest);
+    const label = this.previewRequest
+      ? this.routePreview
+        ? "Orte und Teilroute anzeigen"
+        : "Alle Orte anzeigen"
+      : routes.length > 1
+        ? "Alle Routen anzeigen"
+        : "Gesamte Route anzeigen";
     el("map-route").setAttribute("aria-label", label);
     el("map-route").title = label;
-    const coordinates = this.routeCoordinates();
+    // Streaming geometry must not move the request overview. Explicit fit
+    // includes the provisional path, even when it leaves the request bounds.
+    const coordinates = this.previewRequest
+      ? this.requestCoordinates()
+      : this.routeCoordinates();
     const bounds = coordinates.length ? L.latLngBounds(coordinates) : undefined;
     if (
       bounds &&
       complete &&
+      !this.previewRequest &&
       !this.manualCamera &&
       (finished || !this.envelope?.equals(bounds))
     ) {
@@ -280,6 +315,8 @@ export class RouteMap {
         ]),
       ]),
       selected?.id,
+      this.previewRequest,
+      this.routePreview,
     ]);
     if (signature !== this.signature) {
       this.signature = signature;
@@ -289,38 +326,47 @@ export class RouteMap {
       this.routes!.clearLayers();
       this.routeLines.clear();
       this.selectedPaths = [];
-      const draw = (j: Journey, active: boolean) =>
-        j.legs.forEach((leg) => {
+      const draw = (legs: Leg[], active: boolean, id?: string) =>
+        legs.forEach((leg) => {
           if (leg.coordinates.length < 2) return;
+          const provisional = id === undefined;
           const points = leg.coordinates.map(
             (p) => [p.latitude, p.longitude] as [number, number],
           );
           if (active) {
             const halo = L.polyline(points, {
+              className: provisional
+                ? "planning-route-preview-halo"
+                : undefined,
               color: theme.halo,
               weight: 10,
+              opacity: provisional ? 0.7 : 1,
               interactive: false,
             }).addTo(this.routes!);
-            this.selectedPaths.push(halo);
+            if (!provisional) this.selectedPaths.push(halo);
           }
           const line = L.polyline(points, {
+            className: provisional ? "planning-route-preview-line" : undefined,
             color: active ? theme.lines[leg.kind] : theme.secondary,
             weight: active ? 6 : 4,
-            opacity: active ? 1 : 0.5,
+            opacity: provisional ? 0.7 : active ? 1 : 0.5,
             dashArray: leg.kind === "walk" ? "3 8" : undefined,
             interactive: false,
           }).addTo(this.routes!);
-          const lines = this.routeLines.get(j.id) ?? [];
-          lines.push(line);
-          this.routeLines.set(j.id, lines);
-          if (active) this.selectedPaths.push(line);
+          if (!provisional) {
+            const lines = this.routeLines.get(id) ?? [];
+            lines.push(line);
+            this.routeLines.set(id, lines);
+            if (active) this.selectedPaths.push(line);
+          }
         });
       journeys
         .filter((j) => j.id !== selected?.id)
-        .forEach((j) => draw(j, false));
+        .forEach((j) => draw(j.legs, false, j.id));
       if (selected) {
-        draw(selected, true);
-        this.drawPlaces(selected);
+        draw(selected.legs, true, selected.id);
+      } else if (this.previewRequest) {
+        if (this.routePreview) draw(this.routePreview.legs, true);
       }
       // Keep preview paths mounted so interrupted fades continue from their current opacity.
       for (const [id, lines] of this.routeLines) {
@@ -438,25 +484,32 @@ export class RouteMap {
     this.setRouteHover(undefined, immediate);
     this.map?.getContainer().style.removeProperty("cursor");
   }
-  private drawPlaces(journey: Journey) {
+  private drawPlaces(journey?: Journey | RouteRequest) {
     type MapPlace = {
       place: Place;
       kind: "start" | "stop" | "destination";
       label: string;
       number?: number;
     };
-    const points: MapPlace[] = [
-      { place: journey.origin, kind: "start", label: "Start" },
-      ...journey.legs
-        .filter((leg) => leg.kind === "stop")
-        .map((leg, index): MapPlace => ({
-          place: leg.from,
-          kind: "stop",
-          label: `Zwischenstopp ${index + 1}`,
-          number: index + 1,
-        })),
-      { place: journey.destination, kind: "destination", label: "Ziel" },
-    ];
+    const stops = !journey
+      ? []
+      : "legs" in journey
+        ? journey.legs
+            .filter((leg) => leg.kind === "stop")
+            .map((leg) => leg.from)
+        : (journey.stops ?? []).map((stop) => stop.place);
+    const points: MapPlace[] = journey
+      ? [
+          { place: journey.origin, kind: "start", label: "Start" },
+          ...stops.map((place, index): MapPlace => ({
+            place,
+            kind: "stop",
+            label: `Zwischenstopp ${index + 1}`,
+            number: index + 1,
+          })),
+          { place: journey.destination, kind: "destination", label: "Ziel" },
+        ]
+      : [];
     const groups = new Map<string, MapPlace[]>();
     for (const point of points) {
       const key = `${point.place.latitude},${point.place.longitude}`;
@@ -465,9 +518,23 @@ export class RouteMap {
       groups.set(key, group);
     }
     this.markerHalfWidth = Math.max(
-      this.markerHalfWidth,
+      22,
       ...Array.from(groups.values(), (group) => 22 * group.length),
     );
+    // Geometry, camera context and palettes must not replace focused markers.
+    const signature = JSON.stringify(
+      points.map(({ place, kind, label, number }) => [
+        place.latitude,
+        place.longitude,
+        place.name,
+        kind,
+        label,
+        number,
+      ]),
+    );
+    if (signature === this.placesSignature) return;
+    this.placesSignature = signature;
+    this.places!.clearLayers();
     for (const group of groups.values()) {
       const symbols = node("span", "", "route-marker-symbols");
       symbols.setAttribute("aria-hidden", "true");
@@ -502,7 +569,7 @@ export class RouteMap {
         bubblingMouseEvents: false,
       })
         .bindPopup(popup)
-        .addTo(this.routes!);
+        .addTo(this.places!);
       const element = marker.getElement()!;
       element.setAttribute("aria-label", labels.join(" · "));
       element.addEventListener("keydown", (event) => {
@@ -566,6 +633,7 @@ export class RouteMap {
       bounds.right - controls.left,
       this.markerHalfWidth,
       safe,
+      getComputedStyle(document.documentElement).fontSize,
       bounds.bottom - panelBounds.bottom,
     ]);
     const changed = layout !== this.layoutKey;
@@ -574,20 +642,41 @@ export class RouteMap {
         ? panelBounds.right - bounds.left
         : panelBounds.top - bounds.top,
     ]);
+    const mapMessageHeight = el("map-error").getBoundingClientRect().height;
     // Refit after result/status reflow, while comparing existing alternatives
     // preserves the shared camera even when their summaries differ in height.
     const panelChanged =
       panelLayout !== this.panelLayoutKey &&
-      (this.fitPending || this.selected?.id === this.layoutSelection);
+      (this.fitPending ||
+        (!!this.previewRequest && mapMessageHeight !== this.mapMessageHeight) ||
+        (!this.previewRequest && this.selected?.id === this.layoutSelection));
     this.layoutKey = layout;
     this.panelLayoutKey = panelLayout;
+    this.mapMessageHeight = mapMessageHeight;
     this.layoutSelection = this.selected?.id;
     if (!this.manualCamera && (this.fitPending || changed || panelChanged)) {
       if (changed || panelChanged) this.overviewArea = undefined;
       this.fitOverview();
     }
   }
+  private requestCoordinates(): [number, number][] {
+    const request = this.previewRequest!;
+    return [
+      request.origin,
+      ...(request.stops ?? []).map((stop) => stop.place),
+      request.destination,
+    ].map((place) => [place.latitude, place.longitude]);
+  }
   private routeCoordinates(): [number, number][] {
+    if (this.previewRequest)
+      return [
+        ...this.requestCoordinates(),
+        ...(this.routePreview?.legs.flatMap((leg) =>
+          leg.coordinates.map(
+            (p) => [p.latitude, p.longitude] as [number, number],
+          ),
+        ) ?? []),
+      ];
     return this.journeys
       .flatMap((j) => [
         j.origin,
@@ -598,7 +687,12 @@ export class RouteMap {
       .map((p) => [p.latitude, p.longitude]);
   }
   fitRoute() {
-    if (!this.map || !this.selected || el("map-view").hidden || el("map").inert)
+    if (
+      !this.map ||
+      (!this.selected && !this.previewRequest) ||
+      el("map-view").hidden ||
+      el("map").inert
+    )
       return;
     this.locationFocus = undefined;
     this.manualCamera = false;
@@ -616,7 +710,8 @@ export class RouteMap {
     this.fitOverview(true);
   }
   private fitOverview(explicit = false) {
-    if (!this.map || !this.selected || !this.envelope) return;
+    if (!this.map || (!this.selected && !this.previewRequest) || !this.envelope)
+      return;
     const coordinates = this.envelope;
     const sidebar = this.hasSidePanel(),
       bounds = el("map").getBoundingClientRect(),

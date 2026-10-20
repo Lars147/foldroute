@@ -4,6 +4,7 @@ import {
   type RoutingSettings,
   type PlanningPhase,
   type PlanningUpdate,
+  type PlanningRoutePreview,
   errorText,
   PlannerError,
   retainSelectedJourney,
@@ -37,6 +38,8 @@ export interface PlanningState {
   staleReason?: string;
   recovery?: PlanningRecovery;
   phase?: PlanningPhase;
+  activeSection?: number;
+  routePreview?: PlanningRoutePreview;
   incompletePhases?: PlanningPhase[];
   searchStatus?: PlanningUpdate["status"] | "stopped";
 }
@@ -100,6 +103,11 @@ export class PlanningSession {
       busy: update.status === "searching",
       searchStatus: update.status,
       phase: update.phase,
+      activeSection: update.activeSection,
+      routePreview:
+        update.status === "searching" && !hasResults && !this.state.selected
+          ? update.routePreview
+          : undefined,
       incompletePhases: update.incompletePhases,
       message: searchMessage(
         update.status,
@@ -133,6 +141,8 @@ export class PlanningSession {
       busy: false,
       locating: false,
       message,
+      activeSection: undefined,
+      routePreview: undefined,
       recovery,
       searchStatus: this.state.busy ? "stopped" : this.state.searchStatus,
     };
@@ -224,6 +234,7 @@ export class PlanningSession {
       locating: false,
       restored: true,
       calculationId: undefined,
+      routePreview: undefined,
       recovery: context.recovery
         ? { ...structuredClone(context.recovery), mode: "search" }
         : undefined,
@@ -306,6 +317,8 @@ export class PlanningSession {
       issues: [],
       recovery: undefined,
       phase: undefined,
+      activeSection: undefined,
+      routePreview: undefined,
       incompletePhases: [],
       searchStatus: undefined,
     };
@@ -430,6 +443,8 @@ export class PlanningSession {
         busy: false,
         locating: false,
         phase: received ? phase : undefined,
+        activeSection: undefined,
+        routePreview: undefined,
         incompletePhases,
         searchStatus: received ? "partial" : undefined,
         issues,
@@ -470,7 +485,12 @@ export class PlanningSession {
     } finally {
       if (generation === this.generation) {
         this.controller = undefined;
-        this.state = { ...this.state, busy: false, locating: false };
+        this.state = {
+          ...this.state,
+          busy: false,
+          locating: false,
+          routePreview: undefined,
+        };
         this.emit();
       }
     }

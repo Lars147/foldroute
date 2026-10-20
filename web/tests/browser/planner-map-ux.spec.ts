@@ -382,6 +382,12 @@ test("a draft opened while locating stays now until reopened after time resoluti
   });
   await setup(page, false);
   await choose(page, "destination", "Ziel");
+  await expect(page.locator("#search-preview-title")).toHaveText(
+    "Standort wird ermittelt …",
+  );
+  await expect(page.locator("#search-preview-spinner")).toBeVisible();
+  await expect(page.locator("#navigation-start")).toBeHidden();
+  await expect(page.locator("#map")).toBeHidden();
   await page.locator("#adjust-route").click();
   await expect(page.locator("#time-summary")).toHaveText("Jetzt");
   await page.clock.setFixedTime(new Date("2026-09-04T08:07:45Z"));
@@ -703,6 +709,46 @@ test("abandoned location lookup cannot publish placeholder coordinates or rewrit
   );
   await expect(page.locator("#search-view")).toBeVisible();
   expect(new URL(page.url()).searchParams.has("v")).toBe(false);
+});
+
+test("request preview stays hidden across breakpoints until location resolves", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await setup(page, false);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          (window as any).finishLocation = () =>
+            success({
+              coords: { latitude: 48.132, longitude: 11.5756, accuracy: 10 },
+              timestamp: Date.now(),
+            } as GeolocationPosition);
+        },
+      },
+    });
+  });
+  await choose(page, "destination", "Ziel");
+  await expect(page.locator("#search-preview-title")).toHaveText(
+    "Standort wird ermittelt …",
+  );
+  for (const width of [899, 900, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      width < 900 ? "map" : "desktop",
+    );
+    await expect(page.locator("#map")).toBeHidden();
+    expect(
+      await page.locator("#map").evaluate((element) => element.inert),
+    ).toBe(true);
+    await expect(page.locator("#search-preview-title")).toBeVisible();
+  }
+  await page.evaluate(() => (window as any).finishLocation());
+  await expectPlanningComplete(page);
+  await expect(page.locator("#map")).toBeVisible();
+  await expect(page.locator("#map .route-marker")).toHaveCount(2);
 });
 
 test("browser navigation restores itinerary, list and map without another search", async ({

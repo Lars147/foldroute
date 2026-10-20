@@ -387,6 +387,104 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("provisional route state", () => {
+  const preview = {
+    legs: journey("section").legs,
+    startSection: 0,
+    endSection: 1,
+  };
+  const update = {
+    journeys: [],
+    routePreview: preview,
+    status: "searching" as const,
+    phase: "via" as const,
+    incompletePhases: [],
+    issues: [],
+  };
+
+  for (const refresh of [false, true])
+    it(`keeps provisional geometry separate from results during ${refresh ? "refresh" : "initial search"}`, async () => {
+      const session = sessionWithArchive();
+      if (!refresh) session.clear();
+      const finish = gate();
+      vi.mocked(planRoutes).mockImplementation(async function* () {
+        yield update;
+        await finish.promise;
+        yield {
+          ...update,
+          journeys: [journey("complete")],
+          status: "complete",
+        };
+      });
+      const task = session.calculate(request, defaults, false);
+      try {
+        await vi.waitFor(() => expect(session.state.phase).toBe("via"));
+        expect(session.state.routePreview).toEqual(
+          refresh ? undefined : preview,
+        );
+        expect(session.state.journeys.map((j) => j.id)).toEqual(
+          refresh ? ["archive"] : [],
+        );
+        expect(session.state.selected?.id).toBe(
+          refresh ? "archive" : undefined,
+        );
+        expect(session.state.calculationId).toBeUndefined();
+        expect(planningProgress(session.state).ready).toBe(false);
+      } finally {
+        finish.release();
+        await task;
+      }
+      expect(session.state.selected?.id).toBe("complete");
+      expect(session.state.routePreview).toBeUndefined();
+    });
+
+  for (const action of ["stop", "new search", "restore", "error"])
+    it(`clears provisional geometry on ${action} and ignores obsolete replies`, async () => {
+      const session = sessionWithArchive();
+      session.clear();
+      const finish = gate();
+      vi.mocked(planRoutes).mockImplementationOnce(async function* () {
+        yield update;
+        await finish.promise;
+        if (action === "error") throw new Error("Search failed");
+        yield { ...update, journeys: [journey("late")], status: "complete" };
+      });
+      const task = session.calculate(request, defaults, false);
+      try {
+        await vi.waitFor(() =>
+          expect(session.state.routePreview).toEqual(preview),
+        );
+        if (action === "stop") session.stop("");
+        if (action === "restore")
+          session.restoreContext(structuredClone(session.state));
+        if (action === "new search") {
+          vi.mocked(planRoutes).mockImplementationOnce(async function* () {
+            yield {
+              ...update,
+              routePreview: undefined,
+              journeys: [journey("new")],
+              status: "complete",
+            };
+          });
+          await session.calculate(changedRequest, defaults, false);
+        }
+        if (action === "error") {
+          finish.release();
+          await task;
+          expect(session.state.message).toBe("Search failed");
+        }
+        expect(session.state.routePreview).toBeUndefined();
+        const current = structuredClone(session.state);
+        finish.release();
+        await task;
+        expect(session.state).toEqual(current);
+      } finally {
+        finish.release();
+        await task;
+      }
+    });
+});
+
 describe("returning from navigation", () => {
   it("keeps the explicit selection, alternatives and query time with updated journey data", async () => {
     const session = sessionWithArchive();

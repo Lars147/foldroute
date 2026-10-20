@@ -135,7 +135,11 @@ export async function expectMapSettled(page: Page) {
           !map.querySelector(".leaflet-pan-anim, .leaflet-zoom-anim") &&
           !panel
             .getAnimations({ subtree: true })
-            .some((animation) => animation.playState === "running") &&
+            .some(
+              (animation) =>
+                animation.playState === "running" &&
+                animation.effect?.getTiming().iterations !== Infinity,
+            ) &&
           before === sample()
         );
       }),

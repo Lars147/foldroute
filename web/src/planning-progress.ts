@@ -1,6 +1,13 @@
 import type { PlanningPhase, PlanningUpdate } from "./model";
 import type { PlanningState } from "./planning-state";
 
+/** Fresh searches have their own request card until a complete journey exists. */
+export function planningRequestPreview(state: PlanningState) {
+  if (state.selected || state.journeys.length || state.restored) return;
+  if (!state.busy && !state.message && !state.recovery) return;
+  return state.pendingRequest ?? state.request;
+}
+
 export const stoppedSearchMessage =
   "Weitere Suche beendet. Gefundene Verbindungen bleiben verfügbar.";
 

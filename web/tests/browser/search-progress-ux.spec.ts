@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import recording from "../../src/data/bike-transfer.json" with { type: "json" };
-import type { RouteRequest } from "../../src/model";
+import type { PlanningRoutePreview, RouteRequest } from "../../src/model";
 import { routeURL } from "../../src/route-url";
 import {
   expectMotionSettled,
@@ -8,11 +8,19 @@ import {
   showMap,
   showConnections,
 } from "./assertions";
-import { expectRouteFitUnchanged } from "./planner-fixture";
+import {
+  expectRouteFitUnchanged,
+  expectRouteFits,
+  expectMapSettled,
+} from "./planner-fixture";
 
 // Keep the real application/session/view and control only the planner stream.
 // The stream deliberately allows a late response after its signal is aborted.
-async function open(page: Page, clock = false) {
+async function open(
+  page: Page,
+  clock = false,
+  request = recording.request as RouteRequest,
+) {
   await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
@@ -49,6 +57,19 @@ async function open(page: Page, clock = false) {
         "          : leg.coordinates",
         "      }))",
         "    }));",
+        "    if (request.stops?.length) for (const journey of journeys) {",
+        "      const places = [request.origin, ...request.stops.map(stop => stop.place), request.destination];",
+        "      let start = journey.departure; journey.legs = [];",
+        "      for (let i = 0; i < places.length - 1; i++) {",
+        '        journey.legs.push({ kind: "bike", from: places[i], to: places[i + 1], start, end: start + 600, distance: 1000, coordinates: [places[i], places[i + 1]] });',
+        "        start += 600; const stop = request.stops[i];",
+        "        if (stop) {",
+        '          journey.legs.push({ kind: "stop", stop, from: stop.place, to: stop.place, start, end: start + stop.stayMinutes * 60, distance: 0, coordinates: [stop.place] });',
+        "          start += stop.stayMinutes * 60;",
+        "        }",
+        "      }",
+        "      Object.assign(journey, { origin: request.origin, destination: request.destination, arrival: start, transfers: 0, isDirect: true });",
+        "    }",
         '    yield { issues: [], incompletePhases: [], status: "searching", ...event, journeys };',
         '    if (event.status === "complete" || event.status === "partial") return;',
         "  }",
@@ -57,7 +78,7 @@ async function open(page: Page, clock = false) {
     }),
   );
   const url = routeURL(new URL("http://localhost/"), {
-    request: recording.request as RouteRequest,
+    request,
   });
   const time = new Date(recording.journey.departure * 1000 - 60_000);
   if (clock) await page.clock.install({ time });
@@ -73,6 +94,8 @@ async function publish(
   page: Page,
   event: {
     phase: string;
+    activeSection?: number;
+    routePreview?: PlanningRoutePreview;
     ids?: string[];
     detourIds?: string[];
     status?: string;
@@ -87,6 +110,555 @@ async function publish(
     event,
   );
 }
+
+const viaRequest: RouteRequest = {
+  ...(recording.request as RouteRequest),
+  stops: [
+    {
+      id: "coffee",
+      place: {
+        ...recording.request.origin,
+        name: "sweet spot kaffee",
+        latitude:
+          (recording.request.origin.latitude +
+            recording.request.destination.latitude) /
+          2,
+        longitude:
+          (recording.request.origin.longitude +
+            recording.request.destination.longitude) /
+          2,
+      },
+      stayMinutes: 15,
+    },
+  ],
+};
+
+const requestMarkerPositions = (page: Page) =>
+  page.locator("#map .route-marker").evaluateAll((markers) =>
+    markers.map((marker) => {
+      const { x, y } = marker.getBoundingClientRect();
+      return { x, y };
+    }),
+  );
+
+function provisionalRoute(
+  request: RouteRequest,
+  startSection = 0,
+  endSection = 1,
+  detour = false,
+): PlanningRoutePreview {
+  const places = [
+    request.origin,
+    ...(request.stops ?? []).map((s) => s.place),
+    request.destination,
+  ];
+  return {
+    startSection,
+    endSection,
+    legs: places.slice(startSection, endSection).map((from, offset) => {
+      const to = places[startSection + offset + 1];
+      return {
+        kind: "bike",
+        from,
+        to,
+        start: request.time + offset * 600,
+        end: request.time + (offset + 1) * 600,
+        distance: 1000,
+        coordinates:
+          detour && offset === 0
+            ? [
+                from,
+                { latitude: from.latitude - 0.3, longitude: from.longitude },
+                to,
+              ]
+            : [from, to],
+      };
+    }),
+  };
+}
+
+for (const failed of [false, true])
+  test(`request preview follows breakpoints without planner updates while ${failed ? "failed" : "searching"}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 844 });
+    await open(page, true, viaRequest);
+    if (failed)
+      await publish(page, {
+        phase: "via",
+        error: "Dienst vorübergehend nicht erreichbar.",
+      });
+    await page.locator("#route-more").focus();
+    const before = await page.evaluate(() => ({
+      url: location.href,
+      history: history.length,
+    }));
+    for (const width of [900, 899, 1280, 390, 900, 899]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(page.locator("#map-view")).toHaveAttribute(
+        "data-result-screen",
+        width < 900 ? "map" : "desktop",
+      );
+      await expect(page.locator("#search-preview")).toBeVisible();
+      await expect(page.locator("#map")).toBeVisible();
+      await expect(page.locator("#map-controls")).toBeVisible();
+      expect(
+        await page.locator("#map").evaluate((element) => element.inert),
+      ).toBe(false);
+      await expect(page.locator("#route-more")).toBeFocused();
+    }
+    expect(
+      await page.evaluate(() => ({
+        url: location.href,
+        history: history.length,
+      })),
+    ).toEqual(before);
+    expect(await page.evaluate(() => (window as any).searchControlRuns)).toBe(
+      1,
+    );
+    await expect(page.locator("#search-preview-title")).toHaveText(
+      failed ? "Keine Verbindung verfügbar" : "Verbindungen werden gesucht …",
+    );
+    await expect(page.locator("#navigation-start")).toBeHidden();
+  });
+
+for (const width of [390, 1280])
+  for (const interaction of ["focus", "popup"] as const)
+    test(`request markers retain ${interaction} through streamed geometry and results at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await open(page, true, viaRequest);
+      await expect(page.locator("#map .route-marker")).toHaveCount(3);
+      await expect(page.locator("#map-error")).toBeVisible();
+      await expectMapSettled(page);
+      const markers = await page.locator("#map .route-marker").elementHandles();
+      const marker = page.getByRole("button", {
+        name: "Zwischenstopp 1: sweet spot kaffee",
+        exact: true,
+      });
+      await marker.focus();
+      if (interaction === "popup") {
+        await page.keyboard.press("Space");
+        await expect(page.locator("#map .route-marker-info")).toHaveText(
+          "Zwischenstopp 1: sweet spot kaffee",
+        );
+        await page.clock.runFor(400);
+      }
+      const expectMarkersRetained = async () => {
+        for (const [index, original] of markers.entries())
+          expect(
+            await page
+              .locator("#map .route-marker")
+              .nth(index)
+              .evaluate((current, previous) => current === previous, original),
+          ).toBe(true);
+        if (interaction === "focus") await expect(marker).toBeFocused();
+        else
+          await expect(page.locator("#map .route-marker-info")).toHaveText(
+            "Zwischenstopp 1: sweet spot kaffee",
+          );
+      };
+      for (const [endSection, detour] of [
+        [1, false],
+        [1, true],
+        [2, true],
+      ] as const) {
+        await publish(page, {
+          phase: "via",
+          activeSection: 1,
+          routePreview: provisionalRoute(viaRequest, 0, endSection, detour),
+        });
+        await expect(
+          page.locator("#map .planning-route-preview-line"),
+        ).toHaveCount(endSection);
+        await expectMarkersRetained();
+      }
+      await page.evaluate(async () => {
+        const path = "/src/map-style.ts";
+        const { mapStyle } = await import(path);
+        mapStyle.set("dark");
+      });
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-map-style",
+        "dark",
+      );
+      await expectMarkersRetained();
+      await publish(page, { phase: "via", ids: ["first"], status: "complete" });
+      await expect(page.locator("#search-preview")).toBeHidden();
+      await expect(
+        page.locator("#map .planning-route-preview-line"),
+      ).toHaveCount(0);
+      await expectMarkersRetained();
+    });
+
+for (const [width, height, fontSize] of [
+  [320, 844, 16],
+  [390, 844, 16],
+  [844, 390, 16],
+  [1280, 844, 16],
+  [320, 844, 32],
+]) {
+  test(`provisional route grows without moving the camera at ${width}x${height} with ${fontSize}px text`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await open(page, true, viaRequest);
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = `${size}px`;
+    }, fontSize);
+    await expect(page.locator("#map-error")).toBeVisible();
+    await expectMapSettled(page);
+    const positions = await requestMarkerPositions(page);
+    await page.locator("#route-more").focus();
+    const first = provisionalRoute(viaRequest);
+    first.legs[0].kind = "walk";
+    await publish(page, {
+      phase: "via",
+      activeSection: 1,
+      routePreview: first,
+    });
+    const lines = page.locator("#map .planning-route-preview-line");
+    await expect(lines).toHaveCount(1);
+    await expect(lines).toHaveAttribute("stroke-opacity", "0.7");
+    await expect(lines).toHaveAttribute("stroke-dasharray", "3 8");
+    await expect(lines).not.toHaveClass(/leaflet-interactive/);
+    await expect(
+      page.locator("#map .leaflet-overlay-pane svg path"),
+    ).toHaveCount(2);
+    await expect(page.locator("#map .route-marker")).toHaveCount(3);
+    await expect(page.locator("#search-preview-hint")).toHaveText(
+      "Die angezeigte Teilroute ist vorläufig und kann sich noch ändern.",
+    );
+    await expect(page.locator("#search-preview-detail")).toHaveText(
+      `sweet spot kaffee → ${viaRequest.destination.name} wird geprüft.`,
+    );
+    await expect(page.locator(".route-choice")).toHaveCount(0);
+    await expect(page.locator("#navigation-start")).toBeHidden();
+    await expect(page.locator("#map-open-details")).toBeHidden();
+    await expect(page.locator("#result-back")).toBeHidden();
+    await expect(page.locator("#toast")).toBeHidden();
+    await expectMapSettled(page);
+    expect(await requestMarkerPositions(page)).toEqual(positions);
+    await page.locator("#search-preview-hint").scrollIntoViewIfNeeded();
+    await expect(page.locator("#search-preview-hint")).toBeInViewport({
+      ratio: 0.99,
+    });
+    await page.screenshot({ path: info.outputPath("provisional-route.png") });
+    await page.clock.fastForward(10_100);
+    await expect(page.locator("#search-preview-hint")).toHaveText(
+      "Die angezeigte Teilroute ist vorläufig und kann sich noch ändern.",
+    );
+    await publish(page, {
+      phase: "via",
+      activeSection: 1,
+      routePreview: provisionalRoute(viaRequest, 0, 2, true),
+    });
+    await expect(lines).toHaveCount(2);
+    await expectMapSettled(page);
+    expect(await requestMarkerPositions(page)).toEqual(positions);
+    await expect(page.locator("#route-more")).toBeFocused();
+    await expect(page.locator("#navigation-start")).toBeHidden();
+    await publish(page, { phase: "via", ids: ["first"], status: "complete" });
+    await expect(lines).toHaveCount(0);
+    await expect(page.locator("#search-preview")).toBeHidden();
+    await expect(page.locator("#navigation-start")).toBeVisible();
+    await expectRouteFits(page);
+    await expectRouteFitUnchanged(page);
+  });
+}
+
+test("arrival preview starts at the destination and explicit fit includes its detour", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const request: RouteRequest = { ...viaRequest, timing: "arrive" };
+  await open(page, true, request);
+  await expectMapSettled(page);
+  const positions = await requestMarkerPositions(page);
+  await publish(page, {
+    phase: "via",
+    activeSection: 0,
+    routePreview: provisionalRoute(request, 1, 2, true),
+  });
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    1,
+  );
+  await expect(page.locator("#search-preview-detail")).toHaveText(
+    `${request.origin.name} → sweet spot kaffee wird geprüft.`,
+  );
+  await expectMapSettled(page);
+  expect(await requestMarkerPositions(page)).toEqual(positions);
+  await expect(page.locator("#map-route")).toHaveAccessibleName(
+    "Orte und Teilroute anzeigen",
+  );
+  await page.locator("#map-route").click();
+  await expectMapSettled(page);
+  expect(await requestMarkerPositions(page)).not.toEqual(positions);
+  const line = (await page
+    .locator("#map .planning-route-preview-line")
+    .boundingBox())!;
+  const panel = (await page.locator("#journey-panel").boundingBox())!;
+  const controls = (await page.locator("#map-controls").boundingBox())!;
+  expect(line.y).toBeGreaterThanOrEqual(0);
+  expect(line.y + line.height).toBeLessThan(panel.y);
+  expect(line.x).toBeGreaterThanOrEqual(0);
+  expect(line.x + line.width).toBeLessThan(controls.x);
+  await expectRouteFits(page);
+  await expectRouteFitUnchanged(page);
+});
+
+test("offline interruption clears a provisional route before retry", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, true, viaRequest);
+  await publish(page, {
+    phase: "via",
+    activeSection: 1,
+    routePreview: provisionalRoute(viaRequest),
+  });
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    1,
+  );
+  await page.context().setOffline(true);
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    0,
+  );
+  await expect(page.locator("#search-preview-hint")).toBeHidden();
+  await expect(page.locator("#map .route-marker")).toHaveCount(3);
+  const retry = page.locator("#search-preview-feedback #recover-planning");
+  await expect(retry).toBeDisabled();
+  await page.context().setOffline(false);
+  await expect(retry).toBeEnabled();
+  await retry.click();
+  await expect(page.locator("#search-preview-spinner")).toBeVisible();
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    0,
+  );
+  await publish(page, {
+    phase: "via",
+    routePreview: provisionalRoute(viaRequest),
+  });
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    1,
+  );
+});
+
+for (const [width, height, fontSize] of [
+  [320, 844, 16],
+  [390, 844, 16],
+  [844, 390, 16],
+  [1280, 844, 16],
+  [320, 844, 32],
+]) {
+  test(`request map explains long searches at ${width}x${height} with ${fontSize}px text`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({
+      colorScheme: width === 390 ? "dark" : "light",
+      reducedMotion: "reduce",
+    });
+    await open(page, true, viaRequest);
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = `${size}px`;
+    }, fontSize);
+    await publish(page, { phase: "via", activeSection: 0 });
+    await expect(page.locator("#search-preview")).toBeVisible();
+    await expect(page.locator("#search-preview-detail")).toHaveText(
+      `${viaRequest.origin.name} → sweet spot kaffee wird geprüft.`,
+    );
+    await expect(page.locator("#search-preview-hint")).toBeHidden();
+    await expect(page.locator("#toast")).toBeHidden();
+    await expect(page.locator("#navigation-start")).toBeHidden();
+    await expect(page.locator("#map-open-details")).toBeHidden();
+    await expect(page.locator("#result-back")).toBeHidden();
+    await expect(page.locator("#map .route-marker")).toHaveCount(3);
+    await expect(
+      page.locator(
+        '#map .route-marker[aria-label="Zwischenstopp 1: sweet spot kaffee"]',
+      ),
+    ).toBeVisible();
+    await expect(
+      page.locator("#map .leaflet-overlay-pane svg path"),
+    ).toHaveCount(0);
+    await expect(page.locator("#map-route")).toHaveAccessibleName(
+      "Alle Orte anzeigen",
+    );
+    await expect(page.locator("#map-error")).toBeVisible();
+    await expectRouteFits(page);
+    await expectRouteFitUnchanged(page);
+    const positions = await requestMarkerPositions(page);
+    await page.locator("#route-more").focus();
+    await page.clock.fastForward(10_100);
+    await expect(page.locator("#search-preview-hint")).toHaveText(
+      "Mit Zwischenzielen stimmen wir mehrere Teilstrecken und Zeiten aufeinander ab.",
+    );
+    await expect(page.locator("#search-preview-hint")).toBeVisible();
+    await page.locator("#search-preview-hint").scrollIntoViewIfNeeded();
+    await expect(page.locator("#search-preview-hint")).toBeInViewport({
+      ratio: 0.99,
+    });
+    await publish(page, { phase: "via", activeSection: 1 });
+    await expect(page.locator("#search-preview-detail")).toHaveText(
+      `sweet spot kaffee → ${viaRequest.destination.name} wird geprüft.`,
+    );
+    await expectMapSettled(page);
+    expect(await requestMarkerPositions(page)).toEqual(positions);
+    await expect(page.locator("#route-more")).toBeFocused();
+    await expect(page.locator("#search-preview-spinner")).toHaveCSS(
+      "animation-name",
+      "none",
+    );
+    await page.screenshot({ path: info.outputPath("request-map-search.png") });
+    await publish(page, { phase: "via", ids: ["first"], status: "complete" });
+    await expect(page.locator("#search-preview")).toBeHidden();
+    await expect(page.locator("#navigation-start")).toBeVisible();
+    await expect(page.locator("#route-more")).toBeFocused();
+    await expectRouteFits(page);
+    await expectRouteFitUnchanged(page);
+    if (width < 900) await expect(page.locator("#toast")).toBeHidden();
+    else
+      await expect(page.locator("#toast")).toHaveAttribute(
+        "data-planning-stage",
+        "ready",
+      );
+  });
+}
+
+test("request map retains errors, retry and manual camera across the first result", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, true, viaRequest);
+  await expect(page.locator("#map .route-marker")).toHaveCount(3);
+  await publish(page, {
+    phase: "via",
+    routePreview: provisionalRoute(viaRequest),
+  });
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    1,
+  );
+  await expectMapSettled(page);
+  await publish(page, {
+    phase: "base",
+    error: "Der Dienst hat nicht rechtzeitig geantwortet.",
+  });
+  await expect(page.locator("#search-preview-title")).toHaveText(
+    "Keine Verbindung verfügbar",
+  );
+  await expect(page.locator("#search-preview-detail")).toHaveText(
+    "Der Dienst hat nicht rechtzeitig geantwortet.",
+  );
+  await expect(page.locator("#search-preview-spinner")).toBeHidden();
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    0,
+  );
+  const retry = page.locator("#search-preview-feedback #recover-planning");
+  await expect(retry).toBeVisible();
+  await expect(page.locator("#map .route-marker")).toHaveCount(3);
+  await retry.click();
+  await expect(page.locator("#search-preview-spinner")).toBeVisible();
+  await expect(page.locator("#search-preview-hint")).toBeHidden();
+  await expect(page.locator("#recover-planning")).toBeHidden();
+  await expectMapSettled(page);
+  await page.locator("#map").focus();
+  await page.keyboard.press("ArrowRight");
+  await page.clock.runFor(400);
+  await expectMapSettled(page);
+  const positions = await requestMarkerPositions(page);
+  await publish(page, {
+    phase: "via",
+    routePreview: provisionalRoute(viaRequest, 0, 1, true),
+  });
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    1,
+  );
+  await expectMapSettled(page);
+  expect(await requestMarkerPositions(page)).toEqual(positions);
+  await publish(page, { phase: "base", ids: ["first"] });
+  await expect(page.locator("#search-preview")).toBeHidden();
+  await expectMapSettled(page);
+  expect(await requestMarkerPositions(page)).toEqual(positions);
+  await expect(page.locator("#map")).toBeFocused();
+  await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
+});
+
+test("search wait timer survives progress and resets for a new request, ignoring late results", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, true, viaRequest);
+  await page.clock.fastForward(6000);
+  await publish(page, {
+    phase: "via",
+    activeSection: 1,
+    routePreview: provisionalRoute(viaRequest),
+  });
+  await page.clock.fastForward(4100);
+  await expect(page.locator("#search-preview-hint")).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).previousSearchControl = (window as any).searchControl;
+  });
+  await page.locator("#adjust-route").click();
+  await page.locator("#calculate").click();
+  await expect(page.locator("#search-preview-hint")).toBeHidden();
+  expect(
+    await page.evaluate(() => (window as any).previousSearchControl.aborted),
+  ).toBe(true);
+  await page.evaluate(
+    (routePreview) =>
+      (window as any).previousSearchControl.publish({
+        ids: ["late"],
+        status: "complete",
+        phase: "via",
+        activeSection: 1,
+        routePreview,
+      }),
+    provisionalRoute(viaRequest),
+  );
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await expect(page.locator("#map .planning-route-preview-line")).toHaveCount(
+    0,
+  );
+  await expect(page.locator("#search-preview-title")).toHaveText(
+    "Verbindungen werden gesucht …",
+  );
+  await page.clock.fastForward(9900);
+  await expect(page.locator("#search-preview-hint")).toBeHidden();
+  await page.clock.fastForward(200);
+  await expect(page.locator("#search-preview-hint")).toBeVisible();
+});
+
+test("initial search can recover after going offline without losing the request map", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, true);
+  await page.clock.fastForward(10_100);
+  await expect(page.locator("#search-preview-hint")).toHaveText(
+    "Die Suche dauert etwas länger. Wir prüfen weiter passende Verbindungen.",
+  );
+  await page.context().setOffline(true);
+  await expect(page.locator("#search-preview-detail")).toHaveText(
+    "Offline. Die Verbindungssuche wurde unterbrochen.",
+  );
+  await expect(page.locator("#search-preview-spinner")).toBeHidden();
+  await expect(page.locator("#map .route-marker")).toHaveCount(2);
+  const retry = page.locator("#search-preview-feedback #recover-planning");
+  await expect(retry).toBeVisible();
+  await expect(retry).toBeDisabled();
+  await page.context().setOffline(false);
+  await expect(retry).toBeEnabled();
+  await retry.click();
+  await expect(page.locator("#search-preview-spinner")).toBeVisible();
+  await expect(page.locator("#search-preview-hint")).toBeHidden();
+  await publish(page, { phase: "base", ids: ["first"], status: "complete" });
+  await expect(page.locator("#search-preview")).toBeHidden();
+  await expect(page.locator("#navigation-start")).toBeVisible();
+});
 
 for (const status of ["searching", "complete"] as const) {
   test(`mobile results skip visual readiness when search is ${status}`, async ({
@@ -259,14 +831,14 @@ test("finished optimization drops discarded detours before the route-fit button 
   await expectRouteFitUnchanged(page);
 });
 
-test("first current link result opens the map once and preserves explicit choices during optimization", async ({
+test("request map stays open for the first result and preserves explicit choices during optimization", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
-    "list",
+    "map",
   );
   await publish(page, {
     phase: "bike-transfers",
@@ -552,8 +1124,10 @@ for (const width of [320, 390, 1280])
       if (width === 320)
         await page.addStyleTag({ content: "html { font-size: 24px; }" });
       const toast = page.locator("#toast");
-      await expect(toast).toHaveText("Verbindungen werden gesucht …");
-      await expect(toast).toHaveAttribute("data-planning-stage", "searching");
+      await expect(page.locator("#search-preview-title")).toHaveText(
+        "Verbindungen werden gesucht …",
+      );
+      await expect(toast).toBeHidden();
       await expect(toast.locator(".toast-countdown")).toHaveCount(0);
       await expect(page.locator("#status")).toBeHidden();
       await expect(page.locator("#planning-ready")).toHaveCount(0);
@@ -813,11 +1387,8 @@ test("mobile search switches directly to optimization without shifting the list 
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, true);
   await page.clock.fastForward(7000);
-  await expect(page.locator("#toast")).toBeVisible();
-  await expect(page.locator("#toast")).toHaveAttribute(
-    "data-planning-stage",
-    "searching",
-  );
+  await expect(page.locator("#search-preview")).toBeVisible();
+  await expect(page.locator("#toast")).toBeHidden();
   await publish(page, { phase: "base", ids: ["first"] });
   await expect(page.locator("#toast")).toHaveAttribute(
     "data-planning-stage",

@@ -6,6 +6,7 @@ import {
   type RoutingSettings,
   type PlanningUpdate,
   type PlanningPhase,
+  type PlanningRoutePreview,
   compare,
   connectionKey,
   sectionCyclingExcess,
@@ -56,6 +57,29 @@ export function joinAtStop(
 interface Candidate {
   journey: Journey;
   overLimit: boolean;
+}
+function extendCandidate(
+  path: Candidate | undefined,
+  child: Journey,
+  boundary: RouteStop | undefined,
+  backward: boolean,
+  settings: RoutingSettings,
+): Candidate | undefined {
+  const journey = path
+    ? backward
+      ? joinAtStop(child, path.journey, boundary!)
+      : joinAtStop(path.journey, child, boundary!)
+    : child;
+  const overLimit =
+    !!path?.overLimit ||
+    sectionCyclingExcess(child, settings.maxCyclingMinutes) > 0;
+  if (
+    !journey ||
+    (overLimit && !journey.isDirect) ||
+    bikeBoardings(journey).length > settings.maxBikeTransfers
+  )
+    return;
+  return { journey, overLimit };
 }
 function frontier(items: Candidate[], request: RouteRequest): Candidate[] {
   const seen = new Set<string>();
@@ -131,6 +155,8 @@ export async function* planViaRoutes(
     stopped = false,
     retryableFailure = false,
     phase: PlanningPhase = "via";
+  let activeSection: number | undefined;
+  let routePreview: PlanningRoutePreview | undefined;
   const update = (status: PlanningUpdate["status"]): PlanningUpdate => ({
     journeys: selectJourneys(
       completed,
@@ -143,6 +169,9 @@ export async function* planViaRoutes(
     phase,
     issues: [...issues],
     incompletePhases: [...incompletePhases],
+    activeSection: status === "searching" ? activeSection : undefined,
+    routePreview:
+      status === "searching" && !completed.length ? routePreview : undefined,
   });
   const backward = request.timing === "arrive";
   try {
@@ -171,7 +200,20 @@ export async function* planViaRoutes(
                 : "depart",
             time,
           };
-          let latest: Journey[] = [];
+          let candidates: Candidate[] = [];
+          activeSection = index;
+          phase = "via";
+          if (path)
+            routePreview =
+              !path.overLimit || settings.showCyclingComparison
+                ? {
+                    legs: path.journey.legs,
+                    startSection: backward ? index + 1 : 0,
+                    endSection: backward ? places.length - 1 : index,
+                  }
+                : undefined;
+          signal.throwIfAborted();
+          yield update("searching");
           try {
             for await (const partUpdate of planRoutes(
               part,
@@ -180,13 +222,32 @@ export async function* planViaRoutes(
               client,
               { raw: true, baseOnly, budget },
             )) {
-              latest = partUpdate.journeys;
+              candidates = partUpdate.journeys.flatMap((child) => {
+                const candidate = extendCandidate(
+                  path,
+                  child,
+                  boundary,
+                  backward,
+                  settings,
+                );
+                return candidate ? [candidate] : [];
+              });
+              const preview = frontier([...candidates], request).find(
+                (candidate) =>
+                  !candidate.overLimit || settings.showCyclingComparison,
+              );
+              if (preview)
+                routePreview = {
+                  legs: preview.journey.legs,
+                  startSection: backward ? index : 0,
+                  endSection: backward ? places.length - 1 : index + 1,
+                };
               phase = partUpdate.phase === "base" ? "via" : partUpdate.phase;
               partUpdate.issues.forEach((issue) => issues.add(issue));
               partUpdate.incompletePhases.forEach((value) =>
                 incompletePhases.add(value === "base" ? "via" : value),
               );
-              // Only complete end-to-end journeys may leave this planner.
+              // Only complete end-to-end journeys enter the results array.
               yield update("searching");
             }
           } catch (error) {
@@ -204,23 +265,7 @@ export async function* planViaRoutes(
               count > 64 ||
               (error instanceof PlannerError && error.stops);
           }
-          for (const child of latest) {
-            const journey = path
-              ? backward
-                ? joinAtStop(child, path.journey, boundary!)
-                : joinAtStop(path.journey, child, boundary!)
-              : child;
-            const overLimit =
-              !!path?.overLimit ||
-              sectionCyclingExcess(child, settings.maxCyclingMinutes) > 0;
-            if (
-              !journey ||
-              (overLimit && !journey.isDirect) ||
-              bikeBoardings(journey).length > settings.maxBikeTransfers
-            )
-              continue;
-            additions.push({ journey, overLimit });
-          }
+          additions.push(...candidates);
           if (stage === places.length - 2 && additions.length) {
             completed = [...completed, ...additions.map((c) => c.journey)];
             yield update("searching");
@@ -252,6 +297,7 @@ export async function* planViaRoutes(
       incompletePhases.add("via");
     }
     if (!stopped && !combined.aborted && !budget.stopped) {
+      activeSection = undefined;
       try {
         for await (const walkingUpdate of optimizeWalking(
           completed,

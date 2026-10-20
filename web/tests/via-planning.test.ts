@@ -100,7 +100,249 @@ async function collect(
     updates.push(update);
   return updates;
 }
+const gate = () => {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+};
+
+describe("provisional via geometry", () => {
+  for (const timing of ["now", "depart", "arrive"] as const)
+    it(`publishes and extends a connected ${timing} preview before section searches finish`, async () => {
+      const first = timing === "arrive" ? 2 : 0;
+      const second = 1;
+      const last = timing === "arrive" ? 0 : 2;
+      const remainingVariants = gate();
+      const sections = [gate(), gate(), gate()];
+      const client = new (class extends Client {
+        override async batch(...args: Parameters<Client["batch"]>) {
+          const [request, , variant] = args;
+          const index = [0, 1, 2].find(
+            (i) => request.origin.name === p(i).name,
+          )!;
+          if (index === first) {
+            if (!variant.direct) await remainingVariants.promise;
+          } else await sections[index].promise;
+          return super.batch(...args);
+        }
+      })();
+      const updates: PlanningUpdate[] = [];
+      const task = (async () => {
+        for await (const update of planRoutes(
+          {
+            origin: p(0),
+            destination: p(3),
+            stops: [stop(1, 10), stop(2, 20)],
+            timing,
+            time,
+          },
+          { ...defaults, maxBikeTransfers: 0 },
+          new AbortController().signal,
+          client,
+        ))
+          updates.push(update);
+      })();
+      try {
+        await vi.waitFor(() =>
+          expect(updates.at(-1)?.routePreview).toBeDefined(),
+        );
+        const early = updates.at(-1)!;
+        expect(early.journeys).toEqual([]);
+        expect(early.routePreview).toMatchObject({
+          startSection: first,
+          endSection: first + 1,
+        });
+        expect(early.routePreview!.legs).toHaveLength(1);
+        expect(client.calls).toHaveLength(1);
+
+        remainingVariants.release();
+        await vi.waitFor(() =>
+          expect(updates.at(-1)?.activeSection).toBe(second),
+        );
+        expect(updates.at(-1)?.routePreview).toEqual(early.routePreview);
+        sections[second].release();
+        await vi.waitFor(() =>
+          expect(updates.at(-1)?.activeSection).toBe(last),
+        );
+        const extended = updates.at(-1)!.routePreview!;
+        expect(extended.startSection).toBe(timing === "arrive" ? 1 : 0);
+        expect(extended.endSection).toBe(timing === "arrive" ? 3 : 2);
+        expect(extended.legs[0].from).toEqual(p(extended.startSection));
+        expect(extended.legs.at(-1)!.to).toEqual(p(extended.endSection));
+        const pause = extended.legs.find((leg) => leg.kind === "stop")!;
+        expect(pause.end - pause.start).toBe(
+          (timing === "arrive" ? 20 : 10) * 60,
+        );
+        expect(updates.at(-1)!.journeys).toEqual([]);
+      } finally {
+        remainingVariants.release();
+        sections.forEach((section) => section.release());
+        await task;
+      }
+      expect(updates.at(-1)?.journeys).toHaveLength(1);
+      expect(
+        updates
+          .filter((update) => update.journeys.length)
+          .every((update) => !update.routePreview),
+      ).toBe(true);
+    });
+
+  it("switches the preview to the candidate whose continuation is being checked", async () => {
+    const onward = gate();
+    const client = new (class extends Client {
+      override async batch(...args: Parameters<Client["batch"]>) {
+        const [request] = args;
+        if (request.origin.name === p(1).name && request.time === time + 900)
+          await onward.promise;
+        return super.batch(...args);
+      }
+    })((request, variant) => {
+      if (!variant.direct) return [];
+      if (request.origin.name === p(0).name)
+        return [ride(request, 5), ride(request, 15)];
+      return request.time === time + 900 ? [ride(request)] : [];
+    });
+    const updates: PlanningUpdate[] = [];
+    const task = (async () => {
+      for await (const update of planRoutes(
+        {
+          origin: p(0),
+          destination: p(2),
+          stops: [stop(1)],
+          timing: "depart",
+          time,
+        },
+        { ...defaults, maxBikeTransfers: 0 },
+        new AbortController().signal,
+        client,
+      ))
+        updates.push(update);
+    })();
+    try {
+      await vi.waitFor(() =>
+        expect(updates.at(-1)?.routePreview?.legs[0].end).toBe(time + 900),
+      );
+      expect(updates.at(-1)?.activeSection).toBe(1);
+      expect(updates.at(-1)?.journeys).toEqual([]);
+      expect(
+        updates.some(
+          (update) => update.routePreview?.legs[0].end === time + 300,
+        ),
+      ).toBe(true);
+    } finally {
+      onward.release();
+      await task;
+    }
+    expect(updates.at(-1)?.journeys[0].legs[0].end).toBe(time + 900);
+  });
+
+  for (const invalid of ["connection", "place", "hidden cycling comparison"])
+    it(`does not expose an invalid ${invalid} in the preview`, async () => {
+      const updates: PlanningUpdate[] = [];
+      const client = new Client((request, variant) => {
+        if (!variant.direct) return [];
+        if (invalid === "hidden cycling comparison") return [ride(request, 35)];
+        if (request.origin.name === p(0).name) return [ride(request)];
+        return [
+          ride(
+            invalid === "connection"
+              ? { ...request, time: request.time - 1 }
+              : { ...request, origin: p(9) },
+          ),
+        ];
+      });
+      await expect(async () => {
+        for await (const update of planRoutes(
+          {
+            origin: p(0),
+            destination: p(3),
+            stops: [stop(1, 10), stop(2)],
+            timing: "depart",
+            time,
+          },
+          { ...defaults, maxBikeTransfers: 0, showCyclingComparison: false },
+          new AbortController().signal,
+          client,
+        ))
+          updates.push(update);
+      }).rejects.toThrow("Keine vollständige Verbindung");
+      const previews = updates.flatMap((update) =>
+        update.routePreview ? [update.routePreview] : [],
+      );
+      if (invalid === "hidden cycling comparison") expect(previews).toEqual([]);
+      else {
+        expect(previews.length).toBeGreaterThan(0);
+        expect(
+          previews.every(
+            (preview) => preview.startSection === 0 && preview.endSection === 1,
+          ),
+        ).toBe(true);
+      }
+      expect(updates.every((update) => !update.journeys.length)).toBe(true);
+    });
+});
+
 describe("free intermediate stops", () => {
+  it("reports revisited sections while comparing additional alternatives", async () => {
+    const client = new Client((request, variant) => [
+      ride(request, 10, !!variant.direct),
+    ]);
+    const updates = await collect(
+      {
+        origin: p(0),
+        destination: p(2),
+        stops: [stop(1)],
+        timing: "depart",
+        time,
+      },
+      client,
+      { ...defaults, maxBikeTransfers: 1 },
+    );
+    const sections = updates.map((update) => update.activeSection);
+    const secondSection = sections.indexOf(1);
+    expect(secondSection).toBeGreaterThan(0);
+    expect(sections.slice(secondSection + 1)).toContain(0);
+    expect(updates.at(-1)?.activeSection).toBeUndefined();
+  });
+
+  for (const timing of ["depart", "arrive"] as const)
+    it(`reports active sections in the actual ${timing} search order before results`, async () => {
+      const client = new Client();
+      const stream = planRoutes(
+        {
+          origin: p(0),
+          destination: p(3),
+          stops: [stop(1), stop(2)],
+          timing,
+          time,
+        },
+        { ...defaults, maxBikeTransfers: 0 },
+        new AbortController().signal,
+        client,
+      );
+      const first = (await stream.next()).value as PlanningUpdate;
+      expect(first).toMatchObject({
+        journeys: [],
+        activeSection: timing === "arrive" ? 2 : 0,
+      });
+      expect(client.calls).toHaveLength(0);
+      const updates = [first];
+      for await (const update of stream) updates.push(update);
+      const sections = updates
+        .map((update) => update.activeSection)
+        .filter(
+          (section, index, values) =>
+            section !== undefined && section !== values[index - 1],
+        );
+      expect(sections).toEqual(timing === "arrive" ? [2, 1, 0] : [0, 1, 2]);
+      expect(updates.at(-1)?.activeSection).toBeUndefined();
+      expect(
+        updates.at(-1)?.journeys[0].legs.filter((leg) => leg.kind === "stop"),
+      ).toHaveLength(2);
+    });
+
   for (const timing of ["depart", "arrive"] as const)
     it(`keeps a past ${timing} time through all intermediate sections`, async () => {
       const past = Math.floor(Date.now() / 1000) - 86400;

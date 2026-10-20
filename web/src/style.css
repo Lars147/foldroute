@@ -3516,6 +3516,69 @@ dialog.editing-time {
 #map-request-meta {
   display: none;
 }
+#search-preview {
+  padding: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+#search-preview-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+#search-preview-spinner {
+  flex-shrink: 0;
+  align-self: center;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--panel-muted);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: route-loading 0.8s linear infinite;
+}
+#search-preview-detail,
+.search-preview-hint-slot p {
+  margin: 0 0 10px;
+  color: var(--panel-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+#search-preview-detail {
+  min-height: 3em;
+}
+.search-preview-hint-slot {
+  display: grid;
+}
+.search-preview-hint-slot p {
+  grid-area: 1 / 1;
+}
+#search-preview-hint-reserve {
+  /* Reserve the explanation's space so long waits do not move map markers. */
+  visibility: hidden;
+}
+.search-preview-hint-slot p:empty {
+  display: none;
+}
+#search-preview-feedback {
+  display: grid;
+  gap: 8px;
+}
+#search-preview-feedback > :not([hidden]) {
+  margin: 0 0 4px;
+}
+.journey-panel[data-request-preview] .panel-content,
+.journey-panel[data-request-preview] .panel-actions {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  #search-preview-spinner {
+    animation: none;
+  }
+}
 .journey-panel.result-scroll-all {
   display: block;
   overflow-y: auto;
