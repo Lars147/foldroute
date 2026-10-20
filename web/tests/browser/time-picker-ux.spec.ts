@@ -1,4 +1,227 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+async function setVisualViewport(
+  page: Page,
+  height: number,
+  offsetTop = 0,
+  event = "resize",
+) {
+  await page.evaluate(
+    ({ height, offsetTop, event }) => {
+      Object.defineProperties(window.visualViewport, {
+        height: { configurable: true, value: height },
+        offsetTop: { configurable: true, value: offsetTop },
+      });
+      window.visualViewport!.dispatchEvent(new Event(event));
+    },
+    { height, offsetTop, event },
+  );
+}
+
+async function expectClockAboveKeyboard(page: Page) {
+  // Read geometry before any action that could scroll the input into view.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const dialog = document.getElementById("time-dialog")!;
+        const body = dialog.querySelector(".time-editor-body")!;
+        const bounds = body.getBoundingClientRect();
+        const field = document.getElementById("time-clock") as HTMLInputElement;
+        const clock = field.getBoundingClientRect();
+        const label = field.labels![0].getBoundingClientRect();
+        const apply = document
+          .getElementById("time-apply")!
+          .getBoundingClientRect();
+        const modal = dialog.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const top = viewport?.offsetTop ?? 0;
+        const bottom = top + (viewport?.height ?? innerHeight);
+        return {
+          inputVisible:
+            clock.top >= Math.max(bounds.top, top) + 7 &&
+            clock.bottom <= Math.min(bounds.bottom, bottom) - 7,
+          labelVisible: label.top >= bounds.top + 7,
+          applyVisible: apply.top >= top && apply.bottom <= bottom,
+          dialogFits: modal.top >= top && modal.bottom <= bottom + 1,
+          onlyBodyScrolls: dialog.scrollTop === 0,
+          noHorizontalOverflow: body.scrollWidth <= body.clientWidth + 1,
+        };
+      }),
+    )
+    .toEqual({
+      inputVisible: true,
+      labelVisible: true,
+      applyVisible: true,
+      dialogFits: true,
+      onlyBodyScrolls: true,
+      noHorizontalOverflow: true,
+    });
+}
+
+for (const width of [320, 390])
+  test(`focused time follows keyboard opening, panning and closing at ${width}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: width === 390 ? "dark" : "light" });
+    await page.clock.setFixedTime(new Date("2026-09-22T12:00:00Z"));
+    await page.goto("/");
+    await page.locator("#search-adjust").click();
+    await page.locator("#time-trigger").click();
+    const clock = page.locator("#time-clock");
+    await clock.focus();
+    const background = await page.evaluate(() => ({
+      window: window.scrollY,
+      search: document.querySelector(".search-content")!.scrollTop,
+    }));
+
+    // A software keyboard changes only the visual viewport on iOS.
+    await setVisualViewport(page, 365, 40);
+    await expectClockAboveKeyboard(page);
+    expect(await page.evaluate(() => innerHeight)).toBe(844);
+    await expect(clock).toBeFocused();
+    await expect(clock).toHaveValue("14:00");
+
+    // Panning and further keyboard resize must not hide the focused field.
+    await setVisualViewport(page, 300, 65, "scroll");
+    await expectClockAboveKeyboard(page);
+    await clock.fill("");
+    await expect(page.locator("#time-apply")).toBeDisabled();
+    await expectClockAboveKeyboard(page);
+    await clock.fill("18:30");
+    await expect(page.locator("#time-apply")).toBeEnabled();
+
+    await setVisualViewport(page, 844);
+    await expectClockAboveKeyboard(page);
+    await setVisualViewport(page, 365, 40);
+    await expectClockAboveKeyboard(page);
+    expect(
+      await page.evaluate(() => ({
+        window: window.scrollY,
+        search: document.querySelector(".search-content")!.scrollTop,
+      })),
+    ).toEqual(background);
+    await page.screenshot({ path: info.outputPath("keyboard-time.png") });
+    await page.locator("#time-apply").click();
+    await expect(page.locator("#when")).toHaveValue("2026-09-22T18:30");
+    await expect(page.locator("#time-trigger")).toBeFocused();
+
+    // Focus must also reveal the input when the keyboard is already open.
+    await page.locator("#time-trigger").click();
+    await clock.evaluate((field: HTMLInputElement) =>
+      field.focus({ preventScroll: true }),
+    );
+    await expectClockAboveKeyboard(page);
+    await clock.fill("19:45");
+    await page.locator("#time-cancel").click();
+    await expect(page.locator("#when")).toHaveValue("2026-09-22T18:30");
+    await expect(page.locator("#time-trigger")).toBeFocused();
+    await setVisualViewport(page, 844);
+    await expect(page.locator("#time-dialog")).not.toHaveAttribute("open");
+  });
+
+for (const locale of ["de-DE", "en-US"])
+  test.describe(`native time input in ${locale}`, () => {
+    test.use({ locale });
+    for (const width of [320, 390, 1100])
+      test(`time and actions fit at ${width}`, async ({ page }, info) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.emulateMedia({
+          colorScheme: locale === "de-DE" ? "light" : "dark",
+        });
+        await page.clock.setFixedTime(new Date("2026-09-22T12:00:00Z"));
+        await page.goto("/");
+        await page.locator("#search-adjust").click();
+        await page.locator("#time-trigger").click();
+        const clock = page.locator("#time-clock");
+        await expect(clock).toHaveAttribute("type", "time");
+        await expect(clock).toHaveAttribute("step", "60");
+        await expect(clock).toHaveAttribute("required", "");
+        await expect(clock).not.toBeFocused();
+        await clock.fill("18:31");
+        await expect(clock).toBeFocused();
+        await expect(clock).toHaveValue("18:31");
+        await expectClockAboveKeyboard(page);
+        expect(
+          await clock.evaluate((field) =>
+            ["time-minus", "time-plus", "time-now"].every((id) => {
+              const button = document.getElementById(id)!;
+              const input = field.getBoundingClientRect();
+              const bounds = button.getBoundingClientRect();
+              const body = button.closest(".time-editor-body")!;
+              return (
+                bounds.width >= 44 &&
+                bounds.height >= 44 &&
+                bounds.left >= body.getBoundingClientRect().left &&
+                bounds.right <= body.getBoundingClientRect().right &&
+                (bounds.right <= input.left ||
+                  bounds.left >= input.right ||
+                  bounds.top >= input.bottom)
+              );
+            }),
+          ),
+        ).toBe(true);
+        await page.screenshot({ path: info.outputPath("native-time.png") });
+        await page.locator("#time-apply").click();
+        await expect(page.locator("#when")).toHaveValue("2026-09-22T18:31");
+      });
+  });
+
+for (const event of ["change", "blur"])
+  test(`native time ${event} validates the draft before applying`, async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(new Date("2026-09-22T12:00:00Z"));
+    await page.goto("/");
+    await page.locator("#search-adjust").click();
+    await page.locator("#time-trigger").click();
+    const clock = page.locator("#time-clock");
+    const saved = await page.locator("#when").inputValue();
+    for (const value of ["", "18:31"]) {
+      await clock.focus();
+      // Model picker commits without a preceding text-input event.
+      await clock.evaluate(
+        (field: HTMLInputElement, { value, event }) => {
+          field.value = value;
+          if (event === "blur") field.blur();
+          else field.dispatchEvent(new Event(event, { bubbles: true }));
+        },
+        { value, event },
+      );
+      await expect(clock).toHaveAttribute("aria-invalid", String(!value));
+      for (const id of ["time-apply", "time-minus", "time-plus"])
+        await expect(page.locator(`#${id}`)).toBeEnabled({ enabled: !!value });
+      await expect(page.locator("#when")).toHaveValue(saved);
+    }
+    await page.locator("#time-apply").click();
+    await expect(page.locator("#when")).toHaveValue("2026-09-22T18:31");
+  });
+
+test("window resize keeps time and actions visible with safe areas and no VisualViewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 844 });
+  await page.addInitScript(() =>
+    Object.defineProperty(window, "visualViewport", { value: undefined }),
+  );
+  await page.goto("/");
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--safe-top", "24px");
+    document.documentElement.style.setProperty("--safe-bottom", "16px");
+  });
+  await page.locator("#search-adjust").click();
+  await page.locator("#time-trigger").click();
+  await page.locator("#time-clock").fill("18:30");
+  await page.setViewportSize({ width: 1100, height: 340 });
+  await expectClockAboveKeyboard(page);
+  await expect(page.locator("#time-clock")).toBeFocused();
+  await expect(page.locator("#time-clock")).toHaveValue("18:30");
+  const dialog = await page.locator("#time-dialog").boundingBox();
+  expect(dialog!.y).toBeGreaterThanOrEqual(24);
+  expect(dialog!.y + dialog!.height).toBeLessThanOrEqual(340 - 16);
+  await page.locator("#time-apply").click();
+  await expect(page.locator("#time-summary")).toContainText("18:30");
+});
 
 for (const width of [390, 1100])
   test(`calendar edits are isolated and keyboard accessible at ${width}`, async ({
@@ -20,7 +243,7 @@ for (const width of [390, 1100])
     await expect(page.locator('[data-date="2026-09-23"]')).toBeFocused();
     await page.locator('[data-date="2026-09-23"]').press("Enter");
     await page.locator("#time-arrive").click();
-    await page.locator("#time-clock").fill("1830");
+    await page.locator("#time-clock").fill("18:30");
     await page.locator("#time-apply").click();
     await expect(page.locator("#time-summary")).toHaveText("Morgen, an 18:30");
     await expect(page.locator("#time-trigger")).toBeFocused();
@@ -55,7 +278,7 @@ test("time validation, five minute midnight rollover and short keyboard viewport
   await page.locator("#time-trigger").click();
   await page.locator("#time-clock").fill("13:59");
   await expect(page.locator("#time-apply")).toBeEnabled();
-  await page.locator("#time-clock").fill("25:00");
+  await page.locator("#time-clock").fill("");
   await expect(page.locator("#time-apply")).toBeDisabled();
   await expect(page.locator("#time-error")).not.toContainText("zukünftig");
   await page.locator("#time-clock").fill("23:58");

@@ -50,12 +50,167 @@ async function advanceVisibleTo(page: Page, elapsed: number) {
   await page.clock.runFor(elapsed - current);
 }
 
+async function startupPose(page: Page, elapsed: number) {
+  return page.locator(".startup-scene").evaluate((scene, elapsed) => {
+    for (const animation of scene.getAnimations({ subtree: true })) {
+      animation.pause();
+      animation.currentTime = elapsed;
+    }
+    const matrix = (element: Element) => {
+      const value = getComputedStyle(element).transform;
+      return value === "none"
+        ? new DOMMatrixReadOnly()
+        : new DOMMatrixReadOnly(value);
+    };
+    const wheels = [...scene.querySelectorAll<SVGGElement>("[data-wheel]")].map(
+      (wheel) => {
+        const circle = wheel.querySelector("circle")!;
+        const screen = circle.getScreenCTM()!;
+        const center = new DOMPoint(
+          circle.cx.baseVal.value,
+          circle.cy.baseVal.value,
+        ).matrixTransform(screen);
+        const rotation = matrix(wheel);
+        return {
+          center: [center.x, center.y],
+          rotation: [rotation.a, rotation.b],
+          circumference:
+            2 *
+            Math.PI *
+            (circle.r.baseVal.value +
+              Number(getComputedStyle(circle).strokeWidth.replace("px", "")) /
+                2) *
+            Math.hypot(screen.a, screen.b),
+        };
+      },
+    );
+    const mark = scene.querySelector(".startup-mark")!.getBoundingClientRect();
+    return {
+      wheels,
+      fold: [...scene.querySelectorAll("[data-fold]")].map(
+        (part) => getComputedStyle(part).transform,
+      ),
+      roadClip: getComputedStyle(scene.querySelector(".startup-road")!)
+        .clipPath,
+      roadTravel: matrix(scene.querySelector(".startup-road-track")!).m41,
+      mark: { x: mark.x, y: mark.y, width: mark.width, height: mark.height },
+    };
+  }, elapsed);
+}
+
+for (const [width, theme] of [
+  [320, "light"],
+  [390, "dark"],
+] as const)
+  test(`unfolding becomes a seamless stationary ride at ${width}px in ${theme}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({
+      colorScheme: theme,
+      reducedMotion: "no-preference",
+    });
+    await controlledStartup(page);
+    await expect(page.locator(".startup-scene")).toBeVisible();
+    const initial = await startupPose(page, 0);
+    const folding = await startupPose(page, 240);
+    expect(folding.fold).not.toEqual(initial.fold);
+    const unfolded = await startupPose(page, 480);
+    expect(unfolded.fold).toEqual(initial.fold);
+    expect(unfolded.roadClip).toEqual(initial.roadClip);
+    const waiting = await startupPose(page, 640);
+    expect(waiting.roadClip).toEqual(initial.roadClip);
+    const arriving = await startupPose(page, 720);
+    expect(arriving.roadClip).not.toBe(initial.roadClip);
+    const ready = await startupPose(page, 800);
+    expect(ready.wheels).toHaveLength(2);
+    expect(arriving.roadClip).not.toBe(ready.roadClip);
+    const riding = await startupPose(page, 1025);
+    for (const [index, wheel] of riding.wheels.entries()) {
+      expect(wheel.rotation[0]).toBeCloseTo(0, 4);
+      expect(wheel.rotation[1]).toBeCloseTo(1, 4);
+      expect(wheel.center[0]).toBeCloseTo(ready.wheels[index].center[0], 3);
+      expect(wheel.center[1]).toBeCloseTo(ready.wheels[index].center[1], 3);
+    }
+    expect(riding.roadTravel).toBeCloseTo(
+      -riding.wheels[0].circumference / 4,
+      2,
+    );
+    const later = await startupPose(page, 1325);
+    expect(later.wheels[0].rotation).not.toEqual(riding.wheels[0].rotation);
+    expect(later.roadTravel).toBeLessThan(riding.roadTravel);
+    const repeated = await startupPose(page, 1925);
+    for (const [index, wheel] of repeated.wheels.entries()) {
+      const previous = riding.wheels[index];
+      wheel.center.forEach((value, axis) =>
+        expect(value).toBeCloseTo(previous.center[axis], 4),
+      );
+      wheel.rotation.forEach((value, axis) =>
+        expect(value).toBeCloseTo(previous.rotation[axis], 4),
+      );
+      expect(wheel.circumference).toBeCloseTo(previous.circumference, 4);
+    }
+    expect(repeated.roadTravel).toBeCloseTo(riding.roadTravel, 4);
+    expect(repeated.mark).toEqual({
+      x: (width - 128) / 2,
+      y: (844 - 128) / 2,
+      width: 128,
+      height: 128,
+    });
+    expect(
+      await page.locator(".startup-scene").evaluate((scene) => {
+        const bounds = scene.getBoundingClientRect();
+        const road = scene
+          .querySelector(".startup-road")!
+          .getBoundingClientRect();
+        return (
+          bounds.left >= 24 &&
+          bounds.right <= innerWidth - 24 &&
+          road.bottom <= bounds.bottom
+        );
+      }),
+    ).toBe(true);
+    await page.screenshot({ path: info.outputPath(`ride-${theme}.png`) });
+    await advanceVisibleTo(page, 2000);
+    await page.evaluate(() => (window as any).releaseTestStartup());
+    // Paused infinite animations must never hold the ready application.
+    await expect(page.locator("#main")).not.toHaveAttribute("inert");
+    await expect(page.locator("#app-startup")).toBeHidden();
+    await expect(page.locator("html")).not.toHaveAttribute(
+      "data-startup-motion",
+    );
+  });
+
+test("a failed ride stops motion and keeps reload available", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await controlledStartup(page);
+  await startupPose(page, 1000);
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("foldroute:startup-error")),
+  );
+  await expect(page.locator("#startup-reload")).toBeVisible();
+  await expect(page.locator("#main")).toHaveAttribute("inert", "");
+  expect(
+    await page
+      .locator(".startup-scene")
+      .evaluate((scene) => scene.getAnimations({ subtree: true }).length),
+  ).toBe(0);
+});
+
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
   test(`fast installed start holds 600 ms of visible logo (${reducedMotion})`, async ({
     page,
   }) => {
     await page.emulateMedia({ reducedMotion });
     await controlledStartup(page);
+    if (reducedMotion === "reduce")
+      expect(
+        await page
+          .locator(".startup-scene")
+          .evaluate((scene) => scene.getAnimations({ subtree: true }).length),
+      ).toBe(0);
     await page.evaluate(() => (window as any).releaseTestStartup());
     await advanceVisibleTo(page, 599);
     await expect(page.locator("#app-startup")).toBeVisible();
@@ -376,15 +531,30 @@ test("local preview pauses, changes theme and replays without touching personal 
     await expect(phone.locator("html")).toHaveAttribute("data-theme", theme);
     await expect
       .poll(() =>
-        phone
-          .locator(".startup-mark")
-          .evaluate((mark) =>
-            mark
-              .getAnimations({ subtree: true })
-              .every((animation) => animation.playState === "finished"),
-          ),
+        phone.locator(".startup-scene").evaluate((scene) => {
+          const loops = scene
+            .getAnimations({ subtree: true })
+            .filter(
+              (animation) =>
+                animation.effect!.getTiming().iterations === Infinity,
+            );
+          return (
+            loops.length === 3 &&
+            loops.every(
+              (animation) =>
+                animation.playState === "running" &&
+                Number(animation.currentTime) > 800,
+            )
+          );
+        }),
       )
       .toBe(true);
+    await phone.locator(".startup-scene").evaluate((scene) => {
+      for (const animation of scene.getAnimations({ subtree: true })) {
+        animation.pause();
+        animation.currentTime = 1000;
+      }
+    });
     await page.screenshot({
       path: test.info().outputPath(`preview-${theme}.png`),
     });
@@ -429,6 +599,10 @@ test("production startup shell stays inline and offline without generated splash
   await page.goto(production);
   await expect(page.locator("#app-startup")).toBeHidden();
   await expect(page.locator("#app-startup svg [data-fold]")).toHaveCount(2);
+  await expect(page.locator("#app-startup [data-startup-spokes]")).toHaveCount(
+    2,
+  );
+  await expect(page.locator(".startup-road-track pattern")).toHaveCount(1);
   await expect(
     page.locator('link[rel="apple-touch-startup-image"]'),
   ).toHaveCount(0);
@@ -459,6 +633,8 @@ test("production startup shell stays inline and offline without generated splash
   });
   expect(cached.html).toContain('data-fold="rear"');
   expect(cached.html).toContain('data-fold="front"');
+  expect(cached.html).toContain("data-startup-spokes");
+  expect(cached.html).toContain("startup-road-pattern");
   expect(cached.html).not.toContain("apple-touch-startup-image");
   expect(
     cached.requests.filter((url) => new URL(url).pathname.includes("/splash/")),
