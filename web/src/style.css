@@ -2836,8 +2836,18 @@ dialog.compact .dialog-actions {
   margin-left: auto;
   font-size: 24px;
 }
+dialog.editing-time {
+  height: min(
+    760px,
+    calc(
+      var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom) - 24px
+    )
+  );
+  overflow: hidden;
+}
 #time-editor {
-  height: min(760px, calc(var(--visual-height, 100dvh) - 24px));
+  height: 100%;
+  max-height: 100%;
 }
 #time-editor .dialog-heading {
   align-items: center;
@@ -2846,6 +2856,7 @@ dialog.compact .dialog-actions {
 .time-editor-body {
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   min-height: 0;
   flex: 1;
   padding: 16px 20px;
@@ -2941,13 +2952,15 @@ dialog.compact .dialog-actions {
     top: calc(var(--visual-top, 0px) + var(--safe-top));
     border-radius: 0;
   }
-  #time-editor {
-    height: 100%;
-    max-height: 100%;
-  }
 }
 
 @media (max-width: 359px) {
+  .time-clock-controls {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+  #time-now {
+    grid-column: 1 / -1;
+  }
   .time-weekdays,
   #time-calendar {
     margin-inline: -14px;

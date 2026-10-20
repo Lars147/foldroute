@@ -39,6 +39,7 @@ export class TimePicker {
   private mode: Exclude<Timing, "now"> = "depart";
   private day = "";
   private month = new Date();
+  private clockScrollFrame: number | undefined;
   private get active() {
     return el<HTMLDialogElement>("time-dialog").open;
   }
@@ -64,15 +65,17 @@ export class TimePicker {
         this.setFixedDate(date);
         this.render();
       };
-    el("time-clock").onblur = () => {
-      const date = this.date();
-      if (date)
-        el<HTMLInputElement>("time-clock").value = localMinute(date).slice(11);
+    const clock = el<HTMLInputElement>("time-clock");
+    const updateClock = () => {
       this.validate();
+      this.keepClockVisible();
     };
-    el("time-clock").oninput = () => {
-      this.validate();
-    };
+    for (const event of ["input", "change", "blur"])
+      clock.addEventListener(event, updateClock);
+    clock.addEventListener("focus", this.keepClockVisible);
+    window.visualViewport?.addEventListener("resize", this.keepClockVisible);
+    window.visualViewport?.addEventListener("scroll", this.keepClockVisible);
+    window.addEventListener("resize", this.keepClockVisible);
     el("time-editor").onsubmit = (event) => {
       event.preventDefault();
       if (!this.validate()) return;
@@ -89,11 +92,43 @@ export class TimePicker {
       }
     });
   }
+  private keepClockVisible = () => {
+    if (
+      !this.active ||
+      document.activeElement !== el("time-clock") ||
+      this.clockScrollFrame !== undefined
+    )
+      return;
+
+    // Measure after the shared viewport handler has updated the dialog's size.
+    this.clockScrollFrame = requestAnimationFrame(() => {
+      this.clockScrollFrame = undefined;
+      const field = el<HTMLInputElement>("time-clock");
+      if (!this.active || document.activeElement !== field) return;
+      const body =
+        el("time-editor").querySelector<HTMLElement>(".time-editor-body")!;
+      const bounds = body.getBoundingClientRect();
+      const clock = field.getBoundingClientRect();
+      const labelTop = field.labels![0].getBoundingClientRect().top;
+      const viewport = window.visualViewport;
+      // Leave room for the focus outline inside the body and visual viewport.
+      const visibleTop = Math.max(bounds.top, viewport?.offsetTop ?? 0) + 8;
+      const visibleBottom =
+        Math.min(
+          bounds.bottom,
+          (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight),
+        ) - 8;
+      const top = Math.min(labelTop, clock.top);
+      const desiredTop =
+        clock.bottom - top <= visibleBottom - visibleTop ? top : clock.top;
+      if (clock.bottom > visibleBottom)
+        body.scrollTop += clock.bottom - visibleBottom;
+      else if (desiredTop < visibleTop)
+        body.scrollTop += desiredTop - visibleTop;
+    });
+  };
   private date() {
-    const clock = el<HTMLInputElement>("time-clock").value.replace(
-      /^(\d{2})(\d{2})$/,
-      "$1:$2",
-    );
+    const clock = el<HTMLInputElement>("time-clock").value;
     return parseLocalMinute(`${this.day}T${clock}`);
   }
   private setFixedDate(date: Date) {
@@ -117,6 +152,10 @@ export class TimePicker {
   }
   close(focus = true) {
     if (!this.active) return;
+    if (this.clockScrollFrame !== undefined) {
+      cancelAnimationFrame(this.clockScrollFrame);
+      this.clockScrollFrame = undefined;
+    }
     stopMotionWithin(el("time-editor"));
     el<HTMLDialogElement>("time-dialog").close();
     if (focus) el("time-trigger").focus();
@@ -158,9 +197,10 @@ export class TimePicker {
   private validate() {
     const date = this.date();
     const valid = !!date;
+    el("time-clock").setAttribute("aria-invalid", String(!valid));
     el("time-error").textContent = valid
       ? ""
-      : "Bitte ein gültiges Datum und eine Uhrzeit (HH:mm) wählen.";
+      : "Bitte ein gültiges Datum und eine Uhrzeit wählen.";
     el<HTMLButtonElement>("time-apply").disabled = !valid;
     el<HTMLButtonElement>("time-minus").disabled = !date;
     el<HTMLButtonElement>("time-plus").disabled = !date;

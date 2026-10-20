@@ -58,6 +58,7 @@ export async function finishStartup(): Promise<boolean> {
   splash.setAttribute("aria-hidden", "true");
   const hide = () => {
     splash.hidden = true;
+    delete document.documentElement.dataset.startupMotion;
     delete splash.dataset.exiting;
     const presentations = [...pendingPresentation];
     pendingPresentation.clear();

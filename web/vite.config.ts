@@ -41,9 +41,22 @@ export default defineConfig({
       async transformIndexHtml(html) {
         const placeholder = "<!-- startup-mark -->";
         if (!html.includes(placeholder)) return;
-        const svg = (await readFile(startupMark, "utf8"))
+        let svg = (await readFile(startupMark, "utf8"))
           .replace(/<\?xml[^>]*\?>\s*/, "")
           .replaceAll("#F5F6F3", "currentColor");
+        for (const [wheel, center] of [
+          ["rear", 280],
+          ["front", 740],
+        ] as const) {
+          const marker = `<g data-wheel="${wheel}">`;
+          if (!svg.includes(marker))
+            throw new Error(`Startup logo is missing its ${wheel} wheel group`);
+          // Spokes belong to the moving splash, not to the shared static mark.
+          svg = svg.replace(
+            marker,
+            `${marker}<path data-startup-spokes d="M${center - 100} 690H${center + 100}M${center} 590V790" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" opacity=".65"/>`,
+          );
+        }
         return html.replace(placeholder, svg);
       },
       configureServer(server) {

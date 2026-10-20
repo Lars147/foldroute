@@ -31,7 +31,7 @@ window.addEventListener("message", (event) => {
     proceed.disabled = automatic;
     status.textContent = automatic
       ? "Start läuft. Das Logo bleibt mindestens 600 ms sichtbar."
-      : "Start pausiert. Mit Fortsetzen öffnet sich die App.";
+      : "Start wartet. Die Vorschau läuft bis zum Fortsetzen.";
   } else if (event.data === "foldroute:splash-complete") {
     status.textContent = "Start abgeschlossen.";
   }
