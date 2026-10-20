@@ -1,5 +1,5 @@
 import type { PlanningState } from "./planning-state";
-import { planningProgress } from "./planning-progress";
+import { planningProgress, planningRequestPreview } from "./planning-progress";
 import { el } from "./ui";
 
 export const planningReadyMessage = "Verbindungen gefunden";
@@ -136,7 +136,9 @@ export class PlanningFeedback {
     const map =
       !matchMedia("(min-width: 900px)").matches &&
       el("map-view").dataset.resultScreen === "map";
-    el(map ? "map-preview-status" : "stale-notice").after(recovery);
+    if (this.state && planningRequestPreview(this.state))
+      el("search-preview-feedback").prepend(recovery);
+    else el(map ? "map-preview-status" : "stale-notice").after(recovery);
     const message = this.state ? planningProgress(this.state).message : "";
     el("status").textContent = message;
     el("map-preview-status").textContent = message;
@@ -213,7 +215,8 @@ export class PlanningFeedback {
       el("planning-announcement").textContent = planningReadyMessage;
     if (progress.loading) {
       this.readyId = undefined;
-      this.notify(this.searchingId, state.message, "searching");
+      if (planningRequestPreview(state)) this.dismiss();
+      else this.notify(this.searchingId, state.message, "searching");
     } else if (state.searchStatus === "partial") {
       this.readyId = undefined;
       if (this.notify(id!, progress.message, "error")) this.attachRecovery();

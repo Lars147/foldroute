@@ -43,6 +43,7 @@ import {
 import { ApiClient } from "./transitous";
 import { PlaceSearch, locate, clearSearchLocation } from "./search";
 import { PlanningSession, type PlanningState } from "./planning-state";
+import { planningRequestPreview } from "./planning-progress";
 import { RouteMap } from "./map-view";
 import { JourneyView, type JourneyNavigation } from "./journey-view";
 import {
@@ -635,7 +636,9 @@ function renderNavigationCheck() {
   search.disabled = !navigator.onLine || navigationChecking;
   search.textContent = distant ? "Ab hier suchen" : "Ab jetzt suchen";
   const button = el<HTMLButtonElement>("navigation-start");
-  button.hidden = state.restored ? !selected || unavailable : !currentPlanning;
+  button.hidden = state.restored
+    ? !selected || unavailable
+    : !currentPlanning || !selected;
   const retry = el<HTMLButtonElement>("navigation-start-retry");
   retry.hidden =
     !selected || !error || blocked || distant || navigationChecking;
@@ -666,7 +669,7 @@ function renderNavigationCheck() {
         : [icon("location"), document.createTextNode("Los")]),
   );
   document.querySelector<HTMLElement>(".panel-actions")!.hidden =
-    !currentPlanning &&
+    (!currentPlanning || !selected) &&
     notice.hidden &&
     recovery.hidden &&
     el("replan-saved").hidden;
@@ -1394,12 +1397,17 @@ async function persist(snapshot: SavedJourney, id: string) {
 }
 function showRouteMap(state: PlanningState) {
   if (!journeyView.mapVisible) return;
+  const preview = planningRequestPreview(state);
   routeMap.show(
     state.journeys,
     state.selected,
     navigator.onLine,
-    JSON.stringify([state.calculationId ?? state.queriedAt, state.request]),
+    preview
+      ? JSON.stringify(["request", preview])
+      : JSON.stringify([state.calculationId ?? state.queriedAt, state.request]),
     !state.busy,
+    preview,
+    preview ? state.routePreview : undefined,
   );
 }
 function renderPlanning(state: PlanningState) {
@@ -1435,7 +1443,8 @@ function renderPlanning(state: PlanningState) {
     state.resultSettings?.maxCyclingMinutes ?? settings.maxCyclingMinutes,
   );
   if (enterMap && view === "map" && matchMedia("(max-width: 899px)").matches) {
-    journeyView.showScreen("map", !document.querySelector("dialog[open]"));
+    if (journeyView.screen !== "map")
+      journeyView.showScreen("map", !document.querySelector("dialog[open]"));
     writeHistory();
   }
   if (view === "map") showRouteMap(state);
@@ -2041,7 +2050,7 @@ el("dismiss-location-error").onclick = () => {
   el("map-location-error").hidden = true;
 };
 el("map-route").onclick = () => {
-  if (!session.state.selected) return;
+  if (!session.state.selected && !planningRequestPreview(session.state)) return;
   mapLocationRequest?.abort();
   mapLocationRequest = undefined;
   el<HTMLButtonElement>("map-location").disabled = false;
@@ -2602,8 +2611,17 @@ function connectionChanged() {
     );
     showRouteMap(session.state);
   }
-  if (!navigator.onLine && session.state.busy)
-    session.stop("Offline. Bereits gefundene Verbindungen bleiben verfügbar.");
+  if (!navigator.onLine && session.state.busy) {
+    const request = planningRequestPreview(session.state);
+    session.stop(
+      request
+        ? "Offline. Die Verbindungssuche wurde unterbrochen."
+        : "Offline. Bereits gefundene Verbindungen bleiben verfügbar.",
+      request
+        ? { action: "retry", request: structuredClone(request) }
+        : undefined,
+    );
+  }
 }
 window.addEventListener("online", connectionChanged);
 window.addEventListener("offline", connectionChanged);

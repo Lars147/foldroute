@@ -248,12 +248,22 @@ export interface Journey {
   isDirect: boolean;
 }
 export type PlanningPhase = "base" | "bike-transfers" | "walking" | "via";
+/** Map-only geometry; never a selectable or saved result. */
+export interface PlanningRoutePreview {
+  legs: Leg[];
+  /** Covered request sections, zero-based and end-exclusive. */
+  startSection: number;
+  endSection: number;
+}
 export interface PlanningUpdate {
   journeys: Journey[];
   status: "searching" | "complete" | "partial";
   issues: string[];
   phase: PlanningPhase;
   incompletePhases: PlanningPhase[];
+  /** Zero-based section in request order; not a completion counter. */
+  activeSection?: number;
+  routePreview?: PlanningRoutePreview;
 }
 export const kindNames: Record<LegKind, string> = {
   bike: "Rad",

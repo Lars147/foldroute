@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { expectRouteFits, expectRouteFitUnchanged } from "./planner-fixture";
 
 type Shape =
   | "separate"
@@ -9,6 +10,112 @@ type Shape =
   | "other-shared"
   | "three"
   | "walk";
+
+test("place markers reuse coincident groups across contexts and replace changed place data", async ({
+  page,
+}) => {
+  await setup(page, 390);
+  await page.evaluate(() => {
+    const f = (window as any).routeHitFixture;
+    const origin = { ...f.selected.origin, name: "Hauptplatz" };
+    const stop = {
+      id: "coffee",
+      stayMinutes: 0,
+      place: { ...f.selected.destination, name: "Café" },
+    };
+    const request = {
+      origin,
+      destination: origin,
+      stops: [stop],
+      timing: "depart",
+      time: 1000,
+    };
+    f.markerRequest = request;
+    f.view.show([], undefined, false, "request", false, request);
+  });
+  await expect(page.locator("#map .route-marker")).toHaveCount(2);
+  const combined = page.getByRole("button", {
+    name: "Start: Hauptplatz · Ziel: Hauptplatz",
+    exact: true,
+  });
+  await expect(combined.locator(".route-marker-slot")).toHaveCount(2);
+  expect((await combined.boundingBox())!.width).toBe(88);
+  const original = await combined.elementHandle();
+  await page.evaluate(() => {
+    const f = (window as any).routeHitFixture;
+    const request = f.markerRequest;
+    const stop = request.stops[0];
+    const leg = (from: any, to: any, start: number) => ({
+      ...f.selected.legs[0],
+      from,
+      to,
+      start,
+      end: start + 100,
+      coordinates: [from, to],
+    });
+    const journey = {
+      ...f.selected,
+      id: "complete-loop",
+      origin: request.origin,
+      destination: request.destination,
+      legs: [
+        leg(request.origin, stop.place, 1000),
+        {
+          kind: "stop",
+          stop,
+          from: stop.place,
+          to: stop.place,
+          start: 1100,
+          end: 1100,
+          distance: 0,
+          coordinates: [stop.place],
+        },
+        leg(stop.place, request.destination, 1100),
+      ],
+    };
+    f.view.show([journey], journey, false, "completed", true);
+  });
+  expect(
+    await combined.evaluate(
+      (current, previous) => current === previous,
+      original,
+    ),
+  ).toBe(true);
+  await expectRouteFits(page);
+  await expectRouteFitUnchanged(page);
+  await page.evaluate(() => {
+    const f = (window as any).routeHitFixture;
+    const request = structuredClone(f.markerRequest);
+    request.origin.name = "Marktplatz";
+    request.stops[0].place.name = "Park";
+    f.view.show([], undefined, false, "edited", false, request);
+  });
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(
+    false,
+  );
+  await expect(
+    page.getByRole("button", {
+      name: "Start: Marktplatz · Ziel: Marktplatz",
+      exact: true,
+    }),
+  ).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Zwischenstopp 1: Park", exact: true }),
+  ).toBeAttached();
+  await page.evaluate(() =>
+    (window as any).routeHitFixture.view.show(
+      [],
+      undefined,
+      false,
+      "empty",
+      true,
+    ),
+  );
+  await expect(page.locator("#map .route-marker")).toHaveCount(0);
+  await expect(page.locator("#map .leaflet-overlay-pane svg path")).toHaveCount(
+    0,
+  );
+});
 
 async function setup(page: Page, width = 1100, shape: Shape = "separate") {
   await page.setViewportSize({ width, height: 844 });

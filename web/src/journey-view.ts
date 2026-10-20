@@ -17,6 +17,7 @@ import {
 import { type PlanningState } from "./planning-state";
 import { planningProgress } from "./planning-progress";
 import { renderRequestStops } from "./route-request";
+import { SearchPreview } from "./search-preview";
 import {
   el,
   node,
@@ -62,6 +63,9 @@ export class JourneyView {
   private displayedID?: string;
   private restored = false;
   private hadChoices = false;
+  private requestPreview = false;
+  private requestMapReady = false;
+  private readonly searchPreview = new SearchPreview();
   private recoveryTimer?: ReturnType<typeof setTimeout>;
   private navigation: JourneyNavigation = {
     screen: "list",
@@ -136,6 +140,7 @@ export class JourneyView {
     }
     this.desktop.addEventListener("change", () => {
       const active = document.activeElement as HTMLElement;
+      this.selectPreviewScreen();
       this.applyLayout();
       this.restorePosition();
       if (
@@ -218,7 +223,10 @@ export class JourneyView {
     return this.presentation === "example";
   }
   get mapVisible() {
-    return this.desktop.matches || this.screen === "map";
+    return (
+      (this.desktop.matches || this.screen === "map") &&
+      (!this.requestPreview || this.requestMapReady)
+    );
   }
   get savedOrigin() {
     return this.navigation.savedOrigin;
@@ -282,6 +290,10 @@ export class JourneyView {
     if (this.onNavigate) this.onNavigate(screen, replace);
     else this.showScreen(screen);
   }
+  private selectPreviewScreen() {
+    if (this.requestPreview && !this.desktop.matches)
+      this.navigation.screen = "map";
+  }
   private scrollContainer() {
     return el("journey-panel").classList.contains("result-scroll-all")
       ? el("journey-panel")
@@ -308,10 +320,16 @@ export class JourneyView {
     const map = mobile && this.screen === "map";
     const detail = mobile && this.screen === "detail";
     el("map-view").dataset.resultScreen = mobile ? this.screen : "desktop";
-    el("choices").hidden = map || detail;
-    this.detailPanel.hidden = !this.displayedID || (mobile && !detail);
+    el("journey-panel").toggleAttribute(
+      "data-request-preview",
+      this.requestPreview,
+    );
+    el("choices").hidden = map || detail || this.requestPreview;
+    this.detailPanel.hidden =
+      this.requestPreview || !this.displayedID || (mobile && !detail);
     this.detailPanel.inert = this.detailPanel.hidden;
-    el("result-back").hidden = !mobile || this.screen === "list";
+    el("result-back").hidden =
+      this.requestPreview || !mobile || this.screen === "list";
     el("result-back").className = map ? "secondary" : "text-button";
     el("result-back").textContent = this.example
       ? map
@@ -345,22 +363,36 @@ export class JourneyView {
     );
     if (mapToggle.parentElement !== mapToggleParent)
       mapToggleParent.append(mapToggle);
-    mapToggle.hidden = !mobile || map;
+    mapToggle.hidden = this.requestPreview || !mobile || map;
     mapToggle.disabled = !this.displayedID;
-    el("map-preview").hidden = !map;
+    el("map-preview").hidden = !map || this.requestPreview;
     const recovery = el("planning-recovery");
-    const recoveryAnchor = el(map ? "map-preview-status" : "stale-notice");
+    const recoveryAnchor = el(
+      this.requestPreview
+        ? "search-preview-detail"
+        : map
+          ? "map-preview-status"
+          : "stale-notice",
+    );
     if (
       !recovery.dataset.planningToast &&
-      recovery.previousElementSibling !== recoveryAnchor
+      (this.requestPreview
+        ? recovery.parentElement !== el("search-preview-feedback")
+        : recovery.previousElementSibling !== recoveryAnchor)
     )
       movePreservingFocus(
         recovery,
-        recoveryAnchor.parentElement!,
-        recoveryAnchor.nextSibling,
+        this.requestPreview
+          ? el("search-preview-feedback")
+          : recoveryAnchor.parentElement!,
+        this.requestPreview
+          ? el("search-preview-feedback").firstChild
+          : recoveryAnchor.nextSibling,
       );
     for (const [element, home] of this.feedbackHomes) {
-      if (map) movePreservingFocus(element, el("map-preview-feedback"));
+      if (this.requestPreview && element.id === "map-error")
+        movePreservingFocus(element, el("search-preview-feedback"));
+      else if (map) movePreservingFocus(element, el("map-preview-feedback"));
       else if (element.previousSibling !== home)
         movePreservingFocus(element, home.parentNode!, home.nextSibling);
     }
@@ -415,11 +447,18 @@ export class JourneyView {
       !active.closest("[hidden], [inert]")
     )
       active.focus({ preventScroll: true });
+    if (
+      this.requestPreview &&
+      !this.desktop.matches &&
+      active === el("result-context")
+    )
+      el("search-preview-heading").focus({ preventScroll: true });
     this.onLayoutChange?.();
   }
   focusSelection(fromDetail = false) {
-    const target =
-      !this.desktop.matches && this.screen === "map"
+    const target = this.requestPreview
+      ? el(this.desktop.matches ? "result-context" : "search-preview-heading")
+      : !this.desktop.matches && this.screen === "map"
         ? el("map-preview-heading")
         : !this.desktop.matches && this.screen === "detail"
           ? el("journey-heading")
@@ -431,6 +470,13 @@ export class JourneyView {
     target.focus({ preventScroll: true });
   }
   render(state: PlanningState, cyclingLimit = 30) {
+    const previewHeadingFocused =
+      document.activeElement === el("search-preview-heading");
+    const preview = this.searchPreview.render(state);
+    this.requestPreview = !!preview;
+    this.requestMapReady =
+      !!preview && !state.locating && state.pendingRequestResolved !== false;
+    this.selectPreviewScreen();
     const firstResults = !this.hadChoices && state.journeys.length > 0;
     this.hadChoices = state.journeys.length > 0;
     const request = state.request;
@@ -721,6 +767,10 @@ export class JourneyView {
     this.applyLayout();
     this.restorePosition();
     if (firstResults) reveal(el("choices"), { y: 10 });
+    if (previewHeadingFocused && !preview && state.selected)
+      el(this.desktop.matches ? "result-context" : "map-preview-heading").focus(
+        { preventScroll: true },
+      );
     if (focusedDetail && !el("choices").hidden)
       [
         ...el("choices").querySelectorAll<HTMLButtonElement>(
