@@ -24,7 +24,7 @@ import {
 } from "./planner-fixture";
 
 for (const width of [390, 1280]) {
-  test(`start footer remains disabled through an empty initial search at ${width}px`, async ({
+  test(`initial search keeps start actions hidden through empty results at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -37,23 +37,26 @@ for (const width of [390, 1280]) {
     });
     await choose(page, "destination", "Ziel");
     const start = page.locator("#navigation-start");
-    await expect(start).toBeVisible();
+    await expect(start).toBeHidden();
     await expect(start).toBeDisabled();
-    await expect(start).toHaveText("Los");
-    await expect(start).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#search-preview-title")).toHaveText(
+      "Verbindungen werden gesucht …",
+    );
+    await expect(page.locator("#search-preview-spinner")).toBeVisible();
+    await expect(page.locator("#search-preview")).toBeVisible();
     await expect(page.locator("#route-start-summary")).toBeHidden();
-    const initial = (await start.boundingBox())!;
     release();
     await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
     await expect(page.locator(".route-choice")).toHaveCount(0);
-    await expect(start).toBeVisible();
+    await expect(start).toBeHidden();
     await expect(start).toBeDisabled();
-    await expect(page.locator("#status")).not.toBeEmpty();
+    await expect(page.locator("#search-preview-title")).toHaveText(
+      "Keine Verbindung verfügbar",
+    );
+    await expect(page.locator("#search-preview-detail")).not.toBeEmpty();
+    await expect(page.locator("#search-preview-detail")).toBeVisible();
+    await expect(page.locator("#search-preview-spinner")).toBeHidden();
     await expect(page.locator("#navigation-start-notice")).toBeHidden();
-    const empty = (await start.boundingBox())!;
-    expect(empty.x).toBe(initial.x);
-    expect(empty.y).toBe(initial.y);
-    expect(empty.width).toBe(initial.width);
   });
 }
 
@@ -1083,21 +1086,33 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
         "Verbindungen werden gesucht …",
       );
     if (outcome !== "error") await showConnections(page);
+    const feedback = page.locator(
+      outcome === "error" ? "#search-preview" : "#toast",
+    );
     const animation = () =>
-      page.locator("#toast").evaluate((e) => {
-        const spinner = e.querySelector(".planning-toast-spinner");
-        return !(e as HTMLElement).hidden && spinner
+      feedback.evaluate((e) => {
+        const spinner = e.querySelector<HTMLElement>(
+          "#search-preview-spinner, .planning-toast-spinner",
+        );
+        return !(e as HTMLElement).hidden && spinner && !spinner.hidden
           ? getComputedStyle(spinner).animationName
           : "none";
       });
     await expect.poll(animation).toBe("route-loading");
-    await expect(page.locator("#toast")).toHaveAttribute("role", "status");
+    await expect(
+      outcome === "error"
+        ? feedback.locator(':scope > [role="status"]')
+        : feedback,
+    ).toHaveAttribute("role", "status");
     await expect.poll(animation).toBe("route-loading");
-    await expect(page.locator("#toast")).toBeVisible();
+    await expect(feedback).toBeVisible();
+    if (outcome === "error") await expect(page.locator("#toast")).toBeHidden();
     await expect(page.locator("#close-route")).toBeInViewport({ ratio: 1 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect.poll(animation).toBe("none");
-    await expect(page.locator("#toast .planning-toast-spinner")).toHaveCount(1);
+    await expect(
+      feedback.locator("#search-preview-spinner, .planning-toast-spinner"),
+    ).toHaveCount(1);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect.poll(animation).toBe("route-loading");
     if (outcome === "cancel") await page.locator("#close-route").click();
@@ -1112,8 +1127,10 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
       await expect(page.locator("#destination")).toBeVisible();
       await expect(page.locator(".route-choice")).toHaveCount(0);
     } else {
-      await expect(page.locator("#status")).toContainText("nicht beantworten");
-      await expect(page.locator("#status")).toBeVisible();
+      await expect(page.locator("#search-preview-detail")).toContainText(
+        "nicht beantworten",
+      );
+      await expect(page.locator("#search-preview-detail")).toBeVisible();
     }
   });
 }

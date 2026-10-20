@@ -3151,6 +3151,7 @@ dialog.editing-time {
   height: 18px;
 }
 .planning-context {
+  container-type: inline-size;
   position: relative;
   margin-bottom: 16px;
   padding: 8px 0 12px;
@@ -3660,6 +3661,18 @@ dialog.editing-time {
   .panel-details {
     padding-top: 20px;
     border-top: 1px solid var(--panel-line);
+  }
+}
+
+@container (max-width: 12rem) {
+  [data-result-screen="map"] .panel-tools {
+    flex-wrap: wrap;
+  }
+  [data-result-screen="map"] .route-request {
+    flex-basis: 100%;
+  }
+  [data-result-screen="map"] #route-more {
+    margin-left: auto;
   }
 }
 
