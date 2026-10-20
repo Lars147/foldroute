@@ -3,6 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    if (matchMedia('(display-mode: standalone)').matches || navigator.standalone === true) {
+      location.replace(new URL('plan/', document.baseURI));
+    }
+  </script>
   <meta name="theme-color" content="#f5f6f3">
   <meta name="description" content="FoldRoute kombiniert Klapprad, Bus und Bahn – mit Radetappen zum Bahnhof, zwischen Linien und bis ans Ziel. Plane deine Route direkt im Browser.">
   <meta property="og:title" content="FoldRoute – ÖPNV kann mehr. Mit deinem Klapprad.">
@@ -10,6 +15,7 @@
   <meta property="og:type" content="website">
   <title>FoldRoute – ÖPNV kann mehr. Mit deinem Klapprad.</title>
   <link rel="icon" href="assets/foldroute-mark.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" sizes="180x180" href="plan/apple-touch-icon-180x180.png">
   <link rel="stylesheet" href="styles.css?v=20261017-11">
   <script src="script.js?v=20261017-9" defer></script>
 </head>
@@ -175,7 +181,7 @@
     <section class="faq wrap" id="selbst-bauen"><h2 id="projekt">Noch kurz vor<br>der Abfahrt.</h2><div class="questions">
       <details><summary>Wie kann ich FoldRoute ausprobieren?</summary><p>Öffne den <a href="plan/">Webplaner</a> und wähle dein Ziel. Eine Installation ist nicht nötig.</p></details>
       <details><summary>Wie wird mein Klapprad eingeplant?</summary><p>FoldRoute vergleicht Rad- und ÖPNV-Etappen für deine ganze Reise, auch zwischen zwei Linien. Radtempo, maximale Radzeit und die Zeit zum Falten und Entfalten stellst du selbst ein.</p></details>
-      <details><summary>Kann ich FoldRoute als App nutzen?</summary><p>Ja. Füge den Webplaner zum Home-Bildschirm hinzu. <a href="plan/hilfe.html#installation">So installierst du ihn.</a></p></details>
+      <details><summary>Kann ich FoldRoute als App nutzen?</summary><p>Ja. Öffne zuerst den <a href="plan/">Webplaner</a> und füge ihn dort zum Home-Bildschirm hinzu. <a href="plan/hilfe.html#installation">So installierst du ihn.</a></p></details>
       <details><summary>Kann ich ohne Installation eine Route planen?</summary><p>Ja. Im <a href="plan/">Webplaner</a> vergleichst du Rad- und ÖPNV-Verbindungen mit deinen Faltzeiten und Einstellungen. Die PWA bietet Navigation bei geöffneter App mit Abbiegehinweisen, Karte in Fahrtrichtung, Sprachansagen und aktuellen ÖPNV-Daten.</p><p>Den Webplaner kannst du <a href="plan/hilfe.html#installation">zum Home-Bildschirm hinzufügen</a> und bis zu 20 gespeicherte Strecken offline ansehen. Ihre Zeiten entsprechen der damaligen Abfrage. Neue Routen, Ortssuche, aktuelle Verbindungsdaten und Straßenkarten benötigen Internet. </p></details>
       <details><summary>Wo kann ich FoldRoute nutzen?</summary><p>Gib Start und Ziel in deiner Region ein. Verbindungen und Echtzeitinformationen hängen von den verfügbaren <a href="https://transitous.org/sources/">Verkehrsdaten bei Transitous</a> ab und können sich regional unterscheiden. FoldRoute ist noch nicht flächendeckend erprobt.</p></details>
       <details><summary>Ist das hier eine echte Routenplanung?</summary><p>Diese Landingpage stellt das Projekt vor. Die Karten sind Illustrationen; die Webplaner-Vorschau zeigt die echte Oberfläche mit Beispieldaten. Im <a href="plan/">Webplaner</a> werden echte Routen ab deinem Standort oder einem gewählten Startpunkt berechnet.</p></details>
