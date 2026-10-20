@@ -3,6 +3,7 @@ import { JourneyView, type JourneyNavigation } from "./journey-view";
 import { RouteMap } from "./map-view";
 import type { PlanningState } from "./planning-state";
 import { el, icon, node } from "./ui";
+import { renderRequestStops } from "./route-request";
 
 export const startupReady = Promise.resolve();
 
@@ -78,17 +79,34 @@ for (const event of ["online", "offline"])
 
 const places = node("div", "", "route-request example-route-request");
 const names = node("span", "", "route-request-places");
+const chain = node("span", "", "route-request-chain");
+const origin = node("span", "", "route-request-point route-request-origin");
+const originSymbol = node("span", "", "route-request-marker");
+originSymbol.setAttribute("aria-hidden", "true");
 const originMarker = node("span", "", "route-origin-marker");
-originMarker.setAttribute("aria-hidden", "true");
+originSymbol.append(originMarker);
+origin.append(
+  originSymbol,
+  node("span", request.origin.name, "example-origin"),
+);
+const stops = node("span", "", "route-request-stops");
+renderRequestStops(stops, request.stops);
+const destination = node(
+  "span",
+  "",
+  "route-request-point route-request-destination",
+);
+const destinationSymbol = node("span", "", "route-request-marker");
+destinationSymbol.setAttribute("aria-hidden", "true");
 const destinationMarker = icon("flag");
 destinationMarker.classList.add("route-destination-marker");
-destinationMarker.setAttribute("aria-hidden", "true");
-names.append(
-  originMarker,
-  node("span", request.origin.name, "example-origin"),
-  destinationMarker,
+destinationSymbol.append(destinationMarker);
+destination.append(
+  destinationSymbol,
   node("span", request.destination.name, "example-destination"),
 );
+chain.append(origin, stops, destination);
+names.append(chain);
 places.append(names);
 el("adjust-route").before(places);
 

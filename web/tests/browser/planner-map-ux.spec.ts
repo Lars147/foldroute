@@ -40,17 +40,21 @@ for (const [width, height] of [
       "data-result-screen",
       width < 900 ? "map" : "desktop",
     );
-    if (width < 900) await expect(page.locator("#result-back")).toBeFocused();
+    if (width < 900)
+      await expect(page.locator("#map-preview-heading")).toBeFocused();
     await expectRouteFits(page);
     await expectRouteFitUnchanged(page);
     if (width < 900) {
-      await expect(page.locator("#map-preview-summary")).toContainText(
+      await expect(page.locator("#map-preview-heading")).toHaveText(
         "Früheste Ankunft",
       );
       await expect(page.locator("#map-preview-summary")).toContainText(
         "32 min",
       );
-      await expect(page.locator("#result-back")).toBeInViewport({ ratio: 1 });
+      await page.locator("#result-back").scrollIntoViewIfNeeded();
+      await expect(page.locator("#result-back")).toBeInViewport({
+        ratio: 0.99,
+      });
       await page.locator("#map-open-details").scrollIntoViewIfNeeded();
       await expect(page.locator("#map-open-details")).toBeInViewport({
         ratio: 1,
@@ -115,13 +119,48 @@ test("arrival search opens the latest suitable departure on the mobile map", asy
     "data-result-screen",
     "map",
   );
-  await expect(page.locator("#map-preview-summary")).toContainText(
+  await expect(page.locator("#map-preview-heading")).toHaveText(
     "Späteste Abfahrt",
   );
   await expect(page.locator(".route-choice").first()).toHaveAttribute(
     "aria-pressed",
     "true",
   );
+});
+
+test("map start exposes distant-origin recovery and its offline state", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await page.locator("#search-adjust").click();
+  await choose(page, "origin", "Start");
+  await choose(page, "destination", "Ziel");
+  await page.locator("#calculate").click();
+  await expectPlanningComplete(page);
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  await page.clock.setFixedTime(new Date("2026-09-04T08:02:00Z"));
+  await page.context().setGeolocation({ latitude: 49.132, longitude: 11.5756 });
+  await page.locator("#navigation-start").click();
+  const notice = page.locator("#map-preview-feedback #navigation-start-notice");
+  const search = page.locator("#map-preview-feedback #navigation-search-now");
+  await expect(notice).toContainText("über 25 km entfernt");
+  await expect(search).toHaveText("Ab hier suchen");
+  await expect(search).toBeEnabled();
+  await expect(
+    page.locator("#map-preview-actions #navigation-start"),
+  ).toBeDisabled();
+  await expect(page.locator("#navigation-view")).toBeHidden();
+  await expectRecoveryButtons(page, "navigation-search-now");
+  await page.context().setOffline(true);
+  await expect(search).toBeDisabled();
+  await expect(notice).toContainText("Internet");
+  await page.context().setOffline(false);
+  await expect(search).toBeEnabled();
+  await expect(notice).not.toContainText("Internet");
 });
 
 for (const width of [320, 390, 1280]) {
@@ -151,7 +190,6 @@ for (const width of [320, 390, 1280]) {
       });
     });
     await page.locator("#save-settings").click();
-    await showConnections(page);
     const start = page.locator("#navigation-start");
     const ready = (await start.boundingBox())!;
     await start.click();
@@ -971,9 +1009,7 @@ for (const width of [320, 390]) {
       });
       if (fromDetail) await openSelectedDetails(page);
       await showMap(page);
-      await expect(page.locator("#result-back")).toHaveText(
-        "‹ Alle Verbindungen",
-      );
+      await expect(page.locator("#result-back")).toHaveText("Alternativen");
       await page.locator("#result-back").click();
       await expect(page.locator("#choices")).toBeVisible();
       await expect(selected).toHaveAttribute("aria-pressed", "true");

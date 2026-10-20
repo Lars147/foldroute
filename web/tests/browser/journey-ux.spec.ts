@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 async function preview(page: Page) {
   // Isolate the component: the application entrypoint would create a second
   // JourneyView with competing resize/focus observers on these same elements.
-  await page.route("**/src/main.ts", (route) =>
+  await page.route("**/src/main.ts*", (route) =>
     route.fulfill({
       contentType: "text/javascript",
       body: 'import "/src/style.css"; import { icon } from "/src/ui.ts"; document.querySelectorAll("[data-icon]").forEach(element => element.append(icon(element.dataset.icon)));',
@@ -90,6 +90,304 @@ async function preview(page: Page) {
   });
 }
 
+async function expectRequestMarkersAligned(page: Page) {
+  const geometry = await page.locator("#adjust-route").evaluate((button) => {
+    const points = [
+      ...button.querySelectorAll<HTMLElement>(".route-request-point"),
+    ];
+    const markers = points.map((point) =>
+      point
+        .querySelector<HTMLElement>(".route-request-marker")!
+        .getBoundingClientRect(),
+    );
+    const origin = button
+      .querySelector(".route-origin-marker")!
+      .getBoundingClientRect();
+    const flag = button.querySelector<SVGGeometryElement>(
+      ".route-request-destination svg path",
+    )!;
+    const matrix = flag.getScreenCTM()!;
+    const pole = flag.getPointAtLength(0).matrixTransform(matrix);
+    // The first path segment is the 18-unit flagpole, from its bottom to its top.
+    const poleTop = flag.getPointAtLength(18).matrixTransform(matrix);
+    const capRadius =
+      (parseFloat(getComputedStyle(flag).strokeWidth) *
+        Math.hypot(matrix.c, matrix.d)) /
+      2;
+    const shapes = [
+      origin,
+      ...markers.slice(1, -1),
+      { top: poleTop.y - capRadius, bottom: pole.y + capRadius },
+    ];
+    const lines = points.slice(0, -1).map((point) => {
+      const line = getComputedStyle(point, "::after");
+      const bounds = point.getBoundingClientRect();
+      const top = bounds.top + parseFloat(line.top);
+      const transform = new DOMMatrix(line.transform);
+      return {
+        x:
+          bounds.left +
+          parseFloat(line.left) +
+          parseFloat(line.width) / 2 +
+          transform.e,
+        top,
+        bottom: top + parseFloat(line.height),
+      };
+    });
+    return {
+      originX: origin.left + origin.width / 2,
+      axes: [
+        ...lines.map((line) => line.x),
+        ...markers.slice(1, -1).map((marker) => marker.left + marker.width / 2),
+      ],
+      gaps: markers.slice(1).map((marker, i) => marker.top - markers[i].bottom),
+      clearances: lines.map((line, i) => ({
+        start: line.top - shapes[i].bottom,
+        end: shapes[i + 1].top - line.bottom,
+      })),
+    };
+  });
+  for (const axis of geometry.axes)
+    expect(Math.abs(axis - geometry.originX)).toBeLessThanOrEqual(0.5);
+  for (const gap of geometry.gaps) expect(gap).toBeGreaterThanOrEqual(10);
+  for (const clearance of geometry.clearances) {
+    expect(clearance.start).toBeCloseTo(3, 1);
+    expect(clearance.end).toBeCloseTo(3, 1);
+  }
+}
+
+async function expectRequestPixelsAligned(page: Page) {
+  const geometry = await page
+    .locator("#adjust-route .route-request-chain")
+    .evaluate((chain) => {
+      const origin = chain.querySelector<HTMLElement>(".route-request-origin")!;
+      const circle = origin
+        .querySelector(".route-request-marker")!
+        .getBoundingClientRect();
+      const flag = chain
+        .querySelector(".route-request-destination .route-request-marker")!
+        .getBoundingClientRect();
+      const line = getComputedStyle(origin, "::after");
+      const lineTop = origin.getBoundingClientRect().top + parseFloat(line.top);
+      const x = Math.floor(circle.left);
+      const y = Math.floor(circle.top);
+      return {
+        clip: {
+          x,
+          y,
+          width: Math.ceil(circle.right) - x,
+          height: Math.ceil(flag.bottom) - y,
+        },
+        regions: {
+          circle: { top: circle.top, bottom: circle.bottom },
+          line: {
+            top: lineTop + 1,
+            bottom: lineTop + parseFloat(line.height) - 1,
+          },
+          flag: { top: flag.top, bottom: flag.bottom },
+        },
+      };
+    });
+  const screenshot = await page.screenshot({ clip: geometry.clip });
+  const centers = await page.evaluate(
+    async ({ png, clip, regions }) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${png}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      const scale = canvas.width / clip.width;
+      const centers: Record<string, number> = {};
+      for (const [name, region] of Object.entries(regions)) {
+        let weight = 0;
+        let moment = 0;
+        for (
+          let y = Math.ceil((region.top - clip.y) * scale);
+          y < Math.floor((region.bottom - clip.y) * scale);
+          y++
+        ) {
+          for (let x = 0; x < canvas.width; x++) {
+            const offset = (y * canvas.width + x) * 4;
+            // Contrast against the empty corner measures painted pixels,
+            // including antialiasing, rather than the element's layout box.
+            const contrast =
+              Math.abs(data[offset] - data[0]) +
+              Math.abs(data[offset + 1] - data[1]) +
+              Math.abs(data[offset + 2] - data[2]);
+            weight += contrast;
+            moment += ((x + 0.5) / scale) * contrast;
+          }
+        }
+        if (!weight) throw new Error(`No visible pixels in ${name}`);
+        centers[name] = moment / weight;
+      }
+      return centers;
+    },
+    { ...geometry, png: screenshot.toString("base64") },
+  );
+  expect(
+    Math.abs(centers.line - centers.circle),
+    `Painted circle/line centers: ${JSON.stringify(centers)}`,
+  ).toBeLessThanOrEqual(0.15);
+  expect(
+    Math.abs(centers.flag - centers.circle),
+    `Optical flag center: ${JSON.stringify(centers)}`,
+  ).toBeLessThanOrEqual(0.25);
+}
+
+for (const deviceScaleFactor of [1, 2]) {
+  test.describe(`route marker pixels at ${deviceScaleFactor}x density`, () => {
+    test.use({ deviceScaleFactor });
+    test("circle, connector and flag share an optical axis", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await preview(page);
+      for (const colorScheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme });
+        for (const fontSize of [16, 32]) {
+          await page.evaluate((size) => {
+            document.documentElement.style.fontSize = `${size}px`;
+          }, fontSize);
+          await expectRequestPixelsAligned(page);
+        }
+      }
+    });
+  });
+}
+
+for (const width of [320, 390, 1280]) {
+  test(`result header connects endpoints and changing intermediate stops at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await preview(page);
+    const names = [
+      "Marktplatz, Eingang am Rathaus",
+      "Bahnhof West, Ausgang zur Schillerstraße",
+      "Park <Am Weiher>, nördlicher Eingang",
+    ];
+    const stops = page.locator("#route-request-stops .route-request-stop-name");
+    for (const count of [0, 1, 3]) {
+      await page.evaluate(
+        (names) => {
+          const { state, view } = (window as any).uxPreview;
+          state.request.stops = names.map((name, i) => ({
+            id: `via-${i}`,
+            place: { ...state.request.origin, name },
+            stayMinutes: 5,
+          }));
+          view.render(state, 30);
+        },
+        names.slice(0, count),
+      );
+      await expect(stops).toHaveCount(count);
+      await expect(
+        page.locator("#adjust-route .route-request-point"),
+      ).toHaveCount(count + 2);
+      await expect(page.locator("#route-origin")).toHaveText("Start");
+      await expect(page.locator("#route-destination")).toHaveText("Ziel");
+      for (let i = 0; i < count; i++)
+        await expect(stops.nth(i)).toHaveText(
+          `Zwischenziel ${i + 1}: ${names[i]}`,
+        );
+      await expect(page.locator("#adjust-route")).toHaveAccessibleDescription(
+        count
+          ? new RegExp(
+              `Start Zwischenziel 1: ${names[0]}.*Ziel Abfahrt jetzt.*${count} Zwischenstopp`,
+            )
+          : "Start Ziel Abfahrt jetzt",
+      );
+      await expectRequestMarkersAligned(page);
+      if (count === 0)
+        await page.screenshot({
+          path: info.outputPath("connected-endpoints.png"),
+        });
+    }
+    await expect(
+      page.locator("#adjust-route marktplatz, #adjust-route am"),
+    ).toHaveCount(0);
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      for (const fontSize of [16, 32]) {
+        await page.evaluate((fontSize) => {
+          document.documentElement.style.fontSize = `${fontSize}px`;
+        }, fontSize);
+        for (const name of [
+          page.locator("#route-origin"),
+          ...(await stops.all()),
+          page.locator("#route-destination"),
+        ]) {
+          await name.scrollIntoViewIfNeeded();
+          expect(
+            await name.evaluate(
+              (element) => element.scrollWidth <= element.clientWidth,
+            ),
+          ).toBe(true);
+        }
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth),
+        ).toBeLessThanOrEqual(width);
+        await page.locator("#route-origin").scrollIntoViewIfNeeded();
+        await expectRequestMarkersAligned(page);
+        await page.screenshot({
+          path: info.outputPath(
+            `connected-places-${colorScheme}-${fontSize}.png`,
+          ),
+        });
+      }
+    }
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "16px";
+    });
+    await page.locator("#route-origin").scrollIntoViewIfNeeded();
+    const before = (await page.locator(".planning-context").boundingBox())!;
+    if (width < 900) {
+      await page.evaluate(() => {
+        (window as any).uxPreview.view.showScreen("detail");
+      });
+      const details = (await page.locator(".planning-context").boundingBox())!;
+      expect(Math.abs(before.y - details.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(before.height - details.height)).toBeLessThanOrEqual(1);
+      await page.locator("#panel-map-toggle").click();
+      await expect(page.locator("#route-origin")).toBeHidden();
+      await expect(page.locator("#route-request-stops")).toBeHidden();
+      await expect(page.locator("#route-destination")).toBeVisible();
+      await expect(page.locator("#map-request-meta")).toHaveText(
+        "3 Zwischenstopps",
+      );
+      await page.locator("#result-back").click();
+      await expect(stops).toHaveCount(3);
+      await expect(stops.first()).toBeVisible();
+    }
+    // Updating the confirmed request must work even when JourneyView's detail key is unchanged.
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      state.request.stops = [state.request.stops[2], state.request.stops[0]];
+      state.request.stops[0].place.name = "Neuer Zwischenhalt";
+      view.render(state, 30);
+    });
+    await expect(stops).toHaveText([
+      "Zwischenziel 1: Neuer Zwischenhalt",
+      `Zwischenziel 2: ${names[0]}`,
+    ]);
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      delete state.request.stops;
+      view.render(state, 30);
+    });
+    await expect(stops).toHaveCount(0);
+    await expect(page.locator("#adjust-route")).toHaveAccessibleDescription(
+      "Start Ziel Abfahrt jetzt",
+    );
+  });
+}
+
 for (const width of [320, 390, 1280]) {
   test(`planning context stays grouped and accessible at ${width}`, async ({
     page,
@@ -140,7 +438,10 @@ for (const width of [320, 390, 1280]) {
       state.request.origin.name = "München Hauptbahnhof, Ausgang Arnulfstraße";
       state.request.destination.name = "Bahnhofstraße 3a, 82166 Gräfelfing";
       state.request.timing = "arrive";
-      state.request.stops = [state.request.origin, state.request.destination];
+      state.request.stops = [
+        state.request.origin,
+        state.request.destination,
+      ].map((place, i) => ({ id: `stop-${i}`, place, stayMinutes: 0 }));
       state.restored = true;
       view.render(state, 30);
     });
@@ -420,6 +721,169 @@ for (const width of [320, 390, 768, 1280]) {
   });
 }
 
+for (const width of [320, 390, 425, 844]) {
+  test(`compact map preserves orientation and reachable actions at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: width === 844 ? 390 : 844 });
+    await page.clock.setFixedTime(new Date("2026-09-11T08:00:00Z"));
+    await preview(page);
+    await page.evaluate(() => {
+      const { state, view } = (window as any).uxPreview;
+      state.request.destination.name = "Bahnhofstraße 3a";
+      view.render(state, 30);
+    });
+    const previousHeight = (await page
+      .locator(".planning-context")
+      .boundingBox())!.height;
+    await page.locator("#panel-map-toggle").click();
+    await expect(page.locator("#map-preview-heading")).toBeFocused();
+    await expect(page.locator("#map-preview-heading")).toHaveText(
+      "Ausgewählte Verbindung",
+    );
+    await expect(page.locator("#route-origin")).toBeHidden();
+    await expect(page.locator("#route-destination")).toHaveText(
+      "Bahnhofstraße 3a",
+    );
+    await expect(page.locator("#map-request-meta")).toBeHidden();
+    await expect(page.locator("#result-freshness")).toBeHidden();
+    await expect(page.locator("#route-start-summary")).toBeHidden();
+    await expect(page.locator("#map-preview-actions #result-back")).toHaveText(
+      "Alternativen",
+    );
+    await expect(
+      page.locator("#map-preview-actions #navigation-start"),
+    ).toBeVisible();
+    await expect(page.locator("#map-open-details")).toHaveClass("text-button");
+    const compactHeight = (await page
+      .locator(".planning-context")
+      .boundingBox())!.height;
+    if (width === 425) {
+      expect(compactHeight).toBeLessThanOrEqual(64);
+      expect(previousHeight - compactHeight).toBeGreaterThanOrEqual(44);
+    }
+    await expect(page.locator("#adjust-route")).toHaveAccessibleDescription(
+      /Start Bahnhofstraße 3a Abfahrt jetzt/,
+    );
+    await page.screenshot({ path: info.outputPath("compact-map.png") });
+    await page.locator("#route-more").click();
+    await expect(page.locator("#route-action-origin")).toHaveText("Start");
+    await expect(page.locator("#route-action-destination")).toHaveText(
+      "Bahnhofstraße 3a",
+    );
+    await expect(page.locator("#route-action-time")).toHaveText(
+      "Abfahrt jetzt",
+    );
+    await expect(page.locator("#route-action-stand")).toContainText("Stand:");
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#route-more")).toBeFocused();
+
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "32px";
+      const { state, view } = (window as any).uxPreview;
+      state.request.destination.name =
+        "Bahnhofstraße 3a, Eingang hinter dem Rathaus, 82166 Gräfelfing";
+      view.render(state, 30);
+    });
+    for (const id of [
+      "adjust-route",
+      "route-more",
+      "close-route",
+      "map-open-details",
+      "result-back",
+      "navigation-start",
+    ]) {
+      const control = page.locator(`#${id}`);
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeInViewport({ ratio: 0.99 });
+      const bounds = (await control.boundingBox())!;
+      expect(bounds.width).toBeGreaterThanOrEqual(44);
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      expect(
+        await control.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      ).toBe(true);
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    await page.screenshot({
+      path: info.outputPath("compact-map-large-text.png"),
+    });
+  });
+}
+
+test("compact map keeps constraints, warnings and focus across layouts", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.clock.setFixedTime(new Date("2026-09-11T08:00:00Z"));
+  await preview(page);
+  await page.locator("#panel-map-toggle").click();
+  await page.evaluate(() => {
+    const { state, view } = (window as any).uxPreview;
+    state.request.timing = "depart";
+    state.request.time += 30 * 60;
+    state.request.stops = [
+      {
+        id: "stop-1",
+        place: { ...state.request.origin, name: "Marktplatz" },
+        stayMinutes: 5,
+      },
+    ];
+    view.render(state, 30);
+  });
+  await expect(page.locator("#map-request-meta")).toHaveText(
+    "Ab 10:30 · 1 Zwischenstopp",
+  );
+  await page.locator("#route-more").click();
+  await expect(page.locator("#route-action-stops")).toHaveText("Marktplatz");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    const { state, view } = (window as any).uxPreview;
+    state.request.timing = "arrive";
+    state.request.time += 86400;
+    view.render(state, 30);
+  });
+  await expect(page.locator("#map-request-meta")).toHaveText(
+    "Ankunft bis 12. Sept., 10:30 · 1 Zwischenstopp",
+  );
+  await page.evaluate(() => {
+    const { state, view } = (window as any).uxPreview;
+    state.request.timing = "now";
+    state.request.time = state.selected.departure - 7200;
+    state.issues = ["Ein Verkehrsmittel ist nicht verfügbar."];
+    view.render(state, 30);
+  });
+  await expect(page.locator("#map-request-meta")).toHaveText("1 Zwischenstopp");
+  await expect(page.locator("#map-preview-feedback #issues")).toBeVisible();
+  await expect(
+    page.locator("#map-preview-feedback #late-departure"),
+  ).toBeVisible();
+  await page.locator("#late-settings").focus();
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await expect(page.locator("#panel-content #late-departure")).toBeVisible();
+  await expect(page.locator("#late-settings")).toBeFocused();
+  await expect(page.locator("#panel-content #issues")).toBeVisible();
+  await expect(page.locator("#route-origin")).toBeVisible();
+  await expect(page.locator("#map-request-meta")).toBeHidden();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.locator("#map-preview-feedback #late-settings"),
+  ).toBeFocused();
+  await page.locator("#result-back").click();
+  await expect(page.locator("#panel-content #late-departure")).toBeVisible();
+  await page.locator('[data-journey="comparison"]').click();
+  await page.locator("#panel-map-toggle").click();
+  await expect(page.locator("#map-preview-heading")).toHaveText(
+    "Fahrradvergleich",
+  );
+  await expect(
+    page.locator("#map-preview-feedback #cycling-comparison"),
+  ).toBeVisible();
+});
+
 for (const [width, height] of [
   [320, 844],
   [390, 844],
@@ -454,9 +918,10 @@ for (const [width, height] of [
     await expect(summary.locator(".route-choice-schedule")).toHaveText(
       schedule,
     );
-    await expect(summary.locator(".route-recommendation")).toHaveText(
+    await expect(page.locator("#map-preview-heading")).toHaveText(
       "Früheste Ankunft",
     );
+    await expect(summary.locator(".route-recommendation")).toHaveCount(0);
     await expect(summary.locator(".route-line")).toHaveText("S6");
     await expect(summary.locator(".route-line")).toHaveCSS("color", lineColor);
     await expect(
@@ -481,7 +946,7 @@ for (const [width, height] of [
     );
     await expect(summary.locator(".sr-only")).not.toContainText(/\d+ min Fuß/);
     await expect(summary.getByRole("button")).toHaveCount(0);
-    await expect(page.locator("#result-freshness")).toBeVisible();
+    await expect(page.locator("#result-freshness")).toBeHidden();
     await expect(page.locator("#map-preview-status")).toBeHidden();
     await page.screenshot({ path: info.outputPath("map-summary.png") });
     await page.locator("#map-open-details").scrollIntoViewIfNeeded();
@@ -566,7 +1031,7 @@ test("map summary keeps midnight dates and changing status without repeating its
     await expect(page.locator("#map-preview-status")).toContainText(message);
     expect(
       (await page.locator("#map-preview-status").boundingBox())!.y,
-    ).toBeLessThan((await summary.boundingBox())!.y);
+    ).toBeGreaterThan((await summary.boundingBox())!.y);
   }
   await expect(page.locator("#result-stand")).toContainText("Gespeichert:");
   await expect(page.locator("#map-preview-status")).not.toContainText(

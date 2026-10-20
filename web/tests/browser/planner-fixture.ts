@@ -183,7 +183,28 @@ export function shiftedTransitFixture(minutes: number) {
 
 export async function expectRecoveryButtons(page: Page, actionId: string) {
   const action = page.locator(`#${actionId}`);
-  const start = page.locator(".panel-actions #navigation-start");
+  const start = page.locator("#navigation-start");
+  if (await page.locator("#map-preview-actions #navigation-start").count()) {
+    // On the map, recovery belongs with its explanation above the footer.
+    // Large text can require scrolling; every action must remain reachable.
+    await start.scrollIntoViewIfNeeded();
+    await expect(start).toBeInViewport({ ratio: 0.99 });
+    await action.scrollIntoViewIfNeeded();
+    await expect(action).toBeInViewport({ ratio: 0.99 });
+    const bounds = (await action.boundingBox())!;
+    expect(bounds.height).toBeGreaterThanOrEqual(48);
+    expect(
+      await action.evaluate(
+        (button) => button.scrollWidth <= button.clientWidth,
+      ),
+    ).toBe(true);
+    expect(
+      await action.evaluate(
+        (button) => button.closest("#map-preview-feedback") !== null,
+      ),
+    ).toBe(true);
+    return;
+  }
   // Fractional layout pixels can clip a border by less than one CSS pixel.
   await expect(action).toBeInViewport({ ratio: 0.99 });
   await expect(start).toBeInViewport({ ratio: 0.99 });
