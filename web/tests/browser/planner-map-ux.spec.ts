@@ -3,9 +3,11 @@ import {
   openCachedJourney,
   openSelectedDetails,
   showMap,
+  showConnections,
   expectPlanningComplete,
 } from "./assertions";
 import { test, expect } from "@playwright/test";
+import { routeURL } from "../../src/route-url";
 import {
   setup,
   choose,
@@ -17,8 +19,110 @@ import {
   setupVia,
   expectRouteFits,
   expectMapSettled,
+  expectRouteFitUnchanged,
   runMapClock,
 } from "./planner-fixture";
+
+for (const [width, height] of [
+  [320, 844],
+  [390, 844],
+  [425, 812],
+  [844, 390],
+  [1280, 844],
+]) {
+  test(`fresh results open the route map without an extra history entry at ${width}x${height}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height });
+    await setup(page);
+    await plan(page);
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      width < 900 ? "map" : "desktop",
+    );
+    if (width < 900) await expect(page.locator("#result-back")).toBeFocused();
+    await expectRouteFits(page);
+    await expectRouteFitUnchanged(page);
+    if (width < 900) {
+      await expect(page.locator("#map-preview-summary")).toContainText(
+        "Früheste Ankunft",
+      );
+      await expect(page.locator("#map-preview-summary")).toContainText(
+        "32 min",
+      );
+      await expect(page.locator("#result-back")).toBeInViewport({ ratio: 1 });
+      await page.locator("#map-open-details").scrollIntoViewIfNeeded();
+      await expect(page.locator("#map-open-details")).toBeInViewport({
+        ratio: 1,
+      });
+      expect(await page.evaluate(() => history.state.resultDepth)).toBe(0);
+      await page.screenshot({
+        path: info.outputPath("initial-result-map.png"),
+      });
+      await page.goBack();
+      await expect(page.locator("#search-view")).toBeVisible();
+      await page.goForward();
+      await expect(page.locator("#map-view")).toHaveAttribute(
+        "data-result-screen",
+        "map",
+      );
+      await showConnections(page);
+      await expect(page.locator("#choices")).toBeVisible();
+      await expect(
+        page.locator(".route-choice[aria-pressed=true]"),
+      ).toBeFocused();
+      await page.locator("#map-preview-summary").evaluate(() => {
+        document.documentElement.style.fontSize = "32px";
+      });
+      await showMap(page);
+      await page.locator("#map-open-details").scrollIntoViewIfNeeded();
+      await expect(page.locator("#map-open-details")).toBeInViewport({
+        ratio: 1,
+      });
+    } else {
+      await expect(page.locator("#choices")).toBeVisible();
+      await expect(page.locator("#panel-details")).toBeVisible();
+    }
+  });
+}
+
+test("arrival search opens the latest suitable departure on the mobile map", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  const link = routeURL(page.url(), {
+    request: {
+      origin: {
+        name: "Start",
+        detail: "",
+        latitude: 48.132,
+        longitude: 11.5756,
+      },
+      destination: {
+        name: "Ziel",
+        detail: "",
+        latitude: 48.175,
+        longitude: 11.6,
+      },
+      timing: "arrive",
+      time: Date.parse("2026-09-04T08:50:00Z") / 1000,
+    },
+  });
+  await page.goto(link.href);
+  await expectPlanningComplete(page);
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  await expect(page.locator("#map-preview-summary")).toContainText(
+    "Späteste Abfahrt",
+  );
+  await expect(page.locator(".route-choice").first()).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
 
 for (const width of [320, 390, 1280]) {
   test(`live start keeps Los disabled during location checking and retry at ${width}px`, async ({
@@ -47,6 +151,7 @@ for (const width of [320, 390, 1280]) {
       });
     });
     await page.locator("#save-settings").click();
+    await showConnections(page);
     const start = page.locator("#navigation-start");
     const ready = (await start.boundingBox())!;
     await start.click();
@@ -568,6 +673,7 @@ test("browser navigation restores itinerary, list and map without another search
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await plan(page);
+  await showConnections(page);
   let requests = 0;
   page.on("request", (r) => {
     if (r.url().includes("/api/v6/plan")) requests++;
@@ -845,6 +951,7 @@ for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 650 });
       await setup(page);
       await plan(page);
+      await showConnections(page);
       const selected = page.locator(".route-choice").last();
       await selected.click();
       const id = await selected.getAttribute("data-journey");

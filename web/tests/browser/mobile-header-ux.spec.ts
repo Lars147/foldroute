@@ -1,5 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
-import { expectPlanningComplete, openSelectedDetails } from "./assertions";
+import {
+  expectPlanningComplete,
+  openSelectedDetails,
+  showConnections,
+} from "./assertions";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 
 async function setup(page: Page) {
@@ -99,6 +103,7 @@ test("route header stays fixed when browser history opens and closes details", a
   await page.locator("#destination").fill("Ziel");
   await page.locator("#destination-options .place-select").click();
   await expectPlanningComplete(page);
+  await showConnections(page);
   const header = page.locator("#result-header");
   const initial = (await header.boundingBox())!;
   for (let visit = 0; visit < 2; visit++) {

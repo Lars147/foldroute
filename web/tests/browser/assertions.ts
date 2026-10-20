@@ -66,6 +66,15 @@ export async function showMap(page: Page) {
     await page.locator("#panel-map-toggle").click();
 }
 
+export async function showConnections(page: Page) {
+  if (await page.evaluate(() => innerWidth >= 900)) return;
+  if (
+    (await page.locator("#map-view").getAttribute("data-result-screen")) !==
+    "list"
+  )
+    await page.locator("#result-back").click();
+}
+
 export async function openSettingsSection(
   page: Page,
   section: "options" | "modes" | "data" | "help",

@@ -350,7 +350,6 @@ export class JourneyView {
       );
     el("result-context").hidden = detail || map;
     el("result-freshness").hidden = this.example;
-    el("close-route").hidden = map;
     for (const element of [
       el("map"),
       el("map-controls"),

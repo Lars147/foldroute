@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { expectMapSettled, expectRouteFitUnchanged } from "./planner-fixture";
 
 async function setup(
   page: Page,
@@ -89,8 +90,15 @@ async function setup(
       journeys,
       selected: journeys[0],
       context: "first",
+      complete: false,
       show() {
-        view.show(this.journeys, this.selected, false, this.context);
+        view.show(
+          this.journeys,
+          this.selected,
+          false,
+          this.context,
+          this.complete,
+        );
       },
     };
     (window as any).overviewTest = fixture;
@@ -98,8 +106,10 @@ async function setup(
     document.getElementById("map-route")!.onclick = () => view.fitRoute();
   }, shape);
   await expect(page.locator(".route-marker")).toHaveCount(2);
+  await expectMapSettled(page);
 }
 async function camera(page: Page) {
+  await expectMapSettled(page);
   return page.evaluate(() => {
     const map = (window as any).overviewTest.view.map;
     return { center: map.getCenter(), zoom: map.getZoom() };
@@ -115,7 +125,7 @@ async function allVisible(page: Page) {
         ...j.legs.flatMap((l: any) => l.coordinates),
       ])
       .every((p: any) =>
-        view.overviewArea.contains(
+        view.overviewArea?.contains(
           view.map.latLngToContainerPoint([p.latitude, p.longitude]),
         ),
       );
@@ -196,6 +206,9 @@ for (const [width, height] of [
     }, info) => {
       await setup(page, width, height, shape);
       await expectClearOverview(page);
+      const initial = await camera(page);
+      await expectRouteFitUnchanged(page);
+      expect((await camera(page)).zoom).toBe(initial.zoom);
       await page.evaluate(() =>
         (window as any).overviewTest.view.map.panBy([150, 80], {
           animate: false,
@@ -225,6 +238,25 @@ for (const [width, height] of [
     });
   }
 }
+
+test("initial overview uses the final panel height after status reflow", async ({
+  page,
+}) => {
+  await setup(page, 425, 812);
+  await page.evaluate(() => {
+    const panel = document.getElementById("journey-panel")!;
+    const fixture = (window as any).overviewTest;
+    panel.style.height = "400px";
+    fixture.context = "new-calculation";
+    fixture.show();
+    panel.style.height = "240px";
+  });
+  await expectClearOverview(page);
+  const initial = await camera(page);
+  await expectRouteFitUnchanged(page);
+  expect((await camera(page)).zoom).toBe(initial.zoom);
+});
+
 for (const width of [390, 1100]) {
   test(`shared overview stays fixed when selecting alternatives at ${width}`, async ({
     page,
@@ -235,6 +267,7 @@ for (const width of [390, 1100]) {
     await page.evaluate(() => {
       const f = (window as any).overviewTest;
       f.selected = f.journeys[1];
+      document.getElementById("journey-panel")!.style.height = "200px";
       f.show();
     });
     expect(await camera(page)).toEqual(initial);
@@ -245,7 +278,7 @@ for (const width of [390, 1100]) {
   });
 }
 
-test("geometry updates expand the overview without shrinking it when an alternative disappears", async ({
+test("geometry updates expand the overview without shrinking it while optimization continues", async ({
   page,
 }) => {
   await setup(page);
@@ -272,9 +305,14 @@ test("geometry updates expand the overview without shrinking it when an alternat
     f.show();
   });
   expect(await camera(page)).toEqual(expanded);
-  await page.locator("#map-route").click();
+  await page.evaluate(() => {
+    const f = (window as any).overviewTest;
+    f.complete = true;
+    f.show();
+  });
   expect(await camera(page)).not.toEqual(expanded);
   await expect.poll(() => allVisible(page)).toBe(true);
+  await expectRouteFitUnchanged(page);
   await expect(page.locator("#map-route")).toHaveAccessibleName(
     "Gesamte Route anzeigen",
   );
@@ -291,6 +329,7 @@ test("manual camera survives selection and new geometry until overview or a new 
   await page.evaluate(() => {
     const f = (window as any).overviewTest;
     f.selected = f.journeys[1];
+    f.complete = true;
     f.journeys[0].legs[0].coordinates[1].latitude = 49;
     f.show();
     document.getElementById("journey-panel")!.dataset.size = "expanded";

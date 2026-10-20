@@ -130,6 +130,7 @@ const suppressedCalculations = new Set<string>();
 let currentSaveSuppressed = false;
 let sharingPlan = false;
 let planningWasBusy = false;
+let mapEntryPending = false;
 let navigationRevision = 0;
 let historyPosition = Number.isSafeInteger(history.state?.position)
   ? (history.state.position as number)
@@ -313,7 +314,7 @@ function toast(
   }
   el("status").setAttribute("aria-live", stage ? "off" : "polite");
   element.hidden = false;
-  if (!planningId || planningFeedback.position()) {
+  if (planningFeedback.position()) {
     reveal(element, { y: 8 });
     if (!stage || stage === "ready") {
       const duration = stage === "ready" ? 3000 : 6000;
@@ -444,6 +445,7 @@ window.addEventListener("focus", () => {
   if (!pagePresent) resumePage();
 });
 const journeyView = new JourneyView((id) => {
+  mapEntryPending = false;
   cancelNavigationCheck();
   session.select(id);
 });
@@ -468,6 +470,7 @@ journeyView.onPositionChange = () => {
     );
 };
 journeyView.onNavigate = (screen, replace) => {
+  mapEntryPending = false;
   cancelNavigationCheck();
   navigationRevision++;
   if (
@@ -486,6 +489,7 @@ journeyView.onNavigate = (screen, replace) => {
   writeHistory(!replace, replace ? depth : depth + 1);
 };
 journeyView.onBack = () => {
+  mapEntryPending = false;
   cancelNavigationCheck();
   if (journeyView.screen === "map") {
     if (journeyView.savedOrigin) {
@@ -912,6 +916,7 @@ async function restoreLink(
   parsed: ParsedRouteLink,
   next: View = "map",
   id?: string,
+  navigation?: JourneyNavigation,
 ) {
   resetEditor();
   journeyView.reset();
@@ -977,7 +982,12 @@ async function restoreLink(
     settingsReplanPending = true;
     return;
   }
-  if (navigator.onLine) await session.calculate(request, settings, false);
+  if (navigator.onLine) {
+    const calculation = session.calculate(request, settings, false);
+    // Browser history restores its own result screen after the calculation.
+    if (navigation) mapEntryPending = false;
+    await calculation;
+  }
 }
 function show(next: View, push = true) {
   if (next !== view) cancelNavigationCheck();
@@ -995,6 +1005,7 @@ function show(next: View, push = true) {
     return;
   }
   if (push) navigationRevision++;
+  if (next !== "map") mapEntryPending = false;
   const replan =
     view === "settings" &&
     next !== "settings" &&
@@ -1058,6 +1069,7 @@ function show(next: View, push = true) {
     } else reveal(document.querySelector<HTMLElement>(".search-content")!);
 }
 window.addEventListener("popstate", async (event) => {
+  mapEntryPending = false;
   cancelNavigationCheck();
   const position = Number.isSafeInteger(event.state?.position)
     ? (event.state.position as number)
@@ -1107,6 +1119,7 @@ window.addEventListener("popstate", async (event) => {
         readRouteURL(new URL(location.href)),
         "map",
         event.state?.planId,
+        navigation,
       );
       if (revision !== navigationRevision) return;
     }
@@ -1175,6 +1188,7 @@ window.addEventListener("popstate", async (event) => {
       readRouteURL(new URL(location.href)),
       next,
       event.state?.planId,
+      navigation,
     );
     if (revision !== navigationRevision) return;
     journeyView.restoreNavigation(navigation, next === "map");
@@ -1385,6 +1399,7 @@ function showRouteMap(state: PlanningState) {
     state.selected,
     navigator.onLine,
     JSON.stringify([state.calculationId ?? state.queriedAt, state.request]),
+    !state.busy,
   );
 }
 function renderPlanning(state: PlanningState) {
@@ -1400,13 +1415,29 @@ function renderPlanning(state: PlanningState) {
     if (planResults.size > 32)
       planResults.delete(planResults.keys().next().value!);
   }
-  if (state.busy && !planningWasBusy) currentSaveSuppressed = false;
+  if (state.busy && !planningWasBusy) {
+    currentSaveSuppressed = false;
+    // A fresh calculation has a pending request; optimization resumes do not.
+    mapEntryPending = !!state.pendingRequest;
+  }
   planningWasBusy = state.busy;
+  const enterMap =
+    mapEntryPending &&
+    !!state.selected &&
+    !!state.calculationId &&
+    !state.pendingRequest &&
+    !state.staleReason &&
+    !state.restored;
+  if (enterMap || !state.busy) mapEntryPending = false;
   updateLinkUI();
   journeyView.render(
     state,
     state.resultSettings?.maxCyclingMinutes ?? settings.maxCyclingMinutes,
   );
+  if (enterMap && view === "map" && matchMedia("(max-width: 899px)").matches) {
+    journeyView.showScreen("map", !document.querySelector("dialog[open]"));
+    writeHistory();
+  }
   if (view === "map") showRouteMap(state);
   if (
     state.selected &&

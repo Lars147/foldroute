@@ -1,4 +1,5 @@
 import {
+  showConnections,
   openCachedJourney,
   openSettingsSection,
   showMap,
@@ -67,6 +68,7 @@ test("Back and Forward restore distinct submitted plans without result history e
 }) => {
   await setup(page);
   await plan(page);
+  await showConnections(page);
   const first = page.url();
   const length = await page.evaluate(() => history.length);
   await page.locator(".route-choice").last().click();
@@ -125,6 +127,7 @@ test("history deduplicates routes, restores without requests and replans from fi
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-row")).toHaveCount(1);
   await page.locator("#tab-route").click();
+  await showConnections(page);
   await page.locator(".route-choice").last().click();
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-row")).toHaveCount(1);
@@ -244,6 +247,7 @@ test("history deletion and disabling persist without restoring deleted calculati
   await page.keyboard.press("Enter");
   await expect(page.locator(".history-row")).toHaveCount(0);
   await page.locator("#tab-route").click();
+  await showConnections(page);
   await page.locator(".route-choice").last().click();
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-row")).toHaveCount(0);

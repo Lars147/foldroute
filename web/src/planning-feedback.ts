@@ -5,7 +5,7 @@ import { el } from "./ui";
 export const planningReadyMessage = "Verbindungen gefunden";
 export type PlanningToastStage = "searching" | "ready" | "optimizing" | "error";
 
-/** Live status sits above mobile results and shares the desktop toast channel. */
+/** Live status shares the toast channel and keeps the mobile map panel clear. */
 export class PlanningFeedback {
   private readonly toastHome = el("toast").parentElement!;
   private announced = new Set<string>();
@@ -41,6 +41,7 @@ export class PlanningFeedback {
     const observer = new ResizeObserver(schedule);
     for (const element of [
       el("map-view"),
+      el("connection"),
       el("journey-panel"),
       el("map-controls"),
       el("result-header"),
@@ -61,7 +62,12 @@ export class PlanningFeedback {
     new MutationObserver(visibilityChanged).observe(document.body, {
       subtree: true,
       attributes: true,
-      attributeFilter: ["data-view", "data-navigation", "open"],
+      attributeFilter: [
+        "data-view",
+        "data-navigation",
+        "data-result-screen",
+        "open",
+      ],
     });
   }
 
@@ -191,6 +197,7 @@ export class PlanningFeedback {
     const state = this.state;
     const progress = planningProgress(state);
     const id = state.calculationId;
+    const desktop = matchMedia("(min-width: 900px)").matches;
     const firstReady = progress.ready && !!id && !this.announced.has(id);
     if (firstReady) {
       this.announced.add(id!);
@@ -202,6 +209,8 @@ export class PlanningFeedback {
       this.dismiss();
       return;
     }
+    if (firstReady && !desktop)
+      el("planning-announcement").textContent = planningReadyMessage;
     if (progress.loading) {
       this.readyId = undefined;
       this.notify(this.searchingId, state.message, "searching");
@@ -209,10 +218,15 @@ export class PlanningFeedback {
       this.readyId = undefined;
       if (this.notify(id!, progress.message, "error")) this.attachRecovery();
     } else {
-      if (firstReady && this.notify(id!, planningReadyMessage, "ready"))
+      if (
+        firstReady &&
+        desktop &&
+        this.notify(id!, planningReadyMessage, "ready")
+      )
         this.readyId = id;
       const toast = el("toast");
       const showingReady =
+        desktop &&
         this.readyId === id &&
         !toast.hidden &&
         toast.dataset.planningId === id &&
@@ -229,22 +243,32 @@ export class PlanningFeedback {
 
   position(): boolean {
     const toast = el("toast");
-    if (!toast.dataset.planningId || toast.hidden) return true;
-    if (!this.visible()) {
+    const desktop = matchMedia("(min-width: 900px)").matches;
+    const mapElement = el("map-view");
+    const mapScreen =
+      !desktop &&
+      !mapElement.hidden &&
+      mapElement.dataset.resultScreen === "map";
+    toast.toggleAttribute("data-map-toast", mapScreen);
+    const planning = !!toast.dataset.planningId;
+    if (toast.hidden || (!planning && !mapScreen)) return true;
+    if (planning && !this.visible()) {
       this.dismiss();
       return false;
     }
-    const desktop = matchMedia("(min-width: 900px)").matches;
-    if (!desktop && this.state && planningProgress(this.state).ready) {
+    if (
+      !desktop &&
+      !mapScreen &&
+      this.state &&
+      planningProgress(this.state).ready
+    ) {
       const slot = el("planning-feedback-slot");
-      const map = el("map-view").dataset.resultScreen === "map";
-      const parent = el(map ? "map-preview" : "panel-content");
+      const parent = el("panel-content");
       if (slot.parentElement !== parent) {
         const focused = slot.contains(document.activeElement)
           ? (document.activeElement as HTMLElement)
           : undefined;
-        if (map) parent.prepend(slot);
-        else el("status").before(slot);
+        el("status").before(slot);
         focused?.focus({ preventScroll: true });
       }
       this.moveToast(slot);
@@ -256,22 +280,52 @@ export class PlanningFeedback {
     const viewTop = viewport?.offsetTop ?? 0;
     const viewRight = viewLeft + (viewport?.width ?? innerWidth);
     const viewBottom = viewTop + (viewport?.height ?? innerHeight);
-    const map = el("map-view").getBoundingClientRect();
+    const map = mapElement.getBoundingClientRect();
     const panel = el("journey-panel").getBoundingClientRect();
     const controls = el("map-controls").getBoundingClientRect();
-    const left = desktop ? Math.max(viewLeft, panel.right) + 12 : viewLeft + 16;
-    const right = desktop
-      ? Math.min(viewRight, controls.left) - 12
-      : viewRight - 16;
-    const width = Math.max(0, right - left);
+    const mapStyle = getComputedStyle(mapElement);
+    const sidePanel =
+      mapScreen &&
+      mapStyle.getPropertyValue("--map-panel-layout").trim() === "side";
+    const left =
+      desktop || sidePanel
+        ? Math.max(viewLeft, panel.right) + 12
+        : Math.max(
+            viewLeft,
+            map.left + (mapScreen ? parseFloat(mapStyle.paddingLeft) : 0),
+          ) + 16;
+    const right =
+      desktop || mapScreen
+        ? Math.min(viewRight, controls.left) - 12
+        : viewRight - 16;
+    const center = mapScreen
+      ? ((sidePanel ? Math.max(viewLeft, panel.right) : viewLeft) + viewRight) /
+        2
+      : (left + right) / 2;
+    // Reserve equal space on both sides so the controls limit width, not alignment.
+    const width = Math.max(0, 2 * Math.min(center - left, right - center));
     toast.style.setProperty("--planning-toast-width", `${width}px`);
+    if (mapScreen) {
+      const top = Math.max(viewTop + 12, controls.top);
+      const tabs = document
+        .querySelector<HTMLElement>(".app-tabs")!
+        .getBoundingClientRect();
+      const bottom = Math.min(
+        viewBottom - 8,
+        (sidePanel ? tabs.top : panel.top) - 12,
+      );
+      toast.style.setProperty("--planning-toast-top", `${top}px`);
+      toast.style.setProperty(
+        "--map-toast-height",
+        `${Math.max(0, bottom - top)}px`,
+      );
+    }
     const height = toast.getBoundingClientRect().height;
-    let top = Math.max(map.top, viewTop) + 12;
-    if (!desktop) {
-      const action =
-        el("map-view").dataset.resultScreen === "map"
-          ? el("map-open-details")
-          : document.querySelector<HTMLElement>(".panel-actions")!;
+    let top = mapScreen
+      ? Math.max(viewTop + 12, controls.top)
+      : Math.max(map.top, viewTop) + 12;
+    if (!desktop && !mapScreen) {
+      const action = document.querySelector<HTMLElement>(".panel-actions")!;
       const bounds = action.getBoundingClientRect();
       const tabs = document
         .querySelector<HTMLElement>(".app-tabs")!
@@ -290,7 +344,7 @@ export class PlanningFeedback {
     const toastWidth = toast.getBoundingClientRect().width;
     toast.style.setProperty(
       "--planning-toast-left",
-      `${left + (width - toastWidth) / 2}px`,
+      `${center - toastWidth / 2}px`,
     );
     toast.style.setProperty("--planning-toast-top", `${top}px`);
     return true;

@@ -143,6 +143,29 @@ export async function expectMapSettled(page: Page) {
     .toBe(true);
 }
 
+export async function expectRouteFitUnchanged(page: Page) {
+  await expectMapSettled(page);
+  const positions = () =>
+    page.locator("#map .route-marker").evaluateAll((markers) =>
+      markers.map((marker) => {
+        const { x, y } = marker.getBoundingClientRect();
+        return { x, y };
+      }),
+    );
+  const initial = await positions();
+  expect(initial.length).toBeGreaterThan(0);
+  for (let click = 0; click < 2; click++) {
+    await page.locator("#map-route").click();
+    await expectMapSettled(page);
+    const current = await positions();
+    expect(current).toHaveLength(initial.length);
+    current.forEach((position, index) => {
+      expect(Math.abs(position.x - initial[index].x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(position.y - initial[index].y)).toBeLessThanOrEqual(1);
+    });
+  }
+}
+
 export function shiftedTransitFixture(minutes: number) {
   const response = structuredClone(fixture.multimodal);
   for (const journey of response.itineraries) {

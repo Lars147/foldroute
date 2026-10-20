@@ -1906,6 +1906,19 @@ dialog form {
 #toast:not([data-planning-id]) {
   position: relative;
 }
+#toast[data-map-toast] {
+  position: fixed;
+  left: var(--planning-toast-left);
+  top: var(--planning-toast-top);
+  right: auto;
+  bottom: auto;
+  width: max-content;
+  max-width: var(--planning-toast-width);
+  max-height: var(--map-toast-height);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
 .toast-countdown {
   position: absolute;
   left: 14px;
