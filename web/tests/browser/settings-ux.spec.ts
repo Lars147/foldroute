@@ -309,7 +309,10 @@ for (const installed of [false, true]) {
     await expect(page.locator("#datenschutz")).toHaveAttribute("open", "");
     await expect(page.locator("#datenschutz summary")).toBeInViewport();
     await expect(page.locator("#datenschutz")).toContainText(
-      "Keine Analyse-Tools, keine GPS-Spuren.",
+      /keine\s+Analyse-Tools/,
+    );
+    await expect(page.locator("#datenschutz")).toContainText(
+      /keine\s+GPS-Spuren/,
     );
   });
 }
