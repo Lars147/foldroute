@@ -249,10 +249,10 @@ for (const width of [320, 393, 1280]) {
       "Aktueller Standort",
     );
     await page.locator("#time-trigger").click();
-    await expect(page.locator("#timezone")).toBeVisible();
+    await expect(page.locator("#time-dialog")).toBeVisible();
     await page.locator("#time-cancel").click();
     await expect(page.locator("#time-trigger")).toBeFocused();
-    await expect(page.locator("#timezone")).toBeHidden();
+    await expect(page.locator("#time-dialog")).toBeHidden();
     await addStop(page);
     await expect(page.locator("#via-0")).toBeFocused();
     await page.locator("#via-0").press("Escape");
@@ -951,26 +951,51 @@ for (const mode of ["depart", "arrive"] as const)
     await expectPlanningComplete(page);
   });
 
-for (const mode of ["depart", "arrive"] as const)
-  test(`fixed ${mode} link preserves the chosen UTC instant and local form time`, async ({
-    page,
-  }) => {
-    await setup(page);
-    await plan(page);
-    const link = new URL(page.url());
-    link.searchParams.set("timing", mode);
-    link.searchParams.set("time", "2026-09-04T09:00:00Z");
-    const query = page.waitForRequest((r) =>
-      r.url().includes("directModes=BIKE"),
-    );
-    await page.goto(link.href);
-    const params = new URL((await query).url()).searchParams;
-    expect(params.get("time")).toBe("2026-09-04T09:00:00Z");
-    expect(params.get("arriveBy")).toBe(String(mode === "arrive"));
-    await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
-    await page.locator("#adjust-route").click();
-    await expect(page.locator("#timing")).toHaveValue(mode);
-    await expect(page.locator("#when")).toHaveValue("2026-09-04T11:00");
+for (const [timezoneId, localTime] of [
+  ["Europe/Berlin", "11:00"],
+  ["America/New_York", "05:00"],
+] as const)
+  test.describe(`device time zone ${timezoneId}`, () => {
+    test.use({ timezoneId });
+    for (const mode of ["depart", "arrive"] as const)
+      test(`fixed ${mode} link preserves the chosen UTC instant and local form time`, async ({
+        page,
+      }) => {
+        await setup(page);
+        await plan(page);
+        const link = new URL(page.url());
+        link.searchParams.set("timing", mode);
+        link.searchParams.set("time", "2026-09-04T09:00:00Z");
+        const query = page.waitForRequest((r) =>
+          r.url().includes("directModes=BIKE"),
+        );
+        await page.goto(link.href);
+        const params = new URL((await query).url()).searchParams;
+        expect(params.get("time")).toBe("2026-09-04T09:00:00Z");
+        expect(params.get("arriveBy")).toBe(String(mode === "arrive"));
+        await expect(page.locator("#journey-panel")).not.toHaveClass(
+          /is-loading/,
+        );
+        await page.locator("#adjust-route").click();
+        await expect(page.locator("#timing")).toHaveValue(mode);
+        await expect(page.locator("#when")).toHaveValue(
+          `2026-09-04T${localTime}`,
+        );
+        await page.locator("#time-trigger").click();
+        await expect(page.locator("#time-clock")).toHaveValue(localTime);
+        await page.locator("#time-apply").click();
+        await expect(page.locator("#time-summary")).toHaveText(
+          `Heute, ${mode === "arrive" ? "an" : "ab"} ${localTime}`,
+        );
+        const updatedQuery = page.waitForRequest((r) =>
+          r.url().includes("directModes=BIKE"),
+        );
+        await page.locator("#calculate").click();
+        const updatedParams = new URL((await updatedQuery).url()).searchParams;
+        expect(updatedParams.get("time")).toBe("2026-09-04T09:00:00Z");
+        expect(updatedParams.get("arriveBy")).toBe(String(mode === "arrive"));
+        await expectPlanningComplete(page);
+      });
   });
 
 test("hidden comparison arriving first does not finish the search before transit", async ({
