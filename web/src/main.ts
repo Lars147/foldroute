@@ -1933,8 +1933,6 @@ function updateTiming() {
   editorSummary();
 }
 const timePicker = new TimePicker(updateTiming);
-el("timezone").textContent =
-  "Alle Zeiten: " + Intl.DateTimeFormat().resolvedOptions().timeZone;
 function readContext() {
   cancelDraftLocation();
   if (!useLocation && !draftOrigin.value) {

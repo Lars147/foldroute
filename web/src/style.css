@@ -1881,10 +1881,6 @@ dialog form {
 .time-trigger-copy strong {
   overflow-wrap: anywhere;
 }
-#timezone {
-  font-size: 0.6875rem;
-  margin: 10px 0 0;
-}
 .toast,
 .update-banner {
   position: fixed;
