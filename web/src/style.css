@@ -3441,11 +3441,80 @@ dialog.editing-time {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.map-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: -6px;
+}
+#map-preview-heading {
+  min-width: 0;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 #map-open-details {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 0 8px 8px;
+  font-size: 0.8125rem;
+  color: var(--panel-text);
+}
+#map-preview-feedback {
+  display: grid;
+  gap: 8px;
+}
+#map-preview-feedback > :not([hidden]) {
+  margin: 0 0 4px;
+}
+#map-preview-feedback #navigation-start-recovery {
+  grid-template-columns: minmax(0, 1fr);
+}
+#map-preview-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 4px;
+}
+#map-preview-actions .result-nav {
+  min-width: 0;
+  justify-content: center;
+}
+#map-preview-actions #result-back {
   width: 100%;
+  min-width: 44px;
+  min-height: max(48px, calc(1.45rem + 26px));
+  padding: 12px;
+  font-size: 1rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+#map-preview-actions > :is(button, a) {
+  min-width: 0;
+  min-height: max(48px, calc(1.45rem + 26px));
+  width: 100%;
+  padding: 12px;
+  justify-content: center;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+#map-preview-actions .example-plan-own {
+  grid-column: auto;
+}
+#map-request-meta {
+  display: none;
 }
 .journey-panel.result-scroll-all {
   display: block;
@@ -3478,6 +3547,47 @@ dialog.editing-time {
   [data-result-screen="map"] .panel-content,
   [data-result-screen="map"] .panel-actions {
     display: none;
+  }
+  [data-result-screen="map"] .planning-context {
+    margin-bottom: 6px;
+    padding: 0 0 6px;
+  }
+  [data-result-screen="map"] .planning-context-footer,
+  [data-result-screen="map"]
+    :is(.route-request-origin, .route-request-stops, .route-request-marker) {
+    display: none;
+  }
+  [data-result-screen="map"] .route-request-point::after {
+    display: none;
+  }
+  [data-result-screen="map"] .route-request-destination {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-result-screen="map"] .panel-tools {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  [data-result-screen="map"] .route-request {
+    flex-basis: 0;
+  }
+  [data-result-screen="map"] .route-request-places {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    align-items: center;
+  }
+  [data-result-screen="map"] :is(#route-destination, .example-destination) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  [data-result-screen="map"] .route-edit-icon {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  [data-result-screen="map"] #map-request-meta:not([hidden]) {
+    display: block;
+    margin: 2px 0 4px;
+    font-size: 0.75rem;
+    color: var(--panel-muted);
+    overflow-wrap: anywhere;
   }
   [data-result-screen="detail"] .panel-details {
     margin-top: 8px;
@@ -4423,27 +4533,106 @@ body[data-navigation="active"] .app-tabs {
 }
 .route-request-places {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 16px;
-  gap: 6px 8px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  gap: 8px;
+  align-items: center;
   line-height: 1.4;
+}
+.route-request-chain {
+  --request-marker-size: max(16px, 1rem);
+  --request-point-gap: 10px;
+  --request-line-clearance: 3px;
+  display: grid;
+  min-width: 0;
+  gap: var(--request-point-gap);
+}
+.route-request-stops {
+  display: contents;
+}
+.route-request-point {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: var(--request-marker-size) minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+  min-width: 0;
+}
+.route-request-point:not(.route-request-destination)::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: calc(var(--request-marker-size) / 2);
+  top: calc(var(--request-marker-size) + var(--request-line-clearance));
+  bottom: calc(var(--request-line-clearance) - var(--request-point-gap));
+  width: 1px;
+  /* Translate after layout so the painted line stays on the circle's axis. */
+  transform: translateX(-50%);
+  background: var(--panel-muted);
+  pointer-events: none;
+}
+.route-request-point.route-request-origin::after {
+  top: calc(
+    (var(--request-marker-size) + 0.5rem) / 2 + var(--request-line-clearance)
+  );
+}
+.route-request-chain:not(:has(.route-request-stop))
+  .route-request-origin::after,
+.route-request-stops > .route-request-stop:last-child::after {
+  /* Rounded flagpole top: y=3 minus half its 1.8-unit stroke, in a 24-unit icon. */
+  bottom: calc(
+    var(--request-line-clearance) - var(--request-point-gap) - 2px -
+      var(--request-marker-size) * 2.1 / 24
+  );
+}
+.route-request-marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: var(--request-marker-size);
+  height: var(--request-marker-size);
+}
+.route-request-marker .route-origin-marker {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0;
+  background: var(--panel);
+}
+.route-request-destination .route-request-marker {
+  margin-top: 2px;
+}
+.route-request-marker .route-destination-marker {
+  display: flex;
+  /* Balance the flagpole's visual weight without changing the shared icon. */
+  translate: calc(var(--request-marker-size) / 24) 0;
+}
+.route-request-stop-marker {
+  border: 1px solid var(--panel-muted);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--panel-muted);
+  font-size: 0.625rem;
+  font-weight: 650;
+  line-height: 1;
 }
 #route-origin,
 #route-destination,
 .example-origin,
-.example-destination {
+.example-destination,
+.route-request-stop-name {
   grid-column: 2;
   overflow-wrap: anywhere;
   white-space: normal;
 }
 #route-origin,
-.example-origin {
+.example-origin,
+.route-request-stop-name {
   font-size: 0.75rem;
   color: var(--panel-muted);
 }
 #route-destination,
 .example-destination {
-  grid-row: 2;
   font-size: 0.9375rem;
   font-weight: 650;
 }
@@ -4454,14 +4643,9 @@ body[data-navigation="active"] .app-tabs {
   border: 1.5px solid var(--panel-muted);
   border-radius: 50%;
 }
-.route-destination-marker {
-  grid-column: 1;
-  grid-row: 2;
-  margin-top: 2px;
-}
 .route-edit-icon {
-  grid-column: 3;
-  grid-row: 1 / 3;
+  grid-column: 2;
+  grid-row: 1;
   align-self: center;
   display: grid;
   place-items: center;
@@ -4469,6 +4653,10 @@ body[data-navigation="active"] .app-tabs {
 .route-request-places .icon {
   width: 16px;
   height: 16px;
+}
+.route-request-marker .icon {
+  width: var(--request-marker-size);
+  height: var(--request-marker-size);
 }
 #route-request-meta {
   display: block;
@@ -4574,6 +4762,24 @@ body[data-navigation="active"] .app-tabs {
 #route-actions-dialog #route-actions-close {
   text-align: center;
 }
+#route-action-context {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+#route-action-context dt,
+#route-action-stand {
+  color: var(--panel-muted);
+  font-size: 0.75rem;
+}
+#route-action-context dd {
+  margin: 2px 0 0;
+  font-size: 0.875rem;
+}
+#route-action-stand:empty {
+  display: none;
+}
 
 .settings-mobile-title {
   display: none;
@@ -4625,11 +4831,6 @@ body[data-navigation="active"] .app-tabs {
   overflow-wrap: anywhere;
   white-space: normal;
 }
-#map-preview > #replan-saved {
-  width: 100%;
-  margin-bottom: 8px;
-}
-
 /* The example uses the usual result layout without personal app controls. */
 body[data-example] {
   --tabs: var(--safe-bottom);
@@ -4653,10 +4854,6 @@ body[data-example] #route-start-summary {
   text-align: center;
   text-decoration: none;
   overflow-wrap: anywhere;
-}
-#map-preview > .example-plan-own {
-  width: 100%;
-  margin-bottom: 8px;
 }
 
 .journey-panel .planning-recovery .text-button {
@@ -4696,7 +4893,8 @@ body[data-example] #route-start-summary {
 #navigation-start[aria-busy="true"] {
   white-space: normal;
 }
-.panel-actions > #navigation-start[aria-busy="true"] {
+.panel-actions > #navigation-start[aria-busy="true"],
+#map-preview-actions > #navigation-start[aria-busy="true"] {
   padding-inline: 8px;
   font-size: 0.8125rem;
 }

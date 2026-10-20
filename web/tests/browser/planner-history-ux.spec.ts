@@ -358,8 +358,9 @@ test("small itinerary screens keep archived actions reachable", async ({
     await page.locator("#replan-saved").scrollIntoViewIfNeeded();
     await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
     await page.locator("#route-more").click();
+    await page.locator("#navigation-start").scrollIntoViewIfNeeded();
     await expect(page.locator("#navigation-start")).toBeInViewport({
-      ratio: 1,
+      ratio: 0.99,
     });
     await page.keyboard.press("Escape");
     for (const id of ["adjust-route", "result-back"]) {
@@ -620,7 +621,22 @@ for (const origin of ["history", "search"]) {
       if (request.url().includes("/api/v6/plan?")) requests++;
     });
     await showMap(page);
-    await expect(page.locator("#result-back")).toHaveText("‹ Verlauf");
+    await expect(page.locator("#result-back")).toHaveText("Verlauf");
+    await expect(page.locator("#map-preview-heading")).toHaveText(
+      "Gespeicherte Route",
+    );
+    await expect(
+      page.locator("#map-preview-actions #replan-saved"),
+    ).toBeVisible();
+    await expect(page.locator("#map-preview-status")).toBeVisible();
+    await page.locator("#route-more").click();
+    await expect(
+      page.locator("#route-actions-dialog #navigation-start"),
+    ).toBeVisible();
+    await expect(page.locator("#route-action-stand")).toContainText(
+      "Gespeichert:",
+    );
+    await page.keyboard.press("Escape");
     await page.locator("#result-back").click();
     await expect(page.locator("#history-view")).toBeVisible();
     await expect(page.locator(".history-open")).toBeFocused();

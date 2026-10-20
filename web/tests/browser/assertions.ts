@@ -50,6 +50,10 @@ export async function openSelectedDetails(page: Page) {
     await page.locator("#panel-details").scrollIntoViewIfNeeded();
     return;
   }
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    /^(list|detail|map)$/,
+  );
   const screen = await page
     .locator("#map-view")
     .getAttribute("data-result-screen");
@@ -59,6 +63,10 @@ export async function openSelectedDetails(page: Page) {
 }
 export async function showMap(page: Page) {
   if (await page.evaluate(() => innerWidth >= 900)) return;
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    /^(list|detail|map)$/,
+  );
   if (
     (await page.locator("#map-view").getAttribute("data-result-screen")) !==
     "map"
@@ -68,6 +76,11 @@ export async function showMap(page: Page) {
 
 export async function showConnections(page: Page) {
   if (await page.evaluate(() => innerWidth >= 900)) return;
+  // matchMedia updates the result layout asynchronously after viewport changes.
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    /^(list|detail|map)$/,
+  );
   if (
     (await page.locator("#map-view").getAttribute("data-result-screen")) !==
     "list"

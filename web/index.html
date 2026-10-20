@@ -672,23 +672,38 @@
                   class="route-request"
                   type="button"
                   aria-label="Route anpassen"
-                  aria-describedby="route-origin route-destination route-request-meta"
+                  aria-describedby="route-origin route-request-stops route-destination route-request-meta"
                 >
-                  <span class="route-request-places"
-                    ><span class="route-origin-marker" aria-hidden="true"></span
-                    ><span id="route-origin">Start</span
-                    ><span
-                      class="route-destination-marker"
-                      data-icon="flag"
-                      aria-hidden="true"
-                    ></span
-                    ><span id="route-destination">Ziel</span
-                    ><span
+                  <span class="route-request-places">
+                    <span class="route-request-chain">
+                      <span class="route-request-point route-request-origin">
+                        <span class="route-request-marker" aria-hidden="true">
+                          <span class="route-origin-marker"></span>
+                        </span>
+                        <span id="route-origin">Start</span>
+                      </span>
+                      <span
+                        id="route-request-stops"
+                        class="route-request-stops"
+                      ></span>
+                      <span
+                        class="route-request-point route-request-destination"
+                      >
+                        <span class="route-request-marker" aria-hidden="true">
+                          <span
+                            class="route-destination-marker"
+                            data-icon="flag"
+                          ></span>
+                        </span>
+                        <span id="route-destination">Ziel</span>
+                      </span>
+                    </span>
+                    <span
                       class="route-edit-icon"
                       data-icon="edit"
                       aria-hidden="true"
-                    ></span
-                  ></span>
+                    ></span>
+                  </span>
                 </button>
                 <div class="panel-tool-actions">
                   <button
@@ -726,13 +741,25 @@
                   <span>Karte</span>
                 </button>
               </div>
+              <p id="map-request-meta" hidden></p>
             </div>
             <div id="map-preview" hidden>
-              <p id="map-preview-status" role="status" tabindex="-1" hidden></p>
+              <div class="map-preview-heading">
+                <h2 id="map-preview-heading" tabindex="-1"></h2>
+                <button id="map-open-details" class="text-button" type="button">
+                  Details <span aria-hidden="true">›</span>
+                </button>
+              </div>
               <div id="map-preview-summary" class="route-summary"></div>
-              <button id="map-open-details" class="primary" type="button">
-                Details
-              </button>
+              <div id="map-preview-feedback">
+                <p
+                  id="map-preview-status"
+                  role="status"
+                  tabindex="-1"
+                  hidden
+                ></p>
+              </div>
+              <div id="map-preview-actions"></div>
             </div>
           </header>
           <div
@@ -843,6 +870,25 @@
       </section>
       <dialog id="route-actions-dialog" aria-labelledby="route-actions-title">
         <h2 id="route-actions-title">Routenaktionen</h2>
+        <dl id="route-action-context">
+          <div>
+            <dt>Start</dt>
+            <dd id="route-action-origin"></dd>
+          </div>
+          <div>
+            <dt>Ziel</dt>
+            <dd id="route-action-destination"></dd>
+          </div>
+          <div>
+            <dt>Zeitvorgabe</dt>
+            <dd id="route-action-time"></dd>
+          </div>
+          <div id="route-action-stops-row" hidden>
+            <dt>Zwischenstopps</dt>
+            <dd id="route-action-stops"></dd>
+          </div>
+        </dl>
+        <p id="route-action-stand"></p>
         <button id="share-plan" type="button" class="secondary" hidden>
           Planung teilen
         </button>

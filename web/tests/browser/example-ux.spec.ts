@@ -184,6 +184,14 @@ test("example retains the usual map, details and browser navigation on small scr
     .getByRole("button", { name: "Karte anzeigen", exact: true })
     .click();
   await expect(page.locator("#map")).toBeVisible();
+  await expect(page.locator("#map-preview-heading")).toHaveText(
+    "Beispielroute",
+  );
+  await expect(page.locator(".example-origin")).toBeHidden();
+  await expect(page.locator(".example-destination")).toBeVisible();
+  await expect(
+    page.locator("#map-preview-actions #example-plan-own"),
+  ).toBeVisible();
   await expect(
     page.locator("#map .leaflet-overlay-pane svg path:visible"),
   ).not.toHaveCount(0);

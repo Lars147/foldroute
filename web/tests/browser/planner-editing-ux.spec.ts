@@ -74,9 +74,10 @@ for (const width of [320, 390, 1280]) {
       .filter({ hasText: "U6" })
       .first()
       .click();
-    const start = page.locator(".panel-actions #navigation-start");
+    const start = page.locator("#navigation-start");
     const notice = page.locator("#navigation-start-notice");
     const search = page.locator("#navigation-search-now");
+    await page.mouse.move(0, 0);
     await expect(start).toBeVisible();
     await expect(start).toBeDisabled();
     await expect(start).toHaveText("Los");
@@ -112,8 +113,14 @@ for (const width of [320, 390, 1280]) {
     if (width < 900) {
       await showMap(page);
       await expect(page.locator(".panel-actions")).toBeHidden();
-      await page.locator("#result-back").click();
+      await expect(
+        page.locator("#map-preview-feedback #navigation-start-notice"),
+      ).toBeVisible();
+      await expect(
+        page.locator("#map-preview-feedback #navigation-search-now"),
+      ).toBeVisible();
     }
+    await page.mouse.move(0, 0);
     await page.context().setOffline(true);
     await expect(search).toBeDisabled();
     await expect(search).toHaveCSS("background-color", "rgb(226, 231, 228)");
@@ -124,6 +131,7 @@ for (const width of [320, 390, 1280]) {
     await expect(search).toBeEnabled();
     await expect(search).toHaveCSS("background-color", "rgb(255, 212, 59)");
     await expect(notice).not.toContainText("Internet");
+    if (width < 900) await page.locator("#result-back").click();
     await page
       .locator(".route-choice")
       .filter({ hasNotText: "U6" })

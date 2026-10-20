@@ -16,6 +16,7 @@ import {
 } from "./model";
 import { type PlanningState } from "./planning-state";
 import { planningProgress } from "./planning-progress";
+import { renderRequestStops } from "./route-request";
 import {
   el,
   node,
@@ -26,6 +27,25 @@ import {
   routeSymbolColor,
 } from "./ui";
 export type JourneyScreen = "list" | "detail" | "map";
+
+function movePreservingFocus(
+  element: HTMLElement,
+  parent: Node,
+  before: Node | null = null,
+) {
+  if (
+    before === element ||
+    (element.parentNode === parent &&
+      (!before || element.nextSibling === before))
+  )
+    return;
+  const focused = element.contains(document.activeElement)
+    ? (document.activeElement as HTMLElement)
+    : undefined;
+  parent.insertBefore(element, before);
+  focused?.focus({ preventScroll: true });
+}
+
 export interface JourneyNavigation {
   screen: JourneyScreen;
   mapReturn: "list" | "detail";
@@ -50,10 +70,24 @@ export class JourneyView {
   };
   private readonly desktop = matchMedia("(min-width: 900px)");
   private readonly detailPanel = el("panel-details");
+  private readonly feedbackHomes = new Map<HTMLElement, Comment>();
   constructor(
     private select: (id: string) => void,
     private readonly presentation: JourneyPresentation = "live",
   ) {
+    for (const id of [
+      "issues",
+      "late-departure",
+      "cycling-comparison",
+      "map-error",
+      "navigation-start-notice",
+      "navigation-start-recovery",
+    ]) {
+      const element = el(id);
+      const home = document.createComment(`${id} home`);
+      element.before(home);
+      this.feedbackHomes.set(element, home);
+    }
     el("panel-map-toggle").onclick = () => this.requestScreen("map");
     el("result-back").onclick = () => {
       if (this.onBack) this.onBack();
@@ -101,12 +135,17 @@ export class JourneyView {
       el(id).addEventListener("click", closeActions, { capture: true });
     }
     this.desktop.addEventListener("change", () => {
+      const active = document.activeElement as HTMLElement;
       this.applyLayout();
       this.restorePosition();
       if (
         !actionsDialog.open &&
         !document.querySelector(".map-style-panel:popover-open") &&
-        document.activeElement !== el("route-more")
+        !(
+          active !== document.body &&
+          active.getClientRects().length &&
+          !active.closest("[hidden], [inert]")
+        )
       )
         this.focusSelection();
     });
@@ -264,6 +303,7 @@ export class JourneyView {
       this.navigation.positions[this.positionKey()] ?? 0;
   }
   private applyLayout() {
+    const active = document.activeElement as HTMLElement;
     const mobile = !this.desktop.matches;
     const map = mobile && this.screen === "map";
     const detail = mobile && this.screen === "detail";
@@ -272,12 +312,15 @@ export class JourneyView {
     this.detailPanel.hidden = !this.displayedID || (mobile && !detail);
     this.detailPanel.inert = this.detailPanel.hidden;
     el("result-back").hidden = !mobile || this.screen === "list";
+    el("result-back").className = map ? "secondary" : "text-button";
     el("result-back").textContent = this.example
-      ? "‹ Beispielroute"
+      ? map
+        ? "Beispielroute"
+        : "‹ Beispielroute"
       : map
         ? this.savedOrigin
-          ? "‹ Verlauf"
-          : "‹ Alle Verbindungen"
+          ? "Verlauf"
+          : "Alternativen"
         : this.savedOrigin === "history"
           ? "‹ Verlauf"
           : this.savedOrigin === "search"
@@ -285,11 +328,16 @@ export class JourneyView {
             : "‹ Alle Verbindungen";
     const resultNav = el("result-nav");
     const resultHeader = el("result-header");
+    const mapActions = el("map-preview-actions");
     if (map) {
-      if (resultNav.parentElement !== resultHeader)
-        resultHeader.prepend(resultNav);
+      if (resultNav.parentElement !== mapActions)
+        movePreservingFocus(resultNav, mapActions, mapActions.firstChild);
     } else if (resultNav.previousElementSibling !== resultHeader) {
-      resultHeader.after(resultNav);
+      movePreservingFocus(
+        resultNav,
+        resultHeader.parentElement!,
+        resultHeader.nextSibling,
+      );
     }
     const mapToggle = el<HTMLButtonElement>("panel-map-toggle");
     const mapToggleParent = el(
@@ -306,30 +354,35 @@ export class JourneyView {
       !recovery.dataset.planningToast &&
       recovery.previousElementSibling !== recoveryAnchor
     )
-      recoveryAnchor.after(recovery);
+      movePreservingFocus(
+        recovery,
+        recoveryAnchor.parentElement!,
+        recoveryAnchor.nextSibling,
+      );
+    for (const [element, home] of this.feedbackHomes) {
+      if (map) movePreservingFocus(element, el("map-preview-feedback"));
+      else if (element.previousSibling !== home)
+        movePreservingFocus(element, home.parentNode!, home.nextSibling);
+    }
     const start = el("navigation-start");
     const startParent = this.restored
       ? el("route-actions-dialog")
-      : document.querySelector<HTMLElement>(".panel-actions")!;
-    if (start.parentElement !== startParent) startParent.append(start);
+      : map
+        ? mapActions
+        : document.querySelector<HTMLElement>(".panel-actions")!;
+    movePreservingFocus(start, startParent);
     const replan = el("replan-saved");
     const replanParent =
       this.restored && map
-        ? el("map-preview")
+        ? mapActions
         : document.querySelector<HTMLElement>(".panel-actions")!;
-    if (replan.parentElement !== replanParent) {
-      if (map) replanParent.insertBefore(replan, el("map-open-details"));
-      else replanParent.append(replan);
-    }
-    el("map-open-details").className =
-      this.restored || this.example ? "secondary" : "primary";
+    movePreservingFocus(replan, replanParent);
     if (this.example) {
       const ownRoute = el("example-plan-own");
       const actions = document.querySelector<HTMLElement>(".panel-actions")!;
       actions.hidden = map;
-      const parent = map ? el("map-preview") : actions;
-      if (ownRoute.parentElement !== parent)
-        parent.insertBefore(ownRoute, map ? el("map-open-details") : null);
+      const parent = map ? mapActions : actions;
+      movePreservingFocus(ownRoute, parent);
       ownRoute.hidden = false;
       for (const id of [
         "adjust-route",
@@ -341,13 +394,6 @@ export class JourneyView {
         el(id).hidden = true;
       el<HTMLButtonElement>("navigation-start").disabled = true;
     }
-    const mapError = el("map-error");
-    const errorParent = map ? el("map-preview") : el("panel-content");
-    if (mapError.parentElement !== errorParent)
-      errorParent.insertBefore(
-        mapError,
-        map ? el("map-open-details") : this.detailPanel,
-      );
     el("result-context").hidden = detail || map;
     el("result-freshness").hidden = this.example;
     for (const element of [
@@ -362,12 +408,19 @@ export class JourneyView {
       element.style.visibility = this.mapVisible ? "" : "hidden";
     }
     if (!this.mapVisible) closeMapStylePickers();
+    if (
+      active !== document.body &&
+      active !== document.activeElement &&
+      active.getClientRects().length &&
+      !active.closest("[hidden], [inert]")
+    )
+      active.focus({ preventScroll: true });
     this.onLayoutChange?.();
   }
   focusSelection(fromDetail = false) {
     const target =
       !this.desktop.matches && this.screen === "map"
-        ? el("result-back")
+        ? el("map-preview-heading")
         : !this.desktop.matches && this.screen === "detail"
           ? el("journey-heading")
           : (el("choices").querySelector<HTMLElement>(
@@ -391,11 +444,41 @@ export class JourneyView {
         : (request?.origin.name ?? "Start");
     el("route-origin").textContent = originName;
     el("route-destination").textContent = request?.destination.name ?? "Ziel";
+    renderRequestStops(el("route-request-stops"), request?.stops);
     el("route-request-meta").textContent = this.example
       ? "Beispielroute"
       : request
         ? `${request.timing === "now" ? "Abfahrt jetzt" : `${request.timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`}${request.stops?.length ? ` · ${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}` : ""}`
         : "Route bearbeiten";
+    const mapMeta: string[] = [];
+    if (request && !this.example) {
+      if (request.timing !== "now") {
+        const sameDay =
+          new Date(request.time * 1000).toDateString() ===
+          new Date().toDateString();
+        mapMeta.push(
+          `${request.timing === "arrive" ? "Ankunft bis" : "Ab"} ${sameDay ? "" : `${dateLabel(request.time)}, `}${clock(request.time)}`,
+        );
+      }
+      if (request.stops?.length)
+        mapMeta.push(
+          `${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}`,
+        );
+    }
+    el("map-request-meta").textContent = mapMeta.join(" · ");
+    el("map-request-meta").hidden = !mapMeta.length;
+    el("route-action-context").hidden = !request || this.example;
+    el("route-action-origin").textContent = originName;
+    el("route-action-destination").textContent =
+      request?.destination.name ?? "Ziel";
+    el("route-action-time").textContent = request
+      ? request.timing === "now"
+        ? "Abfahrt jetzt"
+        : `${request.timing === "arrive" ? "Ankunft bis" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`
+      : "";
+    el("route-action-stops-row").hidden = !request?.stops?.length;
+    el("route-action-stops").textContent =
+      request?.stops?.map((stop) => stop.place.name).join(" → ") ?? "";
     const selected = state.selected;
     el("route-start-duration").textContent = this.example
       ? "Gesamtdauer"
@@ -444,6 +527,7 @@ export class JourneyView {
       !this.example && state.queriedAt
         ? `${state.restored ? "Gespeichert" : "Stand"}: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}`
         : "";
+    el("route-action-stand").textContent = el("result-stand").textContent;
     const mapStatus = el("map-preview-status");
     const mapMessage = state.recovery
       ? progressMessage
@@ -509,6 +593,15 @@ export class JourneyView {
       .filter((j) => cyclingExcess(j, cyclingLimit) === 0)
       .sort((a, b) => compare(a, b, state.request?.timing ?? "now"))[0];
     const recommendedID = recommended?.id;
+    el("map-preview-heading").textContent = this.example
+      ? "Beispielroute"
+      : state.restored
+        ? "Gespeicherte Route"
+        : j && cyclingExcess(j, cyclingLimit) > 0
+          ? "Fahrradvergleich"
+          : j?.id === recommendedID
+            ? recommendation
+            : "Ausgewählte Verbindung";
     el("saved-notice").hidden = !state.restored;
     if (state.restored)
       el("saved-notice").textContent =
@@ -618,13 +711,7 @@ export class JourneyView {
       el("journey-effort").textContent =
         `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
       el("map-preview-summary").replaceChildren(
-        ...this.summary(
-          j,
-          cyclingLimit,
-          j.id === recommendedID && !state.restored
-            ? recommendation
-            : undefined,
-        ),
+        ...this.summary(j, cyclingLimit),
       );
     } else {
       el("journey-detail").replaceChildren();
