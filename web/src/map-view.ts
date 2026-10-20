@@ -518,7 +518,7 @@ export class RouteMap {
       groups.set(key, group);
     }
     this.markerHalfWidth = Math.max(
-      22,
+      this.markerHalfWidth,
       ...Array.from(groups.values(), (group) => 22 * group.length),
     );
     // Geometry, camera context and palettes must not replace focused markers.
