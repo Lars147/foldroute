@@ -9,8 +9,16 @@ import {
   NavigationEngine,
   navigationJourney,
   projectTransitPath,
+  projectPath,
 } from "../src/navigation-engine";
-import type { Journey, Leg, TransitStop } from "../src/model";
+import {
+  defaults,
+  type Journey,
+  type Leg,
+  type TransitStop,
+} from "../src/model";
+import { mapResponse } from "../src/transitous";
+import munichS8 from "./fixtures/munich-s8.json";
 
 const start = 1000;
 const station = (
@@ -38,36 +46,110 @@ function train(): Leg {
   };
 }
 
+function munichTrain(): Leg {
+  const origin = {
+    name: "Ostbahnhof",
+    detail: "",
+    latitude: munichS8.from.lat,
+    longitude: munichS8.from.lon,
+  };
+  const destination = {
+    name: "Pasing",
+    detail: "",
+    latitude: munichS8.to.lat,
+    longitude: munichS8.to.lon,
+  };
+  return mapResponse(
+    { itineraries: [{ id: "munich-s8", transfers: 0, legs: [munichS8] }] },
+    {
+      origin,
+      destination,
+      timing: "depart",
+      time: Date.parse(munichS8.startTime) / 1000,
+    },
+    defaults,
+    { pre: "WALK", post: "WALK" },
+  ).journeys[0].legs.find((leg) => leg.kind === "transit")!;
+}
+
 describe("time-based transit presentation", () => {
+  it("estimates the real Munich S8 despite station entrances away from the track", () => {
+    const leg = munichTrain();
+    const station = leg.transitStops![6];
+    expect(projectPath(station, leg.coordinates).distance).toBeGreaterThan(180);
+    const timeline = TransitTimeline.create(leg);
+    expect(timeline).toBeDefined();
+    expect(
+      timeline!.sample(leg.transitStops![2].departure! + 1).stopIndex,
+    ).toBe(2);
+    // Station metadata tolerance must not accept an off-route GPS measurement.
+    expect(
+      projectTransitPath(
+        { ...station, accuracy: 10, timestamp: leg.start * 1000 },
+        leg.coordinates,
+        0,
+      ),
+    ).toBeUndefined();
+    leg.transitStops![6].latitude += 0.01;
+    expect(TransitTimeline.create(leg)).toBeDefined();
+    expect(TransitPath.create(leg)).toBeUndefined();
+    expect(TransitPath.forPresentation(leg)?.schematic).toBe(true);
+  });
+  it("confirms GPS progress on the Munich S8 with station coordinates off the track", () => {
+    const leg = munichTrain();
+    const journey: Journey = {
+      id: "munich-s8",
+      origin: leg.from,
+      destination: leg.to,
+      departure: leg.start,
+      arrival: leg.end,
+      transfers: 0,
+      isDirect: false,
+      legs: [leg],
+    };
+    const engine = new NavigationEngine(navigationJourney(journey));
+    const anchor = projectPath(leg.transitStops![6], leg.coordinates).meters;
+    const point = new NavigationPath(leg.coordinates).at(anchor + 5).point;
+    for (const seconds of [0, 1]) {
+      const timestamp = (leg.start + seconds) * 1000;
+      engine.update({ ...point, accuracy: 10, timestamp }, timestamp);
+    }
+    expect(engine.transitStopIndex).toBe(6);
+  });
   it("follows the curved route at the scheduled speed, waits at a stop and clamps at the exit", () => {
-    const timeline = TransitTimeline.create(train())!;
-    expect(timeline.sample(start - 10).point).toEqual({
+    const leg = train();
+    const timeline = TransitTimeline.create(leg)!;
+    const path = TransitPath.forPresentation(leg)!;
+    expect(path.schematic).toBe(false);
+    expect(path.at(timeline.sample(start - 10)).point).toEqual({
       latitude: 0,
       longitude: 0,
     });
-    const halfway = timeline.sample(start + 100);
+    const halfway = path.at(timeline.sample(start + 100));
     expect(halfway.point.latitude).toBeCloseTo(0);
     expect(halfway.point.longitude).toBeCloseTo(0.01);
-    expect(halfway.stopIndex).toBe(0);
-    expect(timeline.sample(start + 220).point).toEqual({
+    expect(timeline.sample(start + 100).stopIndex).toBe(0);
+    expect(path.at(timeline.sample(start + 220)).point).toEqual({
       latitude: b.latitude,
       longitude: b.longitude,
     });
     expect(timeline.sample(start + 220).stopIndex).toBe(0);
     expect(timeline.sample(start + 240).stopIndex).toBe(1);
     expect(timeline.nextMovementAt(start + 210)).toBe(start + 240);
-    expect(
-      timeline.nextMovementAt(start + 10, 1, timeline.stopOffsets[1]),
-    ).toBe(start + 240);
+    expect(timeline.nextMovementAt(start + 10, 1, 1)).toBe(start + 240);
     expect(timeline.nextMovementAt(start + 500)).toBeUndefined();
     const earlyBoarding = train();
     earlyBoarding.transitStops![0].arrival = start - 60;
     delete earlyBoarding.transitStops![0].departure;
     const early = TransitTimeline.create(earlyBoarding)!;
-    expect(early.sample(start - 30).meters).toBe(0);
+    expect(early.sample(start - 30).position).toBe(0);
     expect(early.nextMovementAt(start - 30)).toBe(start);
+    expect(path.at(timeline.sample(start + 10000)).point).toEqual({
+      latitude: c.latitude,
+      longitude: c.longitude,
+    });
     expect(timeline.sample(start + 10000)).toMatchObject({
-      point: { latitude: c.latitude, longitude: c.longitude },
+      position: 2,
       stopIndex: 2,
       atExit: true,
     });
@@ -87,14 +169,18 @@ describe("time-based transit presentation", () => {
     delete stops[1].departure;
     expect(TransitTimeline.create(leg)!.sample(start + 300).stopIndex).toBe(1);
   });
-  it("rejects contradictory times, unusable shapes and cancelled journeys", () => {
+  it("keeps contradictory times local and uses schematic geometry when the shape is unusable", () => {
     const leg = train();
     leg.transitStops![1].departure = start + 100;
-    expect(TransitTimeline.create(leg)).toBeUndefined();
+    const contradictory = TransitTimeline.create(leg)!;
+    expect(contradictory.sample(start + 150).phase).toBe("ride");
+    expect(contradictory.sample(start + 250).phase).toBe("unclear");
+    expect(contradictory.sample(leg.end).atExit).toBe(true);
     expect(TransitPath.create(leg)!.stopOffsets).toHaveLength(3);
     const missingShape = train();
     missingShape.coordinates = [a, c];
-    expect(TransitTimeline.create(missingShape)).toBeUndefined();
+    expect(TransitTimeline.create(missingShape)).toBeDefined();
+    expect(TransitPath.forPresentation(missingShape)?.schematic).toBe(true);
     expect(
       TransitTimeline.create({
         ...train(),
@@ -109,14 +195,15 @@ describe("time-based transit presentation", () => {
     leg.transitStops!.push({ ...a, arrival: start + 600 });
     leg.end = start + 600;
     const timeline = TransitTimeline.create(leg)!;
-    expect(timeline.stopOffsets[3]).toBeGreaterThan(timeline.stopOffsets[2]);
+    const path = TransitPath.forPresentation(leg)!;
+    expect(path.stopOffsets[3]).toBeGreaterThan(path.stopOffsets[2]);
     expect(timeline.sample(start + 1).stopIndex).toBe(0);
     expect(timeline.sample(start + 601).stopIndex).toBe(3);
     const fix = { ...a, accuracy: 10, timestamp: 1000 };
     expect(projectTransitPath(fix, leg.coordinates, 0)).toBeUndefined();
     expect(
-      projectTransitPath(fix, leg.coordinates, timeline.stopOffsets[2])!.meters,
-    ).toBeCloseTo(timeline.stopOffsets[3]);
+      projectTransitPath(fix, leg.coordinates, path.stopOffsets[2])!.meters,
+    ).toBeCloseTo(path.stopOffsets[3]);
   });
   it("never mutates confirmed progress or moves behind its lower bound", () => {
     const leg = train();
@@ -133,12 +220,8 @@ describe("time-based transit presentation", () => {
     const engine = new NavigationEngine(navigationJourney(journey));
     const before = structuredClone(engine.progress);
     const timeline = TransitTimeline.create(engine.leg)!;
-    expect(
-      timeline.sample(start + 10, 1, timeline.stopOffsets[1]).stopIndex,
-    ).toBe(1);
-    expect(timeline.sample(start + 10, 1, timeline.stopOffsets[1]).meters).toBe(
-      timeline.stopOffsets[1],
-    );
+    expect(timeline.sample(start + 10, 1, 1).stopIndex).toBe(1);
+    expect(timeline.sample(start + 10, 1, 1).position).toBe(1);
     timeline.sample(start + 10000);
     expect(engine.progress).toEqual(before);
     expect(engine.phase).toBe("active");

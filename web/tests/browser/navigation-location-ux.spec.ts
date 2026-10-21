@@ -105,12 +105,37 @@ test("GPS loss freezes the display without a usable timeline", async ({
   await setup(page, true, true, {}, journey);
   await complete(page);
   await complete(page);
-  await page.evaluate(() => (window as any).navProbe.fail(2));
-  await expect(page.locator("#navigation-map")).toHaveAttribute(
-    "data-position-source",
-    "last-known",
+  await page.evaluate(() => {
+    (window as any).navProbe.silent = true;
+    (window as any).navProbe.fail(2);
+  });
+  // A bad intermediate timestamp makes this interval unclear. Later consistent
+  // anchors can resume the timetable without waiting for GPS or new trip data.
+  await page.clock.pauseAt(new Date((now + 350) * 1000));
+  const map = page.locator("#navigation-map");
+  await expect(map).toHaveAttribute("data-position-source", "estimated");
+  await expect(page.locator("#navigation-context-status")).toContainText(
+    "Stationsstand unklar",
   );
-  await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
+  await expect(page.locator("#navigation-gps-status")).toHaveText(
+    "Kein GPS Kartenposition geschätzt",
+  );
+  await page.clock.runFor(2100);
+  const held = await map.getAttribute("data-position");
+  await page.clock.fastForward(40000);
+  await expect(map).toHaveAttribute("data-position", held!);
+  await expect(page.locator("#navigation-context-status")).toContainText(
+    "Stationsstand unklar",
+  );
+  await page.clock.fastForward(110000);
+  await expect(page.locator("#navigation-context-title")).toHaveText(
+    "Nächster Halt: Ausstieg",
+  );
+  await expect(page.locator("#navigation-context-status")).toContainText(
+    "Stationsstand geschätzt",
+  );
+  await page.clock.runFor(2100);
+  await expect(map).not.toHaveAttribute("data-position", held!);
 });
 
 for (const colorScheme of ["light", "dark"] as const)

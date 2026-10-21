@@ -2610,7 +2610,7 @@ function connectionChanged() {
   updateConnectionHeight();
   navigationView?.render();
   renderNavigationCheck();
-  if (navigator.onLine) void navigation?.refresh();
+  if (navigator.onLine) void navigation?.refresh("online");
   savedUI();
   el<HTMLButtonElement>("replan-saved").disabled =
     !navigator.onLine || session.state.busy;

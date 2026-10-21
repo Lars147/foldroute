@@ -39,6 +39,8 @@ import {
   TransitRefresher,
   transitDisruption,
   type Disruption,
+  type TransitResult,
+  type TransitRefreshOptions,
 } from "./transit-refresh";
 import { ApiClient } from "./transitous";
 import { planRoutes } from "./planner";
@@ -675,7 +677,7 @@ export class NavigationSession {
       this.transitController?.abort();
       this.transitController = undefined;
       this.controller?.abort();
-    } else if (this.engine) void this.refresh();
+    } else if (this.engine) void this.refresh("foreground");
     this.emit();
   }
   private tick() {
@@ -712,74 +714,94 @@ export class NavigationSession {
     this.emit();
     void this.refresh();
   }
-  async refresh() {
+  private applyTransitResults(
+    engine: NavigationEngine,
+    result: Map<string, TransitResult>,
+  ) {
+    if (!result.size) return;
+    engine.applyJourney(
+      applyTransit(engine.journey, engine.progress.legIndex, result),
+    );
+    this.assessment = assessConnection(
+      engine.journey,
+      engine.progress.legIndex,
+      Date.now() / 1000,
+      {
+        remainingMovement: movement(engine.leg)
+          ? engine.remainingSeconds
+          : undefined,
+        onboard: engine.leg.kind === "transit",
+      },
+    );
+    const detected = transitDisruption(
+      engine.journey,
+      engine.progress.legIndex,
+      Date.now() / 1000,
+      movement(engine.leg) ? engine.remainingSeconds : undefined,
+    );
+    if (!this.alternative?.reason) this.disruption = detected;
+    if (!this.disruption) {
+      this.alternative = undefined;
+      this.pendingAlternativeLocation = undefined;
+      this.lastIssue = undefined;
+    }
+    if (this.alternative && this.alternative.issueId !== this.disruption?.id)
+      this.alternative = undefined;
+    if (
+      this.disruption &&
+      !this.alternative &&
+      this.assessment.status !== "risk" &&
+      this.lastIssue !== this.disruption.id &&
+      engine.leg.kind !== "stop"
+    ) {
+      this.lastIssue = this.disruption.id;
+      void this.proposeAlternative();
+    }
+    this.persist(result.size > 0);
+    this.emit();
+  }
+  async refresh(reason: TransitRefreshOptions["reason"] = "regular") {
     const engine = this.engine;
     if (
       !engine ||
       engine.phase === "arrived" ||
       this.busy ||
       !this.foreground ||
-      !navigator.onLine ||
-      this.transitController
+      !navigator.onLine
     )
       return;
-    const controller = new AbortController();
-    this.transitController = controller;
+    // One lifetime signal, while the refresher independently owns active/future slots.
+    // A slow future request must not hold up the next current-trip poll.
+    const controller = (this.transitController ??= new AbortController());
+    let delivered = false;
+    const receive = (result: Map<string, TransitResult>) => {
+      if (
+        controller.signal.aborted ||
+        this.engine !== engine ||
+        engine.phase === "arrived"
+      )
+        return;
+      delivered = true;
+      this.applyTransitResults(engine, result);
+    };
     try {
       const result = await this.refresher.refresh(
         engine.journey.legs.slice(engine.progress.legIndex),
         controller.signal,
-      );
-      if (controller.signal.aborted || this.engine !== engine) return;
-      if (result.size)
-        engine.applyJourney(
-          applyTransit(engine.journey, engine.progress.legIndex, result),
-        );
-      this.assessment = assessConnection(
-        engine.journey,
-        engine.progress.legIndex,
         Date.now() / 1000,
         {
-          remainingMovement: movement(engine.leg)
-            ? engine.remainingSeconds
-            : undefined,
-          onboard: engine.leg.kind === "transit",
+          reason,
+          activeTripId: engine.leg.transitReference?.tripId,
+          onResult: receive,
         },
       );
-      const detected = transitDisruption(
-        engine.journey,
-        engine.progress.legIndex,
-        Date.now() / 1000,
-        movement(engine.leg) ? engine.remainingSeconds : undefined,
-      );
-      if (!this.alternative?.reason) this.disruption = detected;
-      if (!this.disruption) {
-        this.alternative = undefined;
-        this.pendingAlternativeLocation = undefined;
-        this.lastIssue = undefined;
-      }
-      if (this.alternative && this.alternative.issueId !== this.disruption?.id)
-        this.alternative = undefined;
-      if (
-        this.disruption &&
-        !this.alternative &&
-        this.assessment.status !== "risk" &&
-        this.lastIssue !== this.disruption.id &&
-        engine.leg.kind !== "stop"
-      ) {
-        this.lastIssue = this.disruption.id;
-        void this.proposeAlternative();
-      }
-      this.persist(result.size > 0);
-      this.emit();
+      // Also supports injected refreshers returning only the final batch.
+      if (!delivered) receive(result);
     } catch (error) {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && this.engine === engine) {
         this.message = errorText(error);
         this.emit();
       }
-    } finally {
-      if (this.transitController === controller)
-        this.transitController = undefined;
     }
   }
   private async changeRoute(

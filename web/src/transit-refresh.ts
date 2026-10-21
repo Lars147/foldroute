@@ -148,9 +148,18 @@ export function matchTrip(
     },
   };
 }
+export interface TransitRefreshOptions {
+  reason?: "regular" | "online" | "foreground";
+  activeTripId?: string;
+  onResult?: (results: Map<string, TransitResult>) => void;
+}
 export class TransitRefresher {
   private due = new Map<string, number>();
   private failures = new Map<string, number>();
+  private previous = new Map<string, TransitResult["kind"]>();
+  private inFlight = new Set<string>();
+  private activeBusy = false;
+  private futureBusy = false;
   private retryAt = 0;
   constructor(
     private fetcher: typeof fetch = (input, init) => fetch(input, init),
@@ -159,91 +168,169 @@ export class TransitRefresher {
     legs: Leg[],
     signal: AbortSignal,
     now = Date.now() / 1000,
+    options: TransitRefreshOptions = {},
   ): Promise<Map<string, TransitResult>> {
+    signal.throwIfAborted();
     const results = new Map<string, TransitResult>();
     if (now < this.retryAt) return results;
+    const activeTripId =
+      options.activeTripId ??
+      legs.find((leg) => leg.kind === "transit" && leg.transitReference)
+        ?.transitReference?.tripId;
     const groups = new Map<string, Leg[]>();
+    const missing = new Map<string, TransitResult>();
+    const eligible = (leg: Leg, checkedAt: number) => {
+      const id = leg.navigationId!;
+      const active = leg.transitReference?.tripId === activeTripId;
+      const recovery =
+        active && options.reason !== undefined && options.reason !== "regular";
+      const bypassNetworkWait = recovery && this.previous.get(id) === "failed";
+      const onlineRefresh =
+        active &&
+        options.reason === "online" &&
+        this.previous.get(id) !== "unavailable";
+      return (
+        checkedAt >= (this.due.get(id) ?? 0) ||
+        bypassNetworkWait ||
+        onlineRefresh
+      );
+    };
     for (const leg of legs) {
-      if (
-        leg.kind !== "transit" ||
-        now < (this.due.get(leg.navigationId!) ?? 0)
-      )
-        continue;
+      if (leg.kind !== "transit" || !eligible(leg, now)) continue;
+      const id = leg.navigationId!;
       if (!leg.transitReference) {
-        results.set(leg.navigationId!, { kind: "unavailable" });
-        this.due.set(leg.navigationId!, now + 300);
+        missing.set(id, { kind: "unavailable" });
+        this.due.set(id, now + 300);
+        this.previous.set(id, "unavailable");
         continue;
       }
       const key = leg.transitReference.tripId;
       groups.set(key, [...(groups.get(key) ?? []), leg]);
     }
-    for (const [tripId, group] of groups) {
+    const deliver = (completed: Map<string, TransitResult>) => {
+      for (const [id, result] of completed) results.set(id, result);
+      if (completed.size) options.onResult?.(completed);
+    };
+    deliver(missing);
+    const fetchGroup = async (
+      tripId: string,
+      group: Leg[],
+      active: boolean,
+    ) => {
+      // Skip occupied slots rather than queueing repeated foreground/online
+      // events. The regular navigation tick retries any groups still due.
+      if (
+        this.inFlight.has(tripId) ||
+        (active ? this.activeBusy : this.futureBusy) ||
+        Math.max(now, Date.now() / 1000) < this.retryAt
+      )
+        return;
       signal.throwIfAborted();
-      const url = new URL(`${service.api}/v6/trip`);
-      url.search = new URLSearchParams({
-        tripId,
-        detailedLegs: "false",
-        withScheduledSkippedStops: "true",
-        language: "de",
-      }).toString();
-      const timeout = new AbortController();
-      const timer = setTimeout(() => timeout.abort(), 20000);
-      let limited = false;
-      let groupResults: TransitResult[];
+      // An overlapping poll may already have refreshed a queued future trip.
+      group = group.filter((leg) =>
+        eligible(leg, Math.max(now, Date.now() / 1000)),
+      );
+      if (!group.length) return;
+      this.inFlight.add(tripId);
+      if (active) this.activeBusy = true;
+      else this.futureBusy = true;
+      let completed: Map<string, TransitResult>;
       try {
-        const response = await this.fetcher(url, {
-          signal: AbortSignal.any([signal, timeout.signal]),
-          cache: "no-store",
-          referrerPolicy: "strict-origin-when-cross-origin",
-        });
-        signal.throwIfAborted();
-        limited = response.status === 429 || response.status === 503;
-        if (limited) {
-          this.retryAt = Math.max(
-            now + 120,
-            retryAfter(response.headers.get("Retry-After"), now) ?? 0,
-          );
-          groupResults = group.map(() => ({
-            kind: "failed",
-            retryAt: this.retryAt,
-          }));
-        } else if ([400, 404, 422].includes(response.status))
-          groupResults = group.map(() => ({ kind: "unavailable" }));
-        else if (!response.ok)
-          groupResults = group.map(() => ({ kind: "failed" }));
-        else {
-          const value: unknown = await response.json();
-          signal.throwIfAborted();
-          groupResults = group.map((leg) =>
-            matchTrip(value, leg.transitReference!, Date.now() / 1000),
-          );
-        }
-      } catch (error) {
-        if (signal.aborted) throw signal.reason;
-        groupResults = group.map(() => ({ kind: "failed" }));
+        completed = await this.fetchGroup(group, tripId, signal, now);
       } finally {
-        clearTimeout(timer);
+        this.inFlight.delete(tripId);
+        if (active) this.activeBusy = false;
+        else this.futureBusy = false;
       }
-      group.forEach((leg, i) => {
-        const id = leg.navigationId!,
-          result = groupResults[i];
-        results.set(id, result);
-        const count =
-          result.kind === "failed" ? (this.failures.get(id) ?? 0) + 1 : 0;
-        this.failures.set(id, count);
-        this.due.set(
-          id,
-          Math.max(Date.now() / 1000, now) +
-            (result.kind === "updated"
-              ? 60
-              : result.kind === "unavailable"
-                ? 300
-                : transitRetryDelay(count)),
-        );
-      });
-      if (limited) break;
-    }
+      deliver(completed);
+    };
+    const active = activeTripId && groups.get(activeTripId);
+    const current = active
+      ? fetchGroup(activeTripId!, active, true)
+      : Promise.resolve();
+    const upcoming = (async () => {
+      for (const [tripId, group] of groups) {
+        if (tripId !== activeTripId) await fetchGroup(tripId, group, false);
+      }
+    })();
+    await Promise.all([current, upcoming]);
     return results;
+  }
+  private async fetchGroup(
+    group: Leg[],
+    tripId: string,
+    signal: AbortSignal,
+    now: number,
+  ): Promise<Map<string, TransitResult>> {
+    const url = new URL(`${service.api}/v6/trip`);
+    url.search = new URLSearchParams({
+      tripId,
+      detailedLegs: "false",
+      withScheduledSkippedStops: "true",
+      language: "de",
+    }).toString();
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), 20000);
+    let groupResults: TransitResult[];
+    try {
+      const response = await this.fetcher(url, {
+        signal: AbortSignal.any([signal, timeout.signal]),
+        cache: "no-store",
+        referrerPolicy: "strict-origin-when-cross-origin",
+      });
+      signal.throwIfAborted();
+      const finishedAt = Math.max(now, Date.now() / 1000);
+      if (response.status === 429 || response.status === 503) {
+        this.retryAt = Math.max(
+          this.retryAt,
+          finishedAt + 120,
+          retryAfter(response.headers.get("Retry-After"), finishedAt) ?? 0,
+        );
+        groupResults = group.map(() => ({
+          kind: "failed",
+          retryAt: this.retryAt,
+        }));
+      } else if ([400, 404, 422].includes(response.status))
+        groupResults = group.map(() => ({ kind: "unavailable" }));
+      else if (!response.ok)
+        groupResults = group.map(() => ({ kind: "failed" }));
+      else {
+        const value: unknown = await response.json();
+        signal.throwIfAborted();
+        groupResults = group.map((leg) =>
+          matchTrip(
+            value,
+            leg.transitReference!,
+            Math.max(now, Date.now() / 1000),
+          ),
+        );
+      }
+    } catch (error) {
+      if (signal.aborted) throw signal.reason;
+      groupResults = group.map(() => ({ kind: "failed" }));
+    } finally {
+      clearTimeout(timer);
+    }
+    const completed = new Map<string, TransitResult>();
+    group.forEach((leg, i) => {
+      const id = leg.navigationId!,
+        result = groupResults[i];
+      completed.set(id, result);
+      const count =
+        result.kind === "failed" ? (this.failures.get(id) ?? 0) + 1 : 0;
+      this.failures.set(id, count);
+      this.previous.set(id, result.kind);
+      this.due.set(
+        id,
+        Math.max(Date.now() / 1000, now) +
+          (result.kind === "updated"
+            ? 60
+            : result.kind === "unavailable"
+              ? 300
+              : transitRetryDelay(count)),
+      );
+    });
+    return completed;
   }
 }
 export function applyTransit(

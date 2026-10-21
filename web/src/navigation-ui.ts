@@ -14,6 +14,10 @@ import type { Leg } from "./model";
 import { movement, freshTransit } from "./navigation-engine";
 import {
   TransitTimeline,
+  TransitPath,
+  StationMotion,
+  stationCursor,
+  type StationCursor,
   type TransitEstimate,
   type TransitEstimateSource,
 } from "./navigation-estimate";
@@ -48,6 +52,14 @@ export class NavigationView {
   private sectionDetailKey = "";
   private timelineKey = "";
   private timeline?: TransitTimeline;
+  private transitPath?: TransitPath;
+  private stationMotion = new StationMotion();
+  private stationSample?: (wall: number) => StationCursor;
+  private stationCursor?: StationCursor;
+  private stationPresentationKey = "";
+  private stationFrame?: number;
+  private stationWakeup?: ReturnType<typeof setTimeout>;
+  private reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   private dragY?: number;
   private confirmationTrigger?: HTMLElement;
   private guidance = new NavigationGuidance((message) => {
@@ -136,6 +148,18 @@ export class NavigationView {
       new NavigationStations(el("navigation-stations-preview"), true),
       new NavigationStations(el("navigation-stations-detail")),
     ];
+    document.addEventListener("visibilitychange", () => {
+      this.stopStationAnimation();
+      if (!document.hidden && this.visible) {
+        this.stationMotion.reset();
+        this.stationPresentationKey = "";
+        this.render();
+      }
+    });
+    this.reducedMotion.addEventListener("change", () => {
+      this.stopStationAnimation();
+      if (this.visible) this.render();
+    });
     mountMapStylePicker(el("navigation-style-control"), "navigation");
     el("navigation-center").append(icon("crosshair"));
     const toggle = el("navigation-details-toggle");
@@ -475,21 +499,31 @@ export class NavigationView {
         const confirmed =
           session.hasCurrentLocation &&
           !session.resumeNeedsConfirmation &&
-          engine.transitPositionConfirmed;
-        title = leg.transitStatus?.cancelled
-          ? `${leg.line || "ÖPNV"} · Fahrt fällt aus`
-          : !stops
-            ? "Stationsdaten nicht verfügbar"
-            : index === stops.length - 1 && confirmed
-              ? "Hier aussteigen"
-              : remaining?.length
-                ? `Nächster Halt: ${remaining[0].name}`
-                : `Ausstieg: ${leg.to.name}`;
+          engine.hasCurrentTransitPosition;
+        title =
+          estimate?.source === "estimated" && estimate.phase === "dwell"
+            ? `Voraussichtlich an: ${stops?.[estimate.fromIndex].name}`
+            : leg.transitStatus?.cancelled
+              ? `${leg.line || "ÖPNV"} · Fahrt fällt aus`
+              : !stops
+                ? "Stationsdaten nicht verfügbar"
+                : index === stops.length - 1 && confirmed
+                  ? "Hier aussteigen"
+                  : remaining?.length
+                    ? `Nächster Halt: ${remaining[0].name}`
+                    : `Ausstieg: ${leg.to.name}`;
         detail = `${leg.line || "ÖPNV"}${remaining?.length ? ` · Noch ${remaining.length} ${remaining.length === 1 ? "Halt" : "Halte"}` : ""} · Ausstieg ${leg.to.name}`;
         status =
-          !confirmed && stops && session.hasCurrentLocation
+          !confirmed && !estimate && stops && session.hasCurrentLocation
             ? "Stationsstand wird bestätigt"
             : "";
+        if (estimate?.source === "estimated")
+          status =
+            estimate.phase === "unclear"
+              ? "Stationsstand unklar"
+              : estimate.atExit
+                ? "Ausstieg laut Fahrzeiten erreicht"
+                : "Stationsstand geschätzt";
         if (!freshTransit(leg, Date.now() / 1000))
           status = [status, transitStatus(leg)].filter(Boolean).join(" · ");
       } else {
@@ -544,12 +578,65 @@ export class NavigationView {
     );
     const announcement = el("navigation-stations-announcement");
     const message = onboard
-      ? [estimate ? "Stationsstand geschätzt" : "", title, detail, status]
-          .filter(Boolean)
-          .join(". ")
+      ? [title, detail, status].filter(Boolean).join(". ")
       : "";
     if (announcement.textContent !== message)
       announcement.textContent = message;
+  }
+  private stopStationAnimation() {
+    if (this.stationFrame !== undefined)
+      cancelAnimationFrame(this.stationFrame);
+    if (this.stationWakeup !== undefined) clearTimeout(this.stationWakeup);
+    this.stationFrame = undefined;
+    this.stationWakeup = undefined;
+  }
+  private startStationAnimation() {
+    if (
+      !this.stationSample ||
+      !this.visible ||
+      document.hidden ||
+      this.reducedMotion.matches ||
+      this.stationFrame !== undefined ||
+      this.stationWakeup !== undefined
+    )
+      return;
+    const now = Date.now() / 1000;
+    const next = this.stationMotion.correcting
+      ? now
+      : this.stationCursor?.source === "estimated"
+        ? this.timeline?.nextMovementAt(
+            now,
+            this.session?.engine?.transitStopIndex,
+            this.stationCursor.position,
+          )
+        : undefined;
+    if (next === undefined) return;
+    if (next > now) {
+      this.stationWakeup = setTimeout(
+        () => {
+          this.stationWakeup = undefined;
+          if (this.visible) this.render();
+        },
+        (next - now) * 1000,
+      );
+      return;
+    }
+    this.stationFrame = requestAnimationFrame(() => {
+      this.stationFrame = undefined;
+      const cursor = this.stationSample?.(Date.now() / 1000);
+      if (!cursor || !this.visible || document.hidden) return;
+      const previous = this.stationCursor;
+      this.stationCursor = cursor;
+      for (const list of this.stationLists) list.setPosition(cursor);
+      if (
+        !previous ||
+        previous.stopIndex !== cursor.stopIndex ||
+        previous.phase !== cursor.phase ||
+        previous.atExit !== cursor.atExit
+      )
+        this.render();
+      else this.startStationAnimation();
+    });
   }
   private layout() {
     const mobile = this.mobile.matches;
@@ -584,7 +671,8 @@ export class NavigationView {
     );
     move(
       "navigation-complete",
-      mobile && this.session?.engine?.leg.kind === "stop"
+      mobile &&
+        ["stop", "transit"].includes(this.session?.engine?.leg.kind ?? "")
         ? "navigation-quick-actions"
         : "navigation-detail-actions",
       true,
@@ -636,6 +724,11 @@ export class NavigationView {
       this.loading = import("./navigation-map")
         .then(({ NavigationMap }) => {
           if (!this.visible) return;
+          delete el("navigation-map").dataset.loadError;
+          el("navigation-map").setAttribute(
+            "aria-label",
+            "Navigationskarte in Fahrtrichtung",
+          );
           this.map = new NavigationMap(
             el("navigation-map"),
             el("navigation-panel"),
@@ -649,9 +742,13 @@ export class NavigationView {
               button.setAttribute("title", label);
               button.setAttribute("aria-pressed", String(following));
             },
-            (position) => {
-              for (const list of this.stationLists) list.setPosition(position);
-            },
+          );
+        })
+        .catch(() => {
+          el("navigation-map").dataset.loadError = "true";
+          el("navigation-map").setAttribute(
+            "aria-label",
+            "Karte nicht verfügbar",
           );
         })
         .finally(() => {
@@ -665,6 +762,11 @@ export class NavigationView {
     }
   }
   hide() {
+    this.stopStationAnimation();
+    this.stationMotion.reset();
+    this.stationSample = undefined;
+    this.stationCursor = undefined;
+    this.stationPresentationKey = "";
     stopMotionWithin(this.root);
     closeMapStylePickers();
     this.root.hidden = true;
@@ -759,6 +861,13 @@ export class NavigationView {
       leg = engine?.leg;
     const enteringSummary = this.root.dataset.arrived !== "true";
     this.root.dataset.arrived = String(!!arrived);
+    if (arrived) {
+      this.stopStationAnimation();
+      this.stationSample = undefined;
+      this.stationCursor = undefined;
+      this.stationMotion.reset();
+      this.stationPresentationKey = "";
+    }
     el("navigation-finish").hidden = !arrived;
     el("navigation-panel").setAttribute(
       "aria-label",
@@ -827,11 +936,14 @@ export class NavigationView {
       return;
     }
     let estimateSource: TransitEstimateSource | undefined;
+    this.stationSample = undefined;
     if (
       engine?.phase === "active" &&
       leg?.kind === "transit" &&
-      !session.hasCurrentLocation &&
-      !session.resumeNeedsConfirmation
+      !session.resumeNeedsConfirmation &&
+      leg.transitStops?.length &&
+      !leg.transitStatus?.cancelled &&
+      leg.transitStops.some((stop) => !stop.cancelled)
     ) {
       const key = JSON.stringify([
         leg.navigationId,
@@ -844,19 +956,76 @@ export class NavigationView {
       if (key !== this.timelineKey) {
         this.timelineKey = key;
         this.timeline = TransitTimeline.create(leg);
+        this.transitPath = TransitPath.forPresentation(leg);
       }
-      if (this.timeline)
+      const confirmedIndex = engine.transitStopIndex;
+      const originalPath = TransitPath.create(leg);
+      const floor = Math.max(
+        confirmedIndex,
+        originalPath
+          ? originalPath.positionAt(engine.progress.meters)
+          : confirmedIndex,
+      );
+      const confirmed =
+        session.hasCurrentLocation && engine.hasCurrentTransitPosition;
+      const timeline = this.timeline;
+      const sample = confirmed
+        ? () => stationCursor(leg, floor, confirmedIndex, "gps", "ride", key)
+        : timeline
+          ? (wall: number) => timeline.sample(wall, confirmedIndex, floor)
+          : () =>
+              stationCursor(
+                leg,
+                floor,
+                confirmedIndex,
+                "estimated",
+                "unclear",
+                key,
+              );
+      const presentationKey = JSON.stringify([
+        key,
+        confirmed,
+        floor,
+        confirmedIndex,
+      ]);
+      if (presentationKey !== this.stationPresentationKey) {
+        this.stopStationAnimation();
+        this.stationPresentationKey = presentationKey;
+        this.stationMotion.setTarget(
+          presentationKey,
+          sample,
+          Date.now() / 1000,
+          performance.now() / 1000,
+          !this.reducedMotion.matches && !document.hidden,
+          leg,
+        );
+      }
+      this.stationSample = (wall) =>
+        this.stationMotion.sample(
+          wall,
+          performance.now() / 1000,
+          !this.reducedMotion.matches,
+          floor,
+        );
+      // The map may use a first suitable fix; the rail waits for confirmed evidence.
+      const mapLocated =
+        session.hasCurrentLocation && engine.hasTransitLocation;
+      if (timeline && this.transitPath && !mapLocated)
         estimateSource = {
-          timeline: this.timeline,
-          confirmedIndex: engine.transitStopIndex,
-          confirmedMeters: engine.progress.meters,
+          timeline,
+          path: this.transitPath,
+          confirmedIndex,
+          confirmedPosition: floor,
+          sample: this.stationSample,
         };
+    } else {
+      this.stopStationAnimation();
+      this.stationMotion.reset();
+      this.stationPresentationKey = "";
     }
-    const estimate = estimateSource?.timeline.sample(
-      Date.now() / 1000,
-      estimateSource.confirmedIndex,
-      estimateSource.confirmedMeters,
-    );
+    const cursor = this.stationSample?.(Date.now() / 1000);
+    this.stationCursor = cursor;
+    const estimate = cursor?.source === "estimated" ? cursor : undefined;
     el("navigation-instruction").textContent =
       engine && !arrived && leg?.kind === "bike" && !engine.maneuver
         ? `Nach ${leg.to.name}`
@@ -913,13 +1082,20 @@ export class NavigationView {
       session.disruption?.message ?? session.assessment?.message ?? "";
     const invalidLocation = !session.hasCurrentLocation;
     const gpsStatus = el("navigation-gps-status");
+    const mapEstimateLabel = estimateSource
+      ? estimateSource.path.schematic
+        ? "Kartenposition grob geschätzt"
+        : "Kartenposition geschätzt"
+      : "";
     const gpsMessage =
       engine && !arrived && invalidLocation
         ? session.locationQuality === "inaccurate"
           ? "GPS ungenau"
           : "Kein GPS"
-        : "";
-    const gpsEstimate = estimate && gpsMessage ? "Position geschätzt" : "";
+        : mapEstimateLabel
+          ? mapEstimateLabel
+          : "";
+    const gpsEstimate = invalidLocation ? mapEstimateLabel : "";
     for (const [id, message] of [
       ["navigation-gps-primary", gpsMessage],
       ["navigation-gps-estimate", gpsEstimate],
@@ -941,8 +1117,9 @@ export class NavigationView {
               ? `${!session.fix ? "Kein Standort verfügbar." : session.locationQuality === "inaccurate" ? "Standort zu ungenau." : "Letzter Standort nicht aktuell."}${estimate ? "" : " Automatischer Fortschritt pausiert."}`
               : ""));
     if (estimate)
-      locationMessage +=
-        " Position und Stationsstand werden anhand der Fahrzeiten geschätzt. Bestätige den Ausstieg selbst.";
+      locationMessage += estimateSource
+        ? " Position und Stationsstand werden anhand der Fahrzeiten geschätzt. Bestätige den Ausstieg selbst."
+        : " Stationsstand wird anhand der Fahrzeiten geschätzt. Bestätige den Ausstieg selbst.";
     const locationStatus = el("navigation-location-status");
     setLocationFeedback(locationStatus, locationMessage, !session.locating);
     el("navigation-network-status").textContent = navigator.onLine
@@ -951,7 +1128,9 @@ export class NavigationView {
     const transit = engine?.journey.legs
       .slice(engine.progress.legIndex)
       .find((l) => l.kind === "transit");
-    this.renderTransitContext(transit, selected?.main, estimate);
+    this.renderTransitContext(transit, selected?.main, cursor);
+    if (cursor) for (const list of this.stationLists) list.setPosition(cursor);
+    this.startStationAnimation();
     const viewedTransit = selected?.legs.find((l) => l.kind === "transit");
     el("navigation-transit-status").textContent = viewedTransit
       ? `${viewedTransit.line || "ÖPNV"} · ${transitStatus(viewedTransit)}`

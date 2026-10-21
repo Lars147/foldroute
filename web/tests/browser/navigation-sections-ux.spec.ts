@@ -7,6 +7,7 @@ import {
   e,
   f,
   route,
+  stationJourney,
   setup,
   complete,
   expectTabVisible,
@@ -161,7 +162,7 @@ for (const width of [320, 390, 1280])
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
-    await setup(page, true);
+    await setup(page, true, true, {}, stationJourney());
     const tabs = page.getByRole("tab");
     const fold = tabs.nth(1),
       train = tabs.nth(2),

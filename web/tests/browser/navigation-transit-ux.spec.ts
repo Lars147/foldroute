@@ -142,6 +142,8 @@ for (const width of [390])
   test(`station rail fills with the visible marker, waits at stops and corrects with GPS at ${width}px`, async ({
     page,
   }, info) => {
+    // Replay movement, dwell, row transitions and GPS corrections in both engines.
+    test.setTimeout(60000);
     await page.setViewportSize({ width, height: 844 });
     await page.emulateMedia({
       reducedMotion: "no-preference",
@@ -213,6 +215,9 @@ for (const width of [390])
     const dwell = await stationRail(page, selector);
     expect(dwell.progress).toBeCloseTo(1, 2);
     expect(dwell.rows[1].reached).toBe("true");
+    await expect(page.locator("#navigation-context-title")).toHaveText(
+      "Voraussichtlich an: Stadtmitte",
+    );
     await page.clock.runFor(1000);
     expect((await stationRail(page, selector)).filled).toBe(dwell.filled);
     if (width < 900) {
@@ -302,19 +307,29 @@ for (const width of [390])
       (3 * distance(c, mapPoint)) / distance(c, d),
       2,
     );
-    // A correction backwards starts at the visible rail position and also takes two seconds.
+    // One GPS point can move the map; the station rail waits for a second
+    // plausible point before correcting its estimated progress.
+    await page.evaluate(
+      (point) => (window as any).navProbe.push(point.latitude, point.longitude),
+      c,
+    );
+    await page.clock.runFor(1000);
+    await expect(page.locator("#navigation-context-status")).toContainText(
+      "Stationsstand geschätzt",
+    );
+    const beforeConfirmation = await stationRail(page, selector);
     await page.evaluate(
       (point) => (window as any).navProbe.push(point.latitude, point.longitude),
       c,
     );
     expect((await stationRail(page, selector)).progress).toBeCloseTo(
-      departing.progress,
+      beforeConfirmation.progress,
       2,
     );
     await page.clock.runFor(1000);
     const middle = await stationRail(page, selector);
     expect(middle.progress).toBeGreaterThan(0);
-    expect(middle.progress).toBeLessThan(departing.progress);
+    expect(middle.progress).toBeLessThan(beforeConfirmation.progress);
     await page.clock.runFor(1100);
     expect((await stationRail(page, selector)).progress).toBeCloseTo(0, 2);
     expect(await savedProgress(page)).toEqual(before);
@@ -394,18 +409,22 @@ for (const width of [390])
         (window as any).navProbe.push(stop.latitude, stop.longitude, 90, 500),
       station,
     );
-    await expect(page.locator("#navigation-context-status")).toBeEmpty();
+    await expect(page.locator("#navigation-context-status")).toContainText(
+      "Stationsstand geschätzt",
+    );
     await expect(page.locator("#navigation-gps-status")).toHaveText(
-      "GPS ungenau Position geschätzt",
+      "GPS ungenau Kartenposition geschätzt",
     );
     await expect(
       page.locator("#navigation-stations-announcement"),
     ).not.toContainText("Stationsfortschritt pausiert");
     await page.clock.fastForward(61000);
     await expect(page.locator("#navigation-gps-status")).toHaveText(
-      "Kein GPS Position geschätzt",
+      "Kein GPS Kartenposition geschätzt",
     );
-    await expect(page.locator("#navigation-context-status")).toBeEmpty();
+    await expect(page.locator("#navigation-context-status")).toContainText(
+      "Stationsstand geschätzt",
+    );
     await expect(page.locator("#navigation-context-detail")).toContainText(
       "Noch 2 Halte",
     );
@@ -510,9 +529,7 @@ for (const width of [390, 1280])
     );
     await expect(list.locator("time").nth(1)).toHaveAttribute(
       "aria-label",
-      width < 900
-        ? "Ankunft laut Fahrplan 12:10"
-        : "Ankunft laut Fahrplan 12:08",
+      width < 900 ? "Ankunft 12:10" : "Ankunft laut Fahrplan 12:08",
     );
     await expect(list.locator("time").first()).toHaveAttribute(
       "datetime",
@@ -700,9 +717,11 @@ test("GPS loss removes the duplicate pause text while transit warnings remain vi
   await page.locator("#navigation-details-toggle").click();
   await page.clock.fastForward(61000);
   await expect(page.locator("#navigation-gps-status")).toHaveText(
-    "Kein GPS Position geschätzt",
+    "Kein GPS Kartenposition geschätzt",
   );
-  await expect(page.locator("#navigation-context-status")).toBeEmpty();
+  await expect(page.locator("#navigation-context-status")).toContainText(
+    "Stationsstand geschätzt",
+  );
   await expect(page.locator("#navigation-context-detail")).toContainText(
     "Noch 3 Halte",
   );
@@ -772,7 +791,7 @@ for (const width of [390])
     const map = page.locator("#navigation-map");
     await expect(map).toHaveAttribute("data-position-source", "estimated");
     await expect(page.locator("#navigation-gps-status")).toHaveText(
-      "Kein GPS Position geschätzt",
+      "Kein GPS Kartenposition geschätzt",
     );
     const position = () =>
       map.evaluate((el) => JSON.parse(el.dataset.position!));
@@ -857,6 +876,89 @@ for (const width of [390])
       path: info.outputPath("estimated-navigation.png"),
     });
   });
+
+test("station entrances away from the track do not block estimates after signal loss", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const journey = stationJourney();
+  const train = journey.legs[2];
+  delete train.transitReference;
+  train.transitStops = structuredClone(train.transitStops);
+  // Move the station sideways from the track while preserving its route order.
+  train.transitStops![1].latitude += 0.0013;
+  train.transitStops![1].longitude -= 0.00145;
+  await setup(page, true, true, {}, journey);
+  await complete(page);
+  await complete(page);
+  await page.locator("#navigation-details-toggle").click();
+  await page.clock.pauseAt(new Date((now + 450) * 1000));
+  const before = await savedProgress(page);
+  await context.setOffline(true);
+  await page.evaluate(() => {
+    (window as any).navProbe.silent = true;
+    (window as any).navProbe.fail(2);
+  });
+  const map = page.locator("#navigation-map");
+  await expect(map).toHaveAttribute("data-position-source", "estimated");
+  await expect(page.locator("#navigation-gps-status")).toHaveText(
+    "Kein GPS Kartenposition geschätzt",
+  );
+  await expect(page.locator("#navigation-context-title")).toHaveText(
+    "Nächster Halt: Rathaus",
+  );
+  await page.clock.fastForward(51000);
+  await context.setOffline(false);
+  await expect(page.locator("#navigation-context-title")).toHaveText(
+    "Nächster Halt: Ausstieg",
+  );
+  expect(await savedProgress(page)).toEqual(before);
+});
+
+test("GPS outside the train route does not freeze station estimates through a connection loss", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const journey = stationJourney();
+  delete journey.legs[2].transitReference;
+  await setup(page, true, true, {}, journey);
+  await complete(page);
+  await complete(page);
+  await page.locator("#navigation-details-toggle").click();
+  await page.clock.pauseAt(new Date((now + 450) * 1000));
+  const before = await savedProgress(page);
+  await page.evaluate(() => (window as any).navProbe.push(48.012, 11.002));
+  const map = page.locator("#navigation-map");
+  await expect(map).toHaveAttribute("data-position-source", "estimated");
+  await expect(page.locator("#navigation-gps-status")).toHaveText(
+    "Kartenposition geschätzt",
+  );
+  await expect(page.locator("#navigation-context-title")).toHaveText(
+    "Nächster Halt: Rathaus",
+  );
+  await context.setOffline(true);
+  await page.clock.runFor(2100);
+  await context.setOffline(false);
+  await expect(page.locator("#navigation-context-title")).toHaveText(
+    "Nächster Halt: Rathaus",
+  );
+  expect(await savedProgress(page)).toEqual(before);
+  const stop = journey.legs[2].transitStops![2];
+  for (let i = 0; i < 2; i++) {
+    await page.clock.runFor(1000);
+    await page.evaluate(
+      (point) => (window as any).navProbe.push(point.latitude, point.longitude),
+      stop,
+    );
+  }
+  await expect(map).toHaveAttribute("data-position-source", "gps");
+  await expect(page.locator("#navigation-gps-status")).toBeHidden();
+  await expect(page.locator("#navigation-context-title")).toHaveText(
+    "Nächster Halt: Ausstieg",
+  );
+});
 
 test("live trip delays correct the estimated marker and stations without changing confirmed progress", async ({
   page,
@@ -1001,6 +1103,11 @@ test("station rail uses GPS without a usable timetable and skips cancelled circl
     (point) => (window as any).navProbe.push(point.latitude, point.longitude),
     middle,
   );
+  await page.clock.runFor(1000);
+  await page.evaluate(
+    (point) => (window as any).navProbe.push(point.latitude, point.longitude),
+    middle,
+  );
   await page.clock.runFor(2100);
   expect(
     (await stationRail(page, "#navigation-stations-detail")).progress,
@@ -1009,6 +1116,9 @@ test("station rail uses GPS without a usable timetable and skips cancelled circl
     page.locator("#navigation-stations-detail [data-state=cancelled]"),
   ).toHaveAttribute("data-reached", "false");
   await page.evaluate(() => (window as any).navProbe.fail(2));
+  await expect(page.locator("#navigation-context-status")).toContainText(
+    "Stationsstand unklar",
+  );
   const frozen = (await stationRail(page, "#navigation-stations-detail"))
     .filled;
   await page.clock.fastForward(10000);
@@ -1061,13 +1171,13 @@ test("GPS badge separates estimated position through loss and recovery", async (
       (window as any).navProbe.push(point.latitude, point.longitude, 90, 500),
     c,
   );
-  await expect(status).toHaveText("GPS ungenau Position geschätzt");
+  await expect(status).toHaveText("GPS ungenau Kartenposition geschätzt");
   await expect(primary).toHaveText("GPS ungenau");
   await page.evaluate(() => {
     (window as any).navProbe.silent = true;
     (window as any).navProbe.fail(2);
   });
-  await expect(status).toHaveText("Kein GPS Position geschätzt");
+  await expect(status).toHaveText("Kein GPS Kartenposition geschätzt");
   await page.evaluate(() => {
     (window as any).gpsBadgeChanges = 0;
     new MutationObserver((records) => {
@@ -1202,11 +1312,14 @@ test("requires confirmation after reload and resumes offline without fresh trans
   await page.clock.runFor(10);
   await expect(page.locator("#navigation-map canvas")).toBeVisible();
 });
-test("GPS advances street legs, timers advance fresh transit, stops remain explicit", async ({
+test("GPS advances street legs, fresh transit waits for confirmed exit, stops remain explicit", async ({
   page,
 }) => {
   test.setTimeout(60000);
-  await setup(page, true);
+  // This covers navigation decisions across a full journey; short dedicated
+  // cases above verify animation without replaying minutes of animation frames.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await setup(page, true, true, {}, stationJourney());
   async function gps(point: Place, elapsed: number) {
     // Automatic leg transitions need the intermediate ticks and trip refreshes.
     // A jump models inactivity instead and would test different behavior.
@@ -1228,6 +1341,10 @@ test("GPS advances street legs, timers advance fresh transit, stops remain expli
     "S1 Richtung Altstadt",
   );
   await gps(d, 300000);
+  await expect(page.locator("#navigation-instruction")).toContainText(
+    "S1 Richtung Altstadt",
+  );
+  await gps(d, 1000);
   await page.clock.runFor(1100);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt entfalten",

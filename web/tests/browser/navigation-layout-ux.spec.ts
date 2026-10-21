@@ -17,12 +17,12 @@ for (const colorScheme of ["light", "dark"] as const)
       const status = page.locator("#navigation-gps-status");
       const primary = page.locator("#navigation-gps-primary");
       const secondary = page.locator("#navigation-gps-estimate");
-      await expect(status).toHaveText("GPS ungenau Position geschätzt");
+      await expect(status).toHaveText("GPS ungenau Kartenposition geschätzt");
       await expect(primary).toHaveText("GPS ungenau");
       await expect(primary).toHaveCSS("font-size", "14px");
       await expect(primary).toHaveCSS("font-weight", "600");
       await expect(primary).toHaveCSS("color", "rgb(23, 26, 28)");
-      await expect(secondary).toHaveText("Position geschätzt");
+      await expect(secondary).toHaveText("Kartenposition geschätzt");
       await expect(secondary).toHaveCSS("font-size", "12px");
       await expect(secondary).toHaveCSS("font-weight", "400");
       await expect(secondary).toHaveCSS("color", "rgb(23, 26, 28)");
@@ -55,7 +55,7 @@ for (const colorScheme of ["light", "dark"] as const)
       await page.evaluate(() =>
         (window as any).navigationPreview.setLocation("missing"),
       );
-      await expect(status).toHaveText("Kein GPS Position geschätzt");
+      await expect(status).toHaveText("Kein GPS Kartenposition geschätzt");
       await checkBounds(true);
       if (width === 320) {
         await page.evaluate(() => {
@@ -116,7 +116,7 @@ for (const [width, height] of [
       "Noch 3 Halte",
     );
     await expect(page.locator("#navigation-gps-status")).toHaveText(
-      "Kein GPS Position geschätzt",
+      "Kein GPS Kartenposition geschätzt",
     );
     await expect
       .poll(async () => (await stationRail(page, selector)).rows.length)

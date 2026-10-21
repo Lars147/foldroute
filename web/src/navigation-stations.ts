@@ -1,14 +1,14 @@
 import type { Leg } from "./model";
-import type { TransitPosition } from "./navigation-estimate";
+import type { StationCursor } from "./navigation-estimate";
 import { clock, node } from "./ui";
 import { motionAllowed } from "./motion";
 
-/** Paint the rail from the visible map position without rebuilding it each frame. */
+/** Paint the rail from logical station progress without rebuilding it each frame. */
 export class NavigationStations {
   private leg?: Leg;
   private index = -1;
   private confirmedIndex = -1;
-  private position?: TransitPosition;
+  private position?: StationCursor;
   private renderedIndex = -1;
   private renderedLeg?: string;
   private renderedStopCount = 0;
@@ -48,7 +48,7 @@ export class NavigationStations {
     this.render();
   }
 
-  setPosition(position: TransitPosition) {
+  setPosition(position: StationCursor) {
     if (this.index < 0 || position.navigationId !== this.leg?.navigationId)
       return;
     this.position = position;
@@ -57,9 +57,7 @@ export class NavigationStations {
   }
 
   private get located() {
-    return this.position?.meters !== undefined &&
-      Number.isFinite(this.position.meters) &&
-      this.position.path?.stopOffsets.length === this.leg?.transitStops?.length
+    return this.position && Number.isFinite(this.position.position)
       ? this.position
       : undefined;
   }
@@ -74,9 +72,8 @@ export class NavigationStations {
       if (
         !stops[i].cancelled &&
         (position
-          ? position.path!.stopOffsets[i] < position.meters! - 0.01 ||
-            (i <= this.index &&
-              position.path!.stopOffsets[i] <= position.meters! + 0.01)
+          ? i < position.position - 0.00001 ||
+            (i <= this.index && i <= position.position + 0.00001)
           : i <= this.index)
       )
         index = i;
@@ -98,6 +95,8 @@ export class NavigationStations {
     const index = this.visibleIndex();
     const key = JSON.stringify([
       leg.navigationId,
+      leg.end,
+      leg.realtime,
       stops,
       index,
       this.confirmedIndex,
@@ -165,13 +164,18 @@ export class NavigationStations {
       const row = node("div", "", "navigation-station-row");
       row.append(marker, copy);
       item.append(row);
-      const arrival = stop.arrival ?? stop.scheduledArrival;
+      const arrival =
+        i === stops.length - 1
+          ? leg.end
+          : (stop.arrival ?? stop.scheduledArrival);
+      const realtime =
+        i === stops.length - 1 ? leg.realtime : stop.arrival !== undefined;
       if (!stop.cancelled && arrival !== undefined) {
         const time = node("time", clock(arrival), "navigation-station-time");
         time.dateTime = new Date(arrival * 1000).toISOString();
         time.setAttribute(
           "aria-label",
-          `Ankunft${stop.arrival === undefined ? " laut Fahrplan" : ""} ${clock(arrival)}`,
+          `Ankunft${realtime ? "" : " laut Fahrplan"} ${clock(arrival)}`,
         );
         row.append(time);
       }
@@ -348,7 +352,6 @@ export class NavigationStations {
     const stops = this.leg?.transitStops;
     if (!stops) return;
     const position = this.located;
-    const offsets = position?.path!.stopOffsets;
     let filled = -1;
     const anchors = this.anchors.filter(
       (anchor) => !stops[anchor.index].cancelled,
@@ -359,18 +362,17 @@ export class NavigationStations {
       const reached =
         this.index >= 0 &&
         (position
-          ? offsets![anchor.index] <= position.meters! + 0.01
+          ? anchor.index <= position.position + 0.00001
           : anchor.index <= this.index);
       if (reached) filled = anchor.y;
       if (
         position &&
         next &&
-        position.meters! >= offsets![anchor.index] &&
-        position.meters! < offsets![next.index]
+        position.position >= anchor.index &&
+        position.position < next.index
       ) {
         const fraction =
-          (position.meters! - offsets![anchor.index]) /
-          (offsets![next.index] - offsets![anchor.index]);
+          (position.position - anchor.index) / (next.index - anchor.index);
         filled = anchor.y + (next.y - anchor.y) * fraction;
         break;
       }
@@ -379,9 +381,7 @@ export class NavigationStations {
       const reached =
         !stops[index].cancelled &&
         this.index >= 0 &&
-        (position
-          ? offsets![index] <= position.meters! + 0.01
-          : index <= this.index);
+        (position ? index <= position.position + 0.00001 : index <= this.index);
       const value = String(reached);
       if (element.dataset.reached !== value) element.dataset.reached = value;
     }

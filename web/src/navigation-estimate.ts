@@ -1,6 +1,7 @@
 import type { Coordinate, Leg } from "./model";
 import { distance } from "./geometry";
 import { headingDelta, projectPath } from "./navigation-engine";
+import { maxStationShapeDistance } from "./transit-stops";
 
 export interface MarkerPosition {
   point: Coordinate;
@@ -52,28 +53,30 @@ export class NavigationPath {
   }
 }
 
-export interface TransitEstimate extends MarkerPosition {
-  stopIndex: number;
-  atExit: boolean;
-}
+export {
+  TransitTimeline,
+  StationMotion,
+  stationCursor,
+} from "./transit-timeline";
+export type {
+  StationCursor,
+  StationCursor as TransitEstimate,
+} from "./transit-timeline";
+import type { StationCursor, TransitTimeline } from "./transit-timeline";
+
 export interface TransitEstimateSource {
   timeline: TransitTimeline;
+  path: TransitPath;
   confirmedIndex: number;
-  confirmedMeters: number;
+  confirmedPosition: number;
+  sample: (wall: number) => StationCursor;
 }
-export interface TransitPosition {
-  navigationId?: string;
-  meters?: number;
-  path?: TransitPath;
-  source: "estimated" | "gps" | "last-known";
-}
-type Anchor = { time: number; meters: number };
-
 /** Station geometry is usable with GPS even when station times are missing. */
 export class TransitPath {
   private constructor(
     readonly path: NavigationPath,
     readonly stopOffsets: number[],
+    readonly schematic = false,
   ) {}
   static create(leg: Leg): TransitPath | undefined {
     const stops = leg.transitStops;
@@ -84,7 +87,7 @@ export class TransitPath {
       stops.length < 2 ||
       stops[0].cancelled ||
       stops.at(-1)!.cancelled ||
-      leg.coordinates.length < 2
+      leg.coordinates.length <= 2
     )
       return;
     const path = new NavigationPath(leg.coordinates);
@@ -99,126 +102,57 @@ export class TransitPath {
         leg.coordinates,
         offsets.length ? offsets.at(-1)! + 1 : 0,
       );
-      if (projected.distance > 100 || !Number.isFinite(projected.meters))
+      if (
+        projected.distance > maxStationShapeDistance ||
+        !Number.isFinite(projected.meters)
+      )
         return;
       offsets.push(projected.meters);
     }
     return new TransitPath(path, offsets);
   }
-}
-
-/** Presentation only: sampling never writes to NavigationEngine or a GPS fix. */
-export class TransitTimeline {
-  readonly path: NavigationPath;
-  readonly stopOffsets: number[];
-  private constructor(
-    route: TransitPath,
-    private readonly anchors: Anchor[],
-    private readonly passTimes: (number | undefined)[],
-    private readonly cancelled: boolean[],
-  ) {
-    this.path = route.path;
-    this.stopOffsets = route.stopOffsets;
-  }
-  get endTime() {
-    return this.anchors.at(-1)!.time;
-  }
-  nextMovementAt(
-    now: number,
-    confirmedIndex = 0,
-    confirmedMeters = 0,
-  ): number | undefined {
-    const minimum = Math.max(confirmedMeters, this.stopOffsets[confirmedIndex]);
-    for (let i = 1; i < this.anchors.length; i++) {
-      const a = this.anchors[i - 1],
-        b = this.anchors[i];
-      if (b.time <= now || b.meters <= a.meters || b.meters <= minimum)
-        continue;
-      const begins =
-        a.time +
-        (Math.max(0, minimum - a.meters) / (b.meters - a.meters)) *
-          (b.time - a.time);
-      return Math.max(now, begins);
-    }
-  }
-  static create(leg: Leg): TransitTimeline | undefined {
-    const route = TransitPath.create(leg);
-    if (!route) return;
-    const stops = leg.transitStops!;
-    const offsets = route.stopOffsets;
-    const anchors: Anchor[] = [];
-    const passTimes: (number | undefined)[] = [];
-    for (const [i, stop] of stops.entries()) {
-      if (stop.cancelled) continue;
-      const arrival =
-        stop.arrival ??
-        stop.scheduledArrival ??
-        (i === 0 ? leg.start : i === stops.length - 1 ? leg.end : undefined);
-      const departure =
-        i === stops.length - 1
-          ? undefined
-          : (stop.departure ??
-            stop.scheduledDeparture ??
-            (i === 0 ? leg.start : undefined));
-      passTimes[i] = departure ?? arrival;
-      for (const time of [arrival, departure]) {
-        if (time === undefined) continue;
-        if (!Number.isFinite(time)) return;
-        const previous = anchors.at(-1);
-        if (
-          previous &&
-          (time < previous.time ||
-            (time === previous.time && offsets[i] !== previous.meters))
-        )
-          return;
-        if (!previous || time !== previous.time)
-          anchors.push({ time, meters: offsets[i] });
-      }
-    }
-    if (anchors.length < 2 || anchors[0].time >= anchors.at(-1)!.time) return;
-    return new TransitTimeline(
-      route,
-      anchors,
-      passTimes,
-      stops.map((stop) => !!stop.cancelled),
-    );
-  }
-  sample(
-    now: number,
-    confirmedIndex = 0,
-    confirmedMeters = 0,
-  ): TransitEstimate {
-    const anchors = this.anchors;
-    const next = anchors.findIndex((anchor) => anchor.time > now);
-    let meters = anchors.at(-1)!.meters;
-    if (next === 0) meters = anchors[0].meters;
-    else if (next > 0) {
-      const a = anchors[next - 1],
-        b = anchors[next];
-      meters =
-        a.meters + ((b.meters - a.meters) * (now - a.time)) / (b.time - a.time);
-    }
-    meters = Math.min(
-      this.stopOffsets.at(-1)!,
-      Math.max(meters, confirmedMeters, this.stopOffsets[confirmedIndex]),
-    );
-    let stopIndex = confirmedIndex;
-    this.stopOffsets.forEach((offset, i) => {
-      if (
-        !this.cancelled[i] &&
-        i > stopIndex &&
-        offset <= meters + 0.01 &&
-        (this.passTimes[i] === undefined
-          ? offset < meters
-          : this.passTimes[i]! <= now)
-      )
-        stopIndex = i;
+  /** A single presentation mode for the entire leg; never used as GPS evidence. */
+  static forPresentation(leg: Leg): TransitPath | undefined {
+    if (
+      leg.kind !== "transit" ||
+      leg.transitStatus?.cancelled ||
+      !leg.transitStops ||
+      leg.transitStops.length < 2 ||
+      leg.transitStops[0].cancelled ||
+      leg.transitStops.at(-1)!.cancelled
+    )
+      return;
+    const original =
+      leg.coordinates.length > 2 ? TransitPath.create(leg) : undefined;
+    if (original) return original;
+    const coordinates = leg.transitStops.filter((stop) => !stop.cancelled);
+    const path = new NavigationPath(coordinates);
+    let ordinal = -1;
+    const offsets = leg.transitStops.map((stop) => {
+      if (!stop.cancelled) ordinal++;
+      return path.offsets[Math.max(0, ordinal)];
     });
-    return {
-      ...this.path.at(meters),
-      stopIndex,
-      atExit: now >= this.endTime && meters >= this.stopOffsets.at(-1)! - 0.01,
-    };
+    return new TransitPath(path, offsets, true);
+  }
+  positionAt(meters: number): number {
+    let previous = 0;
+    for (let i = 1; i < this.stopOffsets.length; i++) {
+      const a = this.stopOffsets[previous],
+        b = this.stopOffsets[i];
+      if (b <= a) continue;
+      if (meters < b)
+        return previous + (i - previous) * Math.max(0, (meters - a) / (b - a));
+      previous = i;
+    }
+    return this.stopOffsets.length - 1;
+  }
+  at(cursor: StationCursor): MarkerPosition {
+    const low = cursor.fromIndex,
+      high = cursor.toIndex;
+    const meters =
+      this.stopOffsets[low] +
+      (this.stopOffsets[high] - this.stopOffsets[low]) * cursor.fraction;
+    return this.path.at(meters);
   }
 }
 
@@ -240,9 +174,11 @@ export class MarkerMotion {
     now: number,
     animate: boolean,
     visible?: MarkerPosition,
+    monotonic = now,
   ) {
     const previousPath = this.track?.path;
-    const from = visible ?? (this.track ? this.sample(now) : undefined);
+    const from =
+      visible ?? (this.track ? this.sample(now, true, monotonic) : undefined);
     this.track = track;
     const target = track.sample(now);
     this.correction =
@@ -254,7 +190,7 @@ export class MarkerMotion {
           Math.abs(from.meters - target.meters) > 0.01) ||
         Math.abs(headingDelta(from.bearing, target.bearing)) > 0.1)
         ? {
-            started: now,
+            started: monotonic,
             from,
             alongPath:
               !!track.path &&
@@ -266,16 +202,16 @@ export class MarkerMotion {
   get correcting() {
     return !!this.correction;
   }
-  sample(now: number, animate = true): MarkerPosition {
+  sample(now: number, animate = true, monotonic = now): MarkerPosition {
     if (!this.track)
       throw new Error("Markerbewegung benötigt eine Zielposition.");
     const target = this.track.sample(now);
     const correction = this.correction;
-    if (!animate || !correction || now - correction.started >= 2) {
+    if (!animate || !correction || monotonic - correction.started >= 2) {
       this.correction = undefined;
       return target;
     }
-    const fraction = Math.max(0, (now - correction.started) / 2);
+    const fraction = Math.max(0, (monotonic - correction.started) / 2);
     const blend = fraction * fraction * (3 - 2 * fraction);
     const from = correction.from;
     const position =

@@ -1,7 +1,12 @@
 import type { Coordinate, Journey, Leg, Maneuver } from "./model";
 import { distance } from "./geometry";
 import { quality, type LocationFix } from "./live-location";
-import { transitStopKey } from "./transit-stops";
+import {
+  maxStationShapeDistance,
+  transitStopKey,
+  transitStopIdentity,
+  transitTopologyKey,
+} from "./transit-stops";
 import {
   navigationCues,
   verticalManeuver,
@@ -138,7 +143,17 @@ export class NavigationEngine {
   private cue?: NavigationCue;
   transitPositionConfirmed = false;
   private transitOffsets?: number[];
-  private transitSample?: { index: number; meters?: number; fix: LocationFix };
+  private transitSample?: {
+    index: number;
+    meters?: number;
+    fix: LocationFix;
+    atExit: boolean;
+  };
+  private transitEvidence?: {
+    first: LocationFix;
+    last: LocationFix;
+    atExit: boolean;
+  };
   constructor(
     public journey: Journey,
     progress?: NavigationProgress,
@@ -168,6 +183,34 @@ export class NavigationEngine {
           ),
         )
       : 0;
+  }
+  get transitExitConfirmed(): boolean {
+    const evidence = this.transitEvidence;
+    const stops = this.leg.transitStops;
+    return !!(
+      this.transitPositionConfirmed &&
+      evidence?.atExit &&
+      stops &&
+      !stops.at(-1)!.cancelled &&
+      (this.leg.to.stopId
+        ? stops.at(-1)!.stopId === this.leg.to.stopId
+        : distance(stops.at(-1)!, this.leg.to) <= maxStationShapeDistance) &&
+      quality(evidence.first) === "current" &&
+      quality(evidence.last) === "current"
+    );
+  }
+  get hasCurrentTransitPosition(): boolean {
+    return !!(
+      this.transitPositionConfirmed &&
+      this.transitEvidence &&
+      quality(this.transitEvidence.first) === "current" &&
+      quality(this.transitEvidence.last) === "current"
+    );
+  }
+  get hasTransitLocation(): boolean {
+    return !!(
+      this.transitSample && quality(this.transitSample.fix) === "current"
+    );
   }
   get maneuver(): Maneuver | undefined {
     return this.phase === "active" ? this.cue?.maneuver : undefined;
@@ -234,15 +277,20 @@ export class NavigationEngine {
     this.transitOffsets = undefined;
     this.transitSample = undefined;
     const stops = this.leg.transitStops;
-    if (this.leg.kind !== "transit" || !stops) return;
+    // Endpoint-only geometry is a presentation fallback, not a measured rail path.
+    if (this.leg.kind !== "transit" || !stops || this.path.length <= 2) return;
     const offsets: number[] = [];
     for (const stop of stops) {
+      if (stop.cancelled) {
+        offsets.push(offsets.at(-1) ?? 0);
+        continue;
+      }
       const projection = projectPath(
         stop,
         this.path,
         offsets.length ? offsets.at(-1)! + 1 : 0,
       );
-      if (projection.distance > 100) return;
+      if (projection.distance > maxStationShapeDistance) return;
       offsets.push(projection.meters);
     }
     this.transitOffsets = offsets;
@@ -294,6 +342,7 @@ export class NavigationEngine {
     }
     const previous = this.transitSample;
     this.transitSample = undefined;
+    this.transitEvidence = undefined;
     if (index < currentIndex) {
       this.transitPositionConfirmed = false;
       return;
@@ -307,6 +356,13 @@ export class NavigationEngine {
         : previous
           ? distance(previous.fix, fix)
           : 0;
+    const atExit =
+      index === stops.length - 1 &&
+      !stops.at(-1)!.cancelled &&
+      (distance(fix, this.leg.to) <= 100 ||
+        (meters !== undefined &&
+          offsets !== undefined &&
+          Math.abs(meters - offsets.at(-1)!) <= 100));
     if (
       previous &&
       elapsed > 0 &&
@@ -322,8 +378,13 @@ export class NavigationEngine {
           Math.min(meters, previous.meters),
         );
       this.transitPositionConfirmed = true;
+      this.transitEvidence = {
+        first: previous.fix,
+        last: fix,
+        atExit: atExit && previous.atExit,
+      };
     } else this.transitPositionConfirmed = false;
-    this.transitSample = { index, meters, fix };
+    this.transitSample = { index, meters, fix, atExit };
   }
   private updateManeuver() {
     // Preserve source-step indices for existing saved navigation snapshots.
@@ -354,6 +415,7 @@ export class NavigationEngine {
     this.distanceToNext = undefined;
     this.lastTimestamp = 0;
     this.transitSample = undefined;
+    this.transitEvidence = undefined;
     this.transitPositionConfirmed = false;
   }
   update(fix: LocationFix, now = Date.now()): boolean {
@@ -402,7 +464,11 @@ export class NavigationEngine {
     if (this.phase !== "active") return;
     const leg = this.leg;
     if (leg.kind === "stop" || movement(leg) || now < leg.end) return;
-    if (leg.kind === "transit" && !freshTransit(leg, now)) return;
+    if (
+      leg.kind === "transit" &&
+      (!freshTransit(leg, now) || !this.transitExitConfirmed)
+    )
+      return;
     if (["fold", "wait"].includes(leg.kind)) {
       const next = this.journey.legs
         .slice(this.progress.legIndex + 1)
@@ -465,23 +531,38 @@ export class NavigationEngine {
       )
     )
       throw new Error("Navigationsabschnitte stimmen nicht überein.");
-    const previousStops = this.leg.transitStops;
+    const previous = this.leg;
+    const previousStops = previous.transitStops;
+    const topologyChanged =
+      transitTopologyKey(previous) !==
+      transitTopologyKey(journey.legs[this.progress.legIndex]);
+    const confirmedIndex =
+      this.progress.transitStop && previousStops
+        ? previousStops.findIndex(
+            (_, i) =>
+              transitStopKey(previousStops, i) === this.progress.transitStop,
+          )
+        : -1;
     this.journey = journey;
-    if (
-      JSON.stringify(previousStops) !== JSON.stringify(this.leg.transitStops)
-    ) {
+    if (topologyChanged) {
       const stops = this.leg.transitStops;
-      if (
-        this.progress.transitStop &&
-        !stops?.some(
-          (_, i) => transitStopKey(stops, i) === this.progress.transitStop,
-        )
-      ) {
-        delete this.progress.transitStop;
-        this.progress.meters = 0;
-        this.transitPositionConfirmed = false;
-      }
-      this.prepareTransitStops();
+      const identity =
+        confirmedIndex >= 0
+          ? transitStopIdentity(previousStops![confirmedIndex], confirmedIndex)
+          : undefined;
+      const oldMatches = previousStops?.filter(
+        (stop, i) => transitStopIdentity(stop, i) === identity,
+      );
+      const matches = stops?.flatMap((stop, i) =>
+        !stop.cancelled && transitStopIdentity(stop, i) === identity ? [i] : [],
+      );
+      this.progress.transitStop =
+        oldMatches?.length === 1 && matches?.length === 1
+          ? transitStopKey(stops!, matches[0])
+          : undefined;
+      this.progress.meters = 0;
+      this.invalidateLocation();
+      this.preparePath();
     }
   }
 }

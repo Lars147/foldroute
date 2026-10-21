@@ -27,7 +27,6 @@ import {
   TransitPath,
   type MarkerPosition,
   type TransitEstimateSource,
-  type TransitPosition,
 } from "./navigation-estimate";
 const xy = (p: Coordinate) => fromLonLat([p.longitude, p.latitude]);
 const navigationZoom: Partial<Record<LegKind, number>> = {
@@ -39,6 +38,7 @@ export class NavigationMap {
   private map: Map;
   private view: View;
   private routes = new VectorSource();
+  private schematic = new VectorSource();
   private location = new VectorSource();
   private marker = new Feature(new Point([0, 0]));
   private accuracy = new Feature(new CircleGeometry([0, 0], 0));
@@ -78,7 +78,6 @@ export class NavigationMap {
     private panel: HTMLElement,
     private top: HTMLElement,
     private changed: (following: boolean) => void,
-    private positionChanged: (position: TransitPosition) => void = () => {},
   ) {
     this.view = new View({
       center: fromLonLat([10, 50]),
@@ -101,6 +100,7 @@ export class NavigationMap {
       layers: [
         this.tiles,
         new VectorLayer({ source: this.routes }),
+        new VectorLayer({ source: this.schematic }),
         new VectorLayer({ source: this.location }),
       ],
       controls: [],
@@ -258,10 +258,28 @@ export class NavigationMap {
       theme.name,
       engine.journey.legs.map((l) => [l.navigationId, l.coordinates]),
       engine.progress.legIndex,
+      estimate?.path.schematic,
+      estimate?.path.path.key,
     ]);
     if (signature !== this.signature) {
       this.signature = signature;
       this.routes.clear();
+      this.schematic.clear();
+      if (estimate?.path.schematic) {
+        const feature = new Feature(
+          new LineString(estimate.path.path.coordinates.map(xy)),
+        );
+        feature.setStyle(
+          new Style({
+            stroke: new Stroke({
+              color: theme.lines.transit,
+              width: 4,
+              lineDash: [8, 8],
+            }),
+          }),
+        );
+        this.schematic.addFeature(feature);
+      }
       engine.journey.legs.forEach((leg, index) => {
         if (leg.coordinates.length < 2) return;
         const feature = new Feature(new LineString(leg.coordinates.map(xy)));
@@ -275,10 +293,14 @@ export class NavigationMap {
           new Style({
             stroke: new Stroke({
               color:
-                index < engine.progress.legIndex
+                index < engine.progress.legIndex ||
+                (index === engine.progress.legIndex && estimate?.path.schematic)
                   ? theme.secondary
                   : theme.lines[leg.kind],
-              width: index === engine.progress.legIndex ? 7 : 4,
+              width:
+                index === engine.progress.legIndex && !estimate?.path.schematic
+                  ? 7
+                  : 4,
               lineDash: leg.kind === "walk" ? [3, 8] : undefined,
             }),
           }),
@@ -383,12 +405,12 @@ export class NavigationMap {
         ? [
             engine.leg.navigationId,
             "estimated",
-            estimate.timeline.path.key,
+            estimate.path.path.key,
             engine.leg.start,
             engine.leg.end,
             engine.leg.transitStops,
             estimate.confirmedIndex,
-            estimate.confirmedMeters,
+            estimate.confirmedPosition,
           ]
         : [
             engine.leg.navigationId,
@@ -414,13 +436,8 @@ export class NavigationMap {
       this.motion.setTarget(
         estimate
           ? {
-              path: estimate.timeline.path,
-              sample: (time) =>
-                estimate.timeline.sample(
-                  time,
-                  estimate.confirmedIndex,
-                  estimate.confirmedMeters,
-                ),
+              path: estimate.path.path,
+              sample: (time) => estimate.path.at(estimate.sample(time)),
             }
           : {
               sample: () => ({
@@ -441,8 +458,12 @@ export class NavigationMap {
               : undefined,
           bearing: this.heading ?? this.displayed.bearing,
         },
+        performance.now() / 1000,
       );
     }
+    this.target.dataset.positionPrecision = estimate?.path.schematic
+      ? "schematic"
+      : "route";
     this.target.dataset.positionSource = estimate
       ? "estimated"
       : state === "current"
@@ -456,17 +477,11 @@ export class NavigationMap {
     this.startAnimation();
   }
   private drawMarker(now: number) {
-    const position = this.motion.sample(now, !this.reducedMotion.matches);
-    this.positionChanged({
-      navigationId: this.frame!.engine.leg.navigationId,
-      meters: position.meters,
-      path: this.stationPath,
-      source: this.frame!.estimate
-        ? "estimated"
-        : this.frame!.state === "current"
-          ? "gps"
-          : "last-known",
-    });
+    const position = this.motion.sample(
+      now,
+      !this.reducedMotion.matches,
+      performance.now() / 1000,
+    );
     const previousHeading = this.heading;
     const elapsed =
       this.lastDrawAt === undefined ? 0 : Math.max(0, now - this.lastDrawAt);
@@ -515,7 +530,7 @@ export class NavigationMap {
       const next = estimate?.timeline.nextMovementAt(
         now,
         estimate.confirmedIndex,
-        estimate.confirmedMeters,
+        estimate.confirmedPosition,
       );
       if (next === undefined) return;
       if (next > now) {
