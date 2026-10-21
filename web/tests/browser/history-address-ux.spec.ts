@@ -138,7 +138,7 @@ test("a deleted history entry stays deleted after a delayed address response", a
   expect((await read(page)).entries).toEqual([]);
 });
 
-test("storage rejects stale enrichment after a newer calculation or disabling history", async ({
+test("storage rejects stale enrichment and retains history when disabled", async ({
   page,
 }) => {
   await seed(page);
@@ -155,7 +155,17 @@ test("storage rejects stale enrichment after a newer calculation or disabling hi
     const disabled = await store.updateNames(current, {
       origin: "Late address",
     });
-    return { stale, disabled, entries: (await store.read()).entries };
+    const retained = await new OfflineStore().read();
+    return {
+      stale,
+      disabled,
+      enabled: retained.enabled,
+      current,
+      entries: retained.entries,
+    };
   });
-  expect(results).toEqual({ stale: false, disabled: false, entries: [] });
+  expect(results.stale).toBe(false);
+  expect(results.disabled).toBe(false);
+  expect(results.enabled).toBe(false);
+  expect(results.entries).toEqual([results.current]);
 });

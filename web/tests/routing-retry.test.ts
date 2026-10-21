@@ -94,6 +94,76 @@ afterEach(() => {
 });
 
 describe("routing HTTP retries", () => {
+  it.each(["headers", "body"])(
+    "enforces the HTTP deadline when %s ignore cancellation",
+    async (stage) => {
+      const fetcher = vi.fn(async () => {
+        if (fetcher.mock.calls.length > 1) return ok();
+        if (stage === "headers") return new Promise<Response>(() => {});
+        const response = ok();
+        vi.spyOn(response, "json").mockReturnValue(new Promise(() => {}));
+        return response;
+      });
+      const api = new ApiClient(fetcher);
+      const signal = new AbortController().signal;
+      const budget = context(api, signal);
+      const pending = api
+        .json(url(), signal, false, budget)
+        .catch((error) => error);
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(await pending).toMatchObject({ code: "timeout" });
+      await expect(
+        api.json(url("next"), signal, false, budget),
+      ).resolves.toEqual({});
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    },
+  );
+  it("releases cancelled HTTP permits before delayed transport promises settle", async () => {
+    const releases: ((response: Response) => void)[] = [];
+    const fetcher = vi.fn(async (input: URL) =>
+      input.pathname.startsWith("/old")
+        ? new Promise<Response>((resolve) => releases.push(resolve))
+        : ok(),
+    );
+    const api = new ApiClient(fetcher as typeof fetch);
+    const old = new AbortController();
+    const oldBudget = context(api, old.signal);
+    let oldSettled = false,
+      nextSettled = false;
+    const first = Promise.allSettled([
+      api.json(url("old1"), old.signal, false, oldBudget),
+      api.json(url("old2"), old.signal, false, oldBudget),
+    ]).then((results) => {
+      oldSettled = true;
+      return results;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    old.abort();
+    const signal = new AbortController().signal;
+    const nextBudget = context(api, signal);
+    const next = Promise.all([
+      api.json(url("new1"), signal, false, nextBudget),
+      api.json(url("new2"), signal, false, nextBudget),
+    ]).then((results) => {
+      nextSettled = true;
+      return results;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const afterAbort = {
+      oldSettled,
+      nextSettled,
+      calls: fetcher.mock.calls.length,
+    };
+    releases.forEach((release) => release(pause("60")));
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.all([first, next]);
+    expect(afterAbort).toEqual({
+      oldSettled: true,
+      nextSettled: true,
+      calls: 4,
+    });
+    expect(api.retryAt).toBe(0);
+  });
   it.each([true, false])(
     "direct batch runs preserve parent budget stopping (initial=%s)",
     async (initiallyStopped) => {
@@ -138,9 +208,17 @@ describe("routing HTTP retries", () => {
     let release!: (response: Response) => void;
     let active = 0,
       peak = 0;
-    const fetcher = vi.fn(async (input: URL) => {
+    const fetcher = vi.fn(async (input: URL, init?: RequestInit) => {
       active++;
       peak = Math.max(active, peak);
+      let counted = true;
+      const finish = () => {
+        if (counted) {
+          active--;
+          counted = false;
+        }
+      };
+      init?.signal?.addEventListener("abort", finish, { once: true });
       const response =
         input.pathname === "/old"
           ? await new Promise<Response>((resolve) => {
@@ -149,7 +227,8 @@ describe("routing HTTP retries", () => {
           : await new Promise<Response>((resolve) =>
               setTimeout(() => resolve(ok()), 10),
             );
-      active--;
+      init?.signal?.removeEventListener("abort", finish);
+      finish();
       return response;
     });
     const api = new ApiClient(fetcher as typeof fetch);
