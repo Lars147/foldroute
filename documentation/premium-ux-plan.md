@@ -16,6 +16,8 @@ In diesem Worktree ist zunächst ausschließlich Änderung 3 umgesetzt. Änderun
 
 ## 1. Löschschutz beim Ausschalten der Speicherung
 
+**Aktualisierung:** Dieser Vorschlag ist durch die freigegebene Aufteilung in drei Speicherschalter ersetzt. Ausschalten erhält vorhandene Daten; separate bestätigte Löschaktionen entfernen Verlauf, Navigationsstand oder Fahrtstatistik. Umsetzung und Prüfungen: [UX-Feedback](ux-feedback.md#anschlussauftrag-speicher-auftrennen).
+
 **Beobachtung:** Der Schalter „Strecken auf diesem Gerät speichern“ löscht beim Ausschalten sofort den Verlauf und beendet die Undo-Möglichkeit. Die separate Aktion „Streckenverlauf löschen“ besitzt dagegen einen Bestätigungsdialog.
 
 **Geplantes Verhalten:**

@@ -1,11 +1,13 @@
 import type { Journey, RouteRequest, RoutingSettings } from "./model";
 import { validSnapshot } from "./offline";
 import { localDatabase } from "./storage";
+import { readStoragePreferences } from "./storage-preferences";
 import type { NavigationProgress } from "./navigation-engine";
 import { validateGeometry } from "./geometry";
 import {
   emptyNavigationStatistics,
   recordNavigation,
+  resetNavigationStatistics,
   validNavigationStatistics,
   validNavigationTrip,
   type NavigationStatistics,
@@ -22,6 +24,7 @@ export interface NavigationSnapshot {
   progress: NavigationProgress;
   trip?: NavigationTrip;
   sessionId?: string;
+  resumeEpoch?: number;
 }
 function storedTripId(value: unknown): string | undefined {
   return validNavigationSnapshot(value)
@@ -35,6 +38,8 @@ export function validNavigationSnapshot(
   const s = value as NavigationSnapshot;
   if (
     s.version !== 1 ||
+    (s.resumeEpoch !== undefined &&
+      (!Number.isSafeInteger(s.resumeEpoch) || s.resumeEpoch < 0)) ||
     (s.sessionId !== undefined &&
       (typeof s.sessionId !== "string" || !s.sessionId.length)) ||
     (s.trip !== undefined && !validNavigationTrip(s.trip)) ||
@@ -81,6 +86,7 @@ export class NavigationStore {
   private generation = 0;
   async readStatistics(): Promise<{
     epoch: number;
+    resumeEpoch: number;
     statistics: NavigationStatistics;
   }> {
     const db = await localDatabase.open();
@@ -88,16 +94,15 @@ export class NavigationStore {
       const tx = db.transaction("state", "readonly"),
         store = tx.objectStore("state"),
         epoch = store.get("navigationStatisticsEpoch"),
-        enabled = store.get("enabled"),
+        resumeEpoch = store.get("navigationResumeEpoch"),
         statistics = store.get("navigationStatistics");
       tx.oncomplete = () =>
         resolve({
           epoch: epoch.result ?? 0,
-          statistics:
-            enabled.result !== false &&
-            validNavigationStatistics(statistics.result)
-              ? statistics.result
-              : emptyNavigationStatistics(),
+          resumeEpoch: resumeEpoch.result ?? 0,
+          statistics: validNavigationStatistics(statistics.result)
+            ? statistics.result
+            : emptyNavigationStatistics(),
         });
       tx.onabort = () => reject(tx.error);
     });
@@ -118,6 +123,7 @@ export class NavigationStore {
       const tx = db.transaction("state", "readwrite"),
         store = tx.objectStore("state"),
         enabled = store.get("enabled"),
+        preferences = store.get("storagePreferences"),
         epoch = store.get("navigationStatisticsEpoch"),
         active = store.get("activeNavigation"),
         statistics = store.get("navigationStatistics");
@@ -131,7 +137,8 @@ export class NavigationStore {
         if (storedTripId(active.result) === summary.id)
           store.delete("activeNavigation");
         if (
-          enabled.result === false ||
+          !readStoragePreferences(preferences.result, enabled.result)
+            .statistics ||
           (epoch.result ?? 0) !== summary.storageEpoch
         )
           return;
@@ -147,26 +154,38 @@ export class NavigationStore {
       tx.onabort = () => reject(tx.error);
     });
   }
-  async read(): Promise<NavigationSnapshot | undefined> {
+  async read(includeDisabled = false): Promise<NavigationSnapshot | undefined> {
     const db = await localDatabase.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction("state", "readwrite"),
         store = tx.objectStore("state");
       const enabled = store.get("enabled"),
+        preferences = store.get("storagePreferences"),
         active = store.get("activeNavigation");
       let result: NavigationSnapshot | undefined;
       active.onsuccess = () => {
         if (
-          enabled.result !== false &&
+          (includeDisabled ||
+            readStoragePreferences(preferences.result, enabled.result)
+              .navigation) &&
           validNavigationSnapshot(active.result)
         ) {
           result = active.result;
           // Give old snapshots a random identity before two tabs can resume them.
-          if (!result.trip && !result.sessionId) {
+          if (
+            !result.trip &&
+            !result.sessionId &&
+            readStoragePreferences(preferences.result, enabled.result)
+              .navigation
+          ) {
             result.sessionId = crypto.randomUUID();
             store.put(result, "activeNavigation");
           }
-        } else store.delete("activeNavigation");
+        } else if (
+          active.result !== undefined &&
+          !validNavigationSnapshot(active.result)
+        )
+          store.delete("activeNavigation");
       };
       tx.oncomplete = () => resolve(result);
       tx.onabort = () => reject(tx.error);
@@ -189,19 +208,19 @@ export class NavigationStore {
       const tx = db.transaction("state", "readwrite"),
         store = tx.objectStore("state"),
         enabled = store.get("enabled"),
-        epoch = store.get("navigationStatisticsEpoch");
+        preferences = store.get("storagePreferences"),
+        epoch = store.get("navigationResumeEpoch");
       epoch.onsuccess = () => {
         if (
           generation !== this.generation ||
           databaseGeneration !== localDatabase.generation
         )
           return;
-        if (enabled.result === false) {
-          store.delete("activeNavigation");
+        if (
+          !readStoragePreferences(preferences.result, enabled.result).navigation
+        )
           return;
-        }
-        if (snapshot.trip && snapshot.trip.storageEpoch !== (epoch.result ?? 0))
-          return;
+        if ((snapshot.resumeEpoch ?? 0) !== (epoch.result ?? 0)) return;
         store.put(snapshot, "activeNavigation");
       };
       tx.oncomplete = () => resolve();
@@ -214,14 +233,28 @@ export class NavigationStore {
     return new Promise<void>((resolve, reject) => {
       const tx = db.transaction("state", "readwrite");
       const store = tx.objectStore("state");
-      if (expectedTripId === undefined) store.delete("activeNavigation");
-      else {
+      if (expectedTripId === undefined) {
+        store.delete("activeNavigation");
+        const epoch = store.get("navigationResumeEpoch");
+        epoch.onsuccess = () =>
+          store.put((epoch.result ?? 0) + 1, "navigationResumeEpoch");
+      } else {
         const active = store.get("activeNavigation");
         active.onsuccess = () => {
           if (storedTripId(active.result) === expectedTripId)
             store.delete("activeNavigation");
         };
       }
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+  async clearStatistics() {
+    const db = await localDatabase.open();
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("state", "readwrite");
+      const store = tx.objectStore("state");
+      resetNavigationStatistics(store);
       tx.oncomplete = () => resolve();
       tx.onabort = () => reject(tx.error);
     });

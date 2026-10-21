@@ -273,10 +273,8 @@ test("history deletion and disabling persist without restoring deleted calculati
   );
   await page.goto("/");
   await page.locator("#tab-history").click();
-  await expect(page.locator(".history-row")).toHaveCount(0);
-  await expect(page.locator("#history-empty")).toContainText(
-    "Speicherung ausgeschaltet",
-  );
+  await expect(page.locator(".history-row")).toHaveCount(1);
+  await expect(page.locator("#history-empty")).toBeHidden();
 });
 
 test("history storage caps entries atomically and guards pending writes during deletion", async ({

@@ -1,4 +1,5 @@
 import { SettingsValidation } from "./settings-validation";
+import { mountInformationDialogs } from "./information-dialogs";
 import { reveal, stopMotionWithin, captureList, reflowList } from "./motion";
 import { appearance, type AppearancePreference } from "./appearance";
 import { mapStyle } from "./map-style";
@@ -72,6 +73,10 @@ import { afterStartup } from "./startup";
 import { PlaceBook } from "./places";
 import { PlanningFeedback, type PlanningToastStage } from "./planning-feedback";
 import { localDatabase } from "./storage";
+import {
+  StoragePreferencesStore,
+  type StoragePreferences,
+} from "./storage-preferences";
 import {
   readRouteURL,
   routeURL,
@@ -194,13 +199,16 @@ let originOverride: Place | undefined,
 let stops: RouteStop[] = [];
 let storageGeneration = 0;
 let saved: SavedJourney | undefined,
-  offlineEnabled = true,
+  historyEnabled = true,
+  navigationStorageEnabled = true,
+  statisticsEnabled = true,
   persistKey = "",
   activeSnapshot: SavedJourney | undefined;
 let beforeSettings: View = "search",
   mapLocationRequest: AbortController | undefined;
 const api = new ApiClient(),
   store = new OfflineStore(),
+  storagePreferencesStore = new StoragePreferencesStore(),
   book = new PlaceBook(),
   dialog = el<HTMLDialogElement>("time-dialog");
 const settingsValidation = new SettingsValidation(el("settings-form"));
@@ -357,6 +365,7 @@ const routeMap = new RouteMap(
 let navigation: NavigationSession | undefined;
 let navigationView: NavigationView | undefined;
 let hasNavigationStatistics = false;
+let hasSavedNavigation = false;
 const navigationStore = new NavigationStore();
 let navigationLaunchGeneration = 0;
 let navigationChecking = false;
@@ -388,7 +397,7 @@ const historyNames = new HistoryNameQueue(
 );
 function syncHistoryNames() {
   historyNames.setActive(
-    pagePresent && !document.hidden && navigator.onLine && offlineEnabled,
+    pagePresent && !document.hidden && navigator.onLine && historyEnabled,
   );
   if (view === "history") historyNames.enqueue(historyEntries);
 }
@@ -525,9 +534,14 @@ navigation = new NavigationSession({
   api,
   store: navigationStore,
   locate: (options) => liveLocation.center(true, options),
-  storageEnabled: () => offlineEnabled,
+  resumeEnabled: () => navigationStorageEnabled,
+  statisticsEnabled: () => statisticsEnabled,
   routingSettings: () => settings,
   changed: () => {
+    if (navigation?.engine) {
+      if (navigation.engine.phase === "arrived") hasSavedNavigation = false;
+      else if (navigationStorageEnabled) hasSavedNavigation = true;
+    }
     if (navigation?.statistics)
       hasNavigationStatistics = navigation.statistics.completedIds.length > 0;
     pwa?.refresh();
@@ -819,6 +833,8 @@ async function endNavigation() {
   delete document.body.dataset.navigation;
   try {
     await navigation!.stop();
+    hasSavedNavigation = false;
+    savedUI();
   } catch {
     toast(
       "Navigation beendet. Gespeicherter Zustand konnte nicht gelöscht werden.",
@@ -1090,7 +1106,8 @@ window.addEventListener("popstate", async (event) => {
     historyPosition = position;
     restoringSettingsPosition = undefined;
     writeHistory();
-    settingsValidation.validate();
+    // Native history scroll restoration runs after popstate.
+    requestAnimationFrame(() => settingsValidation.validate());
     return;
   }
   if (view === "settings" && !settingsValidation.validate()) {
@@ -1216,11 +1233,10 @@ function historyUI() {
   stopMotionWithin(el("history-list"));
   el("history-list").replaceChildren();
   el("history-empty").hidden = historyEntries.length > 0;
-  el("history-empty").textContent = offlineEnabled
+  el("history-empty").textContent = historyEnabled
     ? "Noch keine Strecken. Erfolgreiche Planungen werden hier automatisch gespeichert."
-    : "Speicherung ausgeschaltet. Aktiviere sie in den Einstellungen, um deine nächsten Planungen zu behalten.";
-  el<HTMLButtonElement>("delete-saved").disabled =
-    !historyEntries.length && !hasNavigationStatistics;
+    : "Streckenverlauf ausgeschaltet. Aktiviere ihn in den Einstellungen, um neue Planungen zu behalten.";
+  el<HTMLButtonElement>("delete-saved").disabled = !historyEntries.length;
   for (const entry of historyEntries) {
     const { journey, request } = historySnapshot(entry);
     const row = node("li", "", "history-row");
@@ -1375,16 +1391,21 @@ function savedUI() {
   el("saved-description").textContent = saved
     ? `${saved.journey.destination.name} · ${dateLabel(saved.savedAt)}, ${clock(saved.savedAt)}`
     : "";
-  el<HTMLButtonElement>("delete-saved").disabled =
-    !saved && !hasNavigationStatistics;
+  el<HTMLButtonElement>("delete-saved").disabled = !saved;
   el("offline-empty").hidden = navigator.onLine || !!saved;
-  el<HTMLInputElement>("offline-enabled").checked = offlineEnabled;
+  el<HTMLInputElement>("offline-enabled").checked = historyEnabled;
+  el<HTMLInputElement>("navigation-storage-enabled").checked =
+    navigationStorageEnabled;
+  el<HTMLInputElement>("statistics-enabled").checked = statisticsEnabled;
+  el<HTMLButtonElement>("delete-navigation").disabled = !hasSavedNavigation;
+  el<HTMLButtonElement>("delete-statistics").disabled =
+    !hasNavigationStatistics;
 }
 async function persist(snapshot: SavedJourney, id: string) {
   const generation = storageGeneration;
   try {
     if (await store.save(snapshot, id)) {
-      if (offlineEnabled && generation === storageGeneration) {
+      if (historyEnabled && generation === storageGeneration) {
         await reloadHistory();
         historyNames.enqueue(
           historyEntries.filter((entry) => entry.calculationId === id),
@@ -1473,7 +1494,7 @@ function renderPlanning(state: PlanningState) {
         settings: structuredClone(state.resultSettings),
         journey: state.selected,
       };
-      if (offlineEnabled) void persist(activeSnapshot, state.calculationId);
+      if (historyEnabled) void persist(activeSnapshot, state.calculationId);
     }
   }
   el("replan-saved").hidden = !state.restored || !state.selected;
@@ -2057,6 +2078,7 @@ function closeRoute(push = true, focus: HTMLElement = homeFocusTarget()) {
   focus.focus({ preventScroll: true });
 }
 el("close-route").onclick = () => closeRoute();
+mountInformationDialogs();
 el("dismiss-location-error").onclick = () => {
   el("map-location-error").hidden = true;
 };
@@ -2094,18 +2116,21 @@ el("map-location").onclick = async () => {
 const labels: Record<keyof typeof ranges, string> = {
   cyclingSpeedKilometersPerHour: "Radgeschwindigkeit",
   maxCyclingMinutes: "Maximale Radzeit je Etappe",
-  maxWalkingMinutes: "Fußweg zum / vom ÖPNV",
+  maxWalkingMinutes: "Fußweg zur / von der Haltestelle",
+  transferMinutes: "Umstiegszeit",
   foldingDuration: "Zeit je Falten / Entfalten",
   maxBikeTransfers: "Radverbindungen zwischen Linien",
 };
 function settingsUI() {
   el("settings-fields").replaceChildren();
   el("settings-extra-fields").replaceChildren();
+  el("settings-optimization-fields").replaceChildren();
   const orderedKeys: (keyof typeof ranges)[] = [
     "cyclingSpeedKilometersPerHour",
     "maxCyclingMinutes",
     "foldingDuration",
     "maxWalkingMinutes",
+    "transferMinutes",
     "maxBikeTransfers",
   ];
   for (const key of orderedKeys) {
@@ -2114,13 +2139,16 @@ function settingsUI() {
       divisor = k === "foldingDuration" ? 60 : 1;
     const label = node("label", "", "setting-row"),
       copy = node("span", labels[k]);
-    if (k === "maxWalkingMinutes" || k === "maxBikeTransfers")
-      copy.append(
-        node(
-          "small",
-          k === "maxBikeTransfers" ? "Maximale Anzahl" : "Maximal je Fußweg",
-        ),
-      );
+    const hints: Partial<Record<keyof typeof ranges, string>> = {
+      maxWalkingMinutes:
+        "Maximale Gehzeit je Weg zur ersten oder von der letzten Haltestelle. Fußwege beim Umsteigen können länger sein.",
+      transferMinutes:
+        "Zusätzliche Zeit bei jedem Umstieg, auch mit Rad zwischen Linien. Falten und Entfalten werden separat eingeplant.",
+      maxBikeTransfers:
+        "Maximale Anzahl der Radverbindungen zwischen ÖPNV-Linien. Weniger Radverbindungen beschleunigen die Routenoptimierung. Bei 0 werden keine zusätzlichen Rad-Umstiege gesucht.",
+      maxCyclingMinutes:
+        "Pro Radetappe. Falten, Entfalten und Umstiegszeit kommen hinzu.",
+    };
     const input = node("input");
     input.type = "number";
     input.id = k;
@@ -2133,12 +2161,9 @@ function settingsUI() {
       if (input.checkValidity())
         applySettings({ ...settings, [k]: Number(input.value) * divisor });
     };
-    if (k === "maxCyclingMinutes") {
-      const hint = node(
-        "small",
-        "Pro Radetappe. Falten, Entfalten und Anschlusspuffer kommen hinzu.",
-      );
-      hint.id = "cycling-limit-hint";
+    if (hints[k]) {
+      const hint = node("small", hints[k]!);
+      hint.id = k === "maxCyclingMinutes" ? "cycling-limit-hint" : `${k}-hint`;
       copy.append(hint);
       input.setAttribute("aria-describedby", hint.id);
     }
@@ -2165,17 +2190,16 @@ function settingsUI() {
     label.append(copy, value);
     settingsValidation.bind(input, label);
     el(
-      k === "maxWalkingMinutes" || k === "maxBikeTransfers"
-        ? "settings-extra-fields"
-        : "settings-fields",
+      k === "maxBikeTransfers"
+        ? "settings-optimization-fields"
+        : k === "maxWalkingMinutes" || k === "transferMinutes"
+          ? "settings-extra-fields"
+          : "settings-fields",
     ).append(label);
   }
   const toggle = node("label", "", "toggle-row");
   const text = node("span", "Fahrradvergleich anzeigen");
-  const hint = node(
-    "small",
-    "Zeigt zusätzlich reine Radstrecken über deinem Radzeitlimit. Kürzere Radstrecken bleiben sichtbar.",
-  );
+  const hint = node("small", "Zeigt zusätzlich die reine Radstrecke.");
   hint.id = "cycling-comparison-hint";
   text.append(hint);
   const checkbox = node("input");
@@ -2187,7 +2211,7 @@ function settingsUI() {
   checkbox.onchange = () =>
     applySettings({ ...settings, showCyclingComparison: checkbox.checked });
   toggle.append(text, checkbox);
-  el("settings-extra-fields").append(toggle);
+  el("settings-optimization-fields").append(toggle);
   el("modes").replaceChildren();
   for (const [key, mode] of Object.entries(modes)) {
     const label = node("label", "", "toggle-row"),
@@ -2281,7 +2305,9 @@ el("tab-history").onclick = () => {
 el("tab-settings").onclick = openSettings;
 el("late-settings").onclick = openSettings;
 el("tab-route").onclick = () => {
-  show(session.state.request ? "map" : "search");
+  show(
+    session.state.request || session.state.pendingRequest ? "map" : "search",
+  );
 };
 el("reset-settings").onclick = () => {
   applySettings(structuredClone(defaults));
@@ -2341,6 +2367,7 @@ el("confirm-delete-data").onclick = async () => {
   clearSearchLocation();
   try {
     await localDatabase.clearAll();
+    clearStorageMessage("toggle", "disabled", "history", "save");
     hasNavigationStatistics = false;
     forgetShared();
     localStorage.removeItem(sharedStorageKey);
@@ -2355,7 +2382,10 @@ el("confirm-delete-data").onclick = async () => {
     el<HTMLInputElement>("keep-screen-awake").checked = true;
     saved = undefined;
     historyEntries = [];
-    offlineEnabled = true;
+    historyEnabled = true;
+    navigationStorageEnabled = true;
+    statisticsEnabled = true;
+    hasSavedNavigation = false;
     settings = structuredClone(defaults);
     releasePlan();
     planResults.clear();
@@ -2411,53 +2441,72 @@ el("keep-screen-awake").onchange = () => {
     toast("Einstellung gilt nur für diese Sitzung.");
   }
 };
-el("offline-enabled").onchange = async () => {
-  const checkbox = el<HTMLInputElement>("offline-enabled");
-  const enabled = checkbox.checked,
-    previous = offlineEnabled;
-  const generation = ++storageGeneration;
-  checkbox.disabled = true;
-  offlineEnabled = enabled;
-  if (!enabled) {
-    historyNames.clear();
-    historyUndo.clear();
-  }
-  syncHistoryNames();
-  try {
-    await store.setEnabled(enabled);
-    if (generation !== storageGeneration) return;
-    clearStorageMessage("toggle", "disabled");
-    if (!enabled) {
-      hasNavigationStatistics = false;
-      suppressCurrentSave();
-      saved = undefined;
-      historyEntries = [];
-      storageMessage(
-        "disabled",
-        "Strecken, Wiederaufnahmezustand und Gesamtstatistik gelöscht. Speicherung ausgeschaltet.",
-      );
-    } else {
-      if (activeSnapshot && session.state.calculationId)
-        await persist(activeSnapshot, session.state.calculationId);
-    }
-    savedUI();
-  } catch {
-    if (generation !== storageGeneration) return;
-    offlineEnabled = previous;
-    syncHistoryNames();
-    savedUI();
-    storageMessage(
-      "toggle",
-      "Offline-Einstellung konnte nicht gespeichert werden. Bitte erneut versuchen.",
-    );
-    toast(
-      "Speicher nicht verfügbar. Änderung konnte nicht dauerhaft übernommen werden.",
-      "toggle",
-    );
-  } finally {
-    checkbox.disabled = false;
-  }
+const storageControls: Record<keyof StoragePreferences, string> = {
+  history: "offline-enabled",
+  navigation: "navigation-storage-enabled",
+  statistics: "statistics-enabled",
 };
+const storageLabels: Record<keyof StoragePreferences, string> = {
+  history: "Streckenverlauf",
+  navigation: "Wiederaufnahme",
+  statistics: "Fahrtstatistik",
+};
+for (const key of Object.keys(
+  storageControls,
+) as (keyof StoragePreferences)[]) {
+  const checkbox = el<HTMLInputElement>(storageControls[key]);
+  checkbox.onchange = async () => {
+    const previous = {
+      history: historyEnabled,
+      navigation: navigationStorageEnabled,
+      statistics: statisticsEnabled,
+    };
+    const enabled = checkbox.checked;
+    const generation = localDatabase.generation;
+    checkbox.disabled = true;
+    if (key === "history") {
+      storageGeneration++;
+      historyEnabled = enabled;
+      historyUndo.clear();
+      if (!enabled) historyNames.clear();
+      syncHistoryNames();
+    } else if (key === "navigation") navigationStorageEnabled = enabled;
+    else statisticsEnabled = enabled;
+    try {
+      if (key === "history") await store.setEnabled(enabled);
+      else await storagePreferencesStore.set(key, enabled);
+      if (generation !== localDatabase.generation) return;
+      clearStorageMessage("toggle", "disabled");
+      storageMessage(
+        "toggle",
+        `${storageLabels[key]}: Speicherung ${enabled ? "eingeschaltet" : "ausgeschaltet"}. Vorhandene Daten bleiben erhalten.`,
+      );
+      if (key === "history") {
+        persistKey = "";
+        await reloadHistory();
+      }
+      savedUI();
+    } catch {
+      if (generation !== localDatabase.generation) return;
+      if (key === "history") historyEnabled = previous.history;
+      else if (key === "navigation")
+        navigationStorageEnabled = previous.navigation;
+      else statisticsEnabled = previous.statistics;
+      syncHistoryNames();
+      savedUI();
+      storageMessage(
+        "toggle",
+        "Speichereinstellung konnte nicht geändert werden. Bitte erneut versuchen.",
+      );
+      toast(
+        "Speicher nicht verfügbar. Änderung konnte nicht dauerhaft übernommen werden.",
+        "toggle",
+      );
+    } finally {
+      checkbox.disabled = false;
+    }
+  };
+}
 el("delete-saved").onclick = () => {
   el("delete-history-status").textContent = "";
   el<HTMLDialogElement>("delete-history-dialog").showModal();
@@ -2473,12 +2522,61 @@ el("confirm-delete-history").onclick = async () => {
   suppressCurrentSave();
   try {
     await store.clear();
-    hasNavigationStatistics = false;
     await reloadHistory();
     el<HTMLDialogElement>("delete-history-dialog").close();
-    storageMessage("history", "Streckenverlauf und Gesamtstatistik gelöscht.");
+    storageMessage("history", "Streckenverlauf gelöscht.");
   } catch {
     el("delete-history-status").textContent =
+      "Löschen fehlgeschlagen. Bitte erneut versuchen.";
+  } finally {
+    button.disabled = false;
+  }
+};
+let deleteStorageKind: "navigation" | "statistics" = "navigation";
+for (const kind of ["navigation", "statistics"] as const) {
+  el(`delete-${kind}`).onclick = () => {
+    deleteStorageKind = kind;
+    el("delete-storage-heading").textContent =
+      kind === "navigation"
+        ? "Gespeicherten Navigationsstand löschen?"
+        : "Fahrtstatistik löschen?";
+    el("delete-storage-description").textContent =
+      kind === "navigation"
+        ? "Der gespeicherte Stand zum Fortsetzen einer Fahrt wird entfernt. Streckenverlauf, Fahrtstatistik und Einstellungen bleiben erhalten."
+        : "Gesamtstrecke und Fahrzeit abgeschlossener Fahrten werden zurückgesetzt. Streckenverlauf, Navigationsstand und Einstellungen bleiben erhalten.";
+    el("confirm-delete-storage").textContent =
+      kind === "navigation"
+        ? "Navigationsstand löschen"
+        : "Fahrtstatistik löschen";
+    el("delete-storage-status").textContent = "";
+    el<HTMLDialogElement>("delete-storage-dialog").showModal();
+  };
+}
+el("cancel-delete-storage").onclick = () =>
+  el<HTMLDialogElement>("delete-storage-dialog").close();
+el("confirm-delete-storage").onclick = async () => {
+  const button = el<HTMLButtonElement>("confirm-delete-storage");
+  button.disabled = true;
+  try {
+    if (deleteStorageKind === "navigation") {
+      await navigationStore.clear();
+      hasSavedNavigation = false;
+      sharedResume = undefined;
+    } else {
+      await navigationStore.clearStatistics();
+      hasNavigationStatistics = false;
+      if (navigation) navigation.statistics = undefined;
+    }
+    savedUI();
+    el<HTMLDialogElement>("delete-storage-dialog").close();
+    storageMessage(
+      "history",
+      deleteStorageKind === "navigation"
+        ? "Gespeicherter Navigationsstand gelöscht."
+        : "Fahrtstatistik gelöscht.",
+    );
+  } catch {
+    el("delete-storage-status").textContent =
       "Löschen fehlgeschlagen. Bitte erneut versuchen.";
   } finally {
     button.disabled = false;
@@ -2639,7 +2737,11 @@ window.addEventListener("offline", connectionChanged);
 const restoredStartup = store
   .read()
   .then(async (result) => {
-    if (storageGeneration === 0) offlineEnabled = result.enabled;
+    if (storageGeneration === 0) {
+      historyEnabled = result.preferences.history;
+      navigationStorageEnabled = result.preferences.navigation;
+      statisticsEnabled = result.preferences.statistics;
+    }
     const generation = storageGeneration;
     try {
       const { statistics } = await navigationStore.readStatistics();
@@ -2652,9 +2754,10 @@ const restoredStartup = store
       saved = result.snapshot;
       historyEntries = result.entries;
     }
+    const snapshot = await navigationStore.read(true);
+    hasSavedNavigation = !!snapshot;
     savedUI();
-    if (storageGeneration === 0 && result.enabled) {
-      const snapshot = await navigationStore.read();
+    if (storageGeneration === 0 && navigationStorageEnabled) {
       if (snapshot && initialShare && navigationLaunchGeneration === 0) {
         sharedResume = snapshot;
         initializeLink();
@@ -2687,6 +2790,10 @@ const restoredStartup = store
           resumeDialog.close();
           void navigationStore
             .clear()
+            .then(() => {
+              hasSavedNavigation = false;
+              savedUI();
+            })
             .catch(() =>
               toast("Gespeicherte Navigation konnte nicht gelöscht werden."),
             );

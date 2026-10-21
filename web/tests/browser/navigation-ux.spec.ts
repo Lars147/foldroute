@@ -15,6 +15,17 @@ import {
   startSelected,
 } from "./navigation-fixture";
 
+test("double click keeps navigation zoom unchanged", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page, true);
+  await page.clock.runFor(1000);
+  const map = page.locator("#navigation-map");
+  const zoom = await map.getAttribute("data-zoom");
+  await map.dblclick({ position: { x: 180, y: 200 } });
+  await page.clock.runFor(1000);
+  await expect(map).toHaveAttribute("data-zoom", zoom!);
+});
+
 for (const width of [390, 1280]) {
   test(`next actual turn stays visible across short straight steps at ${width}px`, async ({
     page,
@@ -959,15 +970,17 @@ test("arrival summary obeys storage opt-out and early stops do not count", async
     }),
   ).toBe(0);
   await page.locator("#tab-settings").click();
-  await expect(page.locator("#offline-enabled").locator("..")).toContainText(
-    "Gesamtstatistik",
+  await expect(page.locator("#delete-navigation")).toBeDisabled();
+  await expect(page.locator("#statistics-enabled").locator("..")).toContainText(
+    "Fahrtstatistik",
   );
-  await page.locator("#offline-enabled").uncheck();
+  await page.locator("#statistics-enabled").uncheck();
   await page.locator("#tab-route").click();
   await startSelected(page);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
+  await expect(page.locator("#navigation-complete")).toBeVisible();
   await complete(page);
   await expect(page.locator("#navigation-finish-storage")).toHaveText(
     "Gesamtstatistik ist ausgeschaltet.",
@@ -1006,7 +1019,7 @@ test("arrival summary statistics are atomic across concurrent writers", async ({
   expect(statistics.elapsedSeconds).toBe(120);
 });
 
-for (const deletion of ["history", "disabled", "all"] as const)
+for (const deletion of ["statistics", "all"] as const)
   test(`arrival summary statistics resist late writes after deleting ${deletion}`, async ({
     page,
   }) => {
@@ -1029,11 +1042,7 @@ for (const deletion of ["history", "disabled", "all"] as const)
       };
       await store.completeTrip(summary);
       const history = new OfflineStore();
-      if (deletion === "history") await history.clear();
-      if (deletion === "disabled") {
-        await history.setEnabled(false);
-        await history.setEnabled(true);
-      }
+      if (deletion === "statistics") await store.clearStatistics();
       if (deletion === "all") await localDatabase.clearAll();
       await new NavigationStore().completeTrip(summary);
       const afterDeletion = await store.readStatistics();
@@ -1059,13 +1068,12 @@ test("arrival summary stale checkpoints and dismissal preserve a newer navigatio
   await expect.poll(() => savedActive(page)).toBe(true);
   const retained = await page.evaluate(async () => {
     const { NavigationStore } = await import("/src/navigation-store.ts");
-    const { OfflineStore } = await import("/src/offline.ts");
     const oldStore = new NavigationStore();
     const oldSnapshot = (await oldStore.read())!;
-    await new OfflineStore().clear();
+    await oldStore.clear();
     const fresh = structuredClone(oldSnapshot);
     fresh.trip!.id = "new-navigation";
-    fresh.trip!.storageEpoch = (await oldStore.readStatistics()).epoch;
+    fresh.resumeEpoch = (await oldStore.readStatistics()).resumeEpoch;
     await new NavigationStore().save(fresh);
     await oldStore.save(oldSnapshot);
     await oldStore.clear(oldSnapshot.trip!.id);
@@ -1088,13 +1096,14 @@ test("arrival summary totals can be deleted after removing every history entry",
   await expect(page.locator(".history-row")).toHaveCount(0);
   await page.locator("#tab-settings").click();
   await page.locator("#settings-data > summary").click();
-  await expect(page.locator("#delete-saved")).toBeEnabled();
-  await page.locator("#delete-saved").click();
-  await expect(page.locator("#delete-history-dialog")).toContainText(
-    "Gesamtstatistik",
-  );
-  await page.locator("#confirm-delete-history").click();
   await expect(page.locator("#delete-saved")).toBeDisabled();
+  await expect(page.locator("#delete-statistics")).toBeEnabled();
+  await page.locator("#delete-statistics").click();
+  await expect(page.locator("#delete-storage-dialog")).toContainText(
+    "Fahrtstatistik",
+  );
+  await page.locator("#confirm-delete-storage").click();
+  await expect(page.locator("#delete-statistics")).toBeDisabled();
   expect(
     await page.evaluate(async () => {
       const { NavigationStore } = await import("/src/navigation-store.ts");

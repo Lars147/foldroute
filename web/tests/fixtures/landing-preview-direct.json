@@ -23,6 +23,7 @@
     "cyclingSpeedKilometersPerHour": 15,
     "maxCyclingMinutes": 30,
     "maxWalkingMinutes": 2,
+    "transferMinutes": 3,
     "maxBikeTransfers": 2,
     "excludedTransitModes": []
   },

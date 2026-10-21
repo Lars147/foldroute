@@ -92,13 +92,15 @@ export interface PreparedNavigation {
   generation: number;
   trip?: NavigationTrip;
   storageEpoch: number;
+  resumeEpoch: number;
   tripId?: string;
 }
 export interface NavigationDependencies {
   routingSettings?: () => RoutingSettings;
   changed: () => void;
   locate: (options?: LocationRequestOptions) => Promise<LocationFix>;
-  storageEnabled: () => boolean;
+  resumeEnabled: () => boolean;
+  statisticsEnabled: () => boolean;
   api: ApiClient;
   store?: NavigationStore;
   refresher?: TransitRefresher;
@@ -114,6 +116,7 @@ export class NavigationSession {
   statistics?: NavigationStatistics;
   statisticsMessage = "";
   private trip?: NavigationTrip;
+  private resumeEpoch = 0;
   private completion?: Promise<void>;
   settings?: RoutingSettings;
   request?: RouteRequest;
@@ -435,9 +438,12 @@ export class NavigationSession {
       });
       this.message = this.assessment.message;
       let storageEpoch = 0;
-      if (this.deps.storageEnabled()) {
+      let resumeEpoch = 0;
+      if (this.deps.resumeEnabled() || this.deps.statisticsEnabled()) {
         try {
-          storageEpoch = (await this.store.readStatistics()).epoch;
+          const stored = await this.store.readStatistics();
+          storageEpoch = stored.epoch;
+          resumeEpoch = stored.resumeEpoch ?? 0;
         } catch {
           this.storageMessage =
             "Navigation läuft. Gesamtstatistik konnte nicht gelesen werden.";
@@ -454,6 +460,7 @@ export class NavigationSession {
         generation,
         trip: restored?.trip,
         storageEpoch,
+        resumeEpoch,
         tripId: restored?.sessionId,
       } satisfies PreparedNavigation;
     } finally {
@@ -489,6 +496,7 @@ export class NavigationSession {
     if (blocksNavigation(prepared.assessment) && !prepared.restored)
       return false;
     this.request = structuredClone(prepared.request);
+    this.resumeEpoch = prepared.resumeEpoch;
     this.trip = prepared.trip
       ? structuredClone(prepared.trip)
       : {
@@ -1122,7 +1130,7 @@ export class NavigationSession {
       }
       return;
     }
-    if (!this.deps.storageEnabled()) return;
+    if (!this.deps.resumeEnabled()) return;
     const key = JSON.stringify([
       engine.journey.id,
       engine.progress.legIndex,
@@ -1144,6 +1152,7 @@ export class NavigationSession {
       settings: this.settings!,
       progress: engine.progress,
       trip: this.trip,
+      resumeEpoch: this.resumeEpoch,
     });
     void this.store.save(snapshot).catch(() => {
       this.storageMessage =
@@ -1162,8 +1171,15 @@ export class NavigationSession {
     this.trip.routeMeters = Math.max(this.trip.routeMeters, meters);
   }
   private async finishTrip(summary: TripSummary) {
-    if (!this.deps.storageEnabled()) {
+    if (!this.deps.statisticsEnabled()) {
       this.statisticsMessage = "Gesamtstatistik ist ausgeschaltet.";
+      try {
+        await this.store.clear(summary.id);
+      } catch {
+        this.storageMessage =
+          "Gespeicherter Navigationsstand konnte nicht gelöscht werden.";
+        this.emit();
+      }
       return;
     }
     this.statisticsMessage = "Gesamtstatistik wird gespeichert …";

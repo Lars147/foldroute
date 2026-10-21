@@ -12,6 +12,10 @@ export class PlanningRoutingClient implements RoutingClient {
 
   constructor(private client: RoutingClient) {}
 
+  createRun(signal: AbortSignal) {
+    return this.client.createRun?.(signal);
+  }
+
   get retryAt() {
     return this.client.retryAt;
   }

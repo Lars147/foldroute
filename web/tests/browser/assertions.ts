@@ -90,7 +90,7 @@ export async function showConnections(page: Page) {
 
 export async function openSettingsSection(
   page: Page,
-  section: "options" | "modes" | "data" | "help",
+  section: "options" | "optimization" | "modes" | "data" | "help",
 ) {
   const group = page.locator(`#settings-${section}`);
   if ((await group.getAttribute("open")) === null)

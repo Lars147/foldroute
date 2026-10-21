@@ -1,5 +1,6 @@
 import type { PlanningPhase, PlanningUpdate } from "./model";
 import type { PlanningState } from "./planning-state";
+import { serviceFailureMessage } from "./model";
 
 /** Fresh searches have their own request card until a complete journey exists. */
 export function planningRequestPreview(state: PlanningState) {
@@ -39,7 +40,7 @@ export function searchMessage(
     : "Zusatzsuche unvollständig.";
 }
 function optimizationMessage(issues: string[]): string {
-  const fallback = "Optimierung nicht vollständig.";
+  const fallback = "Routenoptimierung nicht vollständig.";
   const messages = new Set(
     issues.map((issue) => {
       const limit =
@@ -50,8 +51,16 @@ function optimizationMessage(issues: string[]): string {
         limit?.[1] === "Zeitlimit" ||
         issue === "Der Dienst hat nicht rechtzeitig geantwortet."
       )
-        return "Optimierung: Zeitlimit erreicht";
-      if (limit) return `Optimierung: ${limit[1]} erreicht.`;
+        return "Routenoptimierung: Zeitlimit erreicht";
+      if (limit) return `Routenoptimierung: ${limit[1]} erreicht.`;
+      if (/Zu viele Anfragen|Dienst bittet um eine Pause/.test(issue))
+        return "Routenoptimierung: Anfragelimit des Dienstes erreicht.";
+      if (/vorübergehend nicht verfügbar/.test(issue))
+        return "Routenoptimierung: Dienst vorübergehend nicht verfügbar.";
+      if (/Internetverbindung|offline/.test(issue))
+        return "Routenoptimierung: Internetverbindung prüfen.";
+      if (/HTTP \d+/.test(issue))
+        return "Routenoptimierung: Fehler beim Routingdienst.";
       return fallback;
     }),
   );
@@ -72,11 +81,14 @@ export function planningProgress(state: PlanningState) {
     optimizing: ready && state.busy,
     loading: state.busy && !ready,
     message: !ready
-      ? state.message
+      ? !state.busy
+        ? (serviceFailureMessage(state.failures) ?? state.message)
+        : state.message
       : state.busy
         ? ""
         : state.searchStatus === "partial"
-          ? optimizationMessage(state.issues)
+          ? (serviceFailureMessage(state.failures) ??
+            optimizationMessage(state.issues))
           : state.searchStatus === "complete"
             ? ""
             : state.message,

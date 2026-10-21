@@ -64,6 +64,7 @@ export interface RoutingSettings {
   cyclingSpeedKilometersPerHour: number;
   maxCyclingMinutes: number;
   maxWalkingMinutes: number;
+  transferMinutes: number;
   maxBikeTransfers: number;
   excludedTransitModes: ModePreference[];
 }
@@ -73,6 +74,7 @@ export const defaults: RoutingSettings = {
   cyclingSpeedKilometersPerHour: 15,
   maxCyclingMinutes: 30,
   maxWalkingMinutes: 2,
+  transferMinutes: 3,
   maxBikeTransfers: 2,
   excludedTransitModes: [],
 };
@@ -80,6 +82,7 @@ export const ranges = {
   cyclingSpeedKilometersPerHour: [10, 30, 1],
   maxCyclingMinutes: [1, 60, 1],
   maxWalkingMinutes: [1, 15, 1],
+  transferMinutes: [0, 30, 1],
   foldingDuration: [60, 600, 30],
   maxBikeTransfers: [0, 3, 1],
 } as const;
@@ -104,8 +107,8 @@ export function validSettings(value: unknown): value is RoutingSettings {
 }
 export type StoredRoutingSettings = Omit<
   RoutingSettings,
-  "showCyclingComparison"
-> & { showCyclingComparison?: boolean };
+  "showCyclingComparison" | "transferMinutes"
+> & { showCyclingComparison?: boolean; transferMinutes?: number };
 export function validStoredSettings(
   value: unknown,
 ): value is StoredRoutingSettings {
@@ -114,9 +117,12 @@ export function validStoredSettings(
   return (
     (v.showCyclingComparison === undefined ||
       typeof v.showCyclingComparison === "boolean") &&
+    (v.transferMinutes === undefined ||
+      typeof v.transferMinutes === "number") &&
     validSettings({
       ...v,
       showCyclingComparison: v.showCyclingComparison ?? true,
+      transferMinutes: v.transferMinutes ?? defaults.transferMinutes,
     })
   );
 }
@@ -151,6 +157,7 @@ function routingSettingsFields(
     cyclingSpeedKilometersPerHour,
     maxCyclingMinutes,
     maxWalkingMinutes,
+    transferMinutes = defaults.transferMinutes,
     maxBikeTransfers,
     excludedTransitModes,
   } = value;
@@ -158,6 +165,7 @@ function routingSettingsFields(
     cyclingSpeedKilometersPerHour,
     maxCyclingMinutes,
     maxWalkingMinutes,
+    transferMinutes,
     maxBikeTransfers,
     excludedTransitModes,
   };
@@ -259,6 +267,7 @@ export interface PlanningUpdate {
   journeys: Journey[];
   status: "searching" | "complete" | "partial";
   issues: string[];
+  failures?: PlanningFailure[];
   phase: PlanningPhase;
   incompletePhases: PlanningPhase[];
   /** Zero-based section in request order; not a completion counter. */
@@ -501,12 +510,36 @@ export function journeyEffort(journey: Journey) {
   }
   return { cyclingSeconds, walkingSeconds, transfers: journey.transfers };
 }
+export interface PlanningFailure {
+  code: string;
+  message: string;
+  retryAt?: number;
+  requestKey?: string;
+}
+export function planningFailures(error: unknown): PlanningFailure[] {
+  return error instanceof PlannerError
+    ? (error.failures ?? [
+        { code: error.code, message: error.message, retryAt: error.retryAt },
+      ])
+    : [];
+}
+export function rateLimitMessage(failures: PlanningFailure[] = []) {
+  if (failures.some((failure) => failure.code === "503")) return;
+  if (failures.some((failure) => failure.code === "429"))
+    return "Anfragelimit erreicht";
+}
+export function serviceFailureMessage(failures: PlanningFailure[] = []) {
+  return failures.some((failure) => failure.code === "503")
+    ? "Routingdienst vorübergehend nicht verfügbar."
+    : rateLimitMessage(failures);
+}
 export class PlannerError extends Error {
   constructor(
     public code: string,
     message: string,
     public stops = false,
     public retryAt?: number,
+    public failures?: PlanningFailure[],
   ) {
     super(message);
   }

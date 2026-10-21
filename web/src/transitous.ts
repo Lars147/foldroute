@@ -1,5 +1,6 @@
 import { reverseAddress } from "./history-names";
 import { parseTransitStops } from "./transit-stops";
+import { RoutingRun, RoutingSlots, type ServicePause } from "./routing-retry";
 import {
   type Place,
   type Leg,
@@ -7,12 +8,14 @@ import {
   type RouteRequest,
   type RoutingSettings,
   type Coordinate,
+  type PlanningFailure,
   modes,
   transition,
   shifted,
   PlannerError,
   geometryError,
   responseError,
+  planningFailures,
 } from "./model";
 import {
   decodePolyline,
@@ -89,7 +92,7 @@ export function makeURL(
       directModes: "",
       preTransitModes: variant.pre,
       postTransitModes: variant.post,
-      additionalTransferTime: "3",
+      additionalTransferTime: String(settings.transferMinutes),
       maxPreTransitTime: String(
         variant.preLimit ??
           (variant.pre === "WALK"
@@ -296,9 +299,12 @@ export interface Batch {
   rejected: boolean;
   recovery?: number;
   issues: string[];
+  failures?: PlanningFailure[];
   stop: boolean;
 }
-export type RoutingClient = Pick<ApiClient, "batch" | "retryAt">;
+export type RoutingClient = Pick<ApiClient, "batch" | "retryAt"> & {
+  createRun?(signal: AbortSignal): RoutingRun | undefined;
+};
 export function mapResponse(
   value: unknown,
   request: RouteRequest,
@@ -423,15 +429,17 @@ export function retryAfter(
   raw: string | null,
   now = Date.now() / 1000,
 ): number | undefined {
-  if (!raw) return undefined;
-  const n = Number(raw);
-  if (Number.isFinite(n)) return now + Math.max(0, n);
+  if (!raw?.trim()) return undefined;
+  if (/^\d+$/.test(raw.trim()))
+    return Number.isFinite(Number(raw)) ? now + Number(raw) : undefined;
+  if (/^[+-]?[\d.]+$/.test(raw.trim())) return undefined;
   const date = Date.parse(raw) / 1000;
   return Number.isFinite(date) ? Math.max(now, date) : undefined;
 }
 export interface RequestBudget {
   take(): void;
   stopped?: boolean;
+  run?: RoutingRun;
 }
 function geocodeDetail(place: {
   zip?: unknown;
@@ -471,24 +479,71 @@ function geocodeDetail(place: {
 }
 export class ApiClient {
   retryAt = 0;
+  private pause?: ServicePause;
+  private runs = new Set<RoutingRun>();
+  private slots = new RoutingSlots();
+  private pauseListeners = new Set<(pause: ServicePause) => void>();
+  private pauseMessage =
+    "Der Dienst bittet um eine Pause. Bitte später erneut versuchen.";
   constructor(
     private fetcher: typeof fetch = (input, init) => fetch(input, init),
   ) {}
+  private currentPause = (): ServicePause | undefined =>
+    this.retryAt > Date.now() / 1000
+      ? this.pause && this.pause.retryAt === this.retryAt
+        ? this.pause
+        : {
+            code: "pause",
+            message: this.pauseMessage,
+            retryAt: this.retryAt,
+            duration: this.retryAt - Date.now() / 1000,
+          }
+      : undefined;
+
+  createRun(signal: AbortSignal) {
+    const run = new RoutingRun(
+      this.currentPause,
+      signal,
+      () => this.runs.delete(run),
+      this.slots,
+    );
+    this.runs.add(run);
+    return run;
+  }
+  onPause(listener: (pause: ServicePause) => void) {
+    this.pauseListeners.add(listener);
+    return () => this.pauseListeners.delete(listener);
+  }
+
   async json(
     url: URL,
     signal: AbortSignal,
     reload = false,
     budget?: RequestBudget,
   ): Promise<unknown> {
+    if (budget?.run)
+      return budget.run.request(
+        `${url.href}|${reload ? "geometry-recovery" : "initial"}`,
+        signal,
+        () => this.jsonAttempt(url, signal, reload, budget),
+      );
+    return this.jsonAttempt(url, signal, reload, budget);
+  }
+
+  private async jsonAttempt(
+    url: URL,
+    signal: AbortSignal,
+    reload: boolean,
+    budget?: RequestBudget,
+  ): Promise<unknown> {
     signal.throwIfAborted();
     const now = Date.now() / 1000;
-    if (this.retryAt > now)
-      throw new PlannerError(
-        "pause",
-        "Der Dienst bittet um eine Pause. Bitte später erneut versuchen.",
-        true,
-        this.retryAt,
-      );
+    if (this.retryAt > now) {
+      const pause = this.currentPause()!;
+      throw new PlannerError("pause", pause.message, true, this.retryAt, [
+        { code: pause.code, message: pause.message, retryAt: this.retryAt },
+      ]);
+    }
     const timeout = new AbortController();
     const timer = setTimeout(
       () =>
@@ -502,6 +557,8 @@ export class ApiClient {
     );
     const combined = AbortSignal.any([signal, timeout.signal]);
     try {
+      if (budget?.stopped)
+        throw new PlannerError("budget", "Suche: Anfragelimit erreicht.", true);
       budget?.take();
       const response = await this.fetcher(url, {
         signal: combined,
@@ -510,21 +567,34 @@ export class ApiClient {
       });
       signal.throwIfAborted();
       if (response.status === 429 || response.status === 503) {
-        const until = retryAfter(response.headers.get("Retry-After"));
-        if (until) this.retryAt = Math.max(this.retryAt, until);
-        throw new PlannerError(
-          String(response.status),
+        const responseNow = Date.now() / 1000;
+        const until =
+          retryAfter(response.headers.get("Retry-After"), responseNow) ??
+          responseNow + (response.status === 429 ? 5 : 15);
+        const message =
           response.status === 429
             ? "Zu viele Anfragen. Bitte später erneut versuchen."
-            : "Routingdienst vorübergehend nicht verfügbar.",
-          response.status === 429 || !!until,
-          until,
-        );
+            : "Routingdienst vorübergehend nicht verfügbar.";
+        if (until >= this.retryAt) {
+          this.retryAt = until;
+          this.pauseMessage = message;
+          this.pause = {
+            code: String(response.status) as "429" | "503",
+            message,
+            retryAt: until,
+            duration: Math.max(0, until - responseNow),
+          };
+        }
+        for (const run of this.runs) run.pauseChanged();
+        const effective = this.currentPause();
+        if (effective)
+          for (const listener of this.pauseListeners) listener(effective);
+        throw new PlannerError(String(response.status), message, true, until);
       }
       if (!response.ok)
         throw new PlannerError(
           "service",
-          "Der Dienst konnte die Anfrage nicht beantworten.",
+          `Der Dienst konnte die Anfrage nicht beantworten (HTTP ${response.status}). Bitte später erneut versuchen.`,
         );
       const value: unknown = await response.json();
       signal.throwIfAborted();
@@ -533,6 +603,7 @@ export class ApiClient {
       if (signal.aborted) throw signal.reason;
       if (timeout.signal.aborted) throw timeout.signal.reason;
       if (error instanceof PlannerError) throw error;
+      if (error instanceof SyntaxError) throw responseError();
       throw new PlannerError(
         "network",
         "Verbindung zum Dienst fehlgeschlagen. Internetverbindung prüfen und erneut versuchen.",
@@ -548,6 +619,23 @@ export class ApiClient {
     signal: AbortSignal,
     budget?: RequestBudget,
   ): Promise<Batch> {
+    if (!budget?.run) {
+      const run = this.createRun(signal);
+      try {
+        return await this.batch(request, settings, variant, signal, {
+          take: () => budget?.take(),
+          run,
+          get stopped() {
+            return budget?.stopped;
+          },
+          set stopped(value) {
+            if (budget) budget.stopped = value;
+          },
+        });
+      } finally {
+        run.dispose();
+      }
+    }
     const once = async (req: RouteRequest, reload = false) =>
       mapResponse(
         await this.json(
@@ -587,6 +675,7 @@ export class ApiClient {
       first.issues.push(
         error instanceof Error ? error.message : "Unvollständige Suche",
       );
+      first.failures = planningFailures(error);
       first.stop = error instanceof PlannerError && error.stops;
       return first;
     }

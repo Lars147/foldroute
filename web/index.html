@@ -991,19 +991,29 @@
           <details id="settings-options" class="group settings-disclosure">
             <summary>
               <span
-                >Weitere Routenoptionen<small
-                  >Fußwege, Radverbindungen und Fahrradvergleich</small
+                >Wege &amp; Umsteigen<small
+                  >Fußwege und zusätzliche Umstiegszeit</small
                 ></span
               >
             </summary>
             <div id="settings-extra-fields"></div>
+          </details>
+          <details id="settings-optimization" class="group settings-disclosure">
+            <summary>
+              <span
+                >Routenoptimierung<small
+                  >Radverbindungen und Fahrradvergleich</small
+                ></span
+              >
+            </summary>
+            <div id="settings-optimization-fields"></div>
           </details>
           <button id="reset-settings" type="button" class="text-button">
             Routeneinstellungen zurücksetzen
           </button>
         </form>
         <section class="group" id="app-settings">
-          <h2>App &amp; Speicher</h2>
+          <h2>Darstellung &amp; Bedienung</h2>
           <fieldset class="appearance-picker">
             <legend>Darstellung</legend>
             <div class="appearance-segments">
@@ -1041,16 +1051,57 @@
               checked
             />
           </label>
+        </section>
+        <section class="group" id="storage-settings">
+          <h2>Speicher auf diesem Gerät</h2>
           <label class="toggle-row">
             <span
-              >Strecken auf diesem Gerät speichern<small
-                >Bis zu 20 Strecken, Navigation zur Wiederaufnahme und
-                Gesamtstatistik abgeschlossener Fahrten – nur auf diesem Gerät.
-                Ausschalten löscht alle drei.</small
+              >Streckenverlauf speichern<small id="storage-save-hint"
+                >Behält bis zu 20 geplante Strecken zum erneuten Öffnen.</small
               ></span
             >
-            <input id="offline-enabled" type="checkbox" role="switch" checked />
+            <input
+              id="offline-enabled"
+              type="checkbox"
+              role="switch"
+              aria-describedby="storage-save-hint storage-delete-hint"
+              checked
+            />
           </label>
+          <label class="toggle-row">
+            <span
+              >Navigation wiederaufnehmen<small id="navigation-storage-hint"
+                >Speichert den aktuellen Stand, damit du deine Fahrt nach
+                Schließen der App fortsetzen kannst.</small
+              ></span
+            >
+            <input
+              id="navigation-storage-enabled"
+              type="checkbox"
+              role="switch"
+              aria-describedby="navigation-storage-hint storage-delete-hint"
+              checked
+            />
+          </label>
+          <label class="toggle-row">
+            <span
+              >Fahrtstatistik speichern<small id="statistics-storage-hint"
+                >Sammelt Gesamtstrecke und Fahrzeit abgeschlossener
+                Fahrten.</small
+              ></span
+            >
+            <input
+              id="statistics-enabled"
+              type="checkbox"
+              role="switch"
+              aria-describedby="statistics-storage-hint storage-delete-hint"
+              checked
+            />
+          </label>
+          <p id="storage-delete-hint" class="message">
+            Ausschalten stoppt neue Speicherung. Vorhandene Daten bleiben
+            erhalten und lassen sich unter „Daten verwalten“ einzeln löschen.
+          </p>
           <p id="storage-message" class="message" role="status"></p>
         </section>
         <details id="settings-data" class="group settings-disclosure">
@@ -1060,7 +1111,21 @@
             type="button"
             class="text-button settings-delete"
           >
-            Verlauf und Gesamtstatistik löschen
+            Streckenverlauf löschen
+          </button>
+          <button
+            id="delete-navigation"
+            type="button"
+            class="text-button settings-delete"
+          >
+            Gespeicherten Navigationsstand löschen
+          </button>
+          <button
+            id="delete-statistics"
+            type="button"
+            class="text-button settings-delete"
+          >
+            Fahrtstatistik löschen
           </button>
           <button
             id="clear-data"
@@ -1070,7 +1135,12 @@
             Alle lokalen Daten löschen
           </button>
         </details>
-        <a class="group settings-licenses" href="licenses.html"
+        <a
+          id="open-licenses"
+          class="group settings-licenses"
+          href="licenses.html"
+          aria-haspopup="dialog"
+          aria-controls="licenses-dialog"
           ><span>Lizenzen &amp; Datenquellen</span
           ><span aria-hidden="true">›</span></a
         >
@@ -1137,7 +1207,11 @@
               ><span>Datenschutz &amp; Daten</span
               ><span aria-hidden="true">›</span></a
             >
-            <a href="../#projekt"
+            <a
+              id="open-about"
+              href="https://github.com/Lars147/foldroute"
+              aria-haspopup="dialog"
+              aria-controls="about-dialog"
               ><span>Über FoldRoute</span><span aria-hidden="true">›</span></a
             >
           </nav>
@@ -1148,6 +1222,67 @@
         </p>
       </section>
     </main>
+    <dialog
+      id="licenses-dialog"
+      class="information-dialog"
+      aria-labelledby="licenses-dialog-title"
+    >
+      <div class="information-heading">
+        <h2 id="licenses-dialog-title" tabindex="-1">
+          Lizenzen &amp; Datenquellen
+        </h2>
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="Lizenzen schließen"
+          data-icon="close"
+          data-close-information
+        ></button>
+      </div>
+      <div id="licenses-content" class="information-content"></div>
+    </dialog>
+    <dialog
+      id="about-dialog"
+      class="information-dialog"
+      aria-labelledby="about-dialog-title"
+    >
+      <div class="information-heading">
+        <h2 id="about-dialog-title" tabindex="-1">Über FoldRoute</h2>
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="Über FoldRoute schließen"
+          data-icon="close"
+          data-close-information
+        ></button>
+      </div>
+      <div class="information-content">
+        <p class="about-intro">Mit Faltrad und ÖPNV unterwegs.</p>
+        <p>
+          FoldRoute verbindet Radstrecken mit Bus und Bahn. Die Routenplanung
+          berücksichtigt deine Radzeit, die Zeit zum Falten und Entfalten sowie
+          deine Umstiegszeit.
+        </p>
+        <h3>Deine Daten bleiben bei dir</h3>
+        <p>
+          Ohne Konto und ohne Tracking. Gespeicherte Strecken, Favoriten und
+          Einstellungen bleiben auf diesem Gerät. Für Ortssuche und
+          Routenberechnung werden deine Planungsangaben an Transitous
+          übermittelt.
+        </p>
+        <h3>Ein offenes Projekt</h3>
+        <p>
+          FoldRoute ist Open Source. Quellcode und weitere Informationen findest
+          du auf GitHub.
+        </p>
+        <a
+          href="https://github.com/Lars147/foldroute"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Projekt auf GitHub öffnen ↗</a
+        >
+      </div>
+    </dialog>
     <nav class="app-tabs" aria-label="Hauptbereiche" inert>
       <button id="tab-route" aria-current="page">
         <span class="app-tab-content"
@@ -1249,11 +1384,11 @@
       </form>
     </dialog>
     <dialog id="delete-history-dialog" aria-labelledby="delete-history-heading">
-      <h2 id="delete-history-heading">Verlauf und Gesamtstatistik löschen?</h2>
+      <h2 id="delete-history-heading">Streckenverlauf löschen?</h2>
       <p>
-        Gespeicherte Planungen, der Wiederaufnahmezustand einer Navigation und
-        die Gesamtstatistik werden von diesem Gerät entfernt. Favoriten und
-        Einstellungen bleiben erhalten.
+        Alle gespeicherten Planungen werden von diesem Gerät entfernt.
+        Navigationsstand, Fahrtstatistik, Favoriten und Einstellungen bleiben
+        erhalten.
       </p>
       <p id="delete-history-status" class="message" role="status"></p>
       <div class="form-actions">
@@ -1261,7 +1396,20 @@
           Abbrechen
         </button>
         <button id="confirm-delete-history" class="primary" type="button">
-          Verlauf und Statistik löschen
+          Streckenverlauf löschen
+        </button>
+      </div>
+    </dialog>
+    <dialog id="delete-storage-dialog" aria-labelledby="delete-storage-heading">
+      <h2 id="delete-storage-heading"></h2>
+      <p id="delete-storage-description"></p>
+      <p id="delete-storage-status" class="message" role="status"></p>
+      <div class="form-actions">
+        <button id="cancel-delete-storage" class="secondary" type="button">
+          Abbrechen
+        </button>
+        <button id="confirm-delete-storage" class="primary" type="button">
+          Löschen
         </button>
       </div>
     </dialog>

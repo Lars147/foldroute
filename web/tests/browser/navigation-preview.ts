@@ -34,7 +34,8 @@ export async function previewNavigation(page: Page, legIndex = 2) {
         locate: async () => {
           throw new Error("Layout fixture must not request GPS");
         },
-        storageEnabled: () => false,
+        resumeEnabled: () => false,
+        statisticsEnabled: () => false,
         api: new ApiClient(),
       });
       const showLeg = (index: number) => {

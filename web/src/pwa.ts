@@ -54,8 +54,14 @@ export function setupPWA(options: PWAOptions) {
     installGuide.hidden = !ios;
     reveal(el("install-message"), { y: 6 });
   };
-  if (!import.meta.env.PROD) return { refresh: () => {} };
   el("app-updates").hidden = false;
+  if (!import.meta.env.PROD) {
+    el("update-description").textContent =
+      "Entwicklungsmodus – Updates nicht verfügbar";
+    el<HTMLButtonElement>("check-updates").disabled = true;
+    el<HTMLButtonElement>("settings-update-now").disabled = true;
+    return { refresh: () => {} };
+  }
   if (!("serviceWorker" in navigator) || !isSecureContext) {
     el("update-description").textContent =
       "App-Updates werden von diesem Browser nicht unterstützt.";

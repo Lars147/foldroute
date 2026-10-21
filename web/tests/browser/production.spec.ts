@@ -141,6 +141,11 @@ test("license page and original notices remain accessible offline", async ({
   await page
     .getByRole("link", { name: "Lizenzen & Datenquellen", exact: true })
     .click();
+  await expect(page.locator("#licenses-dialog")).toBeVisible();
+  await expect(page).toHaveURL(root);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#open-licenses")).toBeFocused();
+  await page.goto(new URL("licenses.html", root).href);
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.locator("html")).toHaveCSS(
@@ -293,7 +298,7 @@ test("offline restart restores exactly the saved journey without API or tile cac
   await context.setOffline(false);
   await expect(page.locator("#saved-notice")).toBeVisible();
 });
-test("disabling offline storage deletes the saved route and survives restart", async ({
+test("disabling history storage retains the saved route and survives restart", async ({
   page,
   context,
 }) => {
@@ -304,7 +309,8 @@ test("disabling offline storage deletes the saved route and survives restart", a
   await expect(page.locator("#storage-message")).toContainText("ausgeschaltet");
   await context.setOffline(true);
   await page.goto(root);
-  await expect(page.locator("#offline-empty")).toBeVisible();
+  await expect(page.locator("#saved-notice")).toBeVisible();
+  await expect(page.locator("#refresh-route")).toBeDisabled();
   await page.locator("#tab-settings").click();
   await expect(page.locator("#offline-enabled")).not.toBeChecked();
 });

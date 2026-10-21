@@ -145,6 +145,7 @@ export class RouteMap {
         zoomControl: false,
         attributionControl: false,
         scrollWheelZoom: true,
+        doubleClickZoom: false,
       }).setView([50, 10], 4);
       this.map.on("click", (event: L.LeafletMouseEvent) => {
         if (this.moving || this.zooming || this.suppressRouteClick) return;

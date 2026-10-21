@@ -271,13 +271,29 @@ test("browser back confirms ending and storage opt-out prevents recovery", async
   await page.locator("#navigation-confirm-yes").click();
   await expect(page.locator("#navigation-start")).toBeFocused();
   await page.locator("#tab-settings").click();
-  await page.locator("#offline-enabled").uncheck();
+  await page.locator("#navigation-storage-enabled").uncheck();
   await page.locator("#tab-route").click();
   await startSelected(page);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
   expect(await savedActive(page)).toBe(false);
+});
+
+test("navigation remains resumable with route history disabled", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.locator("#navigation-end").click();
+  await page.locator("#navigation-confirm-yes").click();
+  await page.locator("#tab-settings").click();
+  await page.locator("#offline-enabled").uncheck();
+  await expect(page.locator("#navigation-storage-enabled")).toBeChecked();
+  await page.locator("#tab-route").click();
+  await startSelected(page);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  await page.reload();
+  await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
 });
 
 test("ending resumed navigation restores stops without replacing personal preferences", async ({

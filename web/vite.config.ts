@@ -14,6 +14,10 @@ const landingRoot = fileURLToPath(new URL("../docs", import.meta.url));
 const startupMark = fileURLToPath(
   new URL("./public/foldroute-mark.svg", import.meta.url),
 );
+const licenseNoticePath = fileURLToPath(
+  new URL("./public/licenses.html", import.meta.url),
+);
+const licensesModule = "virtual:foldroute-licenses";
 export default defineConfig({
   optimizeDeps: {
     include: [
@@ -27,6 +31,17 @@ export default defineConfig({
     : "node_modules/.vite",
   base: "./",
   plugins: [
+    {
+      name: "foldroute-license-notices",
+      resolveId(id) {
+        if (id === licensesModule) return `\0${licensesModule}`;
+      },
+      async load(id) {
+        if (id !== `\0${licensesModule}`) return;
+        this.addWatchFile(licenseNoticePath);
+        return `export default ${JSON.stringify(await readFile(licenseNoticePath, "utf8"))}`;
+      },
+    },
     {
       name: "foldroute-build-version",
       transformIndexHtml(html) {

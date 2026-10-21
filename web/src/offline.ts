@@ -1,4 +1,7 @@
-import { resetNavigationStatistics } from "./navigation-summary";
+import {
+  readStoragePreferences,
+  type StoragePreferences,
+} from "./storage-preferences";
 import {
   coordinateKey,
   genericHistoryName,
@@ -255,6 +258,8 @@ export function retainHistory(
 
 interface StoredHistory {
   enabled: boolean;
+  preferences: StoragePreferences;
+  epoch: number;
   entries: HistoryEntry[];
   snapshot?: SavedJourney;
   invalid: boolean;
@@ -271,12 +276,12 @@ export class OfflineStore {
   private undoEpoch = 0;
   private undoTokens = new WeakSet<HistoryDeletion>();
   private calculationEntries = new Map<string, string>();
+  private calculationEpochs = new Map<string, number>();
 
   private async transaction(
     change?: (state: StoredHistory) => void,
     generation = this.generation,
     databaseGeneration = localDatabase.generation,
-    resetStatistics = false,
   ): Promise<StoredHistory | undefined> {
     const db = await localDatabase.open();
     if (
@@ -288,6 +293,8 @@ export class OfflineStore {
       const tx = db.transaction("state", "readwrite"),
         store = tx.objectStore("state"),
         enabled = store.get("enabled"),
+        preferences = store.get("storagePreferences"),
+        epoch = store.get("historyEpoch"),
         last = store.get("last"),
         history = store.get("history");
       let result: StoredHistory | undefined;
@@ -298,8 +305,16 @@ export class OfflineStore {
         )
           return;
         const decoded = readHistory(history.result, last.result);
-        result = { ...decoded, enabled: enabled.result !== false };
-        if (!result.enabled) result.entries = [];
+        const storagePreferences = readStoragePreferences(
+          preferences.result,
+          enabled.result,
+        );
+        result = {
+          ...decoded,
+          enabled: storagePreferences.history,
+          preferences: storagePreferences,
+          epoch: epoch.result ?? 0,
+        };
         change?.(result);
         result.snapshot = result.entries[0]?.snapshot;
         if (
@@ -307,16 +322,12 @@ export class OfflineStore {
           history.result === undefined ||
           decoded.invalid ||
           decoded.changed ||
-          (!result.enabled && decoded.entries.length > 0)
+          preferences.result === undefined
         ) {
           const data: HistoryData = { version: 1, entries: result.entries };
           store.put(data, "history");
-          store.put(result.enabled, "enabled");
-          if (!result.enabled) store.delete("activeNavigation");
-          if (resetStatistics) {
-            store.delete("activeNavigation");
-            resetNavigationStatistics(store);
-          }
+          store.put(result.preferences, "storagePreferences");
+          store.put(result.epoch, "historyEpoch");
           // Keep the existing latest-journey record compatible with older clients.
           if (result.snapshot) store.put(result.snapshot, "last");
           else store.delete("last");
@@ -330,6 +341,8 @@ export class OfflineStore {
     return (
       (await this.transaction()) ?? {
         enabled: true,
+        preferences: { history: true, navigation: true, statistics: true },
+        epoch: 0,
         entries: [],
         invalid: false,
       }
@@ -341,8 +354,11 @@ export class OfflineStore {
     let saved = false;
     await this.transaction((state) => {
       const knownEntry = this.calculationEntries.get(id);
+      const epoch = this.calculationEpochs.get(id);
+      this.calculationEpochs.set(id, epoch ?? state.epoch);
       if (
         !state.enabled ||
+        (epoch !== undefined && epoch !== state.epoch) ||
         this.deletedCalculations.has(id) ||
         this.deleted.has(id) ||
         (knownEntry && this.deleted.has(knownEntry))
@@ -405,11 +421,10 @@ export class OfflineStore {
     await this.transaction(
       (state) => {
         state.enabled = enabled;
-        if (!enabled) state.entries = [];
+        state.preferences.history = enabled;
       },
       this.generation,
       localDatabase.generation,
-      !enabled,
     );
   }
   async clear(): Promise<void> {
@@ -418,10 +433,10 @@ export class OfflineStore {
     await this.transaction(
       (state) => {
         state.entries = [];
+        state.epoch++;
       },
       this.generation,
       localDatabase.generation,
-      true,
     );
   }
   async remove(id: string): Promise<HistoryDeletion | undefined> {
