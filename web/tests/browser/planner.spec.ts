@@ -699,7 +699,7 @@ test("favorites and recent places share all searches and remain available offlin
 test("two-character search requests twelve results; prefill keeps cursor and makes no request", async ({
   page,
 }) => {
-  await setup(page);
+  await setup(page, false);
   const searches: URL[] = [];
   await page.route("**/api/v1/geocode?*", (r) => {
     searches.push(new URL(r.request().url()));

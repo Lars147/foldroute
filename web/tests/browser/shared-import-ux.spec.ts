@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import {
   expectPlanningComplete,
   openSettingsSection,
@@ -82,6 +82,44 @@ test("shared address selects a unique place, searches now and uses own settings"
     ),
   ).toBeNull();
   await page.screenshot({ path: test.info().outputPath("shared-route.png") });
+});
+
+test("a location update during a shared lookup preserves automatic selection", async ({
+  page,
+}) => {
+  const requests = await setup(page);
+  await page.addInitScript(() => {
+    let first = true;
+    navigator.geolocation.getCurrentPosition = (success) => {
+      const finish = () =>
+        success({
+          coords: { latitude: 48.132, longitude: 11.5756, accuracy: 10 },
+          timestamp: Date.now(),
+        } as GeolocationPosition);
+      if (first) {
+        first = false;
+        (window as any).finishSearchLocation = finish;
+      } else finish();
+    };
+  });
+  let initialLookup: Route | undefined;
+  const searches: URL[] = [];
+  await page.route("**/api/v1/geocode?*", (route) => {
+    searches.push(new URL(route.request().url()));
+    if (searches.length === 1) initialLookup = route;
+    else return route.fulfill({ json: [place], headers: cors });
+  });
+  await page.goto("/?shareText=Sweet+Spot");
+  await expect.poll(() => searches.length).toBe(1);
+  await expect(page.locator("#shared-destination")).toBeFocused();
+  expect(searches[0].searchParams.has("place")).toBe(false);
+  await page.evaluate(() => (window as any).finishSearchLocation());
+  await expectPlanningComplete(page);
+  expect(searches).toHaveLength(2);
+  expect(searches[1].searchParams.get("place")).toBe("48.132,11.5756");
+  await initialLookup!.fulfill({ json: [place], headers: cors });
+  await expect(page.locator("#shared-dialog")).toBeHidden();
+  expect(requests.length).toBeGreaterThan(0);
 });
 
 test("ambiguous shared places stay selectable with district details", async ({

@@ -32,7 +32,7 @@ export function prepareSearchLocation(): Promise<boolean> {
       });
       if (permission.state !== "granted" || controller.signal.aborted)
         return false;
-      await locate(controller.signal);
+      await requestLocation(controller.signal);
       return true;
     } catch {
       // Optional search bias must not block suggestions or request permission.
@@ -63,6 +63,7 @@ export class PlaceSearch {
   private visible = false;
   private browsing = false;
   private prefilling = false;
+  private autoSelectSingle = false;
   private buttons: HTMLButtonElement[] = [];
   private focusBack?: HTMLButtonElement;
   private openingFocus = false;
@@ -133,7 +134,7 @@ export class PlaceSearch {
             document.activeElement === this.input &&
             this.input.value.trim().length >= 2
           )
-            this.search();
+            this.search(this.autoSelectSingle);
         });
       if (
         !this.openingFocus &&
@@ -318,6 +319,7 @@ export class PlaceSearch {
   private search(autoSelectSingle = false) {
     this.value = undefined;
     this.cancel(true);
+    this.autoSelectSingle = autoSelectSingle;
     this.claim();
     this.visible = true;
     const version = this.version,
@@ -375,6 +377,7 @@ export class PlaceSearch {
     this.active = -1;
     this.visible = false;
     this.browsing = false;
+    this.autoSelectSingle = false;
     this.list.hidden = true;
     this.input.setAttribute("aria-expanded", "false");
     this.input.removeAttribute("aria-activedescendant");
@@ -583,7 +586,7 @@ export class PlaceSearch {
     }
   }
 }
-export function locate(signal?: AbortSignal): Promise<Place> {
+function requestLocation(signal?: AbortSignal): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason);
@@ -603,7 +606,6 @@ export function locate(signal?: AbortSignal): Promise<Place> {
       (position) => {
         signal?.removeEventListener("abort", abort);
         if (signal?.aborted) return;
-        announceLocation(position);
         lastLocation = {
           coordinate: {
             latitude: position.coords.latitude,
@@ -611,12 +613,7 @@ export function locate(signal?: AbortSignal): Promise<Place> {
           },
           timestamp: position.timestamp,
         };
-        resolve({
-          name: "Aktueller Standort",
-          detail: "Standort dieser Abfrage",
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
+        resolve(position);
       },
       (error) => {
         signal?.removeEventListener("abort", abort);
@@ -625,4 +622,15 @@ export function locate(signal?: AbortSignal): Promise<Place> {
       { timeout: 12000, maximumAge: 60000 },
     );
   });
+}
+export async function locate(signal?: AbortSignal): Promise<Place> {
+  const position = await requestLocation(signal);
+  signal?.throwIfAborted();
+  announceLocation(position);
+  return {
+    name: "Aktueller Standort",
+    detail: "Standort dieser Abfrage",
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+  };
 }
