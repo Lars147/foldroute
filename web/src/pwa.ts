@@ -6,7 +6,11 @@ interface InstallEvent extends Event {
   userChoice: Promise<{ outcome: string }>;
 }
 interface PWAOptions {
-  context: () => { home: boolean; blockedReason?: string };
+  context: () => {
+    home: boolean;
+    blockedReason?: string;
+    draftReason?: string;
+  };
   notify: (message: string) => void;
 }
 
@@ -69,6 +73,7 @@ export function setupPWA(options: PWAOptions) {
   let checking = false,
     checked = false,
     applying = false,
+    applyingFromSettings = false,
     reloadNeeded = false,
     reloadCommitted = false,
     hadController = !!navigator.serviceWorker.controller,
@@ -80,14 +85,17 @@ export function setupPWA(options: PWAOptions) {
   const available = () =>
     reloadNeeded ||
     (!!navigator.serviceWorker.controller && !!registration?.waiting);
-  function blockedReason() {
+  function blockedReason(fromSettings = false) {
     if (!el("app-startup").hidden || document.hidden)
       return "Sobald die App bereit ist, kannst du neu laden.";
     if (document.querySelector("dialog[open], :popover-open"))
       return "Schließe zuerst den geöffneten Dialog.";
-    if (document.body.classList.contains("search-focus-mode"))
+    if (!fromSettings && document.body.classList.contains("search-focus-mode"))
       return "Beende zuerst die Eingabe.";
-    return options.context().blockedReason;
+    const context = options.context();
+    return (
+      context.blockedReason ?? (fromSettings ? undefined : context.draftReason)
+    );
   }
   const text = (id: string, value: string) => {
     if (el(id).textContent !== value) el(id).textContent = value;
@@ -95,6 +103,7 @@ export function setupPWA(options: PWAOptions) {
   function render() {
     const hasUpdate = available();
     const blocked = blockedReason();
+    const settingsBlocked = blockedReason(true);
     const focusedAction = document.activeElement;
     el("app-updates").toggleAttribute("data-update-available", hasUpdate);
     // The animated tab indicator contains an aria-hidden copy of each icon.
@@ -123,7 +132,10 @@ export function setupPWA(options: PWAOptions) {
     const status = applying
       ? "App wird aktualisiert …"
       : hasUpdate
-        ? [error, blocked ?? "Zum Aktualisieren wird die App neu geladen."]
+        ? [
+            error,
+            settingsBlocked ?? "Zum Aktualisieren wird die App neu geladen.",
+          ]
             .filter(Boolean)
             .join(" ")
         : !navigator.onLine
@@ -149,7 +161,7 @@ export function setupPWA(options: PWAOptions) {
       checking || downloading || applying || !navigator.onLine;
     checkButton.setAttribute("aria-busy", String(checking || downloading));
     const reloadButton = el<HTMLButtonElement>("settings-update-now");
-    reloadButton.hidden = !hasUpdate || !!blocked || applying;
+    reloadButton.hidden = !hasUpdate || !!settingsBlocked || applying;
     if (
       (focusedAction === checkButton && checkButton.hidden) ||
       (focusedAction === reloadButton && reloadButton.hidden)
@@ -163,15 +175,17 @@ export function setupPWA(options: PWAOptions) {
   function activationFailed(message: string) {
     clearTimeout(activationTimer);
     applying = false;
+    applyingFromSettings = false;
     error = message;
     render();
     options.notify(message);
   }
-  function reload() {
+  function reload(fromSettings: boolean) {
     clearTimeout(activationTimer);
-    const blocked = blockedReason();
+    const blocked = blockedReason(fromSettings);
     if (blocked) {
       applying = false;
+      applyingFromSettings = false;
       reloadNeeded = true;
       render();
       options.notify(
@@ -186,7 +200,7 @@ export function setupPWA(options: PWAOptions) {
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (hadController) reloadNeeded = true;
     hadController = !!navigator.serviceWorker.controller;
-    if (applying) reload();
+    if (applying) reload(applyingFromSettings);
     else render();
   });
   function watch(worker: ServiceWorker | null) {
@@ -258,15 +272,15 @@ export function setupPWA(options: PWAOptions) {
       render();
     }
   }
-  function applyUpdate() {
-    const blocked = blockedReason();
+  function applyUpdate(fromSettings = false) {
+    const blocked = blockedReason(fromSettings);
     if (blocked) {
       render();
       options.notify(blocked);
       return;
     }
     if (applying) return;
-    if (reloadNeeded) return reload();
+    if (reloadNeeded) return reload(fromSettings);
     const worker = registration?.waiting;
     if (!worker || !navigator.serviceWorker.controller) {
       render();
@@ -276,6 +290,7 @@ export function setupPWA(options: PWAOptions) {
       return;
     }
     applying = true;
+    applyingFromSettings = fromSettings;
     error = "";
     render();
     activationTimer = setTimeout(() => {
@@ -286,8 +301,8 @@ export function setupPWA(options: PWAOptions) {
     worker.postMessage({ type: "SKIP_WAITING" });
   }
   el("check-updates").onclick = () => void check();
-  el("update-now").onclick = applyUpdate;
-  el("settings-update-now").onclick = applyUpdate;
+  el("update-now").onclick = () => applyUpdate();
+  el("settings-update-now").onclick = () => applyUpdate(true);
   el("update-later").onclick = () => {
     dismissed = true;
     try {

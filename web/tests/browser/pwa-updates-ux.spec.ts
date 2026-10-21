@@ -105,6 +105,49 @@ test("updates preserve drafts, dismiss for the session and activate from setting
   });
 });
 
+for (const draft of ["destination", "editor"] as const) {
+  test(`settings update directly with an open ${draft} draft`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({
+      width: draft === "destination" ? 390 : 1280,
+      height: 900,
+    });
+    await withUpdateServer(page, async (release) => {
+      if (draft === "destination") {
+        await page.locator("#destination").fill("Ungespeicherter Entwurf");
+        if (await page.locator(".search-focus-back").isVisible())
+          await page.locator(".search-focus-back").click();
+      } else {
+        await page.locator("#search-adjust").click();
+        await expect(page.locator("#origin")).toBeVisible();
+      }
+      await page.locator("#tab-settings").click();
+      release.revision = 2;
+      await page.locator("#check-updates").click();
+      await expect(page.locator("#update-availability")).toBeVisible();
+      await expect(page.locator("#update-description")).toHaveText(
+        "Zum Aktualisieren wird die App neu geladen.",
+      );
+      await expect(page.locator("#settings-update-now")).toBeVisible();
+      await expect(page.locator("#update-banner")).toBeHidden();
+      if (draft === "destination")
+        await expect(page.locator("#destination")).toHaveValue(
+          "Ungespeicherter Entwurf",
+        );
+      let loads = 0;
+      page.on("load", () => loads++);
+      await Promise.all([
+        page.waitForEvent("load"),
+        page.locator("#settings-update-now").click(),
+      ]);
+      await expect(page.locator("#app-startup")).toBeHidden();
+      await expect(page.locator("#tab-settings .update-badge")).toBeHidden();
+      expect(loads).toBe(1);
+    });
+  });
+}
+
 test("manual search distinguishes current, failed, offline and downloading updates", async ({
   page,
   context,
@@ -158,10 +201,16 @@ test("manual search distinguishes current, failed, offline and downloading updat
     await expect(page.locator("#settings-update-now")).toBeEnabled();
     await expect(page.locator("#update-banner")).toBeHidden();
     await page.locator("#foldingDuration").fill("0");
-    await expect(status).toContainText("ungültigen Einstellungen");
-    await expect(page.locator("#settings-update-now")).toBeHidden();
-    await page.locator("#foldingDuration").fill("3");
+    await expect(page.locator("#foldingDuration")).toHaveValue("0");
+    await expect(status).toContainText(
+      "Zum Aktualisieren wird die App neu geladen.",
+    );
     await expect(page.locator("#settings-update-now")).toBeVisible();
+    await Promise.all([
+      page.waitForEvent("load"),
+      page.locator("#settings-update-now").click(),
+    ]);
+    await expect(page.locator("#tab-settings .update-badge")).toBeHidden();
   });
 });
 

@@ -12,6 +12,7 @@ import { test, expect } from "@playwright/test";
 import { defaults } from "../../src/model";
 import type { PlanningState } from "../../src/planning-state";
 import { routeURL } from "../../src/route-url";
+import daglResults from "../fixtures/geocode-dagl.json" with { type: "json" };
 import {
   setup,
   choose,
@@ -716,7 +717,8 @@ test("two-character search requests twelve results; prefill keeps cursor and mak
     12,
   );
   expect(searches[0].searchParams.get("numResults")).toBe("12");
-  expect(searches[0].searchParams.get("place")).toBe("48.1372,11.5756");
+  expect(searches[0].searchParams.has("place")).toBe(false);
+  expect(searches[0].searchParams.has("placeBias")).toBe(false);
   await page
     .getByRole("button", {
       name: "Ziel 0 ins Suchfeld übernehmen",
@@ -734,6 +736,213 @@ test("two-character search requests twelve results; prefill keeps cursor and mak
   await page.locator("#destination").press("Enter");
   await expect.poll(() => searches.length).toBe(2);
 });
+
+for (const width of [390, 1280])
+  test(`place suggestions keep nearby stops and districts together as the query grows at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page);
+    await page.route("**/api/v1/geocode?*", (route) => {
+      const query = new URL(route.request().url()).searchParams.get("text");
+      return route.fulfill({
+        headers: cors,
+        json:
+          query === "Paris"
+            ? [
+                { name: "Paris", lat: 48.8534951, lon: 2.3483915 },
+                { name: "París", lat: 48.1390531, lon: 11.5584052 },
+              ]
+            : daglResults,
+      });
+    });
+    const names = page.locator("#destination-options .place-select strong");
+    for (const query of ["dag", "dagl", "daglf"]) {
+      await page.locator("#destination").fill(query);
+      await expect(names).toHaveCount(daglResults.length);
+      await expect(names.nth(0)).toHaveText("Daglfing");
+      await expect(names.nth(1)).toHaveText("Daglfing");
+      await expect(names.nth(2)).toHaveText("Daglung");
+    }
+    await page.locator("#destination").fill("Paris");
+    await expect(names).toHaveText(["Paris", "París"]);
+  });
+
+for (const width of [390, 1280])
+  test(`place suggestions use the selected start or fresh GPS without location requests while typing at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(() => {
+      (window as any).searchLocationRequests = 0;
+      const query = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = (descriptor) =>
+        descriptor.name === "geolocation"
+          ? Promise.resolve({ state: "prompt" } as PermissionStatus)
+          : query(descriptor);
+      const geo = navigator.geolocation;
+      const original = geo.getCurrentPosition.bind(geo);
+      geo.getCurrentPosition = (success, error, options) => {
+        (window as any).searchLocationRequests++;
+        original(success, error, options);
+      };
+    });
+    await setup(page);
+    await page.route("**/api/v1/geocode?*", (route) =>
+      route.fulfill({
+        headers: cors,
+        json: [
+          { name: "Berlin Hbf", lat: 52.525, lon: 13.369 },
+          { name: "Ziel", lat: 52.53, lon: 13.4 },
+        ],
+      }),
+    );
+    const search = async (id: "origin" | "destination", text: string) => {
+      const request = page.waitForRequest(
+        (r) =>
+          r.url().includes("/api/v1/geocode?") &&
+          new URL(r.url()).searchParams.get("text") === text,
+      );
+      await page.locator(`#${id}`).fill(text);
+      const params = new URL((await request).url()).searchParams;
+      await expect(page.locator(`#${id}-options .place-select`)).toHaveCount(2);
+      await page.keyboard.press("Escape");
+      return params;
+    };
+    const expectCenter = (
+      params: URLSearchParams,
+      center: string | null,
+      bias = "2",
+    ) => {
+      expect(params.get("place")).toBe(center);
+      expect(params.get("placeBias")).toBe(center ? bias : null);
+    };
+
+    expectCenter(await search("destination", "Zi"), null);
+    expect(
+      await page.evaluate(() => (window as any).searchLocationRequests),
+    ).toBe(0);
+    await page.locator("#search-adjust").click();
+    await page.locator("#origin-location").click();
+    await expect(page.locator("#adjust-location-announcement")).toHaveText(
+      "Standort ermittelt",
+    );
+    expectCenter(await search("destination", "Zie"), "48.132,11.5756");
+
+    await choose(page, "origin", "Berlin Hbf");
+    expectCenter(await search("destination", "Ziel"), "52.525,13.369", "2");
+
+    // An unfinished new start must not keep biasing towards the previous start.
+    expectCenter(await search("origin", "Ha"), "48.132,11.5756");
+    expectCenter(
+      await search("destination", "Ziel ort"),
+      "48.132,11.5756",
+      "2",
+    );
+    await choose(page, "origin", "Berlin Hbf");
+
+    // The explicitly chosen start remains useful when the GPS cache expires.
+    await page.clock.setFixedTime(new Date("2026-09-04T08:01:01Z"));
+    expectCenter(await search("destination", "Zie"), "52.525,13.369");
+    expectCenter(await search("origin", "Ham"), null);
+    expectCenter(await search("destination", "Zi"), null);
+    expect(
+      await page.evaluate(() => (window as any).searchLocationRequests),
+    ).toBe(1);
+  });
+
+for (const width of [390, 1280])
+  test(`place suggestions use existing permission and refresh after a delayed location at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(() => {
+      (window as any).searchLocationRequests = 0;
+      const geo = navigator.geolocation;
+      const original = geo.getCurrentPosition.bind(geo);
+      geo.getCurrentPosition = (success, error, options) => {
+        (window as any).searchLocationRequests++;
+        original(
+          (position) => {
+            window.addEventListener(
+              "test:release-search-location",
+              () => success(position),
+              { once: true },
+            );
+            (window as any).searchLocationReady = true;
+          },
+          error,
+          options,
+        );
+      };
+    });
+    await setup(page);
+    const searches: URLSearchParams[] = [];
+    await page.route("**/api/v1/geocode?*", (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      searches.push(params);
+      return route.fulfill({
+        headers: cors,
+        json: params.has("place")
+          ? [{ name: "Daglfing", lat: 48.15, lon: 11.65 }]
+          : [{ name: "Dag", lat: 29.7, lon: 75.7 }],
+      });
+    });
+    await expect
+      .poll(() => page.evaluate(() => (window as any).searchLocationReady))
+      .toBe(true);
+    await page.locator("#destination").fill("dag");
+    await expect(
+      page.locator("#destination-options .place-select strong"),
+    ).toHaveText("Dag");
+    expect(searches[0].has("place")).toBe(false);
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("test:release-search-location")),
+    );
+    await expect(
+      page.locator("#destination-options .place-select strong"),
+    ).toHaveText("Daglfing");
+    expect(searches.at(-1)!.get("place")).toBe("48.132,11.5756");
+    expect(searches.at(-1)!.get("placeBias")).toBe("2");
+    await expect(page.locator("#destination")).toHaveValue("dag");
+    await page.locator("#destination").fill("dagl");
+    await expect.poll(() => searches.at(-1)!.get("text")).toBe("dagl");
+    expect(searches.at(-1)!.get("placeBias")).toBe("2");
+    expect(
+      await page.evaluate(() => (window as any).searchLocationRequests),
+    ).toBe(1);
+  });
+
+for (const permission of ["denied", "unsupported"] as const)
+  test(`place suggestions stay available without GPS when permission is ${permission}`, async ({
+    page,
+  }) => {
+    await page.addInitScript((permission) => {
+      (window as any).searchLocationRequests = 0;
+      const query = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = (descriptor) => {
+        if (descriptor.name !== "geolocation") return query(descriptor);
+        if (permission === "unsupported")
+          return Promise.reject(new TypeError("Geolocation query unsupported"));
+        return Promise.resolve({ state: "denied" } as PermissionStatus);
+      };
+      navigator.geolocation.getCurrentPosition = () => {
+        (window as any).searchLocationRequests++;
+      };
+    }, permission);
+    await setup(page, false);
+    const request = page.waitForRequest("**/api/v1/geocode?*");
+    await page.locator("#destination").fill("dag");
+    const params = new URL((await request).url()).searchParams;
+    await expect(
+      page.locator("#destination-options .place-select"),
+    ).toHaveCount(2);
+    expect(params.has("place")).toBe(false);
+    expect(params.has("placeBias")).toBe(false);
+    expect(
+      await page.evaluate(() => (window as any).searchLocationRequests),
+    ).toBe(0);
+  });
 
 test("clearing local data requires confirmation and removes all app records", async ({
   page,

@@ -41,7 +41,12 @@ import {
   type Timing,
 } from "./model";
 import { ApiClient } from "./transitous";
-import { PlaceSearch, locate, clearSearchLocation } from "./search";
+import {
+  PlaceSearch,
+  locate,
+  clearSearchLocation,
+  prepareSearchLocation,
+} from "./search";
 import { PlanningSession, type PlanningState } from "./planning-state";
 import { planningRequestPreview } from "./planning-progress";
 import { RouteMap } from "./map-view";
@@ -1490,6 +1495,14 @@ const destination = new PlaceSearch(
   toast,
   {
     showCurrentLocation: false,
+    getSearchCenter: () => {
+      const origin = editorInitialized
+        ? useLocation
+          ? undefined
+          : draftOrigin.value
+        : originOverride;
+      return origin?.name === "Aktueller Standort" ? undefined : origin;
+    },
     onDismiss: () => {
       if (view !== "search" || editorExpanded || adjustMode === "replan")
         return;
@@ -2728,6 +2741,7 @@ const placesStartup = book
 export const startupReady = Promise.all([restoredStartup, placesStartup]).then(
   () => {
     afterStartup(() => {
+      if (view === "search" && !originOverride) void prepareSearchLocation();
       if (
         matchMedia("(min-width: 900px) and (hover: hover) and (pointer: fine)")
           .matches &&
@@ -2765,12 +2779,15 @@ pwa = setupPWA({
                 !mapLocationRequest.signal.aborted &&
                 el<HTMLButtonElement>("map-location").disabled)
             ? "Warte zuerst, bis die Standortabfrage beendet ist."
-            : editingSearch || sharingPlan
+            : sharingPlan
               ? "Beende zuerst die aktuelle Eingabe."
-              : el("settings-form").querySelector("input:invalid")
-                ? "Korrigiere zuerst die ungültigen Einstellungen."
-                : undefined;
-    return { home: view === "search", blockedReason };
+              : undefined;
+    const draftReason = editingSearch
+      ? "Beende zuerst die aktuelle Eingabe."
+      : el("settings-form").querySelector("input:invalid")
+        ? "Korrigiere zuerst die ungültigen Einstellungen."
+        : undefined;
+    return { home: view === "search", blockedReason, draftReason };
   },
   notify: (message) => {
     if (!navigationView?.visible) toast(message);

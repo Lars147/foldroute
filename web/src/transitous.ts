@@ -16,6 +16,7 @@ import {
 } from "./model";
 import {
   decodePolyline,
+  distance,
   validateStreetGeometry,
   validCoordinate,
 } from "./geometry";
@@ -612,11 +613,16 @@ export class ApiClient {
       text: query,
       language: "de",
       numResults: "12",
-      ...(center ? { place: `${center.latitude},${center.longitude}` } : {}),
+      ...(center
+        ? {
+            place: `${center.latitude},${center.longitude}`,
+            placeBias: "2",
+          }
+        : {}),
     }).toString();
     const raw = await this.json(url, signal);
     if (!Array.isArray(raw)) throw responseError();
-    return raw
+    const places: Place[] = raw
       .filter(
         (p) =>
           p &&
@@ -631,5 +637,14 @@ export class ApiClient {
         longitude: p.lon,
         stopId: p.type === "STOP" ? p.id : undefined,
       }));
+    if (!center || !places.length) return places;
+    const nearby = (place: Place) => distance(center, place) <= 50000;
+    // Keep local alternatives together once the query points to this region.
+    // Longer searches with a distant best match retain the API's ranking.
+    if (query.trim().length > 3 && !nearby(places[0])) return places;
+    return [
+      ...places.filter(nearby),
+      ...places.filter((place) => !nearby(place)),
+    ];
   }
 }

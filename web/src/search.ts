@@ -7,13 +7,43 @@ import { el, node, icon, setLocationFeedback } from "./ui";
 import { reveal, stopMotion } from "./motion";
 
 let lastLocation: { coordinate: Coordinate; timestamp: number } | undefined;
+let searchLocationRequest:
+  { controller: AbortController; promise: Promise<boolean> } | undefined;
 export function clearSearchLocation() {
+  searchLocationRequest?.controller.abort();
+  searchLocationRequest = undefined;
   lastLocation = undefined;
 }
-function searchCenter(): Coordinate {
+function searchCenter(): Coordinate | undefined {
   return lastLocation && Date.now() - lastLocation.timestamp <= 60000
     ? lastLocation.coordinate
-    : { latitude: 48.1372, longitude: 11.5756 };
+    : undefined;
+}
+export function prepareSearchLocation(): Promise<boolean> {
+  if (searchCenter()) return Promise.resolve(false);
+  if (searchLocationRequest) return searchLocationRequest.promise;
+  if (!window.isSecureContext || !navigator.permissions?.query)
+    return Promise.resolve(false);
+  const controller = new AbortController();
+  const promise = (async () => {
+    try {
+      const permission = await navigator.permissions.query({
+        name: "geolocation",
+      });
+      if (permission.state !== "granted" || controller.signal.aborted)
+        return false;
+      await locate(controller.signal);
+      return true;
+    } catch {
+      // Optional search bias must not block suggestions or request permission.
+      return false;
+    }
+  })().finally(() => {
+    if (searchLocationRequest?.controller === controller)
+      searchLocationRequest = undefined;
+  });
+  searchLocationRequest = { controller, promise };
+  return promise;
 }
 export class PlaceSearch {
   private static focusedSearch?: PlaceSearch;
@@ -82,6 +112,7 @@ export class PlaceSearch {
       showCurrentLocation?: boolean;
       focusDriven?: boolean;
       onDismiss?: () => void;
+      getSearchCenter?: () => Coordinate | undefined;
     } = {},
   ) {
     this.input = el(id);
@@ -93,6 +124,17 @@ export class PlaceSearch {
     });
     this.input.addEventListener("focus", () => {
       this.enterFocusMode();
+      if (!this.settings.getSearchCenter?.())
+        void prepareSearchLocation().then((updated) => {
+          if (
+            updated &&
+            this.visible &&
+            !this.value &&
+            document.activeElement === this.input &&
+            this.input.value.trim().length >= 2
+          )
+            this.search();
+        });
       if (
         !this.openingFocus &&
         !this.prefilling &&
@@ -298,7 +340,7 @@ export class PlaceSearch {
         const results = await this.api.searchPlaces(
           query,
           this.abort.signal,
-          searchCenter(),
+          this.settings.getSearchCenter?.() ?? searchCenter(),
         );
         if (version !== this.version) return;
         this.options = results;

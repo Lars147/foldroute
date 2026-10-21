@@ -1,0 +1,586 @@
+[
+  {
+    "type": "STOP",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglfing",
+    "id": "de-DELFI_de:09162:700_G",
+    "lat": 48.149623999999996,
+    "lon": 11.649329999999999,
+    "level": 0.0,
+    "country": "DE",
+    "zip": "81929",
+    "tz": "Europe/Berlin",
+    "areas": [
+      {
+        "name": "Deutschland",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Bayern",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Oberbayern",
+        "adminLevel": 5.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "München",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      },
+      {
+        "name": "Bogenhausen",
+        "adminLevel": 9.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      }
+    ],
+    "score": -13.15257453918457,
+    "modes": ["SUBURBAN"],
+    "importance": 0.00048438957310281694
+  },
+  {
+    "type": "PLACE",
+    "category": "place_capital_8",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglung",
+    "id": "node/[14119765744]",
+    "lat": 30.9542126,
+    "lon": 95.8612122,
+    "country": "CN",
+    "tz": "Asia/Shanghai",
+    "areas": [
+      {
+        "name": "China",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Xizang",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Qamdo",
+        "adminLevel": 5.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "洛隆县 ལྷོ་རོང་རྫོང།",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Dakrong",
+        "adminLevel": 8.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      }
+    ],
+    "score": -12.0
+  },
+  {
+    "type": "STOP",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglish Stn",
+    "id": "au-wa-Transperth_36",
+    "lat": -31.951899,
+    "lon": 115.81326000000001,
+    "country": "AU",
+    "zip": "6008",
+    "tz": "Australia/Perth",
+    "areas": [
+      {
+        "name": "Australien",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Westaustralien",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "City of Subiaco",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      },
+      {
+        "name": "Daglish",
+        "adminLevel": 9.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      }
+    ],
+    "score": -11.405149459838867,
+    "modes": ["REGIONAL_RAIL", "BUS"],
+    "importance": 0.001720354426652193
+  },
+  {
+    "type": "PLACE",
+    "category": "place_capital_8",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglung",
+    "id": "node/[829870961]",
+    "lat": 28.806527,
+    "lon": 90.4412844,
+    "country": "CN",
+    "tz": "Asia/Shanghai",
+    "areas": [
+      {
+        "name": "China",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Xizang",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "山南市 ལྷོ་ཁ་ས་ཁུལ།",
+        "adminLevel": 5.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "浪卡子县 སྣ་དཀར་རྩེ་རྫོང།",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "打隆镇",
+        "adminLevel": 8.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      }
+    ],
+    "score": -11.399999618530273
+  },
+  {
+    "type": "PLACE",
+    "category": "place_6",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglasa",
+    "id": "node/[2199688788]",
+    "lat": 54.149774,
+    "lon": -4.4779021,
+    "country": "IM",
+    "tz": "Europe/Isle_of_Man",
+    "areas": [
+      {
+        "name": "Insel Man",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Middle",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Douglas",
+        "adminLevel": 8.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      }
+    ],
+    "score": -11.038999557495117
+  },
+  {
+    "type": "PLACE",
+    "category": "office_16",
+    "tokens": [[0.0, 4.0]],
+    "name": "Siège du DAGL",
+    "id": "node/[6403993385]",
+    "lat": 6.1311348,
+    "lon": 1.215324,
+    "country": "TG",
+    "tz": "Africa/Abidjan",
+    "areas": [
+      {
+        "name": "Togo",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Region Maritime",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Lomé",
+        "adminLevel": 8.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      },
+      {
+        "name": "1er Arrondissement",
+        "adminLevel": 9.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Quartier Administratif",
+        "adminLevel": 10.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      }
+    ],
+    "score": -11.0
+  },
+  {
+    "type": "PLACE",
+    "category": "suburb",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglfing",
+    "id": "node/[1724649310]",
+    "lat": 48.1493975,
+    "lon": 11.65692,
+    "country": "DE",
+    "zip": "81929",
+    "tz": "Europe/Berlin",
+    "areas": [
+      {
+        "name": "Deutschland",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Bayern",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Oberbayern",
+        "adminLevel": 5.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "München",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      },
+      {
+        "name": "Bogenhausen",
+        "adminLevel": 9.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      }
+    ],
+    "score": -10.75
+  },
+  {
+    "type": "STOP",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglösa",
+    "id": "fi-fintraffic_437633",
+    "lat": 60.350669999999994,
+    "lon": 19.993636999999996,
+    "level": 0.0,
+    "country": "FI",
+    "tz": "Europe/Mariehamn",
+    "areas": [
+      {
+        "name": "Finnland",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Ålandinseln",
+        "adminLevel": 3.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Ålandinseln",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Ålands landsbygd",
+        "adminLevel": 7.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Saltvik",
+        "adminLevel": 8.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      }
+    ],
+    "score": -10.59999942779541,
+    "modes": ["BUS"],
+    "importance": 1.9721285582363635e-7
+  },
+  {
+    "type": "STOP",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglösa",
+    "id": "se-Trafiklab_740006095",
+    "lat": 61.38372,
+    "lon": 16.879164000000003,
+    "country": "SE",
+    "tz": "Europe/Stockholm",
+    "areas": [
+      {
+        "name": "Schweden",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Provinz Gävleborg",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Söderhamns kommun",
+        "adminLevel": 7.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      },
+      {
+        "name": "Trönö distrikt",
+        "adminLevel": 9.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      }
+    ],
+    "score": -10.59999942779541,
+    "modes": ["BUS"],
+    "importance": 1.647307271923637e-6
+  },
+  {
+    "type": "PLACE",
+    "category": "village",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglan",
+    "id": "node/[1436318692]",
+    "lat": 44.7423944,
+    "lon": 1.1916025,
+    "country": "FR",
+    "zip": "24250",
+    "tz": "Europe/Paris",
+    "areas": [
+      {
+        "name": "Frankreich",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Metropolitanes Frankreich",
+        "adminLevel": 3.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Neu-Aquitanien",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Dordogne",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Sarlat-la-Canéda",
+        "adminLevel": 7.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Daglan",
+        "adminLevel": 8.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      }
+    ],
+    "score": -10.251999855041504
+  },
+  {
+    "type": "PLACE",
+    "category": "hamlet",
+    "tokens": [[0.0, 4.0]],
+    "name": "Daglio",
+    "id": "node/[1103135360]",
+    "lat": 44.6448295,
+    "lon": 9.1489942,
+    "country": "IT",
+    "tz": "Europe/Rome",
+    "areas": [
+      {
+        "name": "Italien",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Piemont",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Alessandria",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Carrega Ligure",
+        "adminLevel": 8.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      }
+    ],
+    "score": -10.25
+  },
+  {
+    "type": "PLACE",
+    "category": "beauty_14",
+    "tokens": [[0.0, 4.0]],
+    "name": "DaGlam",
+    "id": "node/[1302025536]",
+    "lat": 52.3511808,
+    "lon": 20.9444624,
+    "country": "PL",
+    "tz": "Europe/Warsaw",
+    "areas": [
+      {
+        "name": "Polen",
+        "adminLevel": 2.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Woiwodschaft Masowien",
+        "adminLevel": 4.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Warschau",
+        "adminLevel": 6.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Warschau",
+        "adminLevel": 7.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Warschau",
+        "adminLevel": 8.0,
+        "matched": false,
+        "unique": true,
+        "default": true
+      },
+      {
+        "name": "Białołęka",
+        "adminLevel": 9.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      },
+      {
+        "name": "Nowodwory",
+        "adminLevel": 10.0,
+        "matched": false,
+        "unique": false,
+        "default": false
+      }
+    ],
+    "score": -10.25
+  }
+]
