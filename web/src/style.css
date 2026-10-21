@@ -1144,6 +1144,15 @@ fieldset:after {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.settings-screen .setting-row > span:first-child {
+  flex: 1 1 0;
+}
+.settings-screen .setting-row {
+  scroll-margin-top: calc(
+    var(--settings-top-offset) + var(--settings-heading-height, 60px) + 8px
+  );
+  scroll-margin-bottom: calc(var(--tabs) + 8px);
+}
 .settings-screen .setting-value {
   flex: 0 0 80px;
   text-align: center;
@@ -1504,6 +1513,71 @@ dialog {
   max-height: calc(100dvh - 24px);
   padding: 0;
   box-shadow: 0 20px 80px var(--color-shadow);
+}
+.information-dialog {
+  width: min(640px, calc(100% - 24px));
+  overflow-wrap: anywhere;
+}
+.information-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+.information-heading h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+.information-heading .icon-button {
+  flex-shrink: 0;
+}
+.information-content {
+  padding: 4px 20px 24px;
+  line-height: 1.55;
+}
+.information-content h2,
+.information-content h3 {
+  margin: 24px 0 8px;
+  font-size: 1.0625rem;
+}
+.information-content p {
+  margin: 12px 0;
+}
+.information-content a {
+  text-underline-offset: 3px;
+}
+.information-content dt {
+  font-weight: 650;
+  margin-top: 16px;
+}
+.information-content dd {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.information-content details {
+  border-bottom: 1px solid var(--line);
+}
+.information-content summary {
+  cursor: pointer;
+  padding-block: 14px;
+  min-height: 48px;
+  font-weight: 650;
+}
+.information-content pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+}
+.about-intro {
+  font-size: 1.25rem;
+  font-weight: 650;
 }
 dialog::backdrop {
   background: var(--color-scrim);
@@ -2341,10 +2415,23 @@ dialog.compact .dialog-actions {
 #late-departure {
   font-size: 13px;
 }
-#delete-data-dialog {
+#delete-data-dialog,
+#delete-history-dialog,
+#delete-storage-dialog {
   max-width: 440px;
   border-radius: 20px;
   padding: 24px;
+  overflow-wrap: anywhere;
+}
+:is(#delete-data-dialog, #delete-history-dialog, #delete-storage-dialog)
+  .form-actions {
+  flex-wrap: wrap;
+}
+:is(#delete-data-dialog, #delete-history-dialog, #delete-storage-dialog)
+  .form-actions
+  > button {
+  flex: 1 1 160px;
+  min-width: 0;
 }
 
 .suggestions li.suggestion-heading {
@@ -3203,7 +3290,7 @@ dialog.editing-time {
 }
 .route-detail-link {
   position: absolute;
-  right: 12px;
+  right: 16px;
   bottom: 12px;
   min-height: 44px;
   width: var(--route-detail-width);
@@ -3245,8 +3332,9 @@ dialog.editing-time {
     padding-bottom: 12px;
   }
   .route-choice .route-choice-effort {
-    min-height: calc(var(--route-detail-height) + 9px);
-    padding-right: calc(var(--route-detail-width) + 12px);
+    min-height: var(--route-detail-height);
+    padding-top: 0;
+    padding-right: calc(var(--route-detail-width) + 16px);
     align-content: center;
   }
 }

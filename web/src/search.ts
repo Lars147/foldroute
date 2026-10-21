@@ -1,6 +1,7 @@
 import { announceLocation, geolocationError } from "./live-location";
 import type { Place, Coordinate } from "./model";
-import { errorText } from "./model";
+import { errorText, planningFailures, rateLimitMessage } from "./model";
+import { RetryCountdown } from "./retry-countdown";
 import { ApiClient } from "./transitous";
 import { PlaceBook, samePlace } from "./places";
 import { el, node, icon, setLocationFeedback } from "./ui";
@@ -58,6 +59,7 @@ export class PlaceSearch {
   private abort?: AbortController;
   private timer?: ReturnType<typeof setTimeout>;
   private version = 0;
+  private countdown = new RetryCountdown();
   private active = -1;
   private options: Place[] = [];
   private visible = false;
@@ -118,6 +120,20 @@ export class PlaceSearch {
   ) {
     this.input = el(id);
     this.list = el(`${id}-options`);
+    api.onPause((pause) => {
+      const owned = PlaceSearch.messages.get(this.message);
+      if (
+        !this.visible ||
+        owned?.owner !== this ||
+        owned.text !== "Anfragelimit erreicht"
+      )
+        return;
+      this.setMessage(
+        pause.code === "429" ? "Anfragelimit erreicht" : pause.message,
+      );
+      if (pause.code === "429")
+        this.countdown.render(this.message, pause.retryAt);
+    });
     this.input.setAttribute("aria-haspopup", "grid");
     this.list.setAttribute("role", "grid");
     this.book.subscribe(() => {
@@ -287,6 +303,7 @@ export class PlaceSearch {
     PlaceSearch.dialogSearch = this;
   }
   private setMessage(text: string, locationHelp = false) {
+    this.countdown.clear();
     setLocationFeedback(this.message, text, locationHelp);
     PlaceSearch.messages.set(this.message, {
       owner: this,
@@ -294,6 +311,7 @@ export class PlaceSearch {
     });
   }
   private clearMessage() {
+    this.countdown.clear();
     if (!this.settings.focusDriven) return;
     const message = PlaceSearch.messages.get(this.message);
     if (message?.owner !== this) return;
@@ -357,7 +375,11 @@ export class PlaceSearch {
             : "Keine passenden Orte gefunden.",
         );
       } catch (error) {
-        if (version === this.version) this.setMessage(errorText(error));
+        if (version === this.version) {
+          const limited = rateLimitMessage(planningFailures(error));
+          this.setMessage(limited ?? errorText(error));
+          if (limited) this.countdown.render(this.message, this.api.retryAt);
+        }
       }
     }, 280);
   }

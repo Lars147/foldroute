@@ -1,5 +1,7 @@
 import { optimizeWalking } from "./walking-optimization";
 import { planViaRoutes } from "./via-planner";
+import { pool } from "./routing-pool";
+import { workDeadline } from "./routing-retry";
 import {
   type Journey,
   type RouteRequest,
@@ -7,6 +9,7 @@ import {
   type PlanningUpdate,
   type PlanningPhase,
   type Leg,
+  type PlanningFailure,
   bikeBoardings,
   selectJourneys,
   cyclingExcess,
@@ -16,6 +19,7 @@ import {
   errorText,
   validSettings,
   validStops,
+  planningFailures,
 } from "./model";
 import { distance, validCoordinate } from "./geometry";
 import {
@@ -34,13 +38,13 @@ export interface Seed {
   outer: StreetMode;
   key: string;
 }
-const buffer = 180;
 export function seeds(
   journeys: Journey[],
   request: RouteRequest,
   settings: RoutingSettings,
   depth: number,
 ): Seed[] {
+  const buffer = settings.transferMinutes * 60;
   const lists = journeys.map((journey) =>
     journey.legs.flatMap((leg, index): Seed[] => {
       if (leg.kind !== "transit") return [];
@@ -103,6 +107,7 @@ export function compose(
   request: RouteRequest,
   settings: RoutingSettings,
 ): Journey | undefined {
+  const buffer = settings.transferMinutes * 60;
   const first = part.legs.findIndex((l) => l.kind === "transit"),
     last = part.legs.findLastIndex((l) => l.kind === "transit");
   if (first < 0 || last < 0) return;
@@ -190,43 +195,6 @@ export function compose(
     ? result
     : undefined;
 }
-interface JobResult<T> {
-  index: number;
-  value?: T;
-  error?: unknown;
-}
-async function* pool<T>(
-  jobs: ((signal: AbortSignal) => Promise<T>)[],
-  signal: AbortSignal,
-): AsyncGenerator<JobResult<T>> {
-  const controller = new AbortController(),
-    combined = AbortSignal.any([signal, controller.signal]);
-  const pending = new Map<number, Promise<JobResult<T>>>();
-  let next = 0;
-  function submit() {
-    const index = next++;
-    pending.set(
-      index,
-      jobs[index](combined).then(
-        (value) => ({ index, value }),
-        (error) => ({ index, error }),
-      ),
-    );
-  }
-  try {
-    while (next < Math.min(2, jobs.length)) submit();
-    while (pending.size) {
-      signal.throwIfAborted();
-      const result = await Promise.race(pending.values());
-      pending.delete(result.index);
-      yield result;
-      signal.throwIfAborted();
-      if (next < jobs.length) submit();
-    }
-  } finally {
-    controller.abort();
-  }
-}
 const defaultClient = new ApiClient();
 export interface SearchOptions {
   raw?: boolean;
@@ -251,7 +219,7 @@ async function* planRawRoutes(
       "Bitte Start, Ziel und Einstellungen prüfen.",
     );
   if (input.stops?.length) {
-    yield* planViaRoutes(input, settings, signal, client);
+    yield* planViaRoutes(input, settings, signal, client, options.budget?.run);
     return;
   }
   if (distance(input.origin, input.destination) < 30)
@@ -274,6 +242,7 @@ async function* planRawRoutes(
     stopped = false,
     phase: PlanningPhase = "base";
   const incompletePhases = new Set<PlanningPhase>();
+  const failures: PlanningFailure[] = [];
   const addIssues = (...messages: string[]) => {
     if (messages.length) incompletePhases.add(phase);
     issues.push(...messages);
@@ -292,6 +261,7 @@ async function* planRawRoutes(
       ),
     );
     addIssues(...batch.issues);
+    failures.push(...(batch.failures ?? []));
     if (batch.rejected)
       addIssues(
         "Einige Verbindungen wurden wegen fehlerhafter Streckendaten ausgeblendet.",
@@ -311,6 +281,7 @@ async function* planRawRoutes(
         ),
     status,
     issues: [...new Set(issues)],
+    failures: [...failures],
     phase,
     incompletePhases: [...incompletePhases],
   });
@@ -321,19 +292,18 @@ async function* planRawRoutes(
       (v) => (s) => client.batch(request, settings, v, s, options.budget),
     ),
     signal,
+    () => !stopped,
   )) {
     signal.throwIfAborted();
     if (result.value) add(result.value);
     else {
       addIssues(errorText(result.error));
+      failures.push(...planningFailures(result.error));
       stopped ||= result.error instanceof PlannerError && result.error.stops;
     }
     if (all.length) yield update("searching");
-    if (stopped) {
-      if (options.budget) options.budget.stopped = true;
-      break;
-    }
   }
+  if (stopped && options.budget) options.budget.stopped = true;
   signal.throwIfAborted();
   if (!all.length)
     throw new PlannerError(
@@ -341,6 +311,9 @@ async function* planRawRoutes(
       issues.length
         ? [...new Set(issues)].join(" ")
         : "Keine passende Route gefunden. Ändere Start, Ziel, Zeit oder Einstellungen.",
+      false,
+      client.retryAt || undefined,
+      failures,
     );
   if (
     options.baseOnly ||
@@ -357,17 +330,14 @@ async function* planRawRoutes(
   );
   const cache = new Map<string, Journey[]>(),
     requested = new Set<string>();
-  const deadline = new AbortController(),
-    timer = setTimeout(
-      () =>
-        deadline.abort(
-          new PlannerError(
-            "deadline",
-            "Suche nach weiteren Rad-Umstiegen: Zeitlimit erreicht.",
-          ),
-        ),
-      15000,
-    );
+  const deadline = workDeadline(
+    options.budget?.run,
+    15000,
+    new PlannerError(
+      "deadline",
+      "Suche nach weiteren Rad-Umstiegen: Zeitlimit erreicht.",
+    ),
+  );
   const searchSignal = AbortSignal.any([signal, deadline.signal]);
   try {
     for (
@@ -424,11 +394,13 @@ async function* planRawRoutes(
               ),
           ),
           searchSignal,
+          () => !stopped,
         )) {
           signal.throwIfAborted();
           if (result.value) {
             const batch = result.value;
             addIssues(...batch.issues);
+            failures.push(...(batch.failures ?? []));
             if (batch.rejected)
               addIssues(
                 "Einige zusätzliche Verbindungen enthalten fehlerhafte Streckendaten.",
@@ -437,12 +409,18 @@ async function* planRawRoutes(
             stopped ||= batch.stop;
             cache.set(jobs[result.index].key, batch.journeys);
             append(jobs[result.index], batch.journeys);
+            const ids = new Set(all.map((j) => j.id));
+            all.push(
+              ...generated.filter((j) => !ids.has(j.id) && !!ids.add(j.id)),
+            );
+            yield update("searching");
           } else {
             addIssues(errorText(result.error));
+            failures.push(...planningFailures(result.error));
             stopped ||=
               result.error instanceof PlannerError && result.error.stops;
           }
-          if (stopped || deadline.signal.aborted) break;
+          if (deadline.signal.aborted) break;
         }
       } catch (error) {
         signal.throwIfAborted();
@@ -459,8 +437,7 @@ async function* planRawRoutes(
       addIssues(errorText(deadline.signal.reason));
     }
   } finally {
-    clearTimeout(timer);
-    deadline.abort();
+    deadline.dispose();
   }
   signal.throwIfAborted();
   if (stopped && options.budget) options.budget.stopped = true;
@@ -474,6 +451,33 @@ export async function* planRoutes(
   client: RoutingClient = defaultClient,
   options: SearchOptions = {},
 ): AsyncGenerator<PlanningUpdate> {
+  if (!options.budget?.run && client.createRun) {
+    const run = client.createRun(signal);
+    if (run) {
+      const parent = options.budget;
+      let stopped = parent?.stopped;
+      const budget: RequestBudget = {
+        take: () => parent?.take(),
+        run,
+        get stopped() {
+          return parent ? parent.stopped : stopped;
+        },
+        set stopped(value) {
+          if (parent) parent.stopped = value;
+          else stopped = value;
+        },
+      };
+      try {
+        yield* planRoutes(input, settings, signal, client, {
+          ...options,
+          budget,
+        });
+      } finally {
+        run.dispose();
+      }
+      return;
+    }
+  }
   if (options.raw || options.baseOnly) {
     yield* planRawRoutes(input, settings, signal, client, options);
     return;
@@ -506,6 +510,7 @@ export async function* planRoutes(
         settings.showCyclingComparison,
       ),
       issues: [...new Set([...last.issues, ...update.issues])],
+      failures: [...(last.failures ?? []), ...(update.failures ?? [])],
       status: "searching",
       phase: "walking",
       incompletePhases: [

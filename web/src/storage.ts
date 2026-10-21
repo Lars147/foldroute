@@ -40,6 +40,11 @@ export class LocalDatabase {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(["state", "places"], "readwrite");
       resetNavigationStatistics(tx.objectStore("state"));
+      for (const key of ["historyEpoch", "navigationResumeEpoch"]) {
+        const epoch = tx.objectStore("state").get(key);
+        epoch.onsuccess = () =>
+          tx.objectStore("state").put((epoch.result ?? 0) + 1, key);
+      }
       tx.objectStore("state").clear();
       tx.objectStore("places").clear();
       tx.oncomplete = () => resolve();

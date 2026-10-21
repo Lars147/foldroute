@@ -312,6 +312,32 @@ describe("Requests and service resilience", () => {
     expect(retryAfter("Thu, 01 Jan 1970 00:03:00 GMT", 100)).toBe(180);
     expect(retryAfter("bad", 100)).toBeUndefined();
   });
+  for (const status of [429, 503])
+    it(`pauses requests after HTTP ${status} without Retry-After`, async () => {
+      const fetcher = vi.fn(async () => new Response("", { status }));
+      const api = new ApiClient(fetcher);
+      const signal = new AbortController().signal;
+      await expect(
+        api.json(new URL("https://example.test"), signal),
+      ).rejects.toMatchObject({ code: String(status), stops: true });
+      expect(api.retryAt).toBeGreaterThan(Date.now() / 1000);
+      await expect(
+        api.json(new URL("https://example.test"), signal),
+      ).rejects.toMatchObject({
+        code: "pause",
+        message:
+          status === 429
+            ? "Zu viele Anfragen. Bitte später erneut versuchen."
+            : "Routingdienst vorübergehend nicht verfügbar.",
+      });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+  it("identifies malformed service responses separately from network errors", async () => {
+    const api = new ApiClient(async () => new Response("not json"));
+    await expect(
+      api.json(new URL("https://example.test"), new AbortController().signal),
+    ).rejects.toMatchObject({ code: "response" });
+  });
   it("retains successful routes after individual service errors", async () => {
     vi.setSystemTime(request.time * 1000);
     const fetcher = vi.fn(async (url: URL) =>
@@ -419,6 +445,34 @@ describe("Internal bike connections", () => {
     transfers: 0,
     isDirect: false,
   });
+  for (const transferMinutes of [0, 7])
+    it(`reserves ${transferMinutes} minutes in bike transfer search and composition`, () => {
+      const options = { ...defaults, transferMinutes };
+      const buffer = transferMinutes * 60;
+      const req = { ...request, time: 0 };
+      const base = journey("base", [leg("transit", origin, a, 0, 100)]);
+      const seed = seeds([base], req, options, 0)[0];
+      expect(seed.request.time).toBe(100 + defaults.foldingDuration + buffer);
+      const start = seed.request.time;
+      const part = journey("part", [
+        leg("bike", a, b, start, start + 300),
+        leg("fold", b, b, start + 300, start + 480),
+        leg("transit", b, destination, start + 480, start + 600),
+      ]);
+      const result = compose(seed, part, req, options)!;
+      expect(result).toBeDefined();
+      const wait = result.legs.find((l) => l.kind === "wait")!;
+      expect(wait.end - wait.start).toBe(buffer);
+      const backwards = seeds(
+        [journey("back", [leg("transit", b, destination, 1000, 1500)])],
+        { ...req, timing: "arrive" },
+        options,
+        0,
+      )[0];
+      expect(backwards.request.time).toBe(
+        1000 - defaults.foldingDuration - buffer,
+      );
+    });
   it("composes forward, includes folding buffer and rejects disconnected parts", () => {
     const req = { ...request, time: 0 };
     const base = journey("base", [

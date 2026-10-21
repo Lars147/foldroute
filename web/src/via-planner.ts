@@ -1,4 +1,5 @@
 import { optimizeWalking } from "./walking-optimization";
+import { workDeadline, type RoutingRun } from "./routing-retry";
 import {
   type Journey,
   type RouteRequest,
@@ -7,6 +8,7 @@ import {
   type PlanningUpdate,
   type PlanningPhase,
   type PlanningRoutePreview,
+  type PlanningFailure,
   compare,
   connectionKey,
   sectionCyclingExcess,
@@ -14,6 +16,7 @@ import {
   selectJourneys,
   PlannerError,
   errorText,
+  planningFailures,
 } from "./model";
 import { distance } from "./geometry";
 import type { RequestBudget, RoutingClient } from "./transitous";
@@ -103,6 +106,7 @@ export async function* planViaRoutes(
   settings: RoutingSettings,
   signal: AbortSignal,
   client: RoutingClient,
+  run?: RoutingRun,
 ): AsyncGenerator<PlanningUpdate> {
   const stops = request.stops!;
   const places = [
@@ -125,21 +129,19 @@ export async function* planViaRoutes(
       "input",
       "Bitte einen gültigen Zeitpunkt auswählen.",
     );
-  const deadline = new AbortController();
-  const timer = setTimeout(
-    () =>
-      deadline.abort(
-        new PlannerError(
-          "deadline",
-          "Suche über Zwischenziele: Zeitlimit erreicht.",
-          true,
-        ),
-      ),
+  const deadline = workDeadline(
+    run,
     60000,
+    new PlannerError(
+      "deadline",
+      "Suche über Zwischenziele: Zeitlimit erreicht.",
+      true,
+    ),
   );
   const combined = AbortSignal.any([signal, deadline.signal]);
   let count = 0;
   const budget: RequestBudget = {
+    run,
     take() {
       if (++count > 64)
         throw new PlannerError(
@@ -150,6 +152,7 @@ export async function* planViaRoutes(
     },
   };
   const issues = new Set<string>();
+  const failures: PlanningFailure[] = [];
   const incompletePhases = new Set<PlanningPhase>();
   let completed: Journey[] = [],
     stopped = false,
@@ -168,6 +171,7 @@ export async function* planViaRoutes(
     status,
     phase,
     issues: [...issues],
+    failures: [...failures],
     incompletePhases: [...incompletePhases],
     activeSection: status === "searching" ? activeSection : undefined,
     routePreview:
@@ -244,6 +248,7 @@ export async function* planViaRoutes(
                 };
               phase = partUpdate.phase === "base" ? "via" : partUpdate.phase;
               partUpdate.issues.forEach((issue) => issues.add(issue));
+              failures.push(...(partUpdate.failures ?? []));
               partUpdate.incompletePhases.forEach((value) =>
                 incompletePhases.add(value === "base" ? "via" : value),
               );
@@ -259,6 +264,7 @@ export async function* planViaRoutes(
             issues.add(
               `Teilstrecke ${index + 1} (${places[index].name} → ${places[index + 1].name}): ${errorText(error)}`,
             );
+            failures.push(...planningFailures(error));
             incompletePhases.add(phase);
             stopped ||=
               combined.aborted ||
@@ -274,7 +280,7 @@ export async function* planViaRoutes(
             stopped ||
             budget.stopped ||
             count >= 64 ||
-            client.retryAt > Date.now() / 1000
+            (!run && client.retryAt > Date.now() / 1000)
           ) {
             stopped = true;
             break;
@@ -310,6 +316,7 @@ export async function* planViaRoutes(
           completed = walkingUpdate.journeys;
           phase = "walking";
           walkingUpdate.issues.forEach((issue) => issues.add(issue));
+          failures.push(...(walkingUpdate.failures ?? []));
           if (walkingUpdate.incomplete) incompletePhases.add("walking");
           yield update("searching");
         }
@@ -334,9 +341,12 @@ export async function* planViaRoutes(
           : "empty",
         [...issues].join(" ") ||
           "Keine vollständige Verbindung über alle Zwischenziele gefunden.",
+        false,
+        client.retryAt || undefined,
+        failures,
       );
     yield update(incompletePhases.size ? "partial" : "complete");
   } finally {
-    clearTimeout(timer);
+    deadline.dispose();
   }
 }

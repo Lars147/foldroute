@@ -133,6 +133,33 @@ const viaRequest: RouteRequest = {
   ],
 };
 
+test("closing before first results cancels the calculation and ignores late results", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  await page.locator("#close-route").click();
+  await expect(page.locator("#search-view")).toBeVisible();
+  expect(await page.evaluate(() => (window as any).searchControl.aborted)).toBe(
+    true,
+  );
+  await publish(page, {
+    phase: "walking",
+    ids: ["late-result"],
+    status: "complete",
+  });
+  await expect(page.locator("#search-view")).toBeVisible();
+  await expect(page.locator("#map-view")).toBeHidden();
+  await expect(page.locator(".route-choice")).toHaveCount(0);
+  await expect(page.locator("#search-empty")).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: /Laufende Routenberechnung öffnen|Aktuelle Route öffnen/,
+    }),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).searchControlRuns)).toBe(1);
+});
+
 const requestMarkerPositions = (page: Page) =>
   page.locator("#map .route-marker").evaluateAll((markers) =>
     markers.map((marker) => {
@@ -583,7 +610,7 @@ test("request map retains errors, retry and manual camera across the first resul
   await expectMapSettled(page);
   expect(await requestMarkerPositions(page)).toEqual(positions);
   await expect(page.locator("#map")).toBeFocused();
-  await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
+  await expect(page.locator("#toast")).toHaveText("Routenoptimierung läuft …");
 });
 
 test("search wait timer survives progress and resets for a new request, ignoring late results", async ({
@@ -730,7 +757,7 @@ for (const [width, height, fontSize] of [
     }, fontSize);
     await publish(page, { phase: "bike-transfers", ids: ["first"] });
     const toast = page.locator("#toast");
-    await expect(toast).toHaveText("Optimierung läuft …");
+    await expect(toast).toHaveText("Routenoptimierung läuft …");
     await expectFeedbackPosition(page, width);
     await expect(page.locator("#map-error")).toBeVisible();
     const panel = page.locator("#journey-panel");
@@ -1133,7 +1160,7 @@ for (const width of [320, 390, 1280])
       await expect(page.locator("#planning-ready")).toHaveCount(0);
       await publish(page, { phase: "base", ids: ["first", "chosen"] });
       await expect(toast).toHaveText(
-        width < 900 ? "Optimierung läuft …" : "Verbindungen gefunden",
+        width < 900 ? "Routenoptimierung läuft …" : "Verbindungen gefunden",
       );
       await expect(toast).toHaveAttribute(
         "data-planning-stage",
@@ -1210,6 +1237,7 @@ for (const width of [320, 390, 1280])
       });
       await expect(page.locator(".route-choice")).toHaveCount(0);
       await expect(toast).toBeHidden();
+      await expect(page.locator("#search-view")).toBeVisible();
     },
   );
 
@@ -1376,7 +1404,7 @@ for (const status of ["searching", "complete"])
     if (status === "complete") await expect(toast).toBeHidden();
     else {
       await expect(toast).toHaveAttribute("data-planning-stage", "optimizing");
-      await expect(toast).toHaveText("Optimierung läuft …");
+      await expect(toast).toHaveText("Routenoptimierung läuft …");
     }
     await expect(toast.locator(".toast-countdown")).toHaveCount(0);
   });
@@ -1402,7 +1430,7 @@ test("mobile search switches directly to optimization without shifting the list 
     "data-planning-stage",
     "optimizing",
   );
-  await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
+  await expect(page.locator("#toast")).toHaveText("Routenoptimierung läuft …");
   await expect(page.locator("#toast .planning-toast-spinner")).toHaveCSS(
     "animation-name",
     "route-loading",
@@ -1423,7 +1451,7 @@ test("mobile search switches directly to optimization without shifting the list 
   await publish(page, { phase: "walking", ids: ["first"], status: "complete" });
   await expect(page.locator("#toast")).toBeHidden();
   await expect(page.locator("#planning-announcement")).toHaveText(
-    "Optimierung abgeschlossen.",
+    "Routenoptimierung abgeschlossen.",
   );
   expect((await page.locator("#result-header").boundingBox())!.height).toBe(
     header!.height,
@@ -1498,7 +1526,7 @@ test("user messages take priority over searching and readiness toasts", async ({
   await page.clock.fastForward(3100);
   await expect(page.locator("#toast")).toHaveText("Planungslink kopiert.");
   await page.clock.fastForward(3000);
-  await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
+  await expect(page.locator("#toast")).toHaveText("Routenoptimierung läuft …");
 });
 
 test("partial optimization keeps retry reachable across map and details during a server pause", async ({
@@ -1533,7 +1561,7 @@ test("partial optimization keeps retry reachable across map and details during a
     "error",
   );
   await expect(page.locator("#toast .planning-toast-message")).toHaveText(
-    "Optimierung nicht vollständig.",
+    "Routenoptimierung: Anfragelimit des Dienstes erreicht.",
   );
   await expect(page.locator("#map-preview-status")).toBeHidden();
   await expect(page.locator("#toast #recover-planning")).toBeVisible();
@@ -1548,7 +1576,7 @@ test("partial optimization keeps retry reachable across map and details during a
   await page.locator("#map-open-details").click();
   await expect(page.locator("#status")).toBeEmpty();
   await expect(page.locator("#toast .planning-toast-message")).toHaveText(
-    "Optimierung nicht vollständig.",
+    "Routenoptimierung: Anfragelimit des Dienstes erreicht.",
   );
   await expect(page.locator("#toast #recover-planning")).toBeVisible();
   await expectFeedbackPosition(page, 390);
@@ -1563,13 +1591,16 @@ test("partial optimization keeps retry reachable across map and details during a
 for (const [cause, message] of [
   [
     "Suche nach weiteren Rad-Umstiegen: Zeitlimit erreicht.",
-    "Optimierung: Zeitlimit erreicht",
+    "Routenoptimierung: Zeitlimit erreicht",
   ],
   [
     "Prüfung kürzerer Fußwege: Anfragelimit erreicht.",
-    "Optimierung: Anfragelimit erreicht.",
+    "Routenoptimierung: Anfragelimit erreicht.",
   ],
-  ["Verbindung zum Dienst fehlgeschlagen.", "Optimierung nicht vollständig."],
+  [
+    "Verbindung zum Dienst fehlgeschlagen.",
+    "Routenoptimierung nicht vollständig.",
+  ],
 ] as const)
   test(
     "partial search shows " + message + " once across views",
@@ -1614,7 +1645,9 @@ for (const [cause, message] of [
         "data-planning-stage",
         "optimizing",
       );
-      await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
+      await expect(page.locator("#toast")).toHaveText(
+        "Routenoptimierung läuft …",
+      );
       await expect(page.locator("#journey-panel")).not.toHaveClass(
         /is-loading/,
       );
@@ -1792,7 +1825,7 @@ for (const width of [320, 1280])
     await page.locator("#share-plan").click();
     await expect(toast).toHaveText("Planungslink kopiert.");
     await expect(page.locator("#status")).toHaveText(
-      "Optimierung: Zeitlimit erreicht",
+      "Routenoptimierung: Zeitlimit erreicht",
     );
     await expect(retry).toBeVisible();
     await expect(page.locator("#toast #recover-planning")).toHaveCount(0);

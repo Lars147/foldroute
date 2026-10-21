@@ -387,11 +387,11 @@ test("throttling stops further requests; manual retry observes the pause", async
     });
   });
   await choose(page, "destination", "Ziel");
-  await expect(page.locator("#status")).toContainText("Zu viele Anfragen");
+  await expect(page.locator("#status")).toContainText("Anfragelimit erreicht");
   const before = requests;
   await page.locator("#adjust-route").click();
   await page.locator("#calculate").click();
-  await expect(page.locator("#status")).toContainText("Pause");
+  await expect(page.locator("#status")).toContainText("Anfragelimit erreicht");
   expect(requests).toBe(before);
 });
 test("editing during search preserves drafts, focus and optimization until cancelled", async ({
@@ -1005,6 +1005,7 @@ test("hidden comparison arriving first does not finish the search before transit
   await page.locator("#tab-settings").click();
   await page.locator("#maxCyclingMinutes").fill("30");
   await openSettingsSection(page, "options");
+  await page.locator("#settings-optimization > summary").click();
   await page.locator("#showCyclingComparison").uncheck();
   await page.locator("#save-settings").click();
   let release!: () => void;

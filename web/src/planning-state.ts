@@ -5,8 +5,11 @@ import {
   type PlanningPhase,
   type PlanningUpdate,
   type PlanningRoutePreview,
+  type PlanningFailure,
   errorText,
   PlannerError,
+  planningFailures,
+  serviceFailureMessage,
   retainSelectedJourney,
   selectJourneys,
 } from "./model";
@@ -30,6 +33,7 @@ export interface PlanningState {
   locating: boolean;
   message: string;
   issues: string[];
+  failures?: PlanningFailure[];
   restored: boolean;
   resultSettings?: RoutingSettings;
   calculationId?: string;
@@ -90,7 +94,29 @@ export class PlanningSession {
       request: RouteRequest,
       settings: RoutingSettings,
     ) => void,
-  ) {}
+  ) {
+    client.onPause((pause) => {
+      if (
+        !this.state.recovery ||
+        this.state.busy ||
+        !this.state.failures?.some((failure) =>
+          ["429", "503"].includes(failure.code),
+        )
+      )
+        return;
+      const failures = [
+        ...(this.state.failures ?? []),
+        { code: pause.code, message: pause.message, retryAt: pause.retryAt },
+      ];
+      this.state = {
+        ...this.state,
+        failures,
+        message: serviceFailureMessage(failures) ?? pause.message,
+        recovery: { ...this.state.recovery, retryAt: pause.retryAt },
+      };
+      this.emit();
+    });
+  }
   private emit() {
     this.change(this.state);
   }
@@ -117,6 +143,7 @@ export class PlanningSession {
         update.issues,
       ),
       issues: update.issues,
+      failures: update.failures,
       recovery:
         update.status === "partial"
           ? {
@@ -315,6 +342,7 @@ export class PlanningSession {
         ? "Standort wird ermittelt …"
         : "Verbindungen werden gesucht …",
       issues: [],
+      failures: [],
       recovery: undefined,
       phase: undefined,
       activeSection: undefined,
@@ -422,6 +450,9 @@ export class PlanningSession {
           this.state.issues.length ? "service" : "empty",
           this.state.issues.join(" ") ||
             "Keine passende Route gefunden. Ändere Start, Ziel, Zeit oder Einstellungen.",
+          false,
+          this.client.retryAt || undefined,
+          this.state.failures,
         );
     } catch (error) {
       if (signal.aborted || generation !== this.generation) return;
@@ -433,6 +464,10 @@ export class PlanningSession {
       const issues = received
         ? [...new Set([...this.state.issues, errorText(error)])]
         : this.state.issues;
+      const failures = [
+        ...(this.state.failures ?? []),
+        ...planningFailures(error),
+      ];
       this.state = {
         ...(received ? this.state : previous),
         request: received
@@ -448,6 +483,7 @@ export class PlanningSession {
         incompletePhases,
         searchStatus: received ? "partial" : undefined,
         issues,
+        failures,
         pendingRequest: received ? undefined : request,
         pendingRequestResolved: received ? undefined : resolved,
         staleReason: received
@@ -456,14 +492,16 @@ export class PlanningSession {
             ? (previous.staleReason ??
               "Die Aktualisierung ist nicht abgeschlossen. Diese Verbindung stammt aus der bisherigen Abfrage.")
             : undefined,
-        message: received
-          ? searchMessage("partial", phase, incompletePhases, true, issues)
-          : error instanceof PlannerError &&
-              error.code === "empty" &&
-              request.timing !== "now" &&
-              request.time < Date.now() / 1000
-            ? "Für diesen Zeitpunkt wurden keine passenden Verbindungen gefunden."
-            : errorText(error),
+        message:
+          serviceFailureMessage(failures) ??
+          (received
+            ? searchMessage("partial", phase, incompletePhases, true, issues)
+            : error instanceof PlannerError &&
+                error.code === "empty" &&
+                request.timing !== "now" &&
+                request.time < Date.now() / 1000
+              ? "Für diesen Zeitpunkt wurden keine passenden Verbindungen gefunden."
+              : errorText(error)),
         recovery: {
           action:
             !received &&
@@ -475,9 +513,10 @@ export class PlanningSession {
           ...(received ? { mode: "optimization" as const } : {}),
           request: structuredClone(request),
           retryAt:
-            error instanceof PlannerError && error.retryAt
-              ? error.retryAt
-              : this.client.retryAt || undefined,
+            Math.max(
+              error instanceof PlannerError ? (error.retryAt ?? 0) : 0,
+              this.client.retryAt,
+            ) || undefined,
         },
       };
       this.emit();
@@ -525,8 +564,9 @@ export class PlanningSession {
       ...this.state,
       busy: true,
       locating: false,
-      message: "Optimierung läuft …",
+      message: "Routenoptimierung läuft …",
       issues: [],
+      failures: [],
       incompletePhases: [],
       searchStatus: "searching",
       recovery: undefined,
@@ -579,6 +619,10 @@ export class PlanningSession {
               ...new Set([...(this.state.incompletePhases ?? []), phase]),
             ],
             issues: [...new Set([...this.state.issues, errorText(error)])],
+            failures: [
+              ...(this.state.failures ?? []),
+              ...planningFailures(error),
+            ],
           },
           request,
           true,

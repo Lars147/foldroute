@@ -264,6 +264,7 @@ test("settings persist immediately and replan once on leaving", async ({
   );
   await expect(page.locator("#settings-replan")).toBeVisible();
   await openSettingsSection(page, "options");
+  await page.locator("#settings-optimization > summary").click();
   await page.locator("#maxWalkingMinutes").fill("3");
   const cycling = page.getByLabel("Maximale Radzeit je Etappe", {
     exact: false,
@@ -1058,6 +1059,8 @@ for (const problem of ["empty", "service"] as const)
     page,
   }) => {
     await setup(page);
+    if (problem === "service")
+      await page.clock.install({ time: new Date("2026-09-04T08:00:00Z") });
     const url = routeURL(page.url(), {
       request: {
         origin: {
@@ -1117,6 +1120,11 @@ for (const problem of ["empty", "service"] as const)
       );
     }
     failing = false;
+    if (problem === "service") {
+      await expect(page.locator("#recover-planning")).toBeDisabled();
+      await page.clock.fastForward(16_000);
+      await expect(page.locator("#recover-planning")).toBeEnabled();
+    }
     await page.locator("#recover-planning").click();
     if (problem === "empty") {
       await expect(page.locator("#route-editor")).toBeVisible();
@@ -1191,6 +1199,7 @@ test("three regular routes keep their places and comparison is an optional fourt
   await page.screenshot({ path: "test-results/fourth-comparison-mobile.png" });
   await page.locator("#tab-settings").click();
   await openSettingsSection(page, "options");
+  await page.locator("#settings-optimization > summary").click();
   await page.locator("#showCyclingComparison").uncheck();
   await page.locator("#save-settings").click();
   await expectPlanningComplete(page);
@@ -1220,6 +1229,7 @@ test("only hidden comparisons produce an empty-result message", async ({
   await page.locator("#tab-settings").click();
   await page.locator("#maxCyclingMinutes").fill("30");
   await openSettingsSection(page, "options");
+  await page.locator("#settings-optimization > summary").click();
   await page.locator("#showCyclingComparison").uncheck();
   await page.locator("#save-settings").click();
   await page.route("**/api/v6/plan?*", (r) =>
@@ -1289,7 +1299,9 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
     });
     await choose(page, "destination", "Ziel");
     if (outcome !== "error")
-      await expect(page.locator("#toast")).toHaveText("Optimierung läuft …");
+      await expect(page.locator("#toast")).toHaveText(
+        "Routenoptimierung läuft …",
+      );
     else
       await expect(page.locator("#status")).toHaveText(
         "Verbindungen werden gesucht …",
@@ -1640,7 +1652,9 @@ test("successful save retry clears its error without a success message", async (
     "Speicherung ausgeschaltet",
   );
   await page.locator("#offline-enabled").check();
-  await expect(page.locator("#storage-message")).toBeEmpty();
+  await expect(page.locator("#storage-message")).toContainText(
+    "Speicherung eingeschaltet",
+  );
   await expect(page.locator("#toast")).toBeHidden();
   await expect(page.locator("#offline-enabled")).toBeEnabled();
   await page.evaluate(async () => {
@@ -1654,7 +1668,7 @@ test("successful save retry clears its error without a success message", async (
   });
   await page.locator("#offline-enabled").click();
   await expect(page.locator("#storage-message")).toContainText(
-    "Offline-Einstellung konnte nicht gespeichert",
+    "Speichereinstellung konnte nicht geändert werden",
   );
   await expect(page.locator("#offline-enabled")).toBeChecked();
   await page.locator("#offline-enabled").uncheck();
@@ -1662,6 +1676,8 @@ test("successful save retry clears its error without a success message", async (
     "Speicherung ausgeschaltet",
   );
   await page.locator("#offline-enabled").check();
-  await expect(page.locator("#storage-message")).toBeEmpty();
+  await expect(page.locator("#storage-message")).toContainText(
+    "Speicherung eingeschaltet",
+  );
   await expect(page.locator("#toast")).toBeHidden();
 });

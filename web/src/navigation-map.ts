@@ -96,7 +96,10 @@ export class NavigationMap {
     this.map = new Map({
       target,
       view: this.view,
-      interactions: defaultInteractions({ onFocusOnly: false }),
+      interactions: defaultInteractions({
+        onFocusOnly: false,
+        doubleClickZoom: false,
+      }),
       layers: [
         this.tiles,
         new VectorLayer({ source: this.routes }),

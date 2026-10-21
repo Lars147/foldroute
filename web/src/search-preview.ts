@@ -1,6 +1,8 @@
 import type { PlanningState } from "./planning-state";
 import { planningRequestPreview } from "./planning-progress";
 import { el } from "./ui";
+import { rateLimitMessage } from "./model";
+import { RetryCountdown } from "./retry-countdown";
 
 /** The initial search has one persistent status, independent of transient toasts. */
 export class SearchPreview {
@@ -8,6 +10,7 @@ export class SearchPreview {
   private routing = false;
   private longWait = false;
   private timer?: ReturnType<typeof setTimeout>;
+  private countdown = new RetryCountdown();
 
   render(state: PlanningState) {
     this.state = state;
@@ -34,6 +37,7 @@ export class SearchPreview {
   }
 
   private update() {
+    this.countdown.clear();
     const state = this.state!;
     const request = planningRequestPreview(state);
     const card = el("search-preview");
@@ -68,6 +72,11 @@ export class SearchPreview {
         : "Wir prüfen passende Wege für deine Vorgaben.";
     const detail = state.busy ? (state.locating ? "" : section) : state.message;
     setText("search-preview-detail", detail);
+    if (!state.busy && rateLimitMessage(state.failures))
+      this.countdown.render(
+        el("search-preview-detail"),
+        state.recovery?.retryAt ?? 0,
+      );
     el("search-preview-detail").hidden = !detail;
     const hint = this.routing
       ? request.stops?.length

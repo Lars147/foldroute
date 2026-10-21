@@ -13,11 +13,13 @@ import {
   cyclingComparisonLabel,
   journeyEffort,
   journeyOutline,
+  rateLimitMessage,
 } from "./model";
 import { type PlanningState } from "./planning-state";
 import { planningProgress } from "./planning-progress";
 import { renderRequestStops } from "./route-request";
 import { SearchPreview } from "./search-preview";
+import { RetryCountdown } from "./retry-countdown";
 import {
   el,
   node,
@@ -67,6 +69,8 @@ export class JourneyView {
   private requestMapReady = false;
   private readonly searchPreview = new SearchPreview();
   private recoveryTimer?: ReturnType<typeof setTimeout>;
+  private statusCountdown = new RetryCountdown();
+  private mapCountdown = new RetryCountdown();
   private navigation: JourneyNavigation = {
     screen: "list",
     mapReturn: "list",
@@ -470,6 +474,8 @@ export class JourneyView {
     target.focus({ preventScroll: true });
   }
   render(state: PlanningState, cyclingLimit = 30) {
+    this.statusCountdown.clear();
+    this.mapCountdown.clear();
     const previewHeadingFocused =
       document.activeElement === el("search-preview-heading");
     const preview = this.searchPreview.render(state);
@@ -583,6 +589,12 @@ export class JourneyView {
     if (mapStatus.textContent !== mapMessage)
       mapStatus.textContent = mapMessage;
     mapStatus.hidden = !mapStatus.textContent;
+    if (!state.busy && rateLimitMessage(state.failures)) {
+      if (status.textContent)
+        this.statusCountdown.render(status, state.recovery?.retryAt ?? 0);
+      if (mapStatus.textContent)
+        this.mapCountdown.render(mapStatus, state.recovery?.retryAt ?? 0);
+    }
     clearTimeout(this.recoveryTimer);
     const recovery = state.recovery;
     el("planning-recovery").hidden = !recovery || state.busy;
@@ -594,7 +606,10 @@ export class JourneyView {
     const wait = Math.max(0, (recovery?.retryAt ?? 0) - Date.now() / 1000);
     recover.disabled =
       recovery?.action === "retry" && (!navigator.onLine || wait > 0);
-    el("recovery-wait").hidden = !wait || recovery?.action !== "retry";
+    el("recovery-wait").hidden =
+      !wait ||
+      recovery?.action !== "retry" ||
+      !!rateLimitMessage(state.failures);
     const waitMessage = wait
       ? `Erneut möglich ab ${clock(recovery!.retryAt!)}.`
       : "";

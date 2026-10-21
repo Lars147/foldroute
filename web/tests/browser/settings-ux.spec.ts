@@ -19,7 +19,7 @@ for (const width of [320, 390, 1280]) {
       "foldingDuration",
     ])
       await expect(page.locator(`#${id}`)).toBeVisible();
-    for (const id of ["modes", "options", "data", "help"])
+    for (const id of ["modes", "options", "optimization", "data", "help"])
       await expect(page.locator(`#settings-${id}`)).not.toHaveAttribute("open");
     await expect(page.locator("#settings-replan")).toBeHidden();
     await expect(page.locator("#save-settings")).toHaveText("Fertig");
@@ -29,7 +29,16 @@ for (const width of [320, 390, 1280]) {
       path: info.outputPath("settings.png"),
       fullPage: true,
     });
-    for (const id of ["modes", "options", "data", "help"] as const)
+    await page.locator("#app-updates").screenshot({
+      path: info.outputPath("updates-development.png"),
+    });
+    for (const id of [
+      "modes",
+      "options",
+      "optimization",
+      "data",
+      "help",
+    ] as const)
       await openSettingsSection(page, id);
     await page
       .locator("#settings-help")
@@ -297,7 +306,9 @@ for (const installed of [false, true]) {
     );
     await expect(links).toHaveCount(5);
     for (const link of await links.all()) {
-      expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(48);
+      expect(
+        Math.round((await link.boundingBox())!.height),
+      ).toBeGreaterThanOrEqual(48);
       await expect(link).not.toHaveAttribute("target", "_blank");
     }
     const privacy = page.getByRole("link", {

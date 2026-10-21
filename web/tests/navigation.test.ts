@@ -352,7 +352,8 @@ function sessionHarness(
     changed: vi.fn(),
     locate,
     routingSettings,
-    storageEnabled,
+    resumeEnabled: storageEnabled,
+    statisticsEnabled: storageEnabled,
     api: new ApiClient(),
     store: store as unknown as NavigationStore,
     plan,
@@ -419,7 +420,8 @@ it.each(["proposal", "reroute"])(
     const session = new NavigationSession({
       changed: vi.fn(),
       locate: async () => fix(),
-      storageEnabled: () => false,
+      resumeEnabled: () => false,
+      statisticsEnabled: () => false,
       api,
       store: {
         clear: vi.fn().mockResolvedValue(undefined),
@@ -896,7 +898,8 @@ it("retains a cancelled selection after a delayed transit check without silently
   const session = new NavigationSession({
     changed: vi.fn(),
     locate: async () => fix(),
-    storageEnabled: () => false,
+    resumeEnabled: () => false,
+    statisticsEnabled: () => false,
     api,
     store: {
       clear: vi.fn().mockResolvedValue(undefined),
@@ -1060,7 +1063,8 @@ it("requires confirmation when a saved section expires during transit refresh", 
   const session = new NavigationSession({
     changed: vi.fn(),
     locate: async () => fix(),
-    storageEnabled: () => false,
+    resumeEnabled: () => false,
+    statisticsEnabled: () => false,
     api: new ApiClient(),
     store: { clear: vi.fn() } as unknown as NavigationStore,
     refresher: {
@@ -1223,7 +1227,8 @@ it("allows a past bike departure while keeping the selected train and projecting
   const session = new NavigationSession({
     changed: vi.fn(),
     locate: async () => fix(c),
-    storageEnabled: () => false,
+    resumeEnabled: () => false,
+    statisticsEnabled: () => false,
     api,
     store: { clear: vi.fn() } as unknown as NavigationStore,
     refresher: {
@@ -1541,6 +1546,28 @@ it("does not record early stops or trips with storage disabled", async () => {
   expect(disabled.store.save).not.toHaveBeenCalled();
   await disabled.session.stop();
 });
+
+for (const resumeEnabled of [false, true])
+  it(`keeps statistics independent of resume=${resumeEnabled}`, async () => {
+    const harness = sessionHarness();
+    const statisticsEnabled = !resumeEnabled;
+    const session = new NavigationSession({
+      changed: vi.fn(),
+      locate: harness.locate,
+      resumeEnabled: () => resumeEnabled,
+      statisticsEnabled: () => statisticsEnabled,
+      api: new ApiClient(),
+      store: harness.store as unknown as NavigationStore,
+      refresher: { refresh: async () => new Map() } as any,
+    });
+    await session.start(journey(), request, defaults);
+    expect(harness.store.save.mock.calls.length > 0).toBe(resumeEnabled);
+    session.completeLeg(session.engine!.leg.navigationId!);
+    expect(harness.store.completeTrip).toHaveBeenCalledTimes(
+      statisticsEnabled ? 1 : 0,
+    );
+    await session.stop();
+  });
 
 it("waits for pending completion before clearing the session, even when dismissed immediately", async () => {
   const { session, store } = sessionHarness();

@@ -1,6 +1,8 @@
 import type { PlanningState } from "./planning-state";
 import { planningProgress, planningRequestPreview } from "./planning-progress";
 import { el } from "./ui";
+import { rateLimitMessage } from "./model";
+import { RetryCountdown } from "./retry-countdown";
 
 export const planningReadyMessage = "Verbindungen gefunden";
 export type PlanningToastStage = "searching" | "ready" | "optimizing" | "error";
@@ -17,6 +19,7 @@ export class PlanningFeedback {
   private readyId?: string;
   private state?: PlanningState;
   private frame?: number;
+  private countdown = new RetryCountdown();
 
   constructor(
     private notify: (
@@ -84,7 +87,8 @@ export class PlanningFeedback {
       this.previousCalculation === state.calculationId &&
       state.searchStatus === "complete"
     )
-      el("planning-announcement").textContent = "Optimierung abgeschlossen.";
+      el("planning-announcement").textContent =
+        "Routenoptimierung abgeschlossen.";
     else if (
       this.previousCalculation !== state.calculationId ||
       !this.visible() ||
@@ -195,6 +199,7 @@ export class PlanningFeedback {
   }
 
   private renderStatus() {
+    this.countdown.clear();
     if (!this.state) return;
     const state = this.state;
     const progress = planningProgress(state);
@@ -219,7 +224,14 @@ export class PlanningFeedback {
       else this.notify(this.searchingId, state.message, "searching");
     } else if (state.searchStatus === "partial") {
       this.readyId = undefined;
-      if (this.notify(id!, progress.message, "error")) this.attachRecovery();
+      if (this.notify(id!, progress.message, "error")) {
+        this.attachRecovery();
+        const label = el("toast").querySelector<HTMLElement>(
+          ".planning-toast-message",
+        );
+        if (label && rateLimitMessage(state.failures))
+          this.countdown.render(label, state.recovery?.retryAt ?? 0);
+      }
     } else {
       if (
         firstReady &&
@@ -237,7 +249,7 @@ export class PlanningFeedback {
       if (!showingReady) {
         this.readyId = undefined;
         if (progress.optimizing)
-          this.notify(id!, "Optimierung läuft …", "optimizing");
+          this.notify(id!, "Routenoptimierung läuft …", "optimizing");
         else this.dismiss();
       }
     }

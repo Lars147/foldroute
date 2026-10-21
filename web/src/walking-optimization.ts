@@ -3,15 +3,19 @@ import {
   type Leg,
   type RouteRequest,
   type RoutingSettings,
+  type PlanningFailure,
   walkingSeconds,
   selectJourneys,
   bikeBoardings,
   transition,
   PlannerError,
   errorText,
+  planningFailures,
 } from "./model";
 import { distance } from "./geometry";
 import type { RequestBudget, RoutingClient } from "./transitous";
+import { pool } from "./routing-pool";
+import { workDeadline } from "./routing-retry";
 
 export interface WalkingBlock {
   journey: Journey;
@@ -58,7 +62,7 @@ export function cyclingReplacement(
   const upper =
     last + 1 < original.length ? original[last + 1].start : journey.arrival;
   const fold = folded ? settings.foldingDuration : 0,
-    buffer = folded ? 180 : 0;
+    buffer = folded ? settings.transferMinutes * 60 : 0;
   if (
     !ride.legs.length ||
     !ride.legs.some((l) => l.kind === "bike") ||
@@ -126,6 +130,7 @@ export async function* optimizeWalking(
 ): AsyncGenerator<{
   journeys: Journey[];
   issues: string[];
+  failures?: PlanningFailure[];
   incomplete: boolean;
 }> {
   const chosen = selectJourneys(
@@ -139,17 +144,17 @@ export async function* optimizeWalking(
   if (
     !blocks.length ||
     parentBudget?.stopped ||
-    client.retryAt > Date.now() / 1000
+    (!parentBudget?.run && client.retryAt > Date.now() / 1000)
   )
     return;
   signal.throwIfAborted();
   yield { journeys, issues: [], incomplete: false };
   signal.throwIfAborted();
-  const deadline = new AbortController();
-  const timer = setTimeout(() => deadline.abort(), 10000);
+  const deadline = workDeadline(parentBudget?.run, 10000);
   const combined = AbortSignal.any([signal, deadline.signal]);
   let count = 0;
   const budget: RequestBudget = {
+    run: parentBudget?.run,
     take() {
       if (count >= 6 || parentBudget?.stopped)
         throw new PlannerError("budget", "Radprüfung beendet.", true);
@@ -161,10 +166,11 @@ export async function* optimizeWalking(
   const latest = new Map(chosen.map((j) => [j.id, j]));
   const improvements: Journey[] = [],
     issues: string[] = [];
+  const failures: PlanningFailure[] = [];
   let stopped = false,
     incomplete = false,
     processed = 0;
-  const fetchBlock = async (block: WalkingBlock) => {
+  const fetchBlock = async (block: WalkingBlock, blockSignal: AbortSignal) => {
     const lower = block.first
       ? block.journey.legs[block.first - 1].end
       : block.journey.departure;
@@ -189,7 +195,7 @@ export async function* optimizeWalking(
           part,
           settings,
           { direct: true, pre: "BIKE", post: "BIKE", street: true },
-          combined,
+          blockSignal,
           budget,
         )
         .then((batch) => {
@@ -200,6 +206,7 @@ export async function* optimizeWalking(
           }
           incomplete ||= !!batch.issues.length || !!batch.rejected;
           issues.push(...batch.issues);
+          failures.push(...(batch.failures ?? []));
           if (batch.rejected)
             issues.push(
               "Einige Radprüfungen enthalten fehlerhafte Streckendaten.",
@@ -215,6 +222,7 @@ export async function* optimizeWalking(
       if (error instanceof PlannerError && error.stops) stopped = true;
       if (error instanceof PlannerError && error.code === "empty") return [];
       incomplete = true;
+      failures.push(...planningFailures(error));
       if (
         !combined.aborted &&
         !(error instanceof PlannerError && error.code === "budget")
@@ -226,17 +234,15 @@ export async function* optimizeWalking(
     }
   };
   try {
-    for (
-      let i = 0;
-      i < blocks.length && !stopped && !combined.aborted && count < 6;
-      i += 2
-    ) {
-      const jobs = blocks.slice(i, i + 2);
-      const responses = await Promise.all(jobs.map(fetchBlock));
+    for await (const result of pool(
+      blocks.map((block) => (s) => fetchBlock(block, s)),
+      combined,
+      () => !stopped && count < 6,
+    )) {
       signal.throwIfAborted();
-      processed = i + jobs.length;
-      for (let n = 0; n < jobs.length; n++) {
-        const originalBlock = jobs[n];
+      processed++;
+      {
+        const originalBlock = blocks[result.index];
         const current = latest.get(originalBlock.journey.id)!;
         // Locate unchanged legs by identity after earlier replacements shift indices.
         const first = current.legs.indexOf(
@@ -247,7 +253,7 @@ export async function* optimizeWalking(
         );
         if (first < 0 || last < first) continue;
         const block = { ...originalBlock, journey: current, first, last };
-        const replacements = responses[n].flatMap((ride) => {
+        const replacements = (result.value ?? []).flatMap((ride) => {
           const candidate = cyclingReplacement(block, ride, settings);
           return candidate ? [candidate] : [];
         });
@@ -267,6 +273,7 @@ export async function* optimizeWalking(
         journeys: [...journeys, ...improvements],
         issues: [...new Set(issues)],
         incomplete,
+        failures: [...failures],
       };
     }
     if (deadline.signal.aborted || (count >= 6 && processed < blocks.length)) {
@@ -280,11 +287,25 @@ export async function* optimizeWalking(
         journeys: [...journeys, ...improvements],
         issues: [...new Set(issues)],
         incomplete,
+        failures: [...failures],
       };
     }
+  } catch (error) {
+    signal.throwIfAborted();
+    if (!deadline.signal.aborted) throw error;
+    yield {
+      journeys: [...journeys, ...improvements],
+      issues: [
+        ...new Set([
+          ...issues,
+          "Prüfung kürzerer Fußwege: Zeitlimit erreicht.",
+        ]),
+      ],
+      failures,
+      incomplete: true,
+    };
   } finally {
-    clearTimeout(timer);
-    deadline.abort();
+    deadline.dispose();
   }
   signal.throwIfAborted();
 }

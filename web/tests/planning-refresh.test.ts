@@ -296,7 +296,7 @@ describe("progressive search presentation", () => {
       ready: true,
       optimizing: false,
       loading: false,
-      message: "Optimierung nicht vollständig.",
+      message: "Routenoptimierung nicht vollständig.",
     });
   });
 
@@ -318,38 +318,38 @@ describe("progressive search presentation", () => {
     expect(session.state.selected?.id).toBe("first");
     expect(session.state.recovery?.action).toBe("retry");
     expect(planningProgress(session.state).message).toBe(
-      "Optimierung nicht vollständig.",
+      "Routenoptimierung nicht vollständig.",
     );
   });
 
   for (const [issues, message] of [
     [
       ["Suche nach weiteren Rad-Umstiegen: Zeitlimit erreicht."],
-      "Optimierung: Zeitlimit erreicht",
+      "Routenoptimierung: Zeitlimit erreicht",
     ],
     [
       [
         "Suche über Zwischenziele: Zeitlimit erreicht.",
         "Prüfung kürzerer Fußwege: Zeitlimit erreicht.",
       ],
-      "Optimierung: Zeitlimit erreicht",
+      "Routenoptimierung: Zeitlimit erreicht",
     ],
     [
       ["Der Dienst hat nicht rechtzeitig geantwortet."],
-      "Optimierung: Zeitlimit erreicht",
+      "Routenoptimierung: Zeitlimit erreicht",
     ],
     [
       ["Prüfung kürzerer Fußwege: Anfragelimit erreicht."],
-      "Optimierung: Anfragelimit erreicht.",
+      "Routenoptimierung: Anfragelimit erreicht.",
     ],
     [
       [
         "Suche über Zwischenziele: Zeitlimit erreicht.",
         "Dienst nicht verfügbar",
       ],
-      "Optimierung nicht vollständig.",
+      "Routenoptimierung nicht vollständig.",
     ],
-    [[], "Optimierung nicht vollständig."],
+    [[], "Routenoptimierung nicht vollständig."],
   ] as const)
     it(`summarizes ${issues.join(" / ") || "unspecified failure"} without phase names`, async () => {
       const session = sessionWithArchive();

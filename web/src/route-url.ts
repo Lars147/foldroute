@@ -1,5 +1,6 @@
 import {
   ranges,
+  defaults,
   validSettings,
   validStops,
   type RouteStop,
@@ -145,6 +146,10 @@ export function readRouteURL(url: URL): ParsedRouteLink {
     };
     for (const key of Object.keys(ranges)) {
       const raw = params.get(key);
+      if (key === "transferMinutes" && raw === null) {
+        values[key] = defaults.transferMinutes;
+        continue;
+      }
       if (!raw?.trim()) return { kind: "invalid" };
       values[key] = Number(raw);
     }
