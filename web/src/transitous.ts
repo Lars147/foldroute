@@ -441,6 +441,20 @@ export interface RequestBudget {
   stopped?: boolean;
   run?: RoutingRun;
 }
+/** Browser transports can settle late after abort; cancellation must release routing permits immediately. */
+function abortable<T>(
+  signal: AbortSignal,
+  operation: () => Promise<T>,
+): Promise<T> {
+  signal.throwIfAborted();
+  let abort: () => void;
+  const pending = new Promise<T>((resolve, reject) => {
+    abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    operation().then(resolve, reject);
+  });
+  return pending.finally(() => signal.removeEventListener("abort", abort));
+}
 function geocodeDetail(place: {
   zip?: unknown;
   areas?: unknown;
@@ -560,12 +574,14 @@ export class ApiClient {
       if (budget?.stopped)
         throw new PlannerError("budget", "Suche: Anfragelimit erreicht.", true);
       budget?.take();
-      const response = await this.fetcher(url, {
-        signal: combined,
-        referrerPolicy: "strict-origin-when-cross-origin",
-        ...(reload ? { cache: "reload" as const } : {}),
-      });
-      signal.throwIfAborted();
+      const response = await abortable(combined, () =>
+        this.fetcher(url, {
+          signal: combined,
+          referrerPolicy: "strict-origin-when-cross-origin",
+          ...(reload ? { cache: "reload" as const } : {}),
+        }),
+      );
+      combined.throwIfAborted();
       if (response.status === 429 || response.status === 503) {
         const responseNow = Date.now() / 1000;
         const until =
@@ -596,8 +612,8 @@ export class ApiClient {
           "service",
           `Der Dienst konnte die Anfrage nicht beantworten (HTTP ${response.status}). Bitte später erneut versuchen.`,
         );
-      const value: unknown = await response.json();
-      signal.throwIfAborted();
+      const value: unknown = await abortable(combined, () => response.json());
+      combined.throwIfAborted();
       return value;
     } catch (error) {
       if (signal.aborted) throw signal.reason;
