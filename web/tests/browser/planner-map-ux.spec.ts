@@ -348,13 +348,18 @@ test("manual map gestures release location focus; button restores it and route s
 test("location denial keeps destination and allows a manual start", async ({
   page,
 }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
   await page.addInitScript(() => {
-    Object.defineProperty(navigator, "geolocation", {
-      value: {
-        getCurrentPosition: (_success: unknown, fail: (e: unknown) => void) =>
-          fail({ code: 1 }),
-      },
-    });
+    // Keep watchPosition available to the shared timestamp-normalizing fixture.
+    navigator.geolocation.getCurrentPosition = (_success, fail) =>
+      fail?.({
+        code: 1,
+        message: "Permission denied",
+        PERMISSION_DENIED: 1,
+        POSITION_UNAVAILABLE: 2,
+        TIMEOUT: 3,
+      });
   });
   await setup(page, false);
   await choose(page, "destination", "Ziel");
@@ -366,6 +371,7 @@ test("location denial keeps destination and allows a manual start", async ({
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("32 min");
   await expect(page.locator("#route-origin")).toHaveText("Start");
+  expect(errors).toEqual([]);
 });
 test("a draft opened while locating stays now until reopened after time resolution", async ({
   page,

@@ -709,7 +709,13 @@ test("legacy links use personal preferences and edits survive Back and reload", 
 }) => {
   await setup(page);
   await plan(page);
-  const link = new URL(page.url());
+  const current = new URL(page.url());
+  const link = new URL(current.pathname, current.origin);
+  // Build the historical format independently of newer URL metadata.
+  for (const key of ["from", "fromName", "to", "toName", "timing", "time"]) {
+    const value = current.searchParams.get(key);
+    if (value !== null) link.searchParams.set(key, value);
+  }
   link.searchParams.set("v", "1");
   for (const [key, value] of Object.entries({
     ...defaults,
