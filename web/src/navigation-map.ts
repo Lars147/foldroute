@@ -100,7 +100,7 @@ export class NavigationMap {
       view: this.view,
       interactions: defaultInteractions({
         onFocusOnly: false,
-        doubleClickZoom: false,
+        doubleClickZoom: true,
       }),
       layers: [
         this.tiles,
@@ -141,6 +141,8 @@ export class NavigationMap {
       { signal: this.events.signal },
     );
     this.map.on("pointerdrag", () => this.pause());
+    // Map events include touch double taps and run before the zoom interaction.
+    this.map.on("dblclick", () => this.pause());
     target.addEventListener("wheel", () => this.pause(), {
       passive: true,
       signal: this.events.signal,

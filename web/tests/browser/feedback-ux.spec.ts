@@ -1,5 +1,5 @@
 import { expect, test } from "./test";
-import { setup, plan, expectMapSettled } from "./planner-fixture";
+import { setup, plan, expectMapSettled, runMapClock } from "./planner-fixture";
 import {
   openSettingsSection,
   expectPlanningComplete,
@@ -118,20 +118,46 @@ for (const width of [320, 390, 1280]) {
   });
 }
 
-test("double click keeps the overview camera unchanged", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 852 });
-  await setup(page);
-  await plan(page);
-  await showMap(page);
-  await page.clock.install({ time: new Date("2026-09-04T08:00:00Z") });
-  await page.clock.runFor(500);
-  await expectMapSettled(page);
-  const geometry = () =>
-    page
-      .locator("#map .leaflet-zoom-animated")
-      .evaluateAll((elements) => elements.map((e) => e.getAttribute("style")));
-  const before = await geometry();
-  await page.locator("#map").dblclick({ position: { x: 700, y: 250 } });
-  await page.clock.runFor(1000);
-  expect(await geometry()).toEqual(before);
-});
+for (const hasTouch of [false, true]) {
+  test.describe(hasTouch ? "touch zoom" : "mouse zoom", () => {
+    test.use({ hasTouch, isMobile: hasTouch });
+
+    test("double activation zooms the overview without zooming the page", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 852 });
+      await setup(page);
+      await plan(page);
+      await showMap(page);
+      await page.clock.install({ time: new Date("2026-09-04T08:00:00Z") });
+      await runMapClock(page);
+      await page.clock.runFor(500);
+      await expectMapSettled(page);
+      const map = page.locator("#map");
+      const scale = () =>
+        map
+          .locator(".leaflet-proxy")
+          .evaluate(
+            (element) =>
+              new DOMMatrixReadOnly((element as HTMLElement).style.transform).a,
+          );
+      const before = await scale();
+      const pageScale = await page.evaluate(() => visualViewport!.scale);
+      if (hasTouch) {
+        const bounds = (await map.boundingBox())!;
+        await page.touchscreen.tap(bounds.x + 700, bounds.y + 250);
+        await page.clock.runFor(80);
+        await page.touchscreen.tap(bounds.x + 700, bounds.y + 250);
+      } else {
+        await map.dblclick({ position: { x: 700, y: 250 } });
+      }
+      await page.clock.runFor(1000);
+      expect((await scale()) / before).toBeCloseTo(2);
+      expect(await page.evaluate(() => visualViewport!.scale)).toBe(pageScale);
+      await expect(page.locator("html")).toHaveCSS(
+        "touch-action",
+        "pan-x pan-y",
+      );
+    });
+  });
+}

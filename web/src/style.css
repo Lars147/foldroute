@@ -1,6 +1,8 @@
 @import "../../docs/theme.css";
 
 :root {
+  /* Keep page scrolling while map libraries own their zoom gestures. */
+  touch-action: pan-x pan-y;
   font-family:
     -apple-system, BlinkMacSystemFont, "Avenir Next", "Segoe UI", sans-serif;
   font-synthesis: none;

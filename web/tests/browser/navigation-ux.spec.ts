@@ -15,16 +15,42 @@ import {
   startSelected,
 } from "./navigation-fixture";
 
-test("double click keeps navigation zoom unchanged", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await setup(page, true);
-  await page.clock.runFor(1000);
-  const map = page.locator("#navigation-map");
-  const zoom = await map.getAttribute("data-zoom");
-  await map.dblclick({ position: { x: 180, y: 200 } });
-  await page.clock.runFor(1000);
-  await expect(map).toHaveAttribute("data-zoom", zoom!);
-});
+for (const hasTouch of [false, true]) {
+  test.describe(hasTouch ? "touch zoom" : "mouse zoom", () => {
+    test.use({ hasTouch });
+
+    test("double activation zooms navigation without zooming the page", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await setup(page, true);
+      await page.clock.runFor(1000);
+      const map = page.locator("#navigation-map");
+      const zoom = Number(await map.getAttribute("data-zoom"));
+      const pageScale = await page.evaluate(() => visualViewport!.scale);
+      await expect(map).toHaveAttribute("data-following", "true");
+      if (hasTouch) {
+        const bounds = (await map.boundingBox())!;
+        await page.touchscreen.tap(bounds.x + 180, bounds.y + 200);
+        await page.clock.runFor(80);
+        await page.touchscreen.tap(bounds.x + 180, bounds.y + 200);
+      } else {
+        await map.dblclick({ position: { x: 180, y: 200 } });
+      }
+      await page.clock.runFor(1000);
+      expect(Number(await map.getAttribute("data-zoom"))).toBeCloseTo(zoom + 1);
+      await expect(map).toHaveAttribute("data-following", "false");
+      expect(await page.evaluate(() => visualViewport!.scale)).toBe(pageScale);
+      await expect(page.locator("html")).toHaveCSS(
+        "touch-action",
+        "pan-x pan-y",
+      );
+      await page.locator("#navigation-center").click();
+      await expect(map).toHaveAttribute("data-following", "true");
+      expect(Number(await map.getAttribute("data-zoom"))).toBeCloseTo(zoom);
+    });
+  });
+}
 
 for (const width of [390, 1280]) {
   test(`next actual turn stays visible across short straight steps at ${width}px`, async ({

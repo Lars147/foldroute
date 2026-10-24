@@ -146,7 +146,7 @@ export class RouteMap {
         zoomControl: false,
         attributionControl: false,
         scrollWheelZoom: true,
-        doubleClickZoom: false,
+        doubleClickZoom: true,
       }).setView([50, 10], 4);
       this.map.on("click", (event: L.LeafletMouseEvent) => {
         if (this.moving || this.zooming || this.suppressRouteClick) return;
@@ -161,6 +161,16 @@ export class RouteMap {
           this.onSelect(hit.id);
       });
       const container = this.map.getContainer();
+      container.addEventListener(
+        "click",
+        (event) => {
+          // WebKit labels touch compatibility clicks as mouse input, which
+          // otherwise makes Leaflet skip its double-tap fallback.
+          if (event.pointerType === "mouse" && this.pointerType === "touch")
+            Object.defineProperty(event, "pointerType", { value: "touch" });
+        },
+        { capture: true },
+      );
       container.addEventListener("pointerdown", (event) => {
         this.pointerType = event.pointerType;
         if (event.pointerType === "mouse") this.cancelPendingHover();
