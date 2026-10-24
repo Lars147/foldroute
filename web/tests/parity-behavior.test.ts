@@ -93,7 +93,7 @@ describe("places", () => {
     expect(entries[0]).toMatchObject({ favorite: true, lastUsedAt: undefined });
     expect(updatedPlaces(entries, origin, "favorite", 200)).toEqual([]);
   });
-  it("deduplicates nearby named places and keeps stop identity", () => {
+  it("deduplicates legacy points without inheriting a stale stop identity", () => {
     const entries = updatedPlaces(
       [],
       { ...origin, stopId: "station" },
@@ -110,8 +110,9 @@ describe("places", () => {
     expect(result[0]).toMatchObject({
       favorite: true,
       lastUsedAt: 100,
-      place: { stopId: "station" },
+      place: { name: origin.name },
     });
+    expect(result[0].place.stopId).toBeUndefined();
   });
   it("limits recents to 20 without deleting favorites", () => {
     let entries: StoredPlace[] = updatedPlaces([], origin, "favorite", 0);

@@ -20,6 +20,8 @@ import {
   validSettings,
   validStops,
   planningFailures,
+  validPlaceMetadata,
+  sameStation,
 } from "./model";
 import { distance, validCoordinate } from "./geometry";
 import {
@@ -29,6 +31,7 @@ import {
   type StreetMode,
   type RequestBudget,
   type RoutingClient,
+  makeURL,
 } from "./transitous";
 export interface Seed {
   journey: Journey;
@@ -111,6 +114,13 @@ export function compose(
   const first = part.legs.findIndex((l) => l.kind === "transit"),
     last = part.legs.findLastIndex((l) => l.kind === "transit");
   if (first < 0 || last < 0) return;
+  const retained = seed.journey.legs[seed.index];
+  if (
+    seed.backwards
+      ? sameStation(part.legs[last].to, retained.from)
+      : sameStation(retained.to, part.legs[first].from)
+  )
+    return;
   const riding = (
     seed.backwards ? part.legs.slice(last + 1) : part.legs.slice(0, first)
   ).filter((l) => l.kind === "bike");
@@ -208,16 +218,6 @@ async function* planRawRoutes(
   client: RoutingClient = defaultClient,
   options: SearchOptions = {},
 ): AsyncGenerator<PlanningUpdate> {
-  if (
-    !validSettings(settings) ||
-    !validStops(input.stops) ||
-    !validCoordinate(input.origin) ||
-    !validCoordinate(input.destination)
-  )
-    throw new PlannerError(
-      "input",
-      "Bitte Start, Ziel und Einstellungen prüfen.",
-    );
   if (input.stops?.length) {
     yield* planViaRoutes(input, settings, signal, client, options.budget?.run);
     return;
@@ -247,10 +247,18 @@ async function* planRawRoutes(
     if (messages.length) incompletePhases.add(phase);
     issues.push(...messages);
   };
-  const variants =
+  const variants = (
     settings.excludedTransitModes.length === 6
       ? baseVariants.slice(0, 1)
-      : baseVariants;
+      : baseVariants
+  ).filter(
+    (variant, index, list) =>
+      list.findIndex(
+        (other) =>
+          makeURL(request, settings, other).href ===
+          makeURL(request, settings, variant).href,
+      ) === index,
+  );
   const add = (batch: Batch) => {
     all.push(
       ...batch.journeys.filter(
@@ -451,6 +459,20 @@ export async function* planRoutes(
   client: RoutingClient = defaultClient,
   options: SearchOptions = {},
 ): AsyncGenerator<PlanningUpdate> {
+  if (
+    !Number.isFinite(input.time) ||
+    (input.bikeFolded !== undefined && typeof input.bikeFolded !== "boolean") ||
+    !validSettings(settings) ||
+    !validStops(input.stops) ||
+    !validCoordinate(input.origin) ||
+    !validCoordinate(input.destination) ||
+    !validPlaceMetadata(input.origin) ||
+    !validPlaceMetadata(input.destination)
+  )
+    throw new PlannerError(
+      "input",
+      "Bitte Start, Ziel und Einstellungen prüfen.",
+    );
   if (!options.budget?.run && client.createRun) {
     const run = client.createRun(signal);
     if (run) {
@@ -477,6 +499,28 @@ export async function* planRoutes(
       }
       return;
     }
+  }
+  if (client.resolveStation && !input.stops?.length) {
+    const resolve = (place: RouteRequest["origin"]) =>
+      client.resolveStation!(place, signal, options.budget);
+    const [origin, destination, ...stops] = await Promise.all([
+      resolve(input.origin),
+      resolve(input.destination),
+      ...(input.stops ?? []).map((stop) => resolve(stop.place)),
+    ]);
+    input = {
+      ...input,
+      origin,
+      destination,
+      ...(input.stops
+        ? {
+            stops: input.stops.map((stop, index) => ({
+              ...stop,
+              place: stops[index],
+            })),
+          }
+        : {}),
+    };
   }
   if (options.raw || options.baseOnly) {
     yield* planRawRoutes(input, settings, signal, client, options);

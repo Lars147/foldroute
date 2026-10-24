@@ -1,3 +1,4 @@
+import { journeyStart, journeyEnd, journeyStopPlaces } from "./model";
 import {
   locationLabel,
   type LocationFix,
@@ -495,20 +496,27 @@ export class RouteMap {
     const stops = !journey
       ? []
       : "legs" in journey
-        ? journey.legs
-            .filter((leg) => leg.kind === "stop")
-            .map((leg) => leg.from)
+        ? journeyStopPlaces(journey)
         : (journey.stops ?? []).map((stop) => stop.place);
     const points: MapPlace[] = journey
       ? [
-          { place: journey.origin, kind: "start", label: "Start" },
+          {
+            place: "legs" in journey ? journeyStart(journey) : journey.origin,
+            kind: "start",
+            label: "Start",
+          },
           ...stops.map((place, index): MapPlace => ({
             place,
             kind: "stop",
             label: `Zwischenstopp ${index + 1}`,
             number: index + 1,
           })),
-          { place: journey.destination, kind: "destination", label: "Ziel" },
+          {
+            place:
+              "legs" in journey ? journeyEnd(journey) : journey.destination,
+            kind: "destination",
+            label: "Ziel",
+          },
         ]
       : [];
     const groups = new Map<string, MapPlace[]>();

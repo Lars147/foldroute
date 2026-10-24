@@ -1,3 +1,4 @@
+import { legStops } from "./model";
 import type { Coordinate, Journey, Leg, Maneuver } from "./model";
 import { distance } from "./geometry";
 import { quality, type LocationFix } from "./live-location";
@@ -6,6 +7,7 @@ import {
   transitStopKey,
   transitStopIdentity,
   transitTopologyKey,
+  findViaVisit,
 } from "./transit-stops";
 import {
   navigationCues,
@@ -30,6 +32,7 @@ export const movement = (leg?: Leg) =>
   leg?.kind === "bike" || leg?.kind === "walk";
 export const freshTransit = (leg: Leg, now: number) =>
   !leg.transitStatus?.cancelled &&
+  !leg.transitStatus?.missingViaStops?.length &&
   !leg.transitStatus?.failure &&
   leg.transitStatus?.updatedAt !== undefined &&
   Math.abs(now - leg.transitStatus.updatedAt) <= 120;
@@ -495,7 +498,32 @@ export class NavigationEngine {
       !this.progress.confirmedStops.includes(this.leg.stop.id)
     )
       this.progress.confirmedStops.push(this.leg.stop.id);
+    for (const stop of legStops(this.leg)) {
+      const visit = this.leg.viaStops?.find(
+        (visit) => visit.stop.id === stop.id,
+      );
+      if (
+        visit &&
+        (this.leg.transitStatus?.failure ||
+          this.leg.transitStatus?.missingViaStops?.includes(stop.id) ||
+          !findViaVisit(this.leg, visit))
+      )
+        continue;
+      if (!this.progress.confirmedStops.includes(stop.id))
+        this.progress.confirmedStops.push(stop.id);
+    }
     if (!next) {
+      if (
+        this.journey.legs.some((leg) =>
+          leg.viaStops?.some(
+            (visit) =>
+              !this.progress.confirmedStops.includes(visit.stop.id) &&
+              (leg.transitStatus?.failure ||
+                leg.transitStatus?.missingViaStops?.includes(visit.stop.id)),
+          ),
+        )
+      )
+        return false;
       this.phase = "arrived";
       this.distanceToNext = 0;
       return true;

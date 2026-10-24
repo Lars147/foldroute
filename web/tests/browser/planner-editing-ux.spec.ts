@@ -1141,7 +1141,7 @@ test("free stops edit, reorder, reverse and cancel without changing the active p
     .click();
   await expect(page.locator("#add-stop")).toBeEnabled();
   await page.locator("#cancel-adjust").click();
-  expect(new URL(page.url()).searchParams.get("v")).toBe("3");
+  expect(new URL(page.url()).searchParams.get("v")).toBe("4");
   await page.locator("#adjust-route").click();
   await expect(page.locator("#via-fields > div:not([hidden])")).toHaveCount(0);
 });
@@ -1308,7 +1308,7 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("50 min");
-  expect(new URL(page.url()).searchParams.get("v")).toBe("3");
+  expect(new URL(page.url()).searchParams.get("v")).toBe("4");
   expect(new URL(page.url()).searchParams.get("via1Stay")).toBe("10");
   await expect(page.locator("#journey-detail")).toContainText(
     "Geplanter Aufenthalt: 10 min",

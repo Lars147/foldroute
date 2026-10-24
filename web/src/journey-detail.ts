@@ -139,6 +139,14 @@ export function renderJourneyDetails(
           copy.append(
             node("p", `Gleis / Steig ${leg.platform}`, "detail-platform"),
           );
+        for (const visit of leg.viaStops ?? [])
+          copy.append(
+            node(
+              "p",
+              `Über ${visit.stop.place.name} · ${leg.transitStatus?.missingViaStops?.includes(visit.stop.id) ? "Halt entfällt" : "Im Zug bleiben"}`,
+              "detail-place",
+            ),
+          );
         const arrival = node("div", "", "detail-arrival");
         arrival.append(
           ...(example

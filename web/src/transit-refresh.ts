@@ -7,7 +7,7 @@ import {
   type TransitCancellationReason,
 } from "./model";
 import { transitCancellationReason } from "./transit-cancellation";
-import { parseTransitStops } from "./transit-stops";
+import { findViaVisit, parseTransitStops } from "./transit-stops";
 import { assessConnection } from "./connection-assessment";
 import { platform, retryAfter, service } from "./transitous";
 
@@ -369,8 +369,23 @@ export function applyTransit(
         updatedAt: u.updatedAt,
         cancelled: u.cancelled,
         cancellationReason: u.cancellationReason,
+        ...(leg.viaStops?.length
+          ? {
+              missingViaStops: u.stops
+                ? leg.viaStops
+                    .filter((visit) => !findViaVisit(leg, visit))
+                    .map((visit) => visit.stop.id)
+                : leg.transitStatus?.missingViaStops,
+              ...(!u.stops ? { failure: "unavailable" } : {}),
+            }
+          : {}),
       },
     });
+    if (u.stops)
+      for (const visit of leg.viaStops ?? []) {
+        const actual = findViaVisit(leg, visit);
+        if (actual) visit.place = actual;
+      }
   });
   const boardingSchedule = (i: number) => {
     const boarding = copy.legs.findIndex(

@@ -475,6 +475,8 @@ export class PlaceSearch {
       name,
       place?.latitude,
       place?.longitude,
+      place?.kind,
+      place?.stationId ?? place?.stopId,
     ]);
     const copy = node("span");
     copy.append(
@@ -482,7 +484,10 @@ export class PlaceSearch {
       node("small", place?.detail ?? "Standort ermitteln"),
     );
     select.type = "button";
-    select.append(icon(place?.stopId ? "transit" : "location"), copy);
+    select.append(
+      icon(place?.kind === "station" ? "transit" : "location"),
+      copy,
+    );
     select.setAttribute(
       "aria-label",
       `Ort auswählen: ${name}${place?.detail ? `, ${place.detail}` : ""}`,

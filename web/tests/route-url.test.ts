@@ -28,7 +28,7 @@ describe("planning links", () => {
   it("round trips named endpoints and UTC time without routing options under a subpath", () => {
     const url = routeURL("https://example.org/foldroute/plan/", plan);
     expect(url.pathname).toBe("/foldroute/plan/");
-    expect(url.searchParams.get("v")).toBe("3");
+    expect(url.searchParams.get("v")).toBe("4");
     for (const key of Object.keys(plan.settings))
       expect(url.searchParams.has(key)).toBe(false);
     const parsed = readRouteURL(url);

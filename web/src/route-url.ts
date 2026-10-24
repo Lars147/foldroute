@@ -3,6 +3,7 @@ import {
   defaults,
   validSettings,
   validStops,
+  validPlaceMetadata,
   type RouteStop,
   type Place,
   type RouteRequest,
@@ -23,13 +24,20 @@ const optionKeys = [
   "excludedTransitModes",
   "showCyclingComparison",
 ];
+const placeKeys = ["Kind", "StopId", "StationId"];
+const endpointKeys = ["from", "to", "via1", "via2", "via3"];
+const metadataKeys = endpointKeys.flatMap((key) =>
+  placeKeys.map((suffix) => `${key}${suffix}`),
+);
 const stopKeys = Array.from({ length: 3 }, (_, i) => [
   `via${i + 1}`,
   `via${i + 1}Name`,
   `via${i + 1}Stay`,
+  ...placeKeys.map((suffix) => `via${i + 1}${suffix}`),
 ]).flat();
 const keys = [
   ...stopKeys,
+  ...metadataKeys.filter((key) => !key.startsWith("via")),
   "v",
   "from",
   "fromName",
@@ -44,6 +52,13 @@ const fixedPlace = (place: Place, name: string): Place => ({
   longitude: place.longitude,
   name: place.name === "Aktueller Standort" ? name : place.name,
   detail: "",
+  ...(place.kind ? { kind: place.kind } : {}),
+  ...(place.kind === "station"
+    ? {
+        stopId: place.stopId,
+        ...(place.stationId ? { stationId: place.stationId } : {}),
+      }
+    : {}),
 });
 
 export function routeURL(
@@ -56,8 +71,16 @@ export function routeURL(
   if (!plan) return url;
   const { request } = plan;
   const params = url.searchParams;
-  params.set("v", "3");
+  params.set("v", "4");
+  function metadata(key: string, place: Place) {
+    if (place.kind) params.set(`${key}Kind`, place.kind);
+    if (place.kind === "station") {
+      params.set(`${key}StopId`, place.stopId!);
+      if (place.stationId) params.set(`${key}StationId`, place.stationId);
+    }
+  }
   request.stops?.forEach((stop, i) => {
+    metadata(`via${i + 1}`, stop.place);
     params.set(
       `via${i + 1}`,
       `${stop.place.latitude.toFixed(6)},${stop.place.longitude.toFixed(6)}`,
@@ -69,6 +92,7 @@ export function routeURL(
     ["from", fixedPlace(request.origin, "Startpunkt")],
     ["to", fixedPlace(request.destination, "Zielpunkt")],
   ] as const) {
+    metadata(key, place);
     params.set(
       key,
       `${place.latitude.toFixed(6)},${place.longitude.toFixed(6)}`,
@@ -85,7 +109,7 @@ export function readRouteURL(url: URL): ParsedRouteLink {
   const params = url.searchParams;
   if (!keys.some((key) => params.has(key))) return { kind: "none" };
   if (
-    !["1", "2", "3"].includes(params.get("v") ?? "") ||
+    !["1", "2", "3", "4"].includes(params.get("v") ?? "") ||
     keys.some((key) => params.getAll(key).length > 1)
   )
     return { kind: "invalid" };
@@ -95,8 +119,22 @@ export function readRouteURL(url: URL): ParsedRouteLink {
     const point = { latitude: Number(pair[0]), longitude: Number(pair[1]) };
     const name = params.get(`${key}Name`)?.trim() || fallback;
     if (!validCoordinate(point) || name.length > 500) return;
-    return fixedPlace({ ...point, name, detail: "" }, fallback);
+    const result: Place = { ...point, name, detail: "" };
+    if (params.get("v") === "4") {
+      const kind = params.get(`${key}Kind`);
+      const stopId = params.get(`${key}StopId`);
+      const stationId = params.get(`${key}StationId`);
+      if (kind !== null && kind !== "point" && kind !== "station") return;
+      if ((stopId !== null || stationId !== null) && kind !== "station") return;
+      if (kind) result.kind = kind;
+      if (stopId !== null) result.stopId = stopId;
+      if (stationId !== null) result.stationId = stationId;
+      if (!validPlaceMetadata(result)) return;
+    }
+    return fixedPlace(result, fallback);
   }
+  if (params.get("v") !== "4" && metadataKeys.some((key) => params.has(key)))
+    return { kind: "invalid" };
   const stops: RouteStop[] = [];
   if (params.get("v") === "1" && stopKeys.some((key) => params.has(key)))
     return { kind: "invalid" };
@@ -107,7 +145,12 @@ export function readRouteURL(url: URL): ParsedRouteLink {
   )
     return { kind: "invalid" };
   for (let i = 1; i <= 3; i++) {
-    const group = [`via${i}`, `via${i}Name`, `via${i}Stay`];
+    const group = [
+      `via${i}`,
+      `via${i}Name`,
+      `via${i}Stay`,
+      ...placeKeys.map((suffix) => `via${i}${suffix}`),
+    ];
     if (!group.some((key) => params.has(key))) continue;
     const p = place(`via${i}`, `Zwischenziel ${i}`),
       raw = params.get(`via${i}Stay`);
@@ -133,7 +176,7 @@ export function readRouteURL(url: URL): ParsedRouteLink {
           rawTime.replace(".000Z", "Z")))
   )
     return { kind: "invalid" };
-  if (params.get("v") !== "3") {
+  if (!["3", "4"].includes(params.get("v")!)) {
     const showComparison = params.get("showCyclingComparison");
     if (
       showComparison !== null &&

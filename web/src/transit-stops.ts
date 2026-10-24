@@ -1,6 +1,30 @@
 import type { Leg, TransitStop } from "./model";
 import { validCoordinate } from "./geometry";
 
+/** Match the selected visit, including repeated calls at the same station. */
+export function findViaVisit(
+  leg: Leg,
+  visit: NonNullable<Leg["viaStops"]>[number],
+): TransitStop | undefined {
+  const candidates = (leg.transitStops ?? []).filter(
+    (stop) =>
+      stop.stopId === visit.place.stopId ||
+      (!!stop.parentId && stop.parentId === visit.place.parentId),
+  );
+  const selected =
+    visit.place.scheduledArrival !== undefined
+      ? candidates.find(
+          (stop) => stop.scheduledArrival === visit.place.scheduledArrival,
+        )
+      : visit.place.scheduledDeparture !== undefined
+        ? candidates.find(
+            (stop) =>
+              stop.scheduledDeparture === visit.place.scheduledDeparture,
+          )
+        : candidates[visit.occurrence ?? 0];
+  return selected?.cancelled ? undefined : selected;
+}
+
 /** Stop coordinates can identify station access points away from the rail line. */
 export const maxStationShapeDistance = 300;
 
@@ -23,6 +47,8 @@ export function parseTransitStops(value: unknown): TransitStop[] | undefined {
       latitude: raw.lat,
       longitude: raw.lon,
       stopId: typeof raw.stopId === "string" ? raw.stopId : undefined,
+      parentId: typeof raw.parentId === "string" ? raw.parentId : undefined,
+      level: Number.isFinite(raw.level) ? raw.level : undefined,
       cancelled: raw.cancelled === true,
     };
     for (const key of [

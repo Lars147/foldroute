@@ -1,3 +1,5 @@
+import { distance } from "../src/geometry";
+import { journeyStops, type RouteRequest, type RouteStop } from "../src/model";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   NavigationEngine,
@@ -1599,3 +1601,123 @@ it("keeps the summary usable when saving totals fails", async () => {
     "Gesamtstatistik konnte nicht gespeichert werden.",
   );
 });
+
+it.each(["onboard", "after-exit"] as const)(
+  "retains a missed through visit when replanning %s",
+  async (state) => {
+    const via: RouteStop = {
+      id: "missed-via",
+      stayMinutes: 0,
+      place: { ...b, kind: "station", stopId: "B", stationId: "B" },
+    };
+    const required = {
+      ...b,
+      stopId: "B",
+      scheduledArrival: now + 100,
+      scheduledDeparture: now + 120,
+    };
+    const t: Leg = {
+      ...train(),
+      start: now - 60,
+      viaStops: [{ stop: via, place: required }],
+      transitStops: [train().from, required, train().to],
+    };
+    const tail = transition("wait", t.to, t.end, t.end + 600);
+    const j = journey([t, tail]);
+    const routeRequest = {
+      ...request,
+      origin: t.from,
+      destination: t.to,
+      stops: [via],
+    };
+    const planned = vi.fn(async (r: RouteRequest) => {
+      const toVia: Leg = {
+        kind: "walk",
+        from: r.origin,
+        to: via.place,
+        start: r.time,
+        end: r.time + 600,
+        distance: distance(r.origin, via.place),
+        coordinates: [r.origin, via.place],
+      };
+      const visit: Leg = {
+        ...transition("wait", via.place, toVia.end, toVia.end),
+        kind: "stop",
+        stop: via,
+      };
+      const home: Leg = {
+        kind: "walk",
+        from: via.place,
+        to: r.destination,
+        start: visit.end,
+        end: visit.end + 600,
+        distance: distance(via.place, r.destination),
+        coordinates: [via.place, r.destination],
+      };
+      return { ...journey([toVia, visit, home]), id: "replacement" };
+    });
+    const { session } = sessionHarness(planned);
+    await session.start(j, routeRequest, defaults, {
+      version: 1,
+      savedAt: now,
+      journey: j,
+      request: routeRequest,
+      settings: defaults,
+      progress: {
+        legIndex: 0,
+        maneuverIndex: 0,
+        meters: 0,
+        confirmedStops: [],
+      },
+    });
+    const active = session.engine!;
+    active.applyJourney(
+      applyTransit(
+        active.journey,
+        0,
+        new Map([
+          [
+            active.leg.navigationId!,
+            {
+              kind: "updated",
+              update: {
+                departure: t.start,
+                arrival: t.end,
+                realtime: true,
+                cancelled: false,
+                updatedAt: now,
+                stops: [t.from, t.to],
+              },
+            },
+          ],
+        ]),
+      ),
+    );
+    if (state === "after-exit") {
+      active.advance(true, now);
+      expect(active.progress.confirmedStops).not.toContain(via.id);
+    }
+    session.disruption = transitDisruption(
+      active.journey,
+      active.progress.legIndex,
+      now,
+    );
+    expect(session.disruption).toBeDefined();
+    await session.proposeAlternative();
+    expect(planned.mock.calls[0][0].stops).toEqual([via]);
+    expect(session.alternative).toBeDefined();
+    expect(journeyStops(session.alternative!.journey)).toEqual([via]);
+    expect(
+      transitDisruption(
+        session.alternative!.journey,
+        session.alternative!.legIndex,
+        now,
+      ),
+    ).toBeUndefined();
+    await session.acceptAlternative();
+    expect(planned).toHaveBeenCalledOnce();
+    expect(journeyStops(session.engine!.journey)).toEqual([via]);
+    expect(session.engine).not.toBe(active);
+    await session.stop();
+  },
+);

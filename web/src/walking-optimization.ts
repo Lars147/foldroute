@@ -11,6 +11,7 @@ import {
   PlannerError,
   errorText,
   planningFailures,
+  stationTransferWalks,
 } from "./model";
 import { distance } from "./geometry";
 import type { RequestBudget, RoutingClient } from "./transitous";
@@ -27,14 +28,25 @@ export interface WalkingBlock {
 export function walkingBlocks(journeys: Journey[]): WalkingBlock[] {
   const result: WalkingBlock[] = [];
   for (const journey of journeys) {
+    const stationTransfers = stationTransferWalks(journey.legs);
     let folded = false;
     for (let i = 0; i < journey.legs.length; i++) {
       const leg = journey.legs[i];
       if (leg.kind === "fold" || leg.kind === "transit") folded = true;
-      if (leg.kind === "unfold" || leg.kind === "stop") folded = false;
-      if (leg.kind !== "walk") continue;
+      if (
+        leg.kind === "unfold" ||
+        (leg.kind === "stop" && leg.stop?.place.kind !== "station")
+      )
+        folded = false;
+      if (leg.kind !== "walk" || leg.stationTransfer || stationTransfers.has(i))
+        continue;
       const first = i;
-      while (journey.legs[i + 1]?.kind === "walk") i++;
+      while (
+        journey.legs[i + 1]?.kind === "walk" &&
+        !journey.legs[i + 1].stationTransfer &&
+        !stationTransfers.has(i + 1)
+      )
+        i++;
       const seconds = journey.legs
         .slice(first, i + 1)
         .reduce((sum, l) => sum + l.end - l.start, 0);
@@ -56,6 +68,13 @@ export function cyclingReplacement(
 ): Journey | undefined {
   const { journey, first, last, folded } = block;
   const original = journey.legs;
+  if (
+    original.slice(first, last + 1).some((leg) => leg.stationTransfer) ||
+    [...stationTransferWalks(original)].some(
+      (index) => index >= first && index <= last,
+    )
+  )
+    return;
   const from = original[first].from,
     to = original[last].to;
   const lower = first ? original[first - 1].end : journey.departure;

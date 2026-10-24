@@ -6,6 +6,34 @@ export interface Place extends Coordinate {
   name: string;
   detail: string;
   stopId?: string;
+  /** Missing kind denotes a legacy point, never an inferred station. */
+  kind?: "point" | "station";
+  stationId?: string;
+  parentId?: string;
+  level?: number;
+}
+export const stationId = (place: Place): string | undefined =>
+  place.kind === "station" ? (place.stationId ?? place.stopId) : undefined;
+/** Compare actual transit halts using only provider-declared identity. */
+export function sameStation(a: Place, b: Place): boolean {
+  const root = a.parentId ?? a.stopId;
+  return !!(
+    (a.stopId && a.stopId === b.stopId) ||
+    (root && root === (b.parentId ?? b.stopId))
+  );
+}
+export function validPlaceMetadata(place: Place): boolean {
+  return (
+    [undefined, "point", "station"].includes(place.kind) &&
+    [place.stopId, place.stationId, place.parentId].every(
+      (id) =>
+        id === undefined ||
+        (typeof id === "string" && id.length > 0 && id.length <= 1000),
+    ) &&
+    (place.kind !== "station" || !!place.stopId) &&
+    (place.stationId === undefined || place.kind === "station") &&
+    (place.level === undefined || Number.isFinite(place.level))
+  );
 }
 export type Timing = "now" | "depart" | "arrive";
 export interface RouteStop {
@@ -29,6 +57,7 @@ export function validStops(value: unknown): value is RouteStop[] {
         typeof s.place.name === "string" &&
         s.place.name.length <= 500 &&
         typeof s.place.detail === "string" &&
+        validPlaceMetadata(s.place) &&
         Number.isFinite(s.place.latitude) &&
         Math.abs(s.place.latitude) <= 90 &&
         Number.isFinite(s.place.longitude) &&
@@ -40,6 +69,8 @@ export function validStops(value: unknown): value is RouteStop[] {
   );
 }
 export interface RouteRequest {
+  /** Internal continuation: the bicycle is already folded. */
+  bikeFolded?: boolean;
   stops?: RouteStop[];
   origin: Place;
   destination: Place;
@@ -211,6 +242,7 @@ export interface TransitReference {
 export type TransitCancellationReason =
   "trip" | "boarding" | "alighting" | "both-stops";
 export interface TransitStatus {
+  missingViaStops?: string[];
   updatedAt?: number;
   failure?: "network" | "unavailable";
   cancelled?: boolean;
@@ -224,6 +256,10 @@ export interface TransitStop extends Place {
   cancelled?: boolean;
 }
 export interface Leg {
+  /** Requested zero-stay visits inside a single, uninterrupted train ride. */
+  viaStops?: { stop: RouteStop; place: TransitStop; occurrence?: number }[];
+  /** A provider-validated station connection must not be replaced by cycling. */
+  stationTransfer?: boolean;
   navigationId?: string;
   maneuvers?: Maneuver[];
   transitReference?: TransitReference;
@@ -258,6 +294,49 @@ export interface Journey {
   transfers: number;
   isDirect: boolean;
 }
+/** Automatic platform transfers, excluding access/egress and explicit visits. */
+export function stationTransferWalks(legs: Leg[]): Set<number> {
+  const indices = new Set<number>();
+  let previous = -1;
+  legs.forEach((leg, index) => {
+    if (leg.kind !== "transit") return;
+    if (
+      previous >= 0 &&
+      sameStation(legs[previous].to, leg.from) &&
+      legs
+        .slice(previous + 1, index)
+        .every((part) => part.kind === "walk" || part.kind === "wait")
+    ) {
+      for (let i = previous + 1; i < index; i++)
+        if (legs[i].kind === "walk") indices.add(i);
+    }
+    previous = index;
+  });
+  return indices;
+}
+/** User-selected station coordinates are labels, not physical navigation targets. */
+export const journeyStart = (journey: Journey): Place =>
+  journey.origin.kind === "station"
+    ? (journey.legs[0]?.from ?? journey.origin)
+    : journey.origin;
+export const journeyEnd = (journey: Journey): Place =>
+  journey.destination.kind === "station"
+    ? (journey.legs.at(-1)?.to ?? journey.destination)
+    : journey.destination;
+export const legStops = (leg: Leg): RouteStop[] => [
+  ...(leg?.stop ? [leg.stop] : []),
+  ...(Array.isArray(leg?.viaStops) ? leg.viaStops : []).map(
+    (visit) => visit?.stop,
+  ),
+];
+export const journeyStops = (journey: Journey): RouteStop[] =>
+  journey.legs.flatMap(legStops);
+export const journeyStopPlaces = (journey: Journey): Place[] =>
+  journey.legs.flatMap((leg) => [
+    ...(leg.stop ? [leg.from] : []),
+    ...(leg.viaStops ?? []).map((visit) => visit.place),
+  ]);
+
 export type PlanningPhase = "base" | "bike-transfers" | "walking" | "via";
 /** Map-only geometry; never a selectable or saved result. */
 export interface PlanningRoutePreview {
@@ -587,6 +666,26 @@ export function validNavigationLegData(value: Leg): boolean {
   const reference = value.transitReference,
     status = value.transitStatus;
   return (
+    (value.stationTransfer === undefined ||
+      typeof value.stationTransfer === "boolean") &&
+    (value.viaStops === undefined ||
+      (value.kind === "transit" &&
+        Array.isArray(value.viaStops) &&
+        value.viaStops.length > 0 &&
+        validStops(value.viaStops.map((visit) => visit?.stop)) &&
+        value.viaStops.every(
+          (visit) =>
+            visit.stop.stayMinutes === 0 &&
+            visit.stop.place.kind === "station" &&
+            point(visit.place) &&
+            validPlaceMetadata(visit.place) &&
+            (visit.occurrence === undefined ||
+              (Number.isInteger(visit.occurrence) && visit.occurrence >= 0)) &&
+            [
+              visit.place.scheduledArrival,
+              visit.place.scheduledDeparture,
+            ].every((time) => time === undefined || Number.isFinite(time)),
+        ))) &&
     (value.transitStops === undefined ||
       (Array.isArray(value.transitStops) &&
         value.transitStops.length >= 2 &&
@@ -635,6 +734,13 @@ export function validNavigationLegData(value: Leg): boolean {
         reference.scheduledArrival >= reference.scheduledDeparture)) &&
     (status === undefined ||
       (!!status &&
+        (status.missingViaStops === undefined ||
+          (Array.isArray(status.missingViaStops) &&
+            status.missingViaStops.every(
+              (id) =>
+                typeof id === "string" &&
+                value.viaStops?.some((visit) => visit.stop.id === id),
+            ))) &&
         (status.updatedAt === undefined || Number.isFinite(status.updatedAt)) &&
         (status.cancelled === undefined ||
           typeof status.cancelled === "boolean") &&

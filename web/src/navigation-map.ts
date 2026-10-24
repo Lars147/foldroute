@@ -1,3 +1,4 @@
+import { journeyStart, journeyEnd, journeyStopPlaces } from "./model";
 import Map from "ol/Map.js";
 import View from "ol/View.js";
 import { defaults as defaultInteractions } from "ol/interaction/defaults.js";
@@ -261,6 +262,11 @@ export class NavigationMap {
     const signature = JSON.stringify([
       theme.name,
       engine.journey.legs.map((l) => [l.navigationId, l.coordinates]),
+      [
+        journeyStart(engine.journey),
+        journeyEnd(engine.journey),
+        journeyStopPlaces(engine.journey),
+      ],
       engine.progress.legIndex,
       estimate?.path.schematic,
       estimate?.path.path.key,
@@ -312,9 +318,9 @@ export class NavigationMap {
         this.routes.addFeature(feature);
       });
       const points = [
-        engine.journey.origin,
-        ...engine.journey.legs.flatMap((l) => (l.stop ? [l.stop.place] : [])),
-        engine.journey.destination,
+        journeyStart(engine.journey),
+        ...journeyStopPlaces(engine.journey),
+        journeyEnd(engine.journey),
       ];
       points.forEach((point, index) => {
         const feature = new Feature(new Point(xy(point)));

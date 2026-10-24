@@ -10,6 +10,9 @@ import {
 import {
   validStoredSettings,
   validNavigationLegData,
+  validPlaceMetadata,
+  stationId,
+  journeyStops,
   validStops,
   validLegacySettings,
   type LegacyRoutingSettings,
@@ -42,7 +45,8 @@ const place = (p: unknown) =>
   point(p) &&
   object(p) &&
   typeof p.name === "string" &&
-  typeof p.detail === "string";
+  typeof p.detail === "string" &&
+  validPlaceMetadata(p as Place);
 export function validSnapshot(value: unknown): value is SavedJourney {
   if (
     !object(value) ||
@@ -57,6 +61,7 @@ export function validSnapshot(value: unknown): value is SavedJourney {
     j = value.journey;
   return (
     object(r) &&
+    (r.bikeFolded === undefined || typeof r.bikeFolded === "boolean") &&
     place(r.origin) &&
     place(r.destination) &&
     validStops(r.stops) &&
@@ -78,9 +83,12 @@ export function validSnapshot(value: unknown): value is SavedJourney {
     Array.isArray(j.legs) &&
     j.legs.length > 0 &&
     (value.version !== 4 ||
-      JSON.stringify(
-        j.legs.filter((l: any) => l?.kind === "stop").map((l: any) => l.stop),
-      ) === JSON.stringify(r.stops)) &&
+      JSON.stringify(journeyStops(j as Journey), (key, value) =>
+        key === "stationId" ? undefined : value,
+      ) ===
+        JSON.stringify(r.stops, (key, value) =>
+          key === "stationId" ? undefined : value,
+        )) &&
     j.legs.every(
       (l: unknown) =>
         object(l) &&
@@ -98,8 +106,9 @@ export function validSnapshot(value: unknown): value is SavedJourney {
           (validStops([l.stop]) &&
             r.stops?.some((s: any) => s.id === l.stop.id) &&
             l.start + l.stop.stayMinutes * 60 <= l.end &&
-            l.from?.latitude === l.stop.place.latitude &&
-            l.from?.longitude === l.stop.place.longitude)) &&
+            (l.stop.place.kind === "station" ||
+              (l.from?.latitude === l.stop.place.latitude &&
+                l.from?.longitude === l.stop.place.longitude)))) &&
         place(l.from) &&
         place(l.to) &&
         Number.isFinite(l.start) &&
@@ -131,6 +140,12 @@ const genericPlaces = new Set([
   "zielpunkt",
 ]);
 function sameHistoryPlace(a: Place, b: Place): boolean {
+  if (a.kind === "station" || b.kind === "station")
+    return (
+      a.kind === "station" &&
+      b.kind === "station" &&
+      (stationId(a) === stationId(b) || a.stopId === b.stopId)
+    );
   const aName = a.name.trim(),
     bName = b.name.trim();
   return (

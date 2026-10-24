@@ -1,4 +1,4 @@
-import type { Place } from "./model";
+import { stationId, validPlaceMetadata, type Place } from "./model";
 import { distance, validCoordinate } from "./geometry";
 import { localDatabase } from "./storage";
 
@@ -9,8 +9,12 @@ export interface StoredPlace {
   lastUsedAt?: number;
 }
 export const samePlace = (a: Place, b: Place) =>
-  a.name.localeCompare(b.name, "de", { sensitivity: "accent" }) === 0 &&
-  distance(a, b) <= 25;
+  a.kind === "station" || b.kind === "station"
+    ? a.kind === "station" &&
+      b.kind === "station" &&
+      (stationId(a) === stationId(b) || a.stopId === b.stopId)
+    : a.name.localeCompare(b.name, "de", { sensitivity: "accent" }) === 0 &&
+      distance(a, b) <= 25;
 
 export function validStoredPlace(value: unknown): value is StoredPlace {
   if (!value || typeof value !== "object") return false;
@@ -22,6 +26,7 @@ export function validStoredPlace(value: unknown): value is StoredPlace {
     validCoordinate(v.place) &&
     typeof v.place.name === "string" &&
     typeof v.place.detail === "string" &&
+    validPlaceMetadata(v.place) &&
     (v.place.stopId === undefined || typeof v.place.stopId === "string") &&
     (v.lastUsedAt === undefined || Number.isFinite(v.lastUsedAt))
   );
@@ -37,7 +42,7 @@ export function updatedPlaces(
   const previous = entries.find((e) => samePlace(e.place, place));
   const entry: StoredPlace = {
     id: previous?.id ?? crypto.randomUUID(),
-    place: { ...place, stopId: place.stopId ?? previous?.place.stopId },
+    place: { ...place },
     favorite:
       action === "favorite"
         ? !previous?.favorite

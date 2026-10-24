@@ -17,6 +17,9 @@ import {
   geometryError,
   responseError,
   planningFailures,
+  stationId,
+  validPlaceMetadata,
+  stationTransferWalks,
 } from "./model";
 import {
   decodePolyline,
@@ -30,6 +33,10 @@ export const service = {
 };
 export type StreetMode = "BIKE" | "WALK";
 export interface Variant {
+  /** Native via validation uses unmodified provider times and legs. */
+  native?: boolean;
+  via?: { id: string; stayMinutes: number };
+  directMode?: StreetMode;
   street?: boolean;
   direct?: boolean;
   pre: StreetMode;
@@ -51,21 +58,31 @@ export function makeURL(
 ): URL {
   const url = new URL(`${service.api}/v6/plan`);
   const coord = (p: Coordinate) =>
-    `${p.latitude.toFixed(6)},${p.longitude.toFixed(6)}`;
+    `${p.latitude.toFixed(6)},${p.longitude.toFixed(6)}${(p as Place).level === undefined ? "" : `,${(p as Place).level}`}`;
+  const fromStation = !variant.direct && stationId(request.origin);
+  const toStation = !variant.direct && stationId(request.destination);
   const time =
     request.time +
-    (variant.direct
+    (variant.direct || variant.native
       ? 0
       : request.timing === "arrive"
-        ? -settings.foldingDuration
-        : settings.foldingDuration);
+        ? toStation
+          ? 0
+          : -settings.foldingDuration
+        : request.bikeFolded
+          ? 0
+          : settings.foldingDuration);
   const values: Record<string, string> = {
-    fromPlace: variant.street
-      ? (request.origin.stopId ?? coord(request.origin))
-      : coord(request.origin),
-    toPlace: variant.street
-      ? (request.destination.stopId ?? coord(request.destination))
-      : coord(request.destination),
+    fromPlace:
+      fromStation ||
+      (variant.street
+        ? (request.origin.stopId ?? coord(request.origin))
+        : coord(request.origin)),
+    toPlace:
+      toStation ||
+      (variant.street
+        ? (request.destination.stopId ?? coord(request.destination))
+        : coord(request.destination)),
     time: new Date(time * 1000).toISOString().replace(".000Z", "Z"),
     arriveBy: String(request.timing === "arrive"),
     cyclingSpeed: (settings.cyclingSpeedKilometersPerHour / 3.6).toFixed(3),
@@ -76,7 +93,7 @@ export function makeURL(
   if (variant.direct)
     Object.assign(values, {
       transitModes: "",
-      directModes: "BIKE",
+      directModes: variant.directMode ?? "BIKE",
       maxDirectTime: String(
         variant.street ? settings.maxCyclingMinutes * 60 : 21600,
       ),
@@ -91,23 +108,31 @@ export function makeURL(
         .flatMap(([, m]) => m.values)
         .join(","),
       directModes: "",
-      preTransitModes: variant.pre,
-      postTransitModes: variant.post,
+      preTransitModes: fromStation ? "" : variant.pre,
+      postTransitModes: toStation ? "" : variant.post,
       additionalTransferTime: String(settings.transferMinutes),
       maxPreTransitTime: String(
-        variant.preLimit ??
-          (variant.pre === "WALK"
-            ? settings.maxWalkingMinutes
-            : settings.maxCyclingMinutes) * 60,
+        fromStation
+          ? 0
+          : (variant.preLimit ??
+              (variant.pre === "WALK"
+                ? settings.maxWalkingMinutes
+                : settings.maxCyclingMinutes) * 60),
       ),
       maxPostTransitTime: String(
-        variant.postLimit ??
-          (variant.post === "WALK"
-            ? settings.maxWalkingMinutes
-            : settings.maxCyclingMinutes) * 60,
+        toStation
+          ? 0
+          : (variant.postLimit ??
+              (variant.post === "WALK"
+                ? settings.maxWalkingMinutes
+                : settings.maxCyclingMinutes) * 60),
       ),
       requireBikeTransport: "false",
     });
+  if (variant.via) {
+    values.via = variant.via.id;
+    values.viaMinimumStay = String(variant.via.stayMinutes);
+  }
   url.search = new URLSearchParams(values).toString();
   return url;
 }
@@ -116,6 +141,8 @@ interface RawPlace {
   lat: number;
   lon: number;
   stopId?: string;
+  parentId?: string;
+  level?: number;
   description?: string;
   track?: string;
   scheduledTrack?: string;
@@ -198,6 +225,8 @@ function place(p: RawPlace, fallback: Place, endpoint: string): Place {
     latitude: p.lat,
     longitude: p.lon,
     stopId: p.stopId || undefined,
+    parentId: p.parentId,
+    level: p.level,
   };
 }
 function mapLeg(raw: RawLeg, request: RouteRequest): Leg {
@@ -312,6 +341,7 @@ export interface Batch {
 }
 export type RoutingClient = Pick<ApiClient, "batch" | "retryAt"> & {
   createRun?(signal: AbortSignal): RoutingRun | undefined;
+  resolveStation?: ApiClient["resolveStation"];
 };
 export function mapResponse(
   value: unknown,
@@ -351,9 +381,17 @@ export function mapResponse(
       )
         continue;
       let legs = item.legs.map((l) => mapLeg(l, request));
+      for (const index of stationTransferWalks(legs))
+        legs[index].stationTransfer = true;
       const first = legs.findIndex((l) => l.kind === "transit"),
         last = legs.findLastIndex((l) => l.kind === "transit");
-      if (!variant.direct && first >= 0) {
+      if (
+        !variant.direct &&
+        ((stationId(request.origin) && first !== 0) ||
+          (stationId(request.destination) && last !== legs.length - 1))
+      )
+        continue;
+      if (!variant.direct && !variant.native && first >= 0) {
         const valid = (street: Leg[], mode: StreetMode) =>
           mode !== "WALK" ||
           (!street.some((l) => l.kind === "bike") &&
@@ -367,31 +405,25 @@ export function mapResponse(
         )
           continue;
         const normalized: Leg[] = [];
+        const fold = request.bikeFolded ? 0 : settings.foldingDuration;
+        const unfold = stationId(request.destination)
+          ? 0
+          : settings.foldingDuration;
         legs.forEach((leg, i) => {
-          if (i === first)
+          if (i === first && fold)
             normalized.push(
-              transition(
-                "fold",
-                leg.from,
-                leg.start - settings.foldingDuration,
-                leg.start,
-              ),
+              transition("fold", leg.from, leg.start - fold, leg.start),
             );
           normalized.push(
             i < first
-              ? shifted(leg, -settings.foldingDuration)
+              ? shifted(leg, -fold)
               : i > last
-                ? shifted(leg, settings.foldingDuration)
+                ? shifted(leg, unfold)
                 : leg,
           );
-          if (i === last)
+          if (i === last && unfold)
             normalized.push(
-              transition(
-                "unfold",
-                leg.to,
-                leg.end,
-                leg.end + settings.foldingDuration,
-              ),
+              transition("unfold", leg.to, leg.end, leg.end + unfold),
             );
         });
         legs = normalized;
@@ -500,6 +532,30 @@ function geocodeDetail(place: {
     .join(", ");
 }
 export class ApiClient {
+  async resolveStation(
+    input: Place,
+    signal: AbortSignal,
+    budget?: RequestBudget,
+  ): Promise<Place> {
+    if (!validPlaceMetadata(input)) throw responseError();
+    if (input.kind !== "station" || input.stationId) return input;
+    const url = new URL(`${service.api}/v6/stop`);
+    url.searchParams.set("stopId", input.stopId!);
+    const value = (await this.json(url, signal, false, budget)) as {
+      place?: RawPlace;
+    };
+    const raw = value?.place;
+    if (
+      !raw ||
+      !raw.stopId ||
+      (raw.parentId !== undefined &&
+        (typeof raw.parentId !== "string" || !raw.parentId))
+    )
+      throw responseError();
+    const resolved = { ...input, stationId: raw.parentId ?? raw.stopId };
+    if (!validPlaceMetadata(resolved)) throw responseError();
+    return resolved;
+  }
   retryAt = 0;
   private pause?: ServicePause;
   private runs = new Set<RoutingRun>();
@@ -749,6 +805,7 @@ export class ApiClient {
         latitude: p.lat,
         longitude: p.lon,
         stopId: p.type === "STOP" ? p.id : undefined,
+        kind: p.type === "STOP" ? ("station" as const) : ("point" as const),
       }));
     if (!center || !places.length) return places;
     const nearby = (place: Place) => distance(center, place) <= 50000;

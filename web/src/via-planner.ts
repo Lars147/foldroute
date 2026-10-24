@@ -1,3 +1,4 @@
+import { joinAtStation } from "./station-join";
 import { optimizeWalking } from "./walking-optimization";
 import { workDeadline, type RoutingRun } from "./routing-retry";
 import {
@@ -61,17 +62,33 @@ interface Candidate {
   journey: Journey;
   overLimit: boolean;
 }
-function extendCandidate(
+async function extendCandidate(
   path: Candidate | undefined,
   child: Journey,
   boundary: RouteStop | undefined,
   backward: boolean,
   settings: RoutingSettings,
-): Candidate | undefined {
+  client: RoutingClient,
+  signal: AbortSignal,
+  budget: RequestBudget,
+): Promise<Candidate | undefined> {
+  const join = (first: Journey, last: Journey) =>
+    boundary!.place.kind === "station"
+      ? joinAtStation(
+          first,
+          last,
+          boundary!,
+          settings,
+          client,
+          signal,
+          budget,
+          backward,
+        )
+      : joinAtStop(first, last, boundary!);
   const journey = path
     ? backward
-      ? joinAtStop(child, path.journey, boundary!)
-      : joinAtStop(path.journey, child, boundary!)
+      ? await join(child, path.journey)
+      : await join(path.journey, child)
     : child;
   const overLimit =
     !!path?.overLimit ||
@@ -108,8 +125,8 @@ export async function* planViaRoutes(
   client: RoutingClient,
   run?: RoutingRun,
 ): AsyncGenerator<PlanningUpdate> {
-  const stops = request.stops!;
-  const places = [
+  let stops = request.stops!;
+  let places = [
     request.origin,
     ...stops.map((s) => s.place),
     request.destination,
@@ -151,6 +168,27 @@ export async function* planViaRoutes(
         );
     },
   };
+  if (client.resolveStation) {
+    try {
+      places = await Promise.all(
+        places.map((place) => client.resolveStation!(place, combined, budget)),
+      );
+      stops = stops.map((stop, index) => ({
+        ...stop,
+        place: places[index + 1],
+      }));
+      request = {
+        ...request,
+        origin: places[0],
+        destination: places.at(-1)!,
+        stops,
+      };
+      Object.assign(fixed, request);
+    } catch (error) {
+      deadline.dispose();
+      throw error;
+    }
+  }
   const issues = new Set<string>();
   const failures: PlanningFailure[] = [];
   const incompletePhases = new Set<PlanningPhase>();
@@ -196,6 +234,9 @@ export async function* planViaRoutes(
             : fixed.time;
           const part: RouteRequest = {
             origin: places[index],
+            ...(index > 0 && places[index].kind === "station"
+              ? { bikeFolded: true }
+              : {}),
             destination: places[index + 1],
             timing: backward
               ? "arrive"
@@ -226,16 +267,20 @@ export async function* planViaRoutes(
               client,
               { raw: true, baseOnly, budget },
             )) {
-              candidates = partUpdate.journeys.flatMap((child) => {
-                const candidate = extendCandidate(
+              candidates = [];
+              for (const child of partUpdate.journeys) {
+                const candidate = await extendCandidate(
                   path,
                   child,
                   boundary,
                   backward,
                   settings,
+                  client,
+                  combined,
+                  budget,
                 );
-                return candidate ? [candidate] : [];
-              });
+                if (candidate) candidates.push(candidate);
+              }
               const preview = frontier([...candidates], request).find(
                 (candidate) =>
                   !candidate.overLimit || settings.showCyclingComparison,

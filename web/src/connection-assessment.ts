@@ -24,6 +24,15 @@ export function assessConnection(
     fix?: LocationFix;
   } = {},
 ): ConnectionAssessment {
+  const missing = journey.legs.find(
+    (leg) => leg.transitStatus?.missingViaStops?.length,
+  );
+  if (missing)
+    return {
+      status: "cancelled",
+      id: `via-${missing.navigationId ?? missing.tripId}`,
+      message: `Ein geplanter Zwischenhalt wird von dieser Verbindung nicht mehr bedient. Bitte neu planen.`,
+    };
   const cancelled = journey.legs
     .slice(index)
     .find((leg) => leg.kind === "transit" && leg.transitStatus?.cancelled);

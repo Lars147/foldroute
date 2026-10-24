@@ -1,4 +1,4 @@
-import type { RouteRequest, RoutingSettings } from "./model";
+import type { Place, RouteRequest, RoutingSettings } from "./model";
 import type {
   Batch,
   RequestBudget,
@@ -14,6 +14,15 @@ export class PlanningRoutingClient implements RoutingClient {
 
   createRun(signal: AbortSignal) {
     return this.client.createRun?.(signal);
+  }
+  async resolveStation(
+    place: Place,
+    signal: AbortSignal,
+    budget?: RequestBudget,
+  ): Promise<Place> {
+    return this.client.resolveStation
+      ? this.client.resolveStation(place, signal, budget)
+      : place;
   }
 
   get retryAt() {

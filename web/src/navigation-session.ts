@@ -6,6 +6,9 @@ import {
   type Place,
   errorText,
   transition,
+  journeyStart,
+  journeyStops,
+  legStops,
 } from "./model";
 import { distance } from "./geometry";
 import {
@@ -225,13 +228,20 @@ export class NavigationSession {
   }
   private remainingStops(afterCurrent = false) {
     const engine = this.engine!;
+    const boundary = engine.progress.legIndex + (afterCurrent ? 1 : 0);
     return engine.journey.legs
-      .slice(engine.progress.legIndex + (afterCurrent ? 1 : 0))
-      .flatMap((l) =>
-        l.stop && !engine.progress.confirmedStops.includes(l.stop.id)
-          ? [l.stop]
-          : [],
-      );
+      .flatMap((leg, index) =>
+        index < boundary
+          ? (leg.viaStops ?? [])
+              .filter(
+                (visit) =>
+                  leg.transitStatus?.failure ||
+                  leg.transitStatus?.missingViaStops?.includes(visit.stop.id),
+              )
+              .map((visit) => visit.stop)
+          : legStops(leg),
+      )
+      .filter((stop) => !engine.progress.confirmedStops.includes(stop.id));
   }
   private requestFrom(
     origin: Place,
@@ -341,7 +351,8 @@ export class NavigationSession {
       const now = Date.now() / 1000;
       let candidate = navigationJourney(journey);
       let candidateSettings = this.settings;
-      const separation = distance(fix, journey.origin);
+      const actualStart = journeyStart(journey);
+      const separation = distance(fix, actualStart);
       const first = journey.legs[0];
       const startsOnPath =
         movement(first) &&
@@ -378,12 +389,25 @@ export class NavigationSession {
         const batch = await this.deps.api.batch(
           {
             origin: fixPlace(fix),
-            destination: journey.origin,
+            destination:
+              journey.origin.kind === "station"
+                ? {
+                    ...actualStart,
+                    kind: "point",
+                    stationId: undefined,
+                    stopId: undefined,
+                  }
+                : actualStart,
             timing: "now",
             time: now,
           },
           approachSettings,
-          { direct: true, pre: "BIKE", post: "BIKE" },
+          {
+            direct: true,
+            directMode: journey.origin.kind === "station" ? "WALK" : "BIKE",
+            pre: "BIKE",
+            post: "BIKE",
+          },
           signal,
         );
         const approach = batch.journeys[0];
@@ -393,7 +417,7 @@ export class NavigationSession {
             ? [
                 transition(
                   "wait",
-                  journey.origin,
+                  actualStart,
                   approach.arrival,
                   candidate.departure,
                 ),
@@ -566,7 +590,7 @@ export class NavigationSession {
       ...this.request!,
       origin: journey.origin,
       destination: journey.destination,
-      stops: journey.legs.flatMap((l) => (l.stop ? [l.stop] : [])),
+      stops: journeyStops(journey),
     };
     this.alternative = undefined;
     this.pendingAlternativeLocation = undefined;
@@ -983,7 +1007,7 @@ export class NavigationSession {
           ? Math.max(now, leg.end) + alternativeDecisionSeconds
           : now + alternativeDecisionSeconds;
       const { journey: route, settings: routeSettings } = await this.plan(
-        this.requestFrom(origin, departure, reason === "stop"),
+        this.requestFrom(origin, departure, onboard || reason === "stop"),
         signal,
         (candidate) =>
           reachableAlternative(
@@ -1014,6 +1038,27 @@ export class NavigationSession {
         : reason === "stop" && leg.end > now
           ? [transition("wait", leg.to, now, leg.end)]
           : [];
+      // Outstanding visits belong to the replacement itinerary, not to both
+      // the failed train prefix and the new route.
+      const reassigned = new Set(journeyStops(route).map((stop) => stop.id));
+      for (let i = 0; i < prefix.length; i++) {
+        const part = prefix[i];
+        if (!part.viaStops?.some((visit) => reassigned.has(visit.stop.id)))
+          continue;
+        const viaStops = part.viaStops.filter(
+          (visit) => !reassigned.has(visit.stop.id),
+        );
+        prefix[i] = {
+          ...part,
+          viaStops: viaStops.length ? viaStops : undefined,
+          transitStatus: {
+            ...part.transitStatus,
+            missingViaStops: part.transitStatus?.missingViaStops?.filter(
+              (id) => !reassigned.has(id),
+            ),
+          },
+        };
+      }
       const proposed = navigationJourney(
         prefix.length
           ? {
@@ -1147,7 +1192,7 @@ export class NavigationSession {
       journey: engine.journey,
       request: {
         ...this.request!,
-        stops: engine.journey.legs.flatMap((l) => (l.stop ? [l.stop] : [])),
+        stops: journeyStops(engine.journey),
       },
       settings: this.settings!,
       progress: engine.progress,

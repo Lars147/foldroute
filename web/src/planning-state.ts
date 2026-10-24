@@ -52,6 +52,9 @@ function routingContext(request: RouteRequest, settings: RoutingSettings) {
     value.latitude,
     value.longitude,
     value.stopId,
+    value.kind,
+    value.stationId,
+    value.level,
   ];
   return JSON.stringify([
     place(request.origin),
