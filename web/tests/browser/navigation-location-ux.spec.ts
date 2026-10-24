@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import {
   now,
   setup,
@@ -200,6 +200,7 @@ for (const colorScheme of ["light", "dark"] as const)
           .getElementById("navigation-panel")!
           .getBoundingClientRect();
         return {
+          left: status.left,
           center: status.x + status.width / 2,
           gap: status.top - header.bottom,
           height: status.height,
@@ -212,7 +213,10 @@ for (const colorScheme of ["light", "dark"] as const)
           overflow: document.documentElement.scrollWidth > innerWidth,
         };
       });
-      expect(bounds.center).toBeCloseTo(width / 2, 0);
+      // Short mobile layouts put GPS beside the horizontal map controls.
+      if (width < 900 && height <= 500)
+        expect(bounds.left).toBeCloseTo(12, 0);
+      else expect(bounds.center).toBeCloseTo(width / 2, 0);
       expect(bounds.gap).toBeGreaterThanOrEqual(7);
       expect(bounds.height).toBeLessThanOrEqual(34);
       expect(bounds.panelGap).toBeGreaterThan(0);

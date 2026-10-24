@@ -3,6 +3,13 @@
 Each test gets a fresh Playwright context. Shared helpers configure that context;
 they never share pages, IndexedDB, localStorage, or mutable application state.
 
+Import `test` from `./test` in every browser spec. Its context fixture replaces
+speech synthesis before application scripts run, including in popups, frames,
+and after reloads. Announcements remain enabled and are recorded per page in
+`window.testSpeech`; no announcement reaches the operating system. Navigation's
+`navProbe.spoken` and `navProbe.cancelled` expose the same recording. Keep this
+mock in the test harness rather than disabling the app's audio preference.
+
 ## Planning
 
 - `planner.spec.ts`: search lifecycle, selection, refresh, and planning errors.

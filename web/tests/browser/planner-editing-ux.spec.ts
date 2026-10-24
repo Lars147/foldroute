@@ -8,7 +8,7 @@ import {
   expectPlanningComplete,
   expectMotionSettled,
 } from "./assertions";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./test";
 import { defaults, type Journey } from "../../src/model";
 import type { PlanningState } from "../../src/planning-state";
 import { routeURL } from "../../src/route-url";

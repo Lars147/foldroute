@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { modes } from "../../src/model";
 import { setup, choose, cors, fixture } from "./planner-fixture";
 import { expectPlanningComplete, showMap } from "./assertions";

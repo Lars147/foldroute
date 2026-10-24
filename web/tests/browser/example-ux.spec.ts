@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./test";
 import { defaults } from "../../src/model";
 
 const examplePath = "?example=bike-transfer";

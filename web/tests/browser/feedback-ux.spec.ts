@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 import { setup, plan, expectMapSettled } from "./planner-fixture";
 import {
   openSettingsSection,

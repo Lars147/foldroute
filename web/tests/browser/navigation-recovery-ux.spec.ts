@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { defaults } from "../../src/model";
 import { expectMotionSettled } from "./assertions";
 import {

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 import { previewNavigation } from "./navigation-preview";
 
 test("compact continue belongs to the selected running stop", async ({

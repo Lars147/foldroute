@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { distance } from "../../src/geometry";
 import { openCachedJourney, expectMotionSettled } from "./assertions";
 import { mockRasterBasemap } from "./basemap";

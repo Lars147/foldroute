@@ -1,5 +1,5 @@
 import { openCachedJourney } from "./assertions";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./test";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 const match = {
   type: "ADDRESS",

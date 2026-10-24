@@ -1,5 +1,5 @@
 import { openStorageSeed } from "./app-fixture";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { defaults } from "../../src/model";
 import {
   expectPlanningComplete,

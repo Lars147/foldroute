@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { type Place } from "../../src/model";
 import { distance } from "../../src/geometry";
 import { expectMotionSettled } from "./assertions";
@@ -1328,7 +1328,21 @@ test("GPS advances street legs, fresh transit waits for confirmed exit, stops re
   // This covers navigation decisions across a full journey; short dedicated
   // cases above verify animation without replaying minutes of animation frames.
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await setup(page, true, true, {}, stationJourney());
+  const journey = stationJourney();
+  // Keep the walk longer than the 40m arrival tolerance: a fix at the exit
+  // must not also reach the stop when the unfold timer has already expired.
+  const stop = { ...e, latitude: d.latitude + 0.001 };
+  for (const leg of journey.legs) {
+    if (leg.from === e) leg.from = stop;
+    if (leg.to === e) leg.to = stop;
+    leg.coordinates = leg.coordinates.map((point) =>
+      point === e ? stop : point,
+    );
+    if (leg.stop) leg.stop = { ...leg.stop, place: stop };
+    if (leg.kind === "walk" || (leg.kind === "bike" && leg.from === stop))
+      leg.distance = distance(leg.from, leg.to);
+  }
+  await setup(page, true, true, {}, journey);
   async function gps(point: Place, elapsed: number) {
     // Automatic leg transitions need the intermediate ticks and trip refreshes.
     // A jump models inactivity instead and would test different behavior.
@@ -1361,11 +1375,11 @@ test("GPS advances street legs, fresh transit waits for confirmed exit, stops re
   await gps(d, 180000);
   await page.clock.runFor(1100);
   await expect(page.locator("#navigation-instruction")).toContainText("Zu Fuß");
-  await gps(e, 30000);
+  await gps(stop, 30000);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Zwischenziel erreicht",
   );
-  await gps(e, 90000);
+  await gps(stop, 90000);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Zwischenziel erreicht",
   );

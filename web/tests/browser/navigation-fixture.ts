@@ -207,8 +207,13 @@ export async function setup(
         return watchers.size;
       },
       silent: false,
-      spoken: [] as string[],
-      cancelled: 0,
+      // Getters keep init-script ordering independent of the context mock.
+      get spoken() {
+        return window.testSpeech.spoken;
+      },
+      get cancelled() {
+        return window.testSpeech.cancelled;
+      },
       fail(code: number) {
         for (const error of errors.values())
           error({ code } as GeolocationPositionError);
@@ -283,21 +288,6 @@ export async function setup(
               timestamp: probe.cachedAt ?? Date.now(),
             } as GeolocationPosition);
         },
-      },
-    });
-    Object.defineProperty(window, "SpeechSynthesisUtterance", {
-      configurable: true,
-      value: class {
-        constructor(public text: string) {}
-      },
-    });
-    Object.defineProperty(window, "speechSynthesis", {
-      configurable: true,
-      value: {
-        getVoices: () => [],
-        cancel: () => probe.cancelled++,
-        speak: (utterance: { text: string }) =>
-          probe.spoken.push(utterance.text),
       },
     });
   });

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { openStorageSeed } from "./app-fixture";
 import { openSettingsSection } from "./assertions";
 import type { StoragePreferences } from "../../src/storage-preferences";

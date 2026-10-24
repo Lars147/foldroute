@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import recording from "../../src/data/bike-transfer.json" with { type: "json" };
 import type { PlanningRoutePreview, RouteRequest } from "../../src/model";
 import { routeURL } from "../../src/route-url";

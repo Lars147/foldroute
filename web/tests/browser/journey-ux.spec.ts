@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./test";
 
 async function preview(page: Page) {
   // Isolate the component: the application entrypoint would create a second

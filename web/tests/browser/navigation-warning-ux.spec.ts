@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { previewNavigation } from "./navigation-preview";
 
 async function longTrip(page: Page) {

@@ -6,7 +6,7 @@ import {
   showConnections,
   expectPlanningComplete,
 } from "./assertions";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { routeURL } from "../../src/route-url";
 import {
   setup,

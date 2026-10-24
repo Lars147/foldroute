@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./test";
 
 const production =
   process.env.FOLDROUTE_PRODUCTION_URL ??

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 import { withUpdateServer } from "./pwa-server";
 import { expectPlanningComplete } from "./assertions";
 import { defaults } from "../../src/model";

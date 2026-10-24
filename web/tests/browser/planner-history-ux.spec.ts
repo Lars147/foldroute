@@ -7,7 +7,7 @@ import {
   expectSelectedJourneySaved,
   expectMotionSettled,
 } from "./assertions";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./test";
 import { setup, choose, plan, cors } from "./planner-fixture";
 
 test("settings errors retain old results and their original offline snapshot", async ({

@@ -3,7 +3,7 @@ import {
   expectMotionSettled,
   openRecordedRouteEditor,
 } from "./assertions";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 
 const cafes = [
   {
