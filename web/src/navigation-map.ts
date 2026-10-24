@@ -22,6 +22,7 @@ import { type LocationFix, type LocationQuality } from "./live-location";
 import type { Coordinate, LegKind } from "./model";
 import { appearanceEvent, mapAttribution, mapTheme } from "./map-theme";
 import { mapStyleEvent } from "./map-style";
+import { motionTargetTop } from "./motion";
 import {
   MarkerMotion,
   TransitPath,
@@ -562,12 +563,12 @@ export class NavigationMap {
     this.animationWakeup = undefined;
   }
   private position() {
-    // Panel translate is visual only: following uses its final layout position.
+    // Following uses the final panel bounds throughout its visual transition.
     const bounds = this.target.getBoundingClientRect(),
       top = this.top.getBoundingClientRect(),
       panelTop =
         this.target.parentElement!.getBoundingClientRect().top +
-        this.panel.offsetTop;
+        (motionTargetTop(this.panel) ?? this.panel.offsetTop);
     if (!bounds.width || !bounds.height) return;
     const screen = this.target.parentElement!;
     screen.style.setProperty(

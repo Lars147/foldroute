@@ -1,6 +1,7 @@
 import type { NavigationSession } from "./navigation-session";
 import {
   reveal,
+  resizeHeight,
   settle,
   stopMotion,
   stopMotionWithin,
@@ -11,6 +12,7 @@ import { NavigationGuidance } from "./navigation-guidance";
 import { NavigationStations } from "./navigation-stations";
 import { clock, duration, el, node, icon, setLocationFeedback } from "./ui";
 import type { Leg } from "./model";
+import { transitCancellationMessage } from "./transit-cancellation";
 import { movement, freshTransit } from "./navigation-engine";
 import {
   TransitTimeline,
@@ -32,7 +34,18 @@ import {
 } from "./navigation-sections";
 
 const transitStatus = (transit: Leg) =>
-  `${transit.transitStatus?.cancelled ? "Fahrt fällt aus" : transit.transitStatus?.failure === "network" ? "Abruf fehlgeschlagen" : transit.transitStatus?.failure === "unavailable" ? "Aktualisierung nicht verfügbar" : !freshTransit(transit, Date.now() / 1000) ? "Fahrtdaten veraltet" : transit.realtime ? "Echtzeit" : "Fahrplan"}${transit.transitStatus?.updatedAt ? ` · Stand ${clock(transit.transitStatus.updatedAt)}` : ""}`;
+  `${transit.transitStatus?.cancelled ? transitCancellationMessage(transit) : transit.transitStatus?.failure === "network" ? "Abruf fehlgeschlagen" : transit.transitStatus?.failure === "unavailable" ? "Aktualisierung nicht verfügbar" : !freshTransit(transit, Date.now() / 1000) ? "Fahrtdaten veraltet" : transit.realtime ? "Echtzeit" : "Fahrplan"}${transit.transitStatus?.updatedAt ? ` · Stand ${clock(transit.transitStatus.updatedAt)}` : ""}`;
+const transitWarning = (transit?: Leg) =>
+  transit && !freshTransit(transit, Date.now() / 1000)
+    ? transit.transitStatus?.cancelled
+      ? `${transit.line || "ÖPNV"}: ${transitCancellationMessage(transit)}.`
+      : `${transit.line || "ÖPNV"} · ${transitStatus(transit)}`
+    : "";
+
+interface NavigationNotice {
+  message: string;
+  target: string;
+}
 
 export class NavigationView {
   readonly root: HTMLElement;
@@ -45,6 +58,7 @@ export class NavigationView {
   private phaseKey = "";
   private mobile = matchMedia("(max-width: 899px)");
   private detailsOpen = false;
+  private noticeTarget?: string;
   private sections: NavigationSection[] = [];
   private selectedSectionId?: string;
   private currentSectionId?: string;
@@ -69,7 +83,13 @@ export class NavigationView {
   constructor(
     private exit: () => void,
     private restart: (replan: boolean) => void,
+    private options: {
+      audioEnabled?: boolean;
+      locationAutoRefresh?: () => boolean;
+    } = {},
   ) {
+    if (options.audioEnabled !== undefined)
+      this.guidance.enabled = options.audioEnabled;
     this.root = node("section", "", "navigation-screen");
     this.root.id = "navigation-view";
     this.root.hidden = true;
@@ -86,24 +106,25 @@ export class NavigationView {
       <div class="navigation-credit">${mapAttribution}</div>
       <article class="navigation-panel" id="navigation-panel" aria-label="Navigationshinweise">
         <div class="navigation-instruction" id="navigation-guidance"><span id="navigation-arrow" aria-hidden="true">↑</span><div><strong id="navigation-distance"></strong><h1 id="navigation-instruction" tabindex="-1">Navigation wird vorbereitet …</h1><p id="navigation-detail"></p></div></div>
-        <div id="navigation-alert" hidden><p id="navigation-alert-summary" role="status"></p><button id="navigation-alert-open" class="secondary" type="button">Details</button></div>
         <div id="navigation-summary">
           <button id="navigation-details-toggle" type="button" aria-expanded="false" aria-controls="navigation-details" aria-describedby="navigation-context-title navigation-context-detail navigation-context-status navigation-remaining"><span class="navigation-grip" aria-hidden="true"></span><strong id="navigation-remaining"></strong><span id="navigation-summary-label">Reisedetails</span></button>
           <div id="navigation-end-slot"></div>
         </div>
+        <div id="navigation-alert" hidden><p id="navigation-alert-summary" role="status" aria-atomic="true"></p><button id="navigation-alert-open" class="secondary" type="button">Details</button></div>
         <div id="navigation-context-slot"><span id="navigation-context" hidden><strong id="navigation-context-title"></strong><span id="navigation-context-detail"></span><span id="navigation-context-status"></span></span></div>
+        <div id="navigation-section-preview" role="region" hidden><strong id="navigation-section-preview-title"></strong><p id="navigation-section-preview-meta"></p><p id="navigation-section-preview-place"></p></div>
         <ol id="navigation-stations-preview" class="navigation-stations" aria-label="Kommende Halte" hidden></ol>
         <span id="navigation-stations-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
-        <div id="navigation-phases-slot"></div>
-        <div id="navigation-quick-actions" class="navigation-actions"></div>
         <div id="navigation-details">
         <div id="navigation-section-detail" role="tabpanel" tabindex="0">
           <span id="navigation-stage" class="sr-only"></span>
           <div id="navigation-section-content"></div>
           <ol id="navigation-stations-detail" class="navigation-stations" aria-label="Stationen bis zum Ausstieg" hidden></ol>
+          <p id="navigation-station-status"></p>
           <p id="navigation-transit-status"></p>
         </div>
-        <div id="navigation-journey-summary" role="group" aria-label="Gesamte Reise" hidden><p id="navigation-summary-arrival"></p><p id="navigation-arrival-warning" role="status"></p></div>
+        <p id="navigation-current-transit-status"></p>
+        <p id="navigation-arrival-warning" role="status"></p>
         <div id="navigation-location" hidden><p id="navigation-location-status" role="status"></p><div class="navigation-actions"><button id="navigation-locate" class="secondary" hidden>Standort erneut anfragen</button></div></div>
         <p id="navigation-network-status"></p>
         <p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
@@ -111,6 +132,8 @@ export class NavigationView {
         <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
         <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
         </div>
+        <div id="navigation-phases-slot"></div>
+        <div id="navigation-quick-actions" class="navigation-actions"></div>
         <div id="navigation-finish" hidden>
           <div class="navigation-finish-content" id="navigation-finish-content">
             <div class="navigation-finish-trip">
@@ -168,7 +191,6 @@ export class NavigationView {
     toggle.append(expand);
     toggle.onclick = () => this.setDetails(!this.detailsOpen);
     toggle.onpointerdown = (event) => {
-      stopMotion(el("navigation-panel"));
       this.dragY = event.clientY;
       toggle.setPointerCapture(event.pointerId);
     };
@@ -225,8 +247,11 @@ export class NavigationView {
       event.preventDefault();
       this.selectSection(this.sections[next].id, true);
     };
-    el("navigation-alert-open").onclick = () => this.setDetails(true);
-    this.mobile.addEventListener("change", () => this.render());
+    el("navigation-alert-open").onclick = () => this.openNotice();
+    this.mobile.addEventListener("change", () => {
+      stopMotion(el("navigation-panel"));
+      this.render();
+    });
     el("navigation-audio").onclick = () => {
       this.guidance.toggle();
       this.voiceMessage = "";
@@ -250,13 +275,7 @@ export class NavigationView {
     };
     el("navigation-complete").onclick = () => {
       const engine = this.session?.engine;
-      if (
-        !engine ||
-        !this.sections
-          .find((section) => section.id === this.selectedSectionId)
-          ?.legs.some((leg) => leg.navigationId === engine.leg.navigationId)
-      )
-        return;
+      if (!engine || !this.completionAvailable || this.session?.busy) return;
       if (engine.leg.kind === "stop") {
         void this.session!.continueStop();
         return;
@@ -271,39 +290,99 @@ export class NavigationView {
     el("navigation-accept").onclick = async () => {
       const previous = this.session?.engine;
       await this.session?.acceptAlternative();
-      if (this.session?.engine !== previous) this.setDetails(false);
+      if (this.session?.engine !== previous) {
+        this.selectedSectionId = undefined;
+        if (this.detailsOpen) this.setDetails(false);
+        else this.render();
+      }
     };
     el("navigation-dismiss").onclick = () => this.session?.dismissAlternative();
   }
   private setDetails(open: boolean) {
     if (open === this.detailsOpen) return;
     const panel = el("navigation-panel");
-    const before = panel.getBoundingClientRect().top;
+    const beforeHeight = panel.getBoundingClientRect().height;
     stopMotion(panel);
     this.detailsOpen = open;
     const details = el("navigation-details");
     const focusedTab = el("navigation-phases").contains(document.activeElement);
-    if (!open) this.selectedSectionId = this.currentSectionId;
     if (!open && details.contains(document.activeElement))
       el("navigation-details-toggle").focus({ preventScroll: true });
     this.render();
-    if (this.mobile.matches)
-      settle(
-        panel,
-        0,
-        before - panel.getBoundingClientRect().top,
-        open ? motionTime.panel : motionTime.exit,
-      );
+    if (open) this.positionDetails();
+    if (this.mobile.matches) {
+      this.revealSelectedTab();
+      resizeHeight(panel, beforeHeight);
+    }
     if (!open) {
       const tab = this.selectedTab();
       if (focusedTab) tab?.focus({ preventScroll: true });
-      this.alignCurrentTab();
     }
+  }
+  private openNotice() {
+    this.setDetails(true);
+    if (!this.noticeTarget) return;
+    const details = el("navigation-details");
+    const target = el(this.noticeTarget);
+    details.scrollTop +=
+      target.getBoundingClientRect().top -
+      details.getBoundingClientRect().top -
+      details.clientTop -
+      16;
+    target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+  }
+  private get completionAvailable() {
+    const engine = this.session?.engine;
+    if (!engine || engine.phase !== "active") return false;
+    return !!this.sections
+      .find((section) => section.id === this.selectedSectionId)
+      ?.legs.some((leg) => leg.navigationId === engine.leg.navigationId);
+  }
+  private positionDetails() {
+    const details = el("navigation-details");
+    details.scrollTop = 0;
+    const engine = this.session?.engine;
+    if (
+      engine?.phase !== "active" ||
+      engine.leg.kind !== "transit" ||
+      this.selectedSectionId !== this.currentSectionId
+    )
+      return;
+    const rail = el("navigation-stations-detail");
+    if (rail.hidden) return;
+    const passed = rail.querySelectorAll<HTMLElement>(
+      '.navigation-station[data-state="passed"]',
+    );
+    const target =
+      [...passed].at(-1) ??
+      rail.querySelector<HTMLElement>(
+        '.navigation-station:not([data-state="cancelled"])',
+      );
+    if (target)
+      details.scrollTop = Math.max(
+        0,
+        target.getBoundingClientRect().top -
+          details.getBoundingClientRect().top -
+          details.clientTop -
+          16,
+      );
   }
   private selectedTab() {
     return el("navigation-phases").querySelector<HTMLButtonElement>(
       '[aria-selected="true"]',
     );
+  }
+  private revealSelectedTab() {
+    const tab = this.selectedTab();
+    if (!tab) return;
+    const strip = el("navigation-phases");
+    const bounds = tab.getBoundingClientRect();
+    const viewport = strip.getBoundingClientRect();
+    if (bounds.left < viewport.left)
+      strip.scrollLeft += bounds.left - viewport.left;
+    else if (bounds.right > viewport.right)
+      strip.scrollLeft += bounds.right - viewport.right;
   }
   private alignCurrentTab() {
     const strip = el("navigation-phases");
@@ -322,14 +401,14 @@ export class NavigationView {
   }
   private selectSection(id: string, focus = false) {
     const changed = id !== this.selectedSectionId;
-    const opening = !this.detailsOpen;
     this.selectedSectionId = id;
-    if (opening) this.setDetails(true);
-    else this.render();
+    this.render();
+    const expanded = !this.mobile.matches || this.detailsOpen;
+    if (expanded) this.positionDetails();
     const tab = this.selectedTab();
     if (focus) tab?.focus({ preventScroll: true });
     tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    if (changed)
+    if (changed && expanded)
       reveal(el("navigation-section-content"), {
         y: 6,
         duration: motionTime.selection,
@@ -419,11 +498,17 @@ export class NavigationView {
       selected === current &&
       selected?.main === engine.leg &&
       movement(selected.main);
+    const currentTransit =
+      engine?.phase === "active" &&
+      selected === current &&
+      selected?.main === engine.leg &&
+      selected?.main.kind === "transit";
     const detailKey = JSON.stringify([
       engine?.journey.departure,
       engine?.journey.arrival,
       selected,
       compactMovement,
+      currentTransit,
     ]);
     if (detailKey !== this.sectionDetailKey) {
       const scrollTop = el("navigation-details").scrollTop;
@@ -462,49 +547,105 @@ export class NavigationView {
             );
           } else step.querySelector(".detail-meta")!.append(` · ${distance}`);
         }
-        // Navigation shows the source and update time together below this section.
+        // Routine data-source labels are omitted; transit warnings remain separate.
         for (const source of list.querySelectorAll(".detail-source"))
           source.remove();
-        content.append(list);
+        if (!currentTransit) content.append(list);
       }
       el("navigation-details").scrollTop = selectionChanged ? 0 : scrollTop;
     }
     return { current, selected, revealCurrent: currentChanged || tabsChanged };
   }
+  private renderSectionPreview(selected?: NavigationSection) {
+    const preview = el("navigation-section-preview");
+    const engine = this.session?.engine;
+    preview.hidden =
+      !this.mobile.matches ||
+      this.detailsOpen ||
+      !selected ||
+      engine?.phase !== "active" ||
+      (selected.id === this.currentSectionId &&
+        selected.main.kind === "transit");
+    const description = !preview.hidden
+      ? "navigation-section-preview-title navigation-section-preview-meta navigation-section-preview-place"
+      : !el("navigation-context").hidden
+        ? "navigation-context-title navigation-context-detail navigation-context-status navigation-remaining"
+        : "navigation-stage navigation-remaining";
+    const toggle = el("navigation-details-toggle");
+    if (toggle.getAttribute("aria-describedby") !== description)
+      toggle.setAttribute("aria-describedby", description);
+    if (preview.hidden || !selected || !engine) return;
+    const leg = selected.main;
+    preview.dataset.section = selected.id;
+    preview.dataset.kind = leg.kind;
+    preview.setAttribute("aria-labelledby", this.selectedTab()!.id);
+    const distance =
+      leg.distance >= 1000
+        ? `${(leg.distance / 1000).toFixed(1)} km`
+        : `${Math.round(leg.distance)} m`;
+    const messages =
+      leg.kind === "transit"
+        ? [
+            `${sectionLabel(selected)} Richtung ${leg.headsign || leg.to.name}`,
+            `${leg.from.name} · Ab ${detailTime(engine.journey, leg.start, Date.now() / 1000)}${leg.platform ? ` · Gleis ${leg.platform}` : ""}`,
+            `${leg.to.name} · An ${detailTime(engine.journey, leg.end, Date.now() / 1000)}${leg.arrivalPlatform ? ` · Gleis ${leg.arrivalPlatform}` : ""}`,
+          ]
+        : [
+            sectionLabel(selected),
+            `${duration(leg.end - leg.start)}${movement(leg) ? ` · ${distance}` : ""}`,
+            leg.to.name,
+          ];
+    for (const [index, id] of [
+      "navigation-section-preview-title",
+      "navigation-section-preview-meta",
+      "navigation-section-preview-place",
+    ].entries()) {
+      const text = el(id);
+      if (text.textContent !== messages[index])
+        text.textContent = messages[index];
+    }
+  }
   private renderTransitContext(
     transit: Leg | undefined,
     viewed: Leg | undefined,
     estimate?: TransitEstimate,
+    mapEstimated = false,
   ) {
     const session = this.session!;
     const engine = session.engine;
     const active = engine?.phase === "active";
     const onboard = active && engine.leg.kind === "transit";
+    const currentSelected =
+      !!viewed && this.selectedSectionId === this.currentSectionId;
     const leg = active ? transit : undefined;
     const context = el("navigation-context");
-    context.hidden = !leg;
-    el("navigation-context-slot").hidden = !leg;
     this.root.dataset.transitContext = String(!!leg);
+    this.root.dataset.onboard = String(onboard);
     let title = "",
       detail = "",
       status = "";
     const confirmedIndex = onboard ? engine.transitStopIndex : -1;
     const index = estimate?.stopIndex ?? confirmedIndex;
-    const stops = onboard ? engine.leg.transitStops : undefined;
+    const stops =
+      onboard && engine.leg.transitStops?.length
+        ? engine.leg.transitStops
+        : undefined;
+    const confirmed = !!(
+      onboard &&
+      session.hasCurrentLocation &&
+      !session.resumeNeedsConfirmation &&
+      engine.hasCurrentTransitPosition
+    );
     if (leg && engine) {
       if (onboard) {
         const remaining = stops?.filter(
           (stop, i) => i > index && !stop.cancelled,
         );
-        const confirmed =
-          session.hasCurrentLocation &&
-          !session.resumeNeedsConfirmation &&
-          engine.hasCurrentTransitPosition;
         title =
           estimate?.source === "estimated" && estimate.phase === "dwell"
             ? `Voraussichtlich an: ${stops?.[estimate.fromIndex].name}`
             : leg.transitStatus?.cancelled
-              ? `${leg.line || "ÖPNV"} · Fahrt fällt aus`
+              ? `${leg.line || "ÖPNV"} · ${transitCancellationMessage(leg)}`
               : !stops
                 ? "Stationsdaten nicht verfügbar"
                 : index === stops.length - 1 && confirmed
@@ -524,18 +665,17 @@ export class NavigationView {
               : estimate.atExit
                 ? "Ausstieg laut Fahrzeiten erreicht"
                 : "Stationsstand geschätzt";
-        if (!freshTransit(leg, Date.now() / 1000))
-          status = [status, transitStatus(leg)].filter(Boolean).join(" · ");
       } else {
         const seconds = leg.start - Date.now() / 1000;
-        const countdown = leg.transitStatus?.cancelled
-          ? "Fahrt fällt aus"
-          : seconds < 0
+        const countdown =
+          seconds < 0
             ? "Abfahrtszeit überschritten"
             : seconds < 60
               ? "in <1 Min."
               : `in ${Math.ceil(seconds / 60)} Min.`;
-        title = `${leg.line || "ÖPNV"} · ${countdown}`;
+        title = leg.transitStatus?.cancelled
+          ? `${leg.line || "ÖPNV"}${leg.headsign ? ` Richtung ${leg.headsign}` : ""}`
+          : `${leg.line || "ÖPNV"} · ${countdown}`;
         const target = engine.leg.to;
         const samePlace =
           target.stopId && leg.from.stopId
@@ -548,22 +688,57 @@ export class NavigationView {
           ["navigation-instruction", "navigation-detail"].some((id) =>
             el(id).textContent?.includes(leg.from.name),
           );
-        detail = `Abfahrt ${detailTime(engine.journey, leg.start, Date.now() / 1000)}${namedAbove ? "" : ` · ${leg.from.name}`}${leg.platform ? ` · Gleis ${leg.platform}` : ""}`;
+        detail = `${leg.transitStatus?.cancelled ? "Geplante Abfahrt" : "Abfahrt"} ${detailTime(engine.journey, leg.start, Date.now() / 1000)}${namedAbove ? "" : ` · ${leg.from.name}`}${leg.platform ? ` · Gleis ${leg.platform}` : ""}`;
         status = freshTransit(leg, Date.now() / 1000) ? "" : transitStatus(leg);
       }
     }
+    const hasStations = onboard && !!stops;
+    const compactStatus =
+      onboard &&
+      estimate?.source === "estimated" &&
+      (estimate.phase === "unclear" || estimate.atExit || !mapEstimated)
+        ? status
+        : "";
+    const expanded = !this.mobile.matches || this.detailsOpen;
+    const showContext =
+      !!leg &&
+      (!hasStations || (!!compactStatus && !expanded)) &&
+      (!this.mobile.matches || currentSelected);
+    context.hidden = !showContext;
+    el("navigation-context-slot").hidden = !showContext;
+    el("navigation-context-title").hidden = hasStations;
+    el("navigation-context-detail").hidden = hasStations;
+    const stationStatus = el("navigation-station-status");
+    stationStatus.textContent =
+      onboard && viewed?.navigationId === engine.leg.navigationId ? status : "";
     for (const [id, text] of [
-      ["navigation-context-title", title],
-      ["navigation-context-detail", detail],
-      ["navigation-context-status", status],
+      [
+        "navigation-context-title",
+        onboard ? (stops ? "" : leg!.to.name) : title,
+      ],
+      [
+        "navigation-context-detail",
+        onboard
+          ? stops
+            ? ""
+            : `Ausstieg ${clock(leg!.end)}${leg!.arrivalPlatform ? ` · Gleis ${leg!.arrivalPlatform}` : ""}`
+          : detail,
+      ],
+      [
+        "navigation-context-status",
+        !stops && onboard ? "Stationsdaten nicht verfügbar" : compactStatus,
+      ],
     ]) {
       const element = el(id);
       if (element.textContent !== text) element.textContent = text;
     }
     this.stationLists[0].update(
-      onboard ? engine.leg : undefined,
+      onboard && currentSelected ? engine.leg : undefined,
       index,
       confirmedIndex,
+      onboard
+        ? { exitConfirmed: confirmed && engine.transitExitConfirmed }
+        : undefined,
     );
     const selectedTransit =
       active && viewed?.kind === "transit" ? viewed : undefined;
@@ -575,11 +750,24 @@ export class NavigationView {
       onboard && selectedTransit?.navigationId === engine.leg.navigationId
         ? confirmedIndex
         : -1,
+      onboard && selectedTransit?.navigationId === engine.leg.navigationId
+        ? { exitConfirmed: confirmed && engine.transitExitConfirmed }
+        : undefined,
     );
     const announcement = el("navigation-stations-announcement");
-    const message = onboard
-      ? [title, detail, status].filter(Boolean).join(". ")
-      : "";
+    const message =
+      onboard && !leg?.transitStatus?.cancelled
+        ? [
+            title,
+            detail,
+            status,
+            leg && !freshTransit(leg, Date.now() / 1000)
+              ? transitStatus(leg)
+              : "",
+          ]
+            .filter(Boolean)
+            .join(". ")
+        : "";
     if (announcement.textContent !== message)
       announcement.textContent = message;
   }
@@ -671,10 +859,7 @@ export class NavigationView {
     );
     move(
       "navigation-complete",
-      mobile &&
-        ["stop", "transit"].includes(this.session?.engine?.leg.kind ?? "")
-        ? "navigation-quick-actions"
-        : "navigation-detail-actions",
+      mobile ? "navigation-quick-actions" : "navigation-detail-actions",
       true,
     );
     for (const id of ["navigation-retry", "navigation-replan"])
@@ -1047,25 +1232,32 @@ export class NavigationView {
       STAIRS: "≋",
       ELEVATOR: "↕",
     };
-    el("navigation-arrow").textContent = arrived
-      ? "✓"
-      : engine?.maneuver
-        ? (arrows[engine.maneuver.direction] ?? "↑")
-        : leg?.kind === "transit"
-          ? "⇥"
-          : leg?.kind === "stop"
-            ? "●"
-            : "↑";
+    const arrow = el("navigation-arrow");
+    arrow.replaceChildren();
+    if (engine?.phase === "active" && leg?.kind === "transit") {
+      arrow.append(
+        icon(["BUS", "COACH"].includes(leg.mode ?? "") ? "bus" : "transit"),
+      );
+    } else
+      arrow.textContent = arrived
+        ? "✓"
+        : engine?.maneuver
+          ? (arrows[engine.maneuver.direction] ?? "↑")
+          : leg?.kind === "transit"
+            ? "⇥"
+            : leg?.kind === "stop"
+              ? "●"
+              : "↑";
     const meters = engine?.distanceToNext;
     el("navigation-distance").textContent =
-      arrived || meters === undefined
+      arrived || leg?.kind === "transit" || meters === undefined
         ? ""
         : meters >= 1000
           ? `${(meters / 1000).toFixed(1)} km`
           : `${Math.round(meters / 5) * 5} m`;
     el("navigation-detail").textContent =
       leg?.kind === "transit"
-        ? `${leg.platform ? `Gleis ${leg.platform} · ` : ""}Ausstieg ${leg.to.name}${leg.arrivalPlatform ? ` · Gleis ${leg.arrivalPlatform}` : ""}`
+        ? ""
         : leg?.kind === "stop"
           ? `Weiterfahrt ${clock(leg.end)} · Bestätige, wenn du bereit bist.`
           : movement(leg) &&
@@ -1081,6 +1273,10 @@ export class NavigationView {
     el("navigation-disruption").textContent =
       session.disruption?.message ?? session.assessment?.message ?? "";
     const invalidLocation = !session.hasCurrentLocation;
+    const automaticLocationRefresh =
+      session.foreground &&
+      !!this.options.locationAutoRefresh?.() &&
+      session.locationError?.reason !== "permission-denied";
     const gpsStatus = el("navigation-gps-status");
     const mapEstimateLabel = estimateSource
       ? estimateSource.path.schematic
@@ -1120,6 +1316,14 @@ export class NavigationView {
       locationMessage += estimateSource
         ? " Position und Stationsstand werden anhand der Fahrzeiten geschätzt. Bestätige den Ausstieg selbst."
         : " Stationsstand wird anhand der Fahrzeiten geschätzt. Bestätige den Ausstieg selbst.";
+    if (
+      engine &&
+      !arrived &&
+      invalidLocation &&
+      !session.locating &&
+      automaticLocationRefresh
+    )
+      locationMessage += " Standort wird automatisch erneut angefragt.";
     const locationStatus = el("navigation-location-status");
     setLocationFeedback(locationStatus, locationMessage, !session.locating);
     el("navigation-network-status").textContent = navigator.onLine
@@ -1128,15 +1332,23 @@ export class NavigationView {
     const transit = engine?.journey.legs
       .slice(engine.progress.legIndex)
       .find((l) => l.kind === "transit");
-    this.renderTransitContext(transit, selected?.main, cursor);
+    this.renderTransitContext(
+      transit,
+      selected?.main,
+      cursor,
+      !!mapEstimateLabel,
+    );
+    this.renderSectionPreview(selected);
     if (cursor) for (const list of this.stationLists) list.setPosition(cursor);
     this.startStationAnimation();
     const viewedTransit = selected?.legs.find((l) => l.kind === "transit");
-    el("navigation-transit-status").textContent = viewedTransit
-      ? `${viewedTransit.line || "ÖPNV"} · ${transitStatus(viewedTransit)}`
-      : "";
+    const viewedTransitWarning = transitWarning(viewedTransit);
+    el("navigation-transit-status").textContent = viewedTransitWarning;
+    const currentTransitWarning = transitWarning(transit);
+    el("navigation-current-transit-status").textContent =
+      transit !== viewedTransit ? currentTransitWarning : "";
     const complete = el<HTMLButtonElement>("navigation-complete");
-    complete.hidden = !engine || arrived === true || selected !== current;
+    complete.hidden = !this.completionAvailable;
     complete.disabled = session.busy;
     complete.textContent =
       leg?.kind === "stop"
@@ -1159,7 +1371,7 @@ export class NavigationView {
     el("navigation-locate").hidden =
       arrived === true ||
       (engine
-        ? !invalidLocation &&
+        ? (!invalidLocation || automaticLocationRefresh) &&
           !session.alternativeNeedsLocation &&
           !session.locating
         : !locationRetry || !session.retryAvailable);
@@ -1208,9 +1420,6 @@ export class NavigationView {
     el("navigation-remaining").hidden = !!engine && !arrived;
     el("navigation-summary-label").hidden =
       !engine || !!arrived || !el("navigation-context").hidden;
-    el("navigation-journey-summary").hidden = !engine || !!arrived;
-    el("navigation-summary-arrival").textContent =
-      engine && !arrived ? `Am Ziel ${clock(engine.journey.arrival)}` : "";
     const requestedArrival =
       session.request?.timing === "arrive" ? session.request.time : undefined;
     const arrivalWarning =
@@ -1221,26 +1430,90 @@ export class NavigationView {
         ? `Gewünschte Ankunft ${clock(requestedArrival)} wird nicht erreicht.`
         : "";
     el("navigation-arrival-warning").textContent = arrivalWarning;
-    const notices = [
-      session.disruption?.message ?? session.assessment?.message ?? "",
-      arrivalWarning,
-      !navigator.onLine ? "Offline · Neue Routen benötigen Internet" : "",
-      session.resumeNeedsConfirmation
-        ? el("navigation-status").textContent
-        : "",
-      session.alternative ? "" : session.message,
-      transit && !freshTransit(transit, Date.now() / 1000)
-        ? `${transit.line || "ÖPNV"} · ${transitStatus(transit)}`
-        : "",
-      session.storageMessage,
-      this.voiceMessage,
-    ].filter((message): message is string => !!message);
+    const candidates: NavigationNotice[] = [
+      {
+        message:
+          session.disruption?.message ?? session.assessment?.message ?? "",
+        target: "navigation-disruption",
+      },
+      { message: arrivalWarning, target: "navigation-arrival-warning" },
+      {
+        message: !navigator.onLine
+          ? "Offline · Neue Routen benötigen Internet"
+          : "",
+        target: "navigation-network-status",
+      },
+      {
+        message: session.resumeNeedsConfirmation
+          ? (el("navigation-status").textContent ?? "")
+          : "",
+        target: "navigation-status",
+      },
+      {
+        message: session.alternative ? "" : session.message,
+        target: "navigation-status",
+      },
+      {
+        message: currentTransitWarning,
+        target:
+          transit === viewedTransit
+            ? "navigation-transit-status"
+            : "navigation-current-transit-status",
+      },
+      {
+        message:
+          viewedTransit && viewedTransit !== transit
+            ? viewedTransitWarning
+            : "",
+        target: "navigation-transit-status",
+      },
+      { message: session.storageMessage, target: "navigation-storage-status" },
+      { message: this.voiceMessage, target: "navigation-audio-status" },
+    ].filter((notice) => !!notice.message);
+    const messages = new Set<string>(),
+      targets = new Set<string>();
+    const notices = candidates.filter((notice) => {
+      if (messages.has(notice.message) || targets.has(notice.target))
+        return false;
+      messages.add(notice.message);
+      targets.add(notice.target);
+      return true;
+    });
     const alert = el("navigation-alert");
     alert.hidden = !notices.length && !session.alternative;
-    el("navigation-alert-summary").textContent =
-      notices[0] ?? "Neue Verbindung verfügbar";
+    const summary = notices[0]?.message ?? "Neue Verbindung verfügbar";
+    const summaryText = el("navigation-alert-summary");
+    if (summaryText.textContent !== summary) summaryText.textContent = summary;
+    const clearNotice = (target: string, replacement: HTMLElement) => {
+      const element = el(target);
+      const focused = element === document.activeElement;
+      element.textContent = "";
+      if (focused) {
+        replacement.tabIndex = -1;
+        replacement.focus({ preventScroll: true });
+      }
+    };
+    for (const notice of candidates) {
+      if (targets.has(notice.target)) continue;
+      const canonical = notices.find((n) => n.message === notice.message)!;
+      clearNotice(notice.target, el(canonical.target));
+    }
+    const primary = notices[0];
+    const cancellationSummary = engine?.journey.legs.some(
+      (leg) => leg.transitStatus?.cancelled && transitWarning(leg) === summary,
+    );
+    if (
+      this.mobile.matches &&
+      cancellationSummary &&
+      primary &&
+      el(primary.target).textContent === primary.message
+    )
+      clearNotice(primary.target, summaryText);
+    this.noticeTarget = session.alternative
+      ? "navigation-alternative"
+      : notices.find((notice) => el(notice.target).textContent)?.target;
     const alertOpen = el("navigation-alert-open");
-    alertOpen.hidden = !engine;
+    alertOpen.hidden = !engine || !this.noticeTarget;
     alertOpen.textContent = session.alternative
       ? `Verbindung ansehen${notices.length > 1 ? ` · ${notices.length} Hinweise` : ""}`
       : notices.length > 1

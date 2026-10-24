@@ -44,6 +44,27 @@ for (const width of [390, 1280])
     ).toEqual({ enableHighAccuracy: true, maximumAge: 0, timeout: 12000 });
   });
 
+test("frequent inaccurate GPS samples do not suppress automatic navigation recovery", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  const before = await page.evaluate(
+    () => (window as any).navProbe.refreshLookups,
+  );
+  for (let i = 0; i < 12; i++) {
+    await page.evaluate(() => (window as any).navProbe.push(48, 11, 90, 500));
+    await page.clock.fastForward(10000);
+  }
+  await expect(page.locator("#navigation-gps-status")).toHaveText(
+    "GPS ungenau",
+  );
+  expect(
+    await page.evaluate(() => (window as any).navProbe.refreshLookups),
+  ).toBeGreaterThanOrEqual(before + 4);
+  await expect(page.locator("#navigation-locate")).toBeHidden();
+});
+
 test("silent single lookups retain the stale warning and recover on a fresh measurement", async ({
   page,
 }) => {
@@ -58,7 +79,10 @@ test("silent single lookups retain the stale warning and recover on a fresh meas
   await expect(page.locator("#navigation-location-status")).toContainText(
     "Letzter Standort nicht aktuell. Automatischer Fortschritt pausiert.",
   );
-  await expect(page.locator("#navigation-locate")).toBeEnabled();
+  await expect(page.locator("#navigation-locate")).toBeHidden();
+  await expect(page.locator("#navigation-location-status")).toContainText(
+    "Standort wird automatisch erneut angefragt.",
+  );
   expect(
     await page.evaluate(() => (window as any).navProbe.refreshLookups),
   ).toBe(2);
@@ -114,7 +138,7 @@ test("GPS loss freezes the display without a usable timeline", async ({
   await page.clock.pauseAt(new Date((now + 350) * 1000));
   const map = page.locator("#navigation-map");
   await expect(map).toHaveAttribute("data-position-source", "estimated");
-  await expect(page.locator("#navigation-context-status")).toContainText(
+  await expect(page.locator("#navigation-station-status")).toContainText(
     "Stationsstand unklar",
   );
   await expect(page.locator("#navigation-gps-status")).toHaveText(
@@ -124,14 +148,14 @@ test("GPS loss freezes the display without a usable timeline", async ({
   const held = await map.getAttribute("data-position");
   await page.clock.fastForward(40000);
   await expect(map).toHaveAttribute("data-position", held!);
-  await expect(page.locator("#navigation-context-status")).toContainText(
+  await expect(page.locator("#navigation-station-status")).toContainText(
     "Stationsstand unklar",
   );
   await page.clock.fastForward(110000);
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Ausstieg",
   );
-  await expect(page.locator("#navigation-context-status")).toContainText(
+  await expect(page.locator("#navigation-station-status")).toContainText(
     "Stationsstand geschätzt",
   );
   await page.clock.runFor(2100);
@@ -219,7 +243,10 @@ for (const colorScheme of ["light", "dark"] as const)
       await expect(page.locator("#navigation-location-status")).toContainText(
         "Standort nicht verfügbar",
       );
-      await expect(page.locator("#navigation-locate")).toBeVisible();
+      await expect(page.locator("#navigation-locate")).toBeHidden();
+      await expect(page.locator("#navigation-location-status")).toContainText(
+        "Standort wird automatisch erneut angefragt.",
+      );
       await page.evaluate(() => (window as any).navProbe.push(48, 11));
       await expect(status).toBeHidden();
       await expect(page.locator("#navigation-location-status")).toBeEmpty();
@@ -227,12 +254,16 @@ for (const colorScheme of ["light", "dark"] as const)
       await expect(page.locator("#navigation-alert")).toBeHidden();
     });
 
-test("a location timeout stays in details and clears when the watch recovers", async ({
+test("manual recovery stays available when automatic fresh lookups are unavailable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await page.evaluate(() => {
+    Object.defineProperty(navigator.geolocation, "getCurrentPosition", {
+      configurable: true,
+      value: undefined,
+    });
     (window as any).navProbe.silent = true;
     (window as any).navProbe.fail(2);
   });
@@ -353,7 +384,7 @@ for (const [creditIndex, returned] of [
     expect(planned).toBe(0);
   });
 
-test("location retry recovers a credit overlay without return events and replaces each silent watch", async ({
+test("location retry recovers a credit overlay and then restores automatic refreshing", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -376,18 +407,24 @@ test("location retry recovers a credit overlay without return events and replace
   ).toBe(0);
   await expect(page.locator("#navigation-gps-status")).toBeVisible();
   await page.clock.runFor(12100);
-  await expect(retry).toBeEnabled();
+  await expect(retry).toBeHidden();
   await expect(page.locator("#navigation-location-status")).toContainText(
     "dauert zu lange",
   );
+  await expect(page.locator("#navigation-location-status")).toContainText(
+    "Standort wird automatisch erneut angefragt.",
+  );
   const started = await page.evaluate(() => (window as any).navProbe.started);
-  await retry.click();
-  await expect(retry).toBeDisabled();
+  await page.evaluate(() => {
+    (window as any).navProbe.cachedAt = undefined;
+    (window as any).navProbe.refreshSilent = false;
+    (window as any).navProbe.silent = false;
+  });
+  await page.clock.runFor(30000);
   expect(await page.evaluate(() => (window as any).navProbe.started)).toBe(
-    started + 1,
+    started,
   );
   expect(await page.evaluate(() => (window as any).navProbe.active)).toBe(1);
-  await page.evaluate(() => (window as any).navProbe.push(48, 11));
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
   await expect(page.locator("#navigation-location-status")).toBeEmpty();
   await expect(page.locator("#navigation-location")).toBeHidden();

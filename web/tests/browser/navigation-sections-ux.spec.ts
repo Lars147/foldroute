@@ -18,7 +18,7 @@ import {
 } from "./navigation-fixture";
 
 for (const width of [390, 1280]) {
-  test(`navigation keeps target arrival in details and compact current sections at ${width}px`, async ({
+  test(`navigation omits the arrival footer and keeps compact current sections at ${width}px`, async ({
     page,
   }, info) => {
     await page.setViewportSize({ width, height: 844 });
@@ -36,25 +36,23 @@ for (const width of [390, 1280]) {
     journey.arrival = now + 180;
     await setup(page, false, true, {}, journey);
     if (width < 900) {
-      await expect(page.locator("#navigation-summary-arrival")).toBeHidden();
+      await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
       await expect(page.locator("#navigation-summary-label")).toBeVisible();
       await expect(page.locator("#navigation-summary-label")).toHaveText(
         "Reisedetails",
       );
     }
-    await expect(page.locator("#navigation-summary-arrival")).toHaveText(
-      "Am Ziel 12:03",
-    );
+    await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     await expect(
       page.locator("#navigation-details-toggle"),
     ).not.toHaveAttribute("aria-describedby", /navigation-summary-arrival/);
     await expect(page.locator("#navigation-remaining")).toBeHidden();
     await expect(page.locator("#navigation-remaining")).toBeEmpty();
     if (width < 900) await page.locator("#navigation-details-toggle").click();
-    await expect(page.locator("#navigation-summary-arrival")).toBeVisible();
+    await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     await expect(
       page.getByRole("group", { name: "Gesamte Reise" }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     const details = page.locator("#navigation-section-content");
     await expect(details).toHaveText("Geplant: 1 min · 370 m");
     await expect(page.locator("#navigation-stage")).toHaveClass("sr-only");
@@ -68,9 +66,7 @@ for (const width of [390, 1280]) {
     await expect(details).toContainText("Zu Fuß bis Ausstieg");
     await expect(details).toContainText("Von Bahnhof");
     await expect(details).toContainText("12:01 – 12:03");
-    await expect(page.locator("#navigation-summary-arrival")).toHaveText(
-      "Am Ziel 12:03",
-    );
+    await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     await expect(page.locator("#navigation-complete")).toBeHidden();
     expect(await savedProgress(page)).toEqual(progress);
     expect(await page.evaluate(() => (window as any).navProbe.spoken)).toEqual(
@@ -87,7 +83,7 @@ for (const width of [390, 1280]) {
     await expect(page.locator("#navigation-complete")).toBeVisible();
     await expect(
       page.locator("#navigation-view").getByText(/^Am Ziel /),
-    ).toHaveCount(1);
+    ).toHaveCount(0);
     await expectMotionSettled(page.locator("#navigation-panel"));
     await page.screenshot({
       path: info.outputPath("compact-current-section.png"),
@@ -110,7 +106,7 @@ for (const width of [390, 1280]) {
     const warning = "Gewünschte Ankunft 12:02 wird nicht erreicht.";
     if (width < 900) {
       await expect(page.locator("#navigation-details")).toBeHidden();
-      await expect(page.locator("#navigation-summary-arrival")).toBeHidden();
+      await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
       await expect(page.locator("#navigation-alert-summary")).toHaveText(
         warning,
       );
@@ -121,9 +117,7 @@ for (const width of [390, 1280]) {
       warning,
     );
     await expect(page.locator("#navigation-arrival-warning")).toBeVisible();
-    await expect(page.locator("#navigation-summary-arrival")).toHaveText(
-      "Am Ziel 12:03",
-    );
+    await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     await expectMotionSettled(page.locator("#navigation-panel"));
     await page.screenshot({
       path: info.outputPath("missed-arrival-target.png"),
@@ -148,9 +142,7 @@ for (const width of [390, 1280]) {
       "Abfahrt 12:05 · Gleis 4",
     );
     await page.getByRole("tab", { name: /^S1 nach/ }).click();
-    await expect(page.locator("#navigation-transit-status")).toContainText(
-      "Echtzeit · Stand",
-    );
+    await expect(page.locator("#navigation-transit-status")).toBeEmpty();
     await expect(
       page.locator("#navigation-section-content .detail-source"),
     ).toHaveCount(0);
@@ -183,6 +175,10 @@ for (const width of [320, 390, 1280])
     ]);
     const progress = await savedProgress(page);
     await train.click();
+    if (width < 900) {
+      await expect(page.locator("#navigation-details")).toBeHidden();
+      await page.locator("#navigation-details-toggle").click();
+    }
     await expect(page.getByRole("tabpanel")).toBeVisible();
     await expect(train).toHaveAttribute("aria-selected", "true");
     await expect(tabs.nth(0)).toHaveAttribute("aria-current", "step");
@@ -198,9 +194,7 @@ for (const width of [320, 390, 1280])
       "S1 · Abschnitt 3 von 7",
     );
     const detail = page.locator("#navigation-section-content");
-    await expect(page.locator("#navigation-transit-status")).toContainText(
-      "Echtzeit",
-    );
+    await expect(page.locator("#navigation-transit-status")).toBeEmpty();
     await expect(detail.locator(".detail-source")).toHaveCount(0);
     await expect(page.locator("#navigation-stage")).toHaveClass("sr-only");
     await expect(
@@ -285,13 +279,19 @@ for (const width of [320, 390, 1280])
     if (width < 900) {
       await page.locator("#navigation-details-toggle").click();
       await expect(page.locator("#navigation-details")).toBeHidden();
-      await expect(unfold).toHaveAttribute("aria-selected", "true");
-      await expect(lastBike).toHaveAttribute("aria-selected", "false");
+      await expect(unfold).toHaveAttribute("aria-selected", "false");
+      await expect(lastBike).toHaveAttribute("aria-selected", "true");
       await expectTabVisible(page);
-      await expectCurrentTabAligned(page);
     }
     await unfold.click();
     await expect(unfold).toBeFocused();
+    if (width < 900) {
+      await expect(page.locator("#navigation-details")).toBeHidden();
+      await expect(
+        page.locator("#navigation-section-preview-title"),
+      ).toHaveText("Entfalten");
+      await page.locator("#navigation-details-toggle").click();
+    }
     await expect(detail).toContainText("Entfalten");
     await expect(detail.locator('[data-kind="walk"]')).toHaveCount(0);
     await expect(page.locator("#navigation-complete")).toHaveText(
@@ -325,9 +325,11 @@ for (const width of [320, 390])
 
     await tabs.last().click();
     await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
-    await page.locator("#navigation-details-toggle").click();
-    await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
-    await expectCurrentTabAligned(page);
+    await expect(page.locator("#navigation-details")).toBeHidden();
+    await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
+    await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "false");
+    await expect(tabs.nth(2)).toHaveAttribute("aria-current", "step");
+    await expectTabVisible(page);
 
     await expect.poll(() => savedProgress(page)).toMatchObject({ legIndex: 2 });
     await page.reload();
@@ -376,29 +378,62 @@ test("section tabs support keyboard navigation, collapsed summary order and resu
   await tabs.nth(0).focus();
   await page.keyboard.press("ArrowRight");
   await expect(tabs.nth(1)).toBeFocused();
-  await expect(page.getByRole("tabpanel")).toHaveAttribute(
+  await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#navigation-details")).toBeHidden();
+  await expect(page.locator("#navigation-section-preview-title")).toHaveText(
+    "Falten",
+  );
+  await expect(page.locator("#navigation-section-detail")).toHaveAttribute(
     "aria-labelledby",
     (await tabs.nth(1).getAttribute("id")) as string,
   );
-  await page.keyboard.press("End");
-  await expect(tabs.nth(6)).toBeFocused();
-  await page.keyboard.press("ArrowRight");
-  await expect(tabs.nth(0)).toBeFocused();
-  await page.keyboard.press("ArrowLeft");
-  await expect(tabs.nth(6)).toBeFocused();
-  await page.keyboard.press("Home");
-  await expect(tabs.nth(0)).toBeFocused();
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("End");
-  await expect(tabs.nth(6)).toBeFocused();
+  for (const [key, index] of [
+    ["End", 6],
+    ["ArrowRight", 0],
+    ["ArrowLeft", 6],
+    ["Home", 0],
+    ["ArrowRight", 1],
+    ["End", 6],
+  ] as const) {
+    await page.keyboard.press(key);
+    await expect(tabs.nth(index)).toBeFocused();
+    await expect(tabs.nth(index)).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#navigation-details")).toBeHidden();
+    await expect(page.locator("#navigation-details-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    await expectTabVisible(page);
+  }
   await page.keyboard.press("Escape");
   await expect(page.locator("#navigation-details")).toBeHidden();
-  await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
-  await expect(tabs.nth(0)).toBeFocused();
+  await expect(tabs.nth(6)).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.nth(6)).toBeFocused();
   await expectTabVisible(page);
-  await page.keyboard.press("Space");
+  await page.locator("#navigation-details-toggle").press("ArrowUp");
   await expect(page.getByRole("tabpanel")).toBeVisible();
-  await page.keyboard.press("Tab");
+  await expect(tabs.nth(6)).toHaveAttribute("aria-selected", "true");
+  await expectTabVisible(page);
+  await tabs.nth(6).focus();
+  await page.keyboard.press("Home");
+  await expect(tabs.nth(0)).toBeFocused();
+  await expect(page.getByRole("tabpanel")).toBeVisible();
+  await page.keyboard.press("End");
+  await expect(tabs.nth(6)).toBeFocused();
+  await expect(page.getByRole("tabpanel")).toBeVisible();
+  await expect(page.locator("#navigation-details-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await tabs.nth(6).focus();
+  await page.keyboard.press("Shift+Tab");
+  // WebKit can skip native buttons in its default keyboard focus order.
+  if (
+    await page
+      .locator("#navigation-complete")
+      .evaluate((element) => element === document.activeElement)
+  )
+    await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("tabpanel")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.locator("#navigation-details-toggle")).toBeFocused();
@@ -435,6 +470,11 @@ test("section tabs present folding and unfolding as five peer sections", async (
     path: test.info().outputPath("five-tabs-collapsed.png"),
   });
   await tabs.nth(1).click();
+  await expect(page.locator("#navigation-details")).toBeHidden();
+  await expect(page.locator("#navigation-section-preview-title")).toHaveText(
+    "Falten",
+  );
+  await page.locator("#navigation-details-toggle").click();
   await expect(detail.locator('[data-kind="fold"]')).toBeVisible();
   await expect(detail.locator('[data-kind="transit"]')).toHaveCount(0);
   await expect(page.locator("#navigation-stage")).toHaveText(
@@ -483,10 +523,13 @@ test("section tabs keep separate train details", async ({ page }) => {
   journey.arrival = journey.legs.at(-1)!.end;
   await setup(page, true, true, {}, journey);
   await page.getByRole("tab", { name: /^U3 nach/ }).click();
+  await page.locator("#navigation-details-toggle").click();
   const details = page.locator("#navigation-section-content");
   await expect(details).toContainText("Richtung Fürstenried West");
   await expect(details).toContainText("Gleis / Steig 8");
-  await expect(page.locator("#navigation-transit-status")).toContainText("U3");
+  await expect(page.locator("#navigation-transit-status")).toHaveText(
+    "U3 · Aktualisierung nicht verfügbar",
+  );
   await expect(details).not.toContainText("Altstadt");
   await page.getByRole("tab", { name: /^S1 nach/ }).click();
   await expect(details).toContainText("Richtung Altstadt");
@@ -508,6 +551,7 @@ for (const mode of ["BUS", "COACH"])
     await expect(tab).toHaveText(journey.legs[2].line!);
     await expect(tab.locator('[data-icon="bus"] svg')).toBeVisible();
     await tab.click();
+    await page.locator("#navigation-details-toggle").click();
     await expect(page.locator("#navigation-section-content")).toContainText(
       journey.legs[2].line!,
     );
@@ -526,6 +570,7 @@ for (const colorScheme of ["light", "dark"] as const)
     await page.evaluate(
       () => (document.documentElement.style.fontSize = "24px"),
     );
+    await page.locator("#navigation-details-toggle").click();
     const current = page.getByRole("tab", { name: /^Rad nach Bahnhof/ });
     const train = page.getByRole("tab", { name: /^S1 nach/ });
     const activeColor = await current.evaluate(

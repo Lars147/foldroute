@@ -2,6 +2,7 @@ import { bikeBoardings, type Journey } from "./model";
 import { freshTransit, movement, projectPath } from "./navigation-engine";
 import { quality, type LocationFix } from "./live-location";
 import { clock } from "./ui";
+import { transitCancellationMessage } from "./transit-cancellation";
 
 export interface ConnectionAssessment {
   status: "ready" | "risk" | "departed" | "cancelled" | "unknown";
@@ -30,7 +31,7 @@ export function assessConnection(
     return {
       status: "cancelled",
       id: `cancelled-${cancelled.navigationId ?? journey.legs.indexOf(cancelled)}`,
-      message: `${cancelled.line ?? "ÖPNV"}: Fahrt oder benötigter Halt fällt aus.`,
+      message: `${cancelled.line ?? "ÖPNV"}: ${transitCancellationMessage(cancelled)}.`,
     };
   const boardings = bikeBoardings(journey);
   let earliest = now,

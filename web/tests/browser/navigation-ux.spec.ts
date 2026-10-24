@@ -296,7 +296,8 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await setup(page, true);
     await expect(page.locator("#navigation-details")).toBeHidden();
-    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await expect(page.locator("#navigation-complete")).toBeVisible();
+    await expect(page.locator("#navigation-complete")).toBeEnabled();
     await expect(page.locator("#navigation-alert")).toBeHidden();
     await expect(page.locator(".navigation-panel")).toHaveCSS("bottom", "12px");
     await expectMobileCredit(page);
@@ -313,19 +314,49 @@ for (const [width, height] of [
       return {
         top: top.bottom,
         bottom: panel.top,
-        panelHeight: panel.height,
         endWidth: end.width,
         endHeight: end.height,
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
     });
-    // Departure and platform stay visible alongside the arrival time.
-    expect(bounds.panelHeight).toBeLessThanOrEqual(180);
     expect(bounds.endWidth).toBeGreaterThanOrEqual(44);
     expect(bounds.endHeight).toBeGreaterThanOrEqual(44);
     expect(bounds.overflow).toBe(false);
-    if (width === 390)
-      expect(bounds.bottom - bounds.top).toBeGreaterThanOrEqual(height * 0.6);
+    // Compact section details and actions must leave map controls usable.
+    const controls = page.locator(
+      ".navigation-map-controls > button, #navigation-style-control > button",
+    );
+    await expect(controls).toHaveCount(3);
+    for (const control of await controls.all()) {
+      const target = await control.boundingBox();
+      expect(target!.width).toBeGreaterThanOrEqual(44);
+      expect(target!.height).toBeGreaterThanOrEqual(44);
+      expect(target!.y).toBeGreaterThanOrEqual(bounds.top);
+      expect(target!.y + target!.height).toBeLessThanOrEqual(bounds.bottom);
+      expect(
+        await control.evaluate((button) => {
+          const rect = button.getBoundingClientRect();
+          return [6, rect.width / 2, rect.width - 6].every((x) =>
+            [6, rect.height / 2, rect.height - 6].every((y) =>
+              button.contains(
+                document.elementFromPoint(rect.x + x, rect.y + y),
+              ),
+            ),
+          );
+        }),
+      ).toBe(true);
+    }
+    const map = page.locator("#navigation-map");
+    const dragY = bounds.top + (bounds.bottom - bounds.top) / 2;
+    expect(
+      await map.evaluate(
+        (map, { x, y }) =>
+          [x - 20, x, x + 20].every((x) =>
+            map.contains(document.elementFromPoint(x, y)),
+          ),
+        { x: width / 2, y: dragY },
+      ),
+    ).toBe(true);
     await page.screenshot({
       path: test.info().outputPath(`compact-${width}.png`),
     });
@@ -359,6 +390,8 @@ for (const [width, height] of [
     );
     await expect(page.locator("#navigation-alert")).toBeHidden();
     await expectMobileCredit(page);
+    for (const control of await controls.all())
+      await control.click({ trial: true });
     await page.screenshot({
       path: test.info().outputPath("gps-status-credits.png"),
     });
@@ -371,7 +404,7 @@ for (const [width, height] of [
     });
   });
 
-test("following camera uses final panel geometry during the sheet animation", async ({
+test("following camera uses final panel geometry throughout the height transition", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -389,31 +422,34 @@ test("following camera uses final panel geometry during the sheet animation", as
       const panel = document.getElementById("navigation-panel")!;
       const animations = panel.getAnimations();
       for (const animation of animations) animation.pause();
+      const initialHeight = panel.getBoundingClientRect().height;
+      for (const animation of animations) animation.currentTime = 480;
+      const finalTop =
+        panel.parentElement!.getBoundingClientRect().top + panel.offsetTop;
+      const finalHeight = panel.getBoundingClientRect().height;
+      for (const animation of animations) animation.currentTime = 0;
       return {
         count: animations.length,
-        gap: Math.abs(
-          panel.getBoundingClientRect().top -
-            (panel.parentElement!.getBoundingClientRect().top +
-              panel.offsetTop),
-        ),
+        initialHeight,
+        finalHeight,
+        finalTop,
       };
     });
   expect(started.count).toBeGreaterThan(0);
-  expect(started.gap).toBeGreaterThan(20);
+  // Selected details can be shorter than their compact section preview.
+  expect(Math.abs(started.finalHeight - started.initialHeight)).toBeGreaterThan(
+    10,
+  );
   await expect
     .poll(() =>
-      panel.evaluate((element) => {
+      panel.evaluate((element, finalTop) => {
         const screen = element.parentElement!;
         const map = document.getElementById("navigation-map")!;
-        const finalTop =
-          screen.getBoundingClientRect().top +
-          element.offsetTop -
-          map.getBoundingClientRect().top;
         return Math.abs(
           parseFloat(screen.style.getPropertyValue("--navigation-panel-top")) -
-            finalTop,
+            (finalTop - map.getBoundingClientRect().top),
         );
-      }),
+      }, started.finalTop),
     )
     .toBeLessThan(1);
   await expect(map).not.toHaveAttribute("data-center", collapsedCenter!);

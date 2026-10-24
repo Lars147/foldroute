@@ -3,11 +3,16 @@ import type { StationCursor } from "./navigation-estimate";
 import { clock, node } from "./ui";
 import { motionAllowed } from "./motion";
 
+interface StationGuidance {
+  exitConfirmed: boolean;
+}
+
 /** Paint the rail from logical station progress without rebuilding it each frame. */
 export class NavigationStations {
   private leg?: Leg;
   private index = -1;
   private confirmedIndex = -1;
+  private guidance?: StationGuidance;
   private position?: StationCursor;
   private renderedIndex = -1;
   private renderedLeg?: string;
@@ -38,13 +43,20 @@ export class NavigationStations {
       list.setAttribute("aria-label", "Halte der aktuellen Bahnfahrt");
   }
 
-  update(leg: Leg | undefined, index: number, confirmedIndex = index) {
+  update(
+    leg: Leg | undefined,
+    index: number,
+    confirmedIndex = index,
+    guidance?: StationGuidance,
+  ) {
     if (this.leg?.navigationId !== leg?.navigationId || index < 0)
       this.position = undefined;
     this.leg = leg;
     this.index = index;
     this.confirmedIndex = confirmedIndex;
-    this.list.hidden = !leg?.transitStops;
+    this.guidance = guidance;
+    this.list.dataset.active = String(!!guidance);
+    this.list.hidden = !leg?.transitStops?.length;
     this.render();
   }
 
@@ -83,7 +95,7 @@ export class NavigationStations {
   private render() {
     const leg = this.leg,
       stops = leg?.transitStops;
-    if (!stops) {
+    if (!leg || !stops?.length) {
       this.clearTransition();
       this.key = "";
       this.renderedLeg = undefined;
@@ -97,9 +109,12 @@ export class NavigationStations {
       leg.navigationId,
       leg.end,
       leg.realtime,
+      leg.arrivalPlatform,
       stops,
       index,
+      this.index,
       this.confirmedIndex,
+      this.guidance,
     ]);
     if (key === this.key) {
       this.paint();
@@ -124,19 +139,33 @@ export class NavigationStations {
     const indices = this.compact
       ? [...new Set([index, next, stops.length - 1])].filter((i) => i >= 0)
       : stops.map((_, i) => i);
+    const remaining = stops.filter(
+      (stop, i) => i > this.index && !stop.cancelled,
+    ).length;
     const items: HTMLElement[] = [];
     let previous: number | undefined;
     for (const i of indices) {
       if (previous !== undefined && i > previous + 1) {
-        const gap = node("li", "", "navigation-station-gap");
-        gap.dataset.stationKey = `gap:${i}`;
-        gap.append(node("span", "Weitere Zwischenhalte", "sr-only"));
-        items.push(gap);
+        const skipped = stops
+          .slice(previous + 1, i)
+          .filter((stop) => !stop.cancelled).length;
+        if (skipped) {
+          const gap = node("li", "", "navigation-station-gap");
+          gap.dataset.stationKey = `gap:${i}`;
+          gap.append(
+            node(
+              "span",
+              `${skipped} ${skipped === 1 ? "Zwischenhalt" : "Zwischenhalte"}`,
+            ),
+          );
+          items.push(gap);
+        }
       }
       const stop = stops[i];
       const item = node("li", "", "navigation-station");
       item.dataset.index = String(i);
       item.dataset.stationKey = `stop:${i}`;
+      item.dataset.exit = String(i === stops.length - 1);
       item.dataset.state = stop.cancelled
         ? "cancelled"
         : i <= index
@@ -144,12 +173,13 @@ export class NavigationStations {
           : i === next
             ? "next"
             : "upcoming";
-      if (i === next) item.setAttribute("aria-current", "step");
+      if (i === next && i > this.index)
+        item.setAttribute("aria-current", "step");
       const marker = node("span", "", "navigation-station-marker");
       marker.setAttribute("aria-hidden", "true");
       const copy = node("div", "", "navigation-station-copy");
       copy.append(node("span", stop.name, "navigation-station-name"));
-      const label = stop.cancelled
+      let label = stop.cancelled
         ? "Halt entfällt"
         : i === stops.length - 1
           ? "Ausstieg"
@@ -158,6 +188,18 @@ export class NavigationStations {
               ? "Erreicht"
               : "Voraussichtlich passiert"
             : "";
+      if (this.guidance && !stop.cancelled) {
+        if (i === stops.length - 1) {
+          label = this.guidance.exitConfirmed
+            ? "Hier aussteigen"
+            : remaining === 1
+              ? "Ausstieg am nächsten Halt"
+              : remaining > 0
+                ? `Ausstieg in ${remaining} Halten`
+                : "Ausstieg";
+          if (leg.arrivalPlatform) label += ` · Gleis ${leg.arrivalPlatform}`;
+        } else if (i === next && i > this.index) label = "Nächster Halt";
+      }
       // The compact rail needs the previous name, without another explanatory line.
       if (label && (!this.compact || i > index))
         copy.append(node("small", label));
@@ -238,6 +280,7 @@ export class NavigationStations {
       cursor = at + 1;
       const previous = old[at];
       previous.dataset.state = item.dataset.state ?? "";
+      previous.dataset.exit = item.dataset.exit ?? "false";
       delete previous.dataset.leaving;
       previous.removeAttribute("aria-hidden");
       if (item.hasAttribute("aria-current"))

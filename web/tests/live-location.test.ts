@@ -90,6 +90,24 @@ it("starts once for granted permission and ignores callbacks after pause", async
   await flush();
   expect(watch).toHaveBeenCalledTimes(2);
 });
+it("reports automatic recovery only while fresh lookups are allowed and active", async () => {
+  singleRequests();
+  const service = new LiveLocation(vi.fn());
+  expect(service.automaticRefreshActive).toBe(false);
+  service.setActive(true);
+  await flush();
+  expect(service.automaticRefreshActive).toBe(true);
+  callbacks.get(1)!.error({ code: 2 } as GeolocationPositionError);
+  expect(service.automaticRefreshActive).toBe(true);
+  permission.state = "denied";
+  permission.onchange!();
+  expect(service.automaticRefreshActive).toBe(false);
+  permission.state = "granted";
+  permission.onchange!();
+  expect(service.automaticRefreshActive).toBe(true);
+  service.setActive(false);
+  expect(service.automaticRefreshActive).toBe(false);
+});
 it.each(["prompt", "denied"] as const)(
   "does not prompt automatically when permission is %s",
   async (state) => {
@@ -499,6 +517,55 @@ it("does not request extra positions while the watch supplies fresh measurements
     await vi.advanceTimersByTimeAsync(20000);
   }
   expect(requests).toHaveLength(0);
+});
+
+it("keeps retrying when inaccurate watch measurements arrive every ten seconds", async () => {
+  const requests = singleRequests();
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  for (let i = 0; i < 12; i++) {
+    callbacks.get(1)!.success(position(500));
+    await vi.advanceTimersByTimeAsync(10000);
+  }
+  expect(service.automaticRefreshActive).toBe(true);
+  expect(requests).toHaveLength(4);
+});
+
+it("schedules recovery from the last usable fix rather than a later inaccurate fix", async () => {
+  const requests = singleRequests();
+  const service = new LiveLocation(vi.fn());
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position(500));
+  await vi.advanceTimersByTimeAsync(25000);
+  callbacks.get(1)!.success(position());
+  await vi.advanceTimersByTimeAsync(5000);
+  callbacks.get(1)!.success(position(500));
+  await vi.advanceTimersByTimeAsync(24999);
+  expect(requests).toHaveLength(0);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(requests).toHaveLength(1);
+});
+
+it("accepts an accurate refresh after an inaccurate watch sample arrives during the request", async () => {
+  const requests = singleRequests();
+  const changed = vi.fn();
+  const service = new LiveLocation(changed);
+  service.setActive(true);
+  await flush();
+  callbacks.get(1)!.success(position());
+  await vi.advanceTimersByTimeAsync(30000);
+  await vi.advanceTimersByTimeAsync(1000);
+  callbacks.get(1)!.success(position(500));
+  await vi.advanceTimersByTimeAsync(1000);
+  requests[0].success(position());
+  expect(changed).toHaveBeenLastCalledWith(
+    readFix(position()),
+    "current",
+    undefined,
+  );
+  expect(requests).toHaveLength(1);
 });
 
 it.each([undefined, 2, 3])(

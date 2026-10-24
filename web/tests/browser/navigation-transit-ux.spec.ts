@@ -105,8 +105,9 @@ for (const mobile of [false, true])
     await expect(page.locator("#navigation-alternative")).toBeHidden();
     await page.locator("#navigation-locate").click();
     await expect(page.locator("#navigation-alternative")).toBeVisible();
-    await expect(page.locator("#navigation-status")).toContainText(
-      "Bitte zum Übernehmen bestätigen",
+    await expect(page.locator("#navigation-status")).toBeEmpty();
+    await expect(page.locator("#navigation-accept")).toHaveText(
+      "Verbindung übernehmen",
     );
     await expect(page.getByRole("tab", { name: /^S1 nach/ })).toHaveCount(1);
     await page.locator("#navigation-accept").click();
@@ -161,7 +162,8 @@ for (const width of [390])
     await setup(page, true, true, {}, journey);
     await complete(page);
     await complete(page);
-    if (width < 900) await page.locator("#navigation-details-toggle").click();
+    if (width < 900 && (await page.locator("#navigation-details").isVisible()))
+      await page.locator("#navigation-details-toggle").click();
     await page.clock.pauseAt(new Date((now + 300) * 1000));
     for (let i = 0; i < 2; i++) {
       await page.clock.runFor(1000);
@@ -215,9 +217,9 @@ for (const width of [390])
     const dwell = await stationRail(page, selector);
     expect(dwell.progress).toBeCloseTo(1, 2);
     expect(dwell.rows[1].reached).toBe("true");
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Voraussichtlich an: Stadtmitte",
-    );
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Voraussichtlich an: Stadtmitte");
     await page.clock.runFor(1000);
     expect((await stationRail(page, selector)).filled).toBe(dwell.filled);
     if (width < 900) {
@@ -314,7 +316,7 @@ for (const width of [390])
       c,
     );
     await page.clock.runFor(1000);
-    await expect(page.locator("#navigation-context-status")).toContainText(
+    await expect(page.locator("#navigation-station-status")).toContainText(
       "Stationsstand geschätzt",
     );
     const beforeConfirmation = await stationRail(page, selector);
@@ -339,9 +341,9 @@ for (const width of [390])
     const exit = await stationRail(page, selector);
     expect(exit.progress).toBeCloseTo(3, 2);
     expect(exit.rows.at(-1)!.reached).toBe("true");
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Ausstieg: Ausstieg",
-    );
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Ausstieg: Ausstieg");
     expect(await savedProgress(page)).toEqual(before);
     await page.screenshot({
       path: info.outputPath("station-rail-progress.png"),
@@ -370,13 +372,14 @@ for (const width of [390])
     );
     await complete(page);
     await complete(page);
-    if (width < 900) await page.locator("#navigation-details-toggle").click();
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Nächster Halt: Stadtmitte",
-    );
-    await expect(page.locator("#navigation-context-detail")).toContainText(
-      "Noch 3 Halte",
-    );
+    if (width < 900 && (await page.locator("#navigation-details").isVisible()))
+      await page.locator("#navigation-details-toggle").click();
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Nächster Halt: Stadtmitte");
+    await expect(
+      page.locator('.navigation-stations[data-active="true"]:visible'),
+    ).toContainText("Ausstieg in 3 Halten");
     const preview = page.locator(
       width < 900
         ? "#navigation-stations-preview"
@@ -389,27 +392,27 @@ for (const width of [390])
       (stop) => (window as any).navProbe.push(stop.latitude, stop.longitude),
       station,
     );
-    await expect(page.locator("#navigation-context-detail")).toContainText(
-      "Noch 3 Halte",
-    );
+    await expect(
+      page.locator('.navigation-stations[data-active="true"]:visible'),
+    ).toContainText("Ausstieg in 3 Halten");
     await page.clock.runFor(1000);
     await page.evaluate(
       (stop) => (window as any).navProbe.push(stop.latitude, stop.longitude),
       station,
     );
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Nächster Halt: Rathaus",
-    );
-    await expect(page.locator("#navigation-context-detail")).toContainText(
-      "Noch 2 Halte",
-    );
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Nächster Halt: Rathaus");
+    await expect(
+      page.locator('.navigation-stations[data-active="true"]:visible'),
+    ).toContainText("Ausstieg in 2 Halten");
     await expect(page.locator("#navigation-context-status")).toBeEmpty();
     await page.evaluate(
       (stop) =>
         (window as any).navProbe.push(stop.latitude, stop.longitude, 90, 500),
       station,
     );
-    await expect(page.locator("#navigation-context-status")).toContainText(
+    await expect(page.locator("#navigation-station-status")).toContainText(
       "Stationsstand geschätzt",
     );
     await expect(page.locator("#navigation-gps-status")).toHaveText(
@@ -422,12 +425,12 @@ for (const width of [390])
     await expect(page.locator("#navigation-gps-status")).toHaveText(
       "Kein GPS Kartenposition geschätzt",
     );
-    await expect(page.locator("#navigation-context-status")).toContainText(
+    await expect(page.locator("#navigation-station-status")).toContainText(
       "Stationsstand geschätzt",
     );
-    await expect(page.locator("#navigation-context-detail")).toContainText(
-      "Noch 2 Halte",
-    );
+    await expect(
+      page.locator('.navigation-stations[data-active="true"]:visible'),
+    ).toContainText("Ausstieg in 2 Halten");
     await page.screenshot({ path: info.outputPath("stations-paused.png") });
     const next = journey.legs[2].transitStops![2];
     for (let i = 0; i < 2; i++) {
@@ -437,9 +440,9 @@ for (const width of [390])
         next,
       );
     }
-    await expect(page.locator("#navigation-context-detail")).toContainText(
-      "Noch 1 Halt",
-    );
+    await expect(
+      page.locator('.navigation-stations[data-active="true"]:visible'),
+    ).toContainText("Ausstieg am nächsten Halt");
     await expect(page.locator("#navigation-context-status")).toBeEmpty();
     await page.clock.runFor(2100);
     if (width < 900) await page.locator("#navigation-details-toggle").click();
@@ -450,11 +453,9 @@ for (const width of [390])
       page.locator("#navigation-stations-detail [data-state=passed]"),
     ).toHaveCount(3);
     if (width < 900) await page.locator("#navigation-details-toggle").click();
-    await expect(page.locator("#navigation-summary-arrival")).toContainText(
-      "Am Ziel",
-    );
+    await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     if (width < 900)
-      await expect(page.locator("#navigation-summary-arrival")).toBeHidden();
+      await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     await expect(page.locator("#navigation-end")).toBeVisible();
     await expectMotionSettled(page.locator("#navigation-panel"));
     await page.screenshot({ path: info.outputPath("stations-progress.png") });
@@ -467,7 +468,11 @@ for (const width of [390])
       await page.evaluate(
         () => (document.documentElement.style.fontSize = "200%"),
       );
-      await expect(page.locator("#navigation-context-title")).toBeVisible();
+      await expect(
+        page.locator(
+          '.navigation-stations:visible [data-exit="true"] .navigation-station-name',
+        ),
+      ).toBeVisible();
       await expect(page.locator("#navigation-end")).toBeInViewport();
       await expect
         .poll(() =>
@@ -514,7 +519,8 @@ for (const width of [390, 1280])
     await setup(page, true, true, {}, journey);
     await complete(page);
     await complete(page);
-    if (width < 900) await page.locator("#navigation-details-toggle").click();
+    if (width < 900 && (await page.locator("#navigation-details").isVisible()))
+      await page.locator("#navigation-details-toggle").click();
     const list = page.locator(
       width < 900
         ? "#navigation-stations-preview"
@@ -595,9 +601,9 @@ for (const width of [390, 1280])
       "12:08",
       "12:11",
     ]);
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Nächster Halt: Stadtmitte",
-    );
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Nächster Halt: Stadtmitte");
     if (width < 900) {
       await page.locator("#navigation-details-toggle").click();
       await expect(list.locator("time")).toHaveText(["12:08", "12:11"]);
@@ -635,11 +641,13 @@ for (const colorScheme of ["light", "dark"] as const)
     await setup(page, true, true, {}, journey);
     await complete(page);
     await complete(page);
-    await page.locator("#navigation-details-toggle").click();
+    if (await page.locator("#navigation-details").isVisible())
+      await page.locator("#navigation-details-toggle").click();
     const preview = page.locator("#navigation-stations-preview");
+    await expect(preview).toBeVisible();
     await expect(preview.locator(".navigation-station")).toHaveCount(3);
     await expect(preview.locator(".navigation-station-gap")).toHaveText(
-      "Weitere Zwischenhalte",
+      "2 Zwischenhalte",
     );
     await expectMotionSettled(page.locator("#navigation-panel"));
     await page.screenshot({ path: info.outputPath("stations-long-names.png") });
@@ -671,9 +679,9 @@ test("station progress survives resuming and shows cancelled stops without count
   await setup(page, true, true, {}, journey);
   await complete(page);
   await complete(page);
-  await expect(page.locator("#navigation-context-detail")).toContainText(
-    "Noch 2 Halte",
-  );
+  await expect(
+    page.locator('.navigation-stations[data-active="true"]:visible'),
+  ).toContainText("Ausstieg in 2 Halten");
   const stop = journey.legs[2].transitStops![1];
   for (let i = 0; i < 2; i++) {
     await page.clock.runFor(1000);
@@ -682,17 +690,17 @@ test("station progress survives resuming and shows cancelled stops without count
       stop,
     );
   }
-  await expect(page.locator("#navigation-context-detail")).toContainText(
-    "Noch 1 Halt",
-  );
+  await expect(
+    page.locator('.navigation-stations[data-active="true"]:visible'),
+  ).toContainText("Ausstieg am nächsten Halt");
   await expect(
     page.locator("#navigation-stations-detail [data-state=cancelled]"),
   ).toContainText("Halt entfällt");
   await page.reload();
   await page.locator("#navigation-resume").click();
-  await expect(page.locator("#navigation-context-detail")).toContainText(
-    "Noch 1 Halt",
-  );
+  await expect(
+    page.locator('.navigation-stations[data-active="true"]:visible'),
+  ).toContainText("Ausstieg am nächsten Halt");
   await expect(page.locator("#navigation-context-status")).not.toContainText(
     "Stationsfortschritt pausiert",
   );
@@ -719,23 +727,23 @@ test("GPS loss removes the duplicate pause text while transit warnings remain vi
   await expect(page.locator("#navigation-gps-status")).toHaveText(
     "Kein GPS Kartenposition geschätzt",
   );
-  await expect(page.locator("#navigation-context-status")).toContainText(
+  await expect(page.locator("#navigation-station-status")).toContainText(
     "Stationsstand geschätzt",
   );
-  await expect(page.locator("#navigation-context-detail")).toContainText(
-    "Noch 3 Halte",
-  );
-  await expect(page.locator("#navigation-summary-arrival")).toBeHidden();
+  await expect(
+    page.locator('.navigation-stations[data-active="true"]:visible'),
+  ).toContainText("Ausstieg in 3 Halten");
+  await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
   await page.route("**/api/v6/trip?*", (r) =>
     r.fulfill({ status: 503, json: {} }),
   );
   await page.clock.fastForward(61000);
-  await expect(page.locator("#navigation-context-status")).toContainText(
+  await expect(page.locator("#navigation-transit-status")).toContainText(
     "Abruf fehlgeschlagen",
   );
-  await expect(page.locator("#navigation-context-detail")).toContainText(
-    "Noch 3 Halte",
-  );
+  await expect(
+    page.locator('.navigation-stations[data-active="true"]:visible'),
+  ).toContainText("Ausstieg in 3 Halten");
   await expect(page.locator("#navigation-view")).not.toContainText(
     "Stationsfortschritt pausiert",
   );
@@ -772,7 +780,8 @@ for (const width of [390])
     await setup(page, true, true, {}, journey);
     await complete(page);
     await complete(page);
-    if (width < 900) await page.locator("#navigation-details-toggle").click();
+    if (width < 900 && (await page.locator("#navigation-details").isVisible()))
+      await page.locator("#navigation-details-toggle").click();
     await page.clock.pauseAt(new Date((now + 300) * 1000));
     const boarding = train.transitStops![0];
     for (let i = 0; i < 2; i++) {
@@ -817,9 +826,9 @@ for (const width of [390])
     await page.evaluate(() => (window as any).navProbe.hide(false));
     expect(distance(await position(), beforeHidden)).toBeLessThan(1);
     await page.clock.fastForward(8000);
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Nächster Halt: Rathaus",
-    );
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Nächster Halt: Rathaus");
     await expect(
       page.locator("#navigation-stations-announcement"),
     ).toContainText("Stationsstand geschätzt");
@@ -854,9 +863,9 @@ for (const width of [390])
       (window as any).navProbe.fail(2);
     });
     await page.clock.fastForward(20000);
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Ausstieg: Ausstieg",
-    );
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Ausstieg: Ausstieg");
     await expect(page.locator("#navigation-view")).not.toContainText(
       "Hier aussteigen",
     );
@@ -905,12 +914,12 @@ test("station entrances away from the track do not block estimates after signal 
   await expect(page.locator("#navigation-gps-status")).toHaveText(
     "Kein GPS Kartenposition geschätzt",
   );
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Rathaus",
   );
   await page.clock.fastForward(51000);
   await context.setOffline(false);
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Ausstieg",
   );
   expect(await savedProgress(page)).toEqual(before);
@@ -935,13 +944,13 @@ test("GPS outside the train route does not freeze station estimates through a co
   await expect(page.locator("#navigation-gps-status")).toHaveText(
     "Kartenposition geschätzt",
   );
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Rathaus",
   );
   await context.setOffline(true);
   await page.clock.runFor(2100);
   await context.setOffline(false);
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Rathaus",
   );
   expect(await savedProgress(page)).toEqual(before);
@@ -955,7 +964,7 @@ test("GPS outside the train route does not freeze station estimates through a co
   }
   await expect(map).toHaveAttribute("data-position-source", "gps");
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Ausstieg",
   );
 });
@@ -976,7 +985,7 @@ test("live trip delays correct the estimated marker and stations without changin
     (window as any).navProbe.fail(2);
   });
   await page.clock.runFor(2100);
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Rathaus",
   );
   const before = await savedProgress(page);
@@ -1008,7 +1017,7 @@ test("live trip delays correct the estimated marker and stations without changin
     }),
   );
   await page.clock.fastForward(61000);
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Stadtmitte",
   );
   const map = page.locator("#navigation-map");
@@ -1116,7 +1125,7 @@ test("station rail uses GPS without a usable timetable and skips cancelled circl
     page.locator("#navigation-stations-detail [data-state=cancelled]"),
   ).toHaveAttribute("data-reached", "false");
   await page.evaluate(() => (window as any).navProbe.fail(2));
-  await expect(page.locator("#navigation-context-status")).toContainText(
+  await expect(page.locator("#navigation-station-status")).toContainText(
     "Stationsstand unklar",
   );
   const frozen = (await stationRail(page, "#navigation-stations-detail"))
@@ -1268,7 +1277,7 @@ test("ending a cancelled connection offers explicit recovery instead of an archi
     r.fulfill({ json: { direct: [], itineraries: [] } }),
   );
   await page.clock.fastForward(60000);
-  await expect(page.locator("#navigation-disruption")).toContainText(
+  await expect(page.locator("#navigation-alert-summary")).toContainText(
     "fällt aus",
   );
   await page.locator("#navigation-end").click();
@@ -1504,7 +1513,7 @@ test("departure summary follows live times, expiry and cancellation", async ({
   cancelled = true;
   await page.clock.fastForward(61000);
   await expect(page.locator("#navigation-context-title")).toHaveText(
-    "S1 · Fahrt fällt aus",
+    "S1 Richtung Altstadt",
   );
 });
 
@@ -1515,7 +1524,7 @@ test("missing station data stays explicit and departure context clears after the
   await setup(page, true);
   await complete(page);
   await complete(page);
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-context-status")).toHaveText(
     "Stationsdaten nicht verfügbar",
   );
   await expect(page.locator("#navigation-context-detail")).not.toContainText(
@@ -1526,9 +1535,7 @@ test("missing station data stays explicit and departure context clears after the
   await expect(page.locator("#navigation-context")).toBeHidden();
   await page.locator("#navigation-details-toggle").click();
   await expect(page.locator("#navigation-summary-label")).toBeVisible();
-  await expect(page.locator("#navigation-summary-arrival")).toBeHidden();
+  await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
   await page.locator("#navigation-details-toggle").click();
-  await expect(page.locator("#navigation-summary-arrival")).toContainText(
-    "Am Ziel",
-  );
+  await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
 });

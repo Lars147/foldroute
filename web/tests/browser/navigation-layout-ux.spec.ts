@@ -109,12 +109,12 @@ for (const [width, height] of [
         : "#navigation-stations-detail";
     const rail = page.locator(selector);
     await expect(rail).toBeVisible();
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Nächster Halt: Stadtmitte",
-    );
-    await expect(page.locator("#navigation-context-detail")).toContainText(
-      "Noch 3 Halte",
-    );
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Nächster Halt: Stadtmitte");
+    await expect(
+      page.locator('.navigation-stations[data-active="true"]:visible'),
+    ).toContainText("Ausstieg in 3 Halten");
     await expect(page.locator("#navigation-gps-status")).toHaveText(
       "Kein GPS Kartenposition geschätzt",
     );
@@ -137,12 +137,12 @@ for (const [width, height] of [
     // replaying several minutes of train/map animation at every viewport.
     await page.clock.setFixedTime(new Date("2026-10-06T10:08:30Z"));
     await page.evaluate(() => (window as any).navigationPreview.view.render());
-    await expect(page.locator("#navigation-context-title")).toHaveText(
-      "Nächster Halt: Ausstieg",
-    );
-    await expect(page.locator("#navigation-context-detail")).toContainText(
-      "Noch 1 Halt",
-    );
+    await expect(
+      page.locator("#navigation-stations-announcement"),
+    ).toContainText("Nächster Halt: Ausstieg");
+    await expect(
+      page.locator('.navigation-stations[data-active="true"]:visible'),
+    ).toContainText("Ausstieg am nächsten Halt");
     await expect(
       page.locator("#navigation-stations-detail .navigation-station"),
     ).toHaveCount(4);
@@ -171,7 +171,11 @@ for (const [width, height] of [
       await page.evaluate(() => {
         document.documentElement.style.fontSize = "200%";
       });
-      await expect(page.locator("#navigation-context-title")).toBeVisible();
+      await expect(
+        page.locator(
+          '.navigation-stations:visible [data-exit="true"] .navigation-station-name',
+        ),
+      ).toBeVisible();
       await expect(page.locator("#navigation-end")).toBeInViewport();
       expect(
         await page.evaluate(

@@ -26,12 +26,12 @@ test("station tracking keeps running when the navigation map cannot load", async
     "true",
   );
   await page.clock.pauseAt(new Date((now + 450) * 1000));
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Rathaus",
   );
   const before = await savedProgress(page);
   await page.clock.fastForward(51000);
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Ausstieg",
   );
   expect(await savedProgress(page)).toEqual(before);
@@ -61,11 +61,11 @@ test("an unusable future station projection uses a schematic map without freezin
   await expect(page.locator("#navigation-gps-estimate")).toHaveText(
     "Kartenposition grob geschätzt",
   );
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Rathaus",
   );
   await page.clock.fastForward(51000);
-  await expect(page.locator("#navigation-context-title")).toHaveText(
+  await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Ausstieg",
   );
 });
@@ -84,7 +84,7 @@ test("estimated arrival keeps the train active and exposes manual exit in the co
     (window as any).navProbe.fail(2);
   });
   await page.clock.pauseAt(new Date((now + 601) * 1000));
-  await expect(page.locator("#navigation-context-status")).toContainText(
+  await expect(page.locator("#navigation-station-status")).toContainText(
     "Ausstieg laut Fahrzeiten erreicht",
   );
   if (await page.locator("#navigation-details").isVisible())
@@ -111,7 +111,7 @@ test("network recovery refreshes current trip without waiting through network-er
   await complete(page);
   await page.route("**/api/v6/trip?*", (route) => route.abort("failed"));
   await page.clock.fastForward(61000);
-  await expect(page.locator("#navigation-context-status")).toContainText(
+  await expect(page.locator("#navigation-transit-status")).toContainText(
     "Abruf fehlgeschlagen",
   );
   let recoveredRequests = 0;
@@ -141,7 +141,7 @@ test("network recovery refreshes current trip without waiting through network-er
   await context.setOffline(true);
   await context.setOffline(false);
   await expect.poll(() => recoveredRequests).toBe(1);
-  await expect(page.locator("#navigation-context-status")).not.toContainText(
+  await expect(page.locator("#navigation-transit-status")).not.toContainText(
     "Abruf fehlgeschlagen",
   );
   await expect

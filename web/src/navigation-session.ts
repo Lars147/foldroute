@@ -1039,7 +1039,7 @@ export class NavigationSession {
             ? [...active.progress.confirmedStops, leg.stop.id]
             : undefined,
       };
-      return "Verbindung geprüft. Bitte zum Übernehmen bestätigen.";
+      return "";
     }, "Alternative wird gesucht …");
   }
   async resumeAlternativeAfterLocation() {

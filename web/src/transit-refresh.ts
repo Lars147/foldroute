@@ -4,7 +4,9 @@ import {
   type Leg,
   type TransitReference,
   type TransitStop,
+  type TransitCancellationReason,
 } from "./model";
+import { transitCancellationReason } from "./transit-cancellation";
 import { parseTransitStops } from "./transit-stops";
 import { assessConnection } from "./connection-assessment";
 import { platform, retryAfter, service } from "./transitous";
@@ -16,6 +18,7 @@ export interface TransitUpdate {
   arrivalPlatform?: string;
   realtime: boolean;
   cancelled: boolean;
+  cancellationReason?: TransitCancellationReason;
   updatedAt: number;
   stops?: TransitStop[];
 }
@@ -123,6 +126,13 @@ export function matchTrip(
     typeof (stop.track ?? stop.scheduledTrack) === "string"
       ? platform(stop.stopId, stop.track ?? stop.scheduledTrack)
       : undefined;
+  const cancellationReason = transitCancellationReason(
+    stops
+      .slice(board[0], alight[0] + 1)
+      .some(({ leg }) => leg.cancelled === true),
+    from.stop.cancelled === true,
+    to.stop.cancelled === true,
+  );
   return {
     kind: "updated",
     update: {
@@ -138,12 +148,8 @@ export function matchTrip(
       platform: track(from.stop),
       arrivalPlatform: track(to.stop),
       realtime: from.leg.realTime === true && to.leg.realTime === true,
-      cancelled:
-        from.stop.cancelled === true ||
-        to.stop.cancelled === true ||
-        stops
-          .slice(board[0], alight[0] + 1)
-          .some(({ leg }) => leg.cancelled === true),
+      cancelled: cancellationReason !== undefined,
+      cancellationReason,
       updatedAt: now,
     },
   };
@@ -359,7 +365,11 @@ export function applyTransit(
       platform: u.platform,
       arrivalPlatform: u.arrivalPlatform,
       realtime: u.realtime,
-      transitStatus: { updatedAt: u.updatedAt, cancelled: u.cancelled },
+      transitStatus: {
+        updatedAt: u.updatedAt,
+        cancelled: u.cancelled,
+        cancellationReason: u.cancellationReason,
+      },
     });
   });
   const boardingSchedule = (i: number) => {

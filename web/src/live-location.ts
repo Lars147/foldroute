@@ -99,6 +99,7 @@ export class LiveLocation {
   private failure?: LocationError;
   private timer?: ReturnType<typeof setInterval>;
   private activeSince = 0;
+  private lastUsableFixAt = 0;
   private lastRefreshAt = -Infinity;
   private refreshing?: {
     startedAt: number;
@@ -213,8 +214,11 @@ export class LiveLocation {
   private accept(position: GeolocationPosition) {
     const fix = readFix(position);
     if (!fix || (this.fix && fix.timestamp < this.fix.timestamp)) return;
+    const usable =
+      fix.timestamp >= this.requiredFixAfter && quality(fix) === "current";
+    if (usable) this.lastUsableFixAt = fix.timestamp;
     if (this.active) this.sessionAllowed = true;
-    if (this.refreshing && fix.timestamp >= this.refreshing.startedAt)
+    if (this.refreshing && usable && fix.timestamp >= this.refreshing.startedAt)
       this.cancelRefresh();
     this.fix = fix;
     this.failure = undefined;
@@ -243,18 +247,23 @@ export class LiveLocation {
       this.failure,
     );
   }
+  get automaticRefreshActive() {
+    return (
+      this.active &&
+      this.watch !== undefined &&
+      !!navigator.geolocation?.getCurrentPosition &&
+      (this.permission
+        ? this.permission.state === "granted"
+        : this.sessionAllowed)
+    );
+  }
   private refreshIfNeeded() {
     const now = Date.now();
     if (
-      !this.active ||
-      this.watch === undefined ||
+      !this.automaticRefreshActive ||
       this.pending ||
       this.refreshing ||
-      !navigator.geolocation?.getCurrentPosition ||
-      (this.permission
-        ? this.permission.state !== "granted"
-        : !this.sessionAllowed) ||
-      now - Math.max(this.activeSince, this.fix?.timestamp ?? 0) <
+      now - Math.max(this.activeSince, this.lastUsableFixAt) <
         refreshInterval ||
       now - this.lastRefreshAt < refreshInterval
     )

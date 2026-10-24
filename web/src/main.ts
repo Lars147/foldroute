@@ -555,6 +555,7 @@ navigation = new NavigationSession({
 navigationView = new NavigationView(
   () => void endNavigation(),
   (replan) => void launchNavigation(replan),
+  { locationAutoRefresh: () => liveLocation.automaticRefreshActive },
 );
 navigationView.root.addEventListener("click", (event) => {
   if (

@@ -224,6 +224,9 @@ test("completes a multimodal journey with live platform, stop confirmation and w
 }) => {
   await setup(page, true);
   await expect(page.locator("#navigation-transit-status")).toBeEmpty();
+  await expect(page.locator("#navigation-context-detail")).toContainText(
+    "Gleis 4",
+  );
   await complete(page);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt falten",
@@ -232,10 +235,8 @@ test("completes a multimodal journey with live platform, stop confirmation and w
   await expect(page.locator("#navigation-instruction")).toContainText(
     "S1 Richtung Altstadt",
   );
-  await expect(page.locator("#navigation-detail")).toContainText("Gleis 4");
-  await expect(page.locator("#navigation-transit-status")).toContainText(
-    "Echtzeit",
-  );
+  await expect(page.locator("#navigation-detail")).toBeEmpty();
+  await expect(page.locator("#navigation-transit-status")).toBeEmpty();
   await complete(page);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt entfalten",

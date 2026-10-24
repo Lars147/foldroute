@@ -294,7 +294,7 @@ it("detects cancellations and lost connections while retaining the journey", () 
   j.legs[1].transitStatus!.cancelled = true;
   expect(transitDisruption(j, 0, now)?.id).toContain("cancelled-");
   expect(transitDisruption(j, 0, now)?.message).toBe(
-    "S1: Fahrt oder benötigter Halt fällt aus.",
+    "S1: Verbindung nicht nutzbar.",
   );
 });
 it("groups trip fetches, respects refresh intervals and global trip Retry-After", async () => {
@@ -772,7 +772,7 @@ it("refreshes an expired proposal after locating and requires confirmation again
   expect(plan).toHaveBeenCalledTimes(2);
   expect(session.alternative).toBeDefined();
   expect(session.engine).toBe(previous);
-  expect(session.message).toContain("bestätigen");
+  expect(session.message).toBe("");
   await session.acceptAlternative();
   expect(session.engine).not.toBe(previous);
   await session.stop();

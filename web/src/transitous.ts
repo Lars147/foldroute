@@ -1,5 +1,6 @@
 import { reverseAddress } from "./history-names";
 import { parseTransitStops } from "./transit-stops";
+import { transitCancellationReason } from "./transit-cancellation";
 import { RoutingRun, RoutingSlots, type ServicePause } from "./routing-retry";
 import {
   type Place,
@@ -118,6 +119,7 @@ interface RawPlace {
   description?: string;
   track?: string;
   scheduledTrack?: string;
+  cancelled?: boolean;
 }
 interface Polyline {
   points: string;
@@ -238,6 +240,11 @@ function mapLeg(raw: RawLeg, request: RouteRequest): Leg {
     };
   }
   if (!coordinates.every(validCoordinate)) throw geometryError();
+  const cancellationReason = transitCancellationReason(
+    raw.cancelled === true,
+    raw.from.cancelled === true,
+    raw.to.cancelled === true,
+  );
   return {
     kind: "transit",
     transitStops: Array.isArray(raw.intermediateStops)
@@ -259,7 +266,8 @@ function mapLeg(raw: RawLeg, request: RouteRequest): Leg {
         : undefined,
     transitStatus: {
       updatedAt: Date.now() / 1000,
-      cancelled: raw.cancelled === true,
+      cancelled: cancellationReason !== undefined,
+      cancellationReason,
     },
     from,
     to,

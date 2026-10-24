@@ -12,7 +12,10 @@ const reduced =
   typeof matchMedia === "function"
     ? matchMedia("(prefers-reduced-motion: reduce)")
     : undefined;
-const running = new Map<HTMLElement, { cancel: () => void }>();
+const running = new Map<
+  HTMLElement,
+  { cancel: () => void; targetTop?: number }
+>();
 
 export function stopMotion(element: HTMLElement) {
   running.get(element)?.cancel();
@@ -20,6 +23,10 @@ export function stopMotion(element: HTMLElement) {
 export function stopMotionWithin(root: HTMLElement) {
   for (const element of running.keys())
     if (root.contains(element)) stopMotion(element);
+}
+
+export function motionTargetTop(element: HTMLElement) {
+  return running.get(element)?.targetTop;
 }
 
 export function motionAllowed(element: HTMLElement) {
@@ -122,6 +129,30 @@ export function settle(
   duration = motionTime.panel,
 ) {
   play(element, x, y, duration, false, true);
+}
+
+/** Grow from the current visible height; bottom-anchored actions stay in place. */
+export function resizeHeight(element: HTMLElement, from: number) {
+  stopMotion(element);
+  const to = element.getBoundingClientRect().height;
+  if (!motionAllowed(element) || Math.abs(to - from) < 1) return;
+  const targetTop = element.offsetTop;
+  const animation = element.animate(
+    [{ height: `${from}px` }, { height: `${to}px` }],
+    { duration: 480, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+  );
+  const cleanup = () => {
+    if (running.get(element) === entry) running.delete(element);
+  };
+  const entry = {
+    targetTop,
+    cancel: () => {
+      animation.cancel();
+      cleanup();
+    },
+  };
+  running.set(element, entry);
+  void animation.finished.then(cleanup, cleanup);
 }
 
 export type Positions = Map<string, { left: number; top: number }>;

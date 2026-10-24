@@ -208,10 +208,13 @@ export interface TransitReference {
   scheduledDeparture: number;
   scheduledArrival: number;
 }
+export type TransitCancellationReason =
+  "trip" | "boarding" | "alighting" | "both-stops";
 export interface TransitStatus {
   updatedAt?: number;
   failure?: "network" | "unavailable";
   cancelled?: boolean;
+  cancellationReason?: TransitCancellationReason;
 }
 export interface TransitStop extends Place {
   arrival?: number;
@@ -635,6 +638,10 @@ export function validNavigationLegData(value: Leg): boolean {
         (status.updatedAt === undefined || Number.isFinite(status.updatedAt)) &&
         (status.cancelled === undefined ||
           typeof status.cancelled === "boolean") &&
+        (status.cancellationReason === undefined ||
+          ["trip", "boarding", "alighting", "both-stops"].includes(
+            status.cancellationReason,
+          )) &&
         (status.failure === undefined ||
           ["network", "unavailable"].includes(status.failure))))
   );
