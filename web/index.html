@@ -972,6 +972,29 @@
             </button>
           </div>
         </section>
+        <details id="screen-diagnostics" class="group settings-disclosure">
+          <summary>Bildschirmdiagnose</summary>
+          <p class="message">
+            Öffne zuerst die betroffene Kartenansicht und danach diese
+            Einstellungen. Die Diagnose enthält Bildschirmmaße und Darstellung,
+            keine Route oder Standortdaten. Sie wird nicht automatisch gesendet.
+          </p>
+          <button id="copy-screen-diagnostics" class="secondary" type="button">
+            Bildschirmdiagnose kopieren
+          </button>
+          <p id="screen-diagnostics-status" class="message" role="status"></p>
+          <div id="screen-diagnostics-fallback" hidden>
+            <label for="screen-diagnostics-value"
+              >Diagnose zum manuellen Kopieren</label
+            >
+            <textarea
+              id="screen-diagnostics-value"
+              readonly
+              rows="8"
+              spellcheck="false"
+            ></textarea>
+          </div>
+        </details>
         <form id="settings-form" novalidate>
           <p id="settings-replan" class="message" role="status" hidden></p>
           <section class="group">
