@@ -1128,16 +1128,6 @@ fieldset:after {
 .settings-screen .settings-scope {
   margin-top: 8px;
 }
-#screen-diagnostics-value {
-  width: 100%;
-  margin-top: 8px;
-  padding: 12px;
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font: 16px/1.4 monospace;
-}
 .settings-screen .message,
 .settings-screen .setting-row small,
 .settings-screen .toggle-row small,

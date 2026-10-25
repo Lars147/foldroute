@@ -3,7 +3,6 @@ import { appearance } from "./appearance";
 import { mapStyle } from "./map-style";
 import { setupMotion, reveal } from "./motion";
 import { finishStartup } from "./startup";
-import { mountScreenDiagnostics } from "./screen-diagnostics";
 
 const example =
   new URLSearchParams(location.search).get("example") === "bike-transfer";
@@ -24,7 +23,6 @@ async function start() {
   await entry.startupReady;
   if (!(await finishStartup())) return;
   setupMotion();
-  mountScreenDiagnostics();
   const introduction = document.querySelector<HTMLElement>("#search-empty");
   if (introduction) reveal(introduction, { y: 8 });
   if (import.meta.env.DEV && preview)
