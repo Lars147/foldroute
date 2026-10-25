@@ -84,6 +84,9 @@ jobs:
         with:
           name: website
           path: docs/
+      - name: Trust checkout for application Git queries
+        # The mounted checkout is owned by the runner, not the container user.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run browser tests
         run: npm run test:browser -- --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/4
       - name: Save browser report
