@@ -63,6 +63,14 @@ body {
   pointer-events: none;
   background: var(--status-bar-background);
 }
+/* Let map content remain visible behind the system status bar. */
+:root[data-standalone] body[data-navigation="active"]::before,
+:root[data-standalone]
+  body[data-view="map"]:has(
+    #map-view[data-result-screen="map"]:not([hidden])
+  )::before {
+  background: none;
+}
 button,
 input,
 select {
@@ -4018,6 +4026,20 @@ body[data-navigation="active"] .app-tabs {
   z-index: 25;
   background: var(--color-map);
   color: var(--panel-text);
+}
+/* Give short standalone views a full-height document, including destination entry.
+   Keep fixed surfaces anchored to the actual viewport so controls stay visible
+   even if iOS does not expand its visual viewport. */
+@supports (height: 100lvh) {
+  @media (max-width: 899px) {
+    :root[data-standalone] body[data-view="search"],
+    :root[data-standalone] body[data-view="history"],
+    :root[data-standalone] body[data-navigation="active"],
+    :root[data-standalone]
+      body[data-view="map"]:has(#map-view[data-result-screen="map"]:not([hidden])) {
+      min-height: 100lvh;
+    }
+  }
 }
 #navigation-map {
   position: absolute;

@@ -76,7 +76,7 @@ for (const mount of ["/", "/foldroute/"]) {
   }
 }
 
-test("landing installation points to the planner without registering a PWA", async ({
+test("landing shares the planner manifest without registering a landing service worker", async ({
   page,
 }) => {
   await page.goto(landing);
@@ -84,10 +84,22 @@ test("landing installation points to the planner without registering a PWA", asy
     has: page.getByText("Kann ich FoldRoute als App nutzen?", { exact: true }),
   });
   await answer.locator("summary").click();
-  await expect(answer).toContainText("Öffne zuerst den Webplaner");
+  await expect(answer).toContainText("über diese Startseite oder den Webplaner");
   const link = answer.getByRole("link", { name: "Webplaner", exact: true });
   await expect(link).toHaveAttribute("href", "plan/");
-  await expect(page.locator('link[rel="manifest"]')).toHaveCount(0);
+  const manifestURL = await page.locator('link[rel="manifest"]').evaluate(
+    (link: HTMLLinkElement) => link.href,
+  );
+  expect(manifestURL).toBe(new URL("manifest.webmanifest", planner).href);
+  const response = await page.request.get(manifestURL);
+  expect(response.ok()).toBeTruthy();
+  const manifest = await response.json();
+  expect(new URL(manifest.start_url, manifestURL).href).toBe(planner);
+  expect(new URL(manifest.scope, manifestURL).href).toBe(planner);
+  expect(manifest.display).toBe("standalone");
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
+  await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute("content", "yes");
+  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", "black-translucent");
   const icon = await page
     .locator('link[rel="apple-touch-icon"]')
     .evaluate(async (link: HTMLLinkElement) => {
@@ -109,6 +121,7 @@ test("landing installation points to the planner without registering a PWA", asy
   ).toBe(0);
   await link.click();
   await expect(page).toHaveURL(planner);
+  expect(await page.locator('link[rel="manifest"]').evaluate((link: HTMLLinkElement) => link.href)).toBe(manifestURL);
   await expect(
     page.getByRole("heading", { name: "Wohin geht’s?", exact: true }),
   ).toBeVisible();
