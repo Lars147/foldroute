@@ -151,6 +151,8 @@ session.engine = new NavigationEngine(navigationJourney(journey), {
   meters: 0,
   confirmedStops: [],
   transitStop: transitStopKey(stops, stopIndex),
+  // Riding scenes start between stops with departure already confirmed.
+  transitDepartedStop: riding ? transitStopKey(stops, stopIndex) : undefined,
 });
 session.settings = defaults;
 session.request = { origin, destination, timing: "now", time: start };
