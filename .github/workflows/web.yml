@@ -51,6 +51,14 @@ jobs:
     name: Browser (${{ matrix.browser }}, ${{ matrix.shard }}/4)
     needs: build
     runs-on: ubuntu-24.04
+    container:
+      # Keep this version in sync with @playwright/test in web/package.json and its lockfile.
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
+        working-directory: web
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -76,8 +84,6 @@ jobs:
         with:
           name: website
           path: docs/
-      - name: Install browser and system dependencies
-        run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Run browser tests
         run: npm run test:browser -- --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/4
       - name: Save browser report
