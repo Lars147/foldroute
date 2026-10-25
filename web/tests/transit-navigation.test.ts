@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NavigationEngine, navigationJourney } from "../src/navigation-engine";
+import {
+  NavigationEngine,
+  navigationJourney,
+  projectPath,
+} from "../src/navigation-engine";
 import { transitStopKey } from "../src/transit-stops";
 import type { Journey, Leg, TransitStop } from "../src/model";
 import { NavigationSession } from "../src/navigation-session";
+import { NavigationPath } from "../src/navigation-estimate";
 import { ApiClient } from "../src/transitous";
 import type {
   TransitRefresher,
@@ -57,6 +62,155 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+/** Replay route distances relative to a station, including sub-accuracy steps. */
+function atOffset(
+  e: NavigationEngine,
+  index: number,
+  offset: number,
+  seconds: number,
+  accuracy = 10,
+) {
+  const path = new NavigationPath(e.leg.coordinates);
+  const anchor = projectPath(
+    e.leg.transitStops![index],
+    e.leg.coordinates,
+  ).meters;
+  e.update(
+    { ...path.at(anchor + offset).point, accuracy, timestamp: seconds * 1000 },
+    seconds * 1000,
+  );
+}
+
+describe("confirmed station departures", () => {
+  it("keeps the next stop through approach, dwell and GPS drift", () => {
+    const e = engine();
+    for (const [i, offset] of [-90, -80, 0, 2, -5, 15, 8, 99, 105].entries()) {
+      atOffset(e, 1, offset, end + i);
+      expect(e.transitDepartedStopIndex).toBe(0);
+    }
+    expect(e.transitStopIndex).toBe(1);
+  });
+  it("confirms slow departures from cumulative progress, even with 1 Hz fixes", () => {
+    const e = engine();
+    for (let offset = 0; offset <= 120; offset += 3) {
+      atOffset(e, 1, offset, end + offset / 3);
+      expect(e.transitDepartedStopIndex).toBe(offset >= 114 ? 1 : 0);
+    }
+  });
+  it("requires two fixes beyond the boundary including their accuracy", () => {
+    const e = engine();
+    atOffset(e, 1, 120, end, 30);
+    atOffset(e, 1, 120, end + 1, 30);
+    expect(e.transitDepartedStopIndex).toBe(0);
+    atOffset(e, 1, 140, end + 2, 30);
+    expect(e.transitDepartedStopIndex).toBe(0);
+    atOffset(e, 1, 145, end + 3, 30);
+    expect(e.transitDepartedStopIndex).toBe(1);
+    e.invalidateLocation();
+    expect(e.transitDepartedStopIndex).toBe(1);
+    expect(e.hasCurrentTransitPosition).toBe(false);
+  });
+  it("bounds the departure distance for closely spaced served stops", () => {
+    const e = engine();
+    const changed = structuredClone(e.journey);
+    changed.legs[0].transitStops![2].longitude = 11.012;
+    changed.legs[0].to = changed.legs[0].transitStops![2];
+    changed.legs[0].coordinates = changed.legs[0].transitStops!;
+    e.applyJourney(changed);
+    atOffset(e, 1, 90, end);
+    atOffset(e, 1, 95, end + 1);
+    expect(e.transitDepartedStopIndex).toBe(1);
+  });
+  it("does not turn off-route fixes or a lost pair into a departure", () => {
+    const e = engine();
+    atOffset(e, 1, 120, end);
+    e.update(
+      { ...stops[1], latitude: 49, accuracy: 10, timestamp: (end + 1) * 1000 },
+      (end + 1) * 1000,
+    );
+    atOffset(e, 1, 125, end + 2);
+    expect(e.transitDepartedStopIndex).toBe(0);
+    atOffset(e, 1, 130, end + 3);
+    expect(e.transitDepartedStopIndex).toBe(1);
+  });
+  it("does not infer a geometry-free departure from radial distance", () => {
+    const e = engine();
+    const changed = structuredClone(e.journey);
+    changed.legs[0].coordinates = [stops[0], stops[2]];
+    e.applyJourney(changed);
+    point(e, 1, end);
+    point(e, 1, end + 1);
+    expect(e.transitDepartedStopIndex).toBe(0);
+    for (const seconds of [end + 2, end + 3])
+      e.update(
+        {
+          ...stops[1],
+          latitude: 48.002,
+          accuracy: 10,
+          timestamp: seconds * 1000,
+        },
+        seconds * 1000,
+      );
+    expect(e.transitDepartedStopIndex).toBe(0);
+    expect(e.hasCurrentTransitPosition).toBe(false);
+    point(e, 2, end + 4);
+    point(e, 2, end + 5);
+    expect(e.transitDepartedStopIndex).toBe(1);
+    expect(e.transitExitConfirmed).toBe(true);
+  });
+  it("restores departures while treating legacy arrivals conservatively", () => {
+    const e = engine();
+    atOffset(e, 1, 120, end);
+    atOffset(e, 1, 125, end + 1);
+    const restored = new NavigationEngine(e.journey, e.progress);
+    expect(restored.transitDepartedStopIndex).toBe(1);
+    expect(restored.hasCurrentTransitPosition).toBe(false);
+    const legacy = structuredClone(e.progress);
+    delete legacy.transitDepartedStop;
+    expect(
+      new NavigationEngine(e.journey, legacy).transitDepartedStopIndex,
+    ).toBe(0);
+  });
+  it("preserves departures across timetable updates and resets them on leg changes", () => {
+    const e = engine();
+    atOffset(e, 1, 120, end);
+    atOffset(e, 1, 125, end + 1);
+    const before = structuredClone(e.progress);
+    const changed = structuredClone(e.journey);
+    changed.legs[0].transitStops![1].departure = end + 200;
+    e.applyJourney(changed);
+    expect(e.progress).toEqual(before);
+    e.journey.legs.push({ ...e.leg, navigationId: "next-leg" });
+    e.advance(true);
+    expect(e.progress.transitDepartedStop).toBeUndefined();
+    expect(e.transitDepartedStopIndex).toBe(0);
+  });
+  it("does not confuse a repeated visit with a departure from its later occurrence", () => {
+    const e = engine();
+    const changed = structuredClone(e.journey);
+    const repeated = { ...stops[1], scheduledArrival: end + 100 };
+    changed.legs[0].transitStops = [stops[0], stops[1], stops[2], repeated];
+    changed.legs[0].coordinates = [stops[0], stops[1], stops[2], repeated];
+    changed.legs[0].to = repeated;
+    e.applyJourney(changed);
+    point(e, 1, end);
+    point(e, 1, end + 1);
+    expect(e.hasCurrentTransitPosition).toBe(false);
+    expect(e.transitDepartedStopIndex).toBe(0);
+  });
+  it("keeps reached and departed indices consistent when the reached stop is removed", () => {
+    const e = engine();
+    point(e, 2, end);
+    point(e, 2, end + 1);
+    const changed = structuredClone(e.journey);
+    changed.legs[0].transitStops!.pop();
+    e.applyJourney(changed);
+    expect(e.transitStopIndex).toBe(1);
+    expect(e.transitDepartedStopIndex).toBe(1);
+    expect(e.hasCurrentTransitPosition).toBe(false);
+  });
 });
 
 describe("confirmed train exit", () => {

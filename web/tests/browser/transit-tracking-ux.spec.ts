@@ -161,3 +161,75 @@ test("network recovery refreshes current trip without waiting through network-er
       page.locator(`#${id} .navigation-station`).last().locator("time"),
     ).toHaveText("12:11");
 });
+
+for (const width of [390, 1280]) {
+  test(`next stop stays through arrival and dwell until GPS confirms departure (${width}px)`, async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const journey = stationJourney();
+    delete journey.legs[2].transitReference;
+    await setup(page, true, true, {}, journey);
+    await complete(page);
+    await complete(page);
+    await page.evaluate(() => {
+      (window as any).navProbe.silent = true;
+    });
+    const stops = journey.legs[2].transitStops!;
+    const announcement = page.locator("#navigation-stations-announcement");
+    const push = async (fraction: number) => {
+      await page.clock.runFor(1000);
+      await page.evaluate(
+        ({ a, b, fraction }) => {
+          (window as any).navProbe.push(
+            a.latitude + (b.latitude - a.latitude) * fraction,
+            a.longitude + (b.longitude - a.longitude) * fraction,
+          );
+        },
+        { a: stops[1], b: stops[2], fraction },
+      );
+    };
+    for (const fraction of [-0.3, -0.2, 0, 0.04, -0.03, 0, 0]) {
+      await push(fraction);
+    }
+    await expect(announcement).toContainText("Nächster Halt: Stadtmitte");
+    await expect(announcement).toContainText("Noch 3 Halte");
+    await expect(page.locator("#navigation-gps-status")).toBeHidden();
+    await expect
+      .poll(async () => (await savedProgress(page))?.transitDepartedStop)
+      .toContain("A");
+    if (width < 900 && (await page.locator("#navigation-details").isVisible()))
+      await page.locator("#navigation-details-toggle").click();
+    const visibleList = page.locator(
+      '.navigation-stations[data-active="true"]:visible',
+    );
+    await expect(visibleList).toContainText("Stadtmitte");
+    await expect(visibleList).toContainText("Ausstieg in 3 Halten");
+    // Frequent, small movements must accumulate into a departure.
+    for (const fraction of [0.2, 0.4, 0.7, 0.75]) await push(fraction);
+    await expect(announcement).toContainText("Nächster Halt: Rathaus");
+    await expect(visibleList).toContainText("Ausstieg in 2 Halten");
+    await expect
+      .poll(async () => (await savedProgress(page))?.transitDepartedStop)
+      .toContain("station-1");
+    // Approaching the following station must not immediately advance again.
+    await push(1);
+    await push(1);
+    await expect(announcement).toContainText("Nächster Halt: Rathaus");
+    await page.evaluate(() => {
+      (window as any).navProbe.fail(2);
+    });
+    await page.clock.pauseAt(new Date((now + 550) * 1000));
+    await expect(announcement).toContainText("Nächster Halt: Ausstieg");
+    await expect(page.locator("#navigation-gps-status")).toContainText(
+      "geschätzt",
+    );
+    await expect(page.locator("#navigation-station-status")).toBeEmpty();
+    await expect(visibleList).not.toContainText(/geschätzt|Voraussichtlich/);
+    await expect
+      .poll(async () => (await savedProgress(page))?.transitDepartedStop)
+      .toContain("station-1");
+  });
+}

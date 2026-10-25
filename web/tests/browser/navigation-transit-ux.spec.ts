@@ -219,7 +219,7 @@ for (const width of [390])
     expect(dwell.rows[1].reached).toBe("true");
     await expect(
       page.locator("#navigation-stations-announcement"),
-    ).toContainText("Voraussichtlich an: Stadtmitte");
+    ).toContainText("Nächster Halt: Stadtmitte");
     await page.clock.runFor(1000);
     expect((await stationRail(page, selector)).filled).toBe(dwell.filled);
     if (width < 900) {
@@ -316,14 +316,13 @@ for (const width of [390])
       c,
     );
     await page.clock.runFor(1000);
-    await expect(page.locator("#navigation-station-status")).toContainText(
-      "Stationsstand geschätzt",
-    );
+    await expect(page.locator("#navigation-station-status")).toBeEmpty();
     const beforeConfirmation = await stationRail(page, selector);
     await page.evaluate(
       (point) => (window as any).navProbe.push(point.latitude, point.longitude),
       c,
     );
+    await page.clock.runFor(16);
     expect((await stationRail(page, selector)).progress).toBeCloseTo(
       beforeConfirmation.progress,
       2,
@@ -402,6 +401,23 @@ for (const width of [390])
     );
     await expect(
       page.locator("#navigation-stations-announcement"),
+    ).toContainText("Nächster Halt: Stadtmitte");
+    const following = journey.legs[2].transitStops![2];
+    for (const fraction of [0.8, 0.85]) {
+      await page.clock.runFor(1000);
+      await page.evaluate(
+        ({ station, following, fraction }) =>
+          (window as any).navProbe.push(
+            station.latitude +
+              (following.latitude - station.latitude) * fraction,
+            station.longitude +
+              (following.longitude - station.longitude) * fraction,
+          ),
+        { station, following, fraction },
+      );
+    }
+    await expect(
+      page.locator("#navigation-stations-announcement"),
     ).toContainText("Nächster Halt: Rathaus");
     await expect(
       page.locator('.navigation-stations[data-active="true"]:visible'),
@@ -412,9 +428,7 @@ for (const width of [390])
         (window as any).navProbe.push(stop.latitude, stop.longitude, 90, 500),
       station,
     );
-    await expect(page.locator("#navigation-station-status")).toContainText(
-      "Stationsstand geschätzt",
-    );
+    await expect(page.locator("#navigation-station-status")).toBeEmpty();
     await expect(page.locator("#navigation-gps-status")).toHaveText(
       "GPS ungenau Kartenposition geschätzt",
     );
@@ -425,9 +439,7 @@ for (const width of [390])
     await expect(page.locator("#navigation-gps-status")).toHaveText(
       "Kein GPS Kartenposition geschätzt",
     );
-    await expect(page.locator("#navigation-station-status")).toContainText(
-      "Stationsstand geschätzt",
-    );
+    await expect(page.locator("#navigation-station-status")).toBeEmpty();
     await expect(
       page.locator('.navigation-stations[data-active="true"]:visible'),
     ).toContainText("Ausstieg in 2 Halten");
@@ -442,7 +454,7 @@ for (const width of [390])
     }
     await expect(
       page.locator('.navigation-stations[data-active="true"]:visible'),
-    ).toContainText("Ausstieg am nächsten Halt");
+    ).toContainText("Ausstieg in 2 Halten");
     await expect(page.locator("#navigation-context-status")).toBeEmpty();
     await page.clock.runFor(2100);
     if (width < 900) await page.locator("#navigation-details-toggle").click();
@@ -451,7 +463,7 @@ for (const width of [390])
     ).toHaveCount(4);
     await expect(
       page.locator("#navigation-stations-detail [data-state=passed]"),
-    ).toHaveCount(3);
+    ).toHaveCount(2);
     if (width < 900) await page.locator("#navigation-details-toggle").click();
     await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     if (width < 900)
@@ -692,7 +704,7 @@ test("station progress survives resuming and shows cancelled stops without count
   }
   await expect(
     page.locator('.navigation-stations[data-active="true"]:visible'),
-  ).toContainText("Ausstieg am nächsten Halt");
+  ).toContainText("Ausstieg in 2 Halten");
   await expect(
     page.locator("#navigation-stations-detail [data-state=cancelled]"),
   ).toContainText("Halt entfällt");
@@ -700,7 +712,7 @@ test("station progress survives resuming and shows cancelled stops without count
   await page.locator("#navigation-resume").click();
   await expect(
     page.locator('.navigation-stations[data-active="true"]:visible'),
-  ).toContainText("Ausstieg am nächsten Halt");
+  ).toContainText("Ausstieg in 2 Halten");
   await expect(page.locator("#navigation-context-status")).not.toContainText(
     "Stationsfortschritt pausiert",
   );
@@ -727,9 +739,7 @@ test("GPS loss removes the duplicate pause text while transit warnings remain vi
   await expect(page.locator("#navigation-gps-status")).toHaveText(
     "Kein GPS Kartenposition geschätzt",
   );
-  await expect(page.locator("#navigation-station-status")).toContainText(
-    "Stationsstand geschätzt",
-  );
+  await expect(page.locator("#navigation-station-status")).toBeEmpty();
   await expect(
     page.locator('.navigation-stations[data-active="true"]:visible'),
   ).toContainText("Ausstieg in 3 Halten");
@@ -829,13 +839,13 @@ for (const width of [390])
     await expect(
       page.locator("#navigation-stations-announcement"),
     ).toContainText("Nächster Halt: Rathaus");
-    await expect(
-      page.locator("#navigation-stations-announcement"),
-    ).toContainText("Stationsstand geschätzt");
+    await expect(page.locator("#navigation-gps-status")).toContainText(
+      "geschätzt",
+    );
     expect(await savedProgress(page)).toEqual(before);
     if (width < 900) await page.locator("#navigation-details-toggle").click();
     await expect(page.locator("#navigation-stations-detail")).toContainText(
-      "Voraussichtlich passiert",
+      "Passiert",
     );
     await expect(page.locator("#navigation-location-status")).toContainText(
       "anhand der Fahrzeiten geschätzt",
@@ -965,7 +975,7 @@ test("GPS outside the train route does not freeze station estimates through a co
   await expect(map).toHaveAttribute("data-position-source", "gps");
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
   await expect(page.locator("#navigation-stations-announcement")).toContainText(
-    "Nächster Halt: Ausstieg",
+    "Nächster Halt: Rathaus",
   );
 });
 

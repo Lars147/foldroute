@@ -21,6 +21,7 @@ export interface NavigationProgress {
   meters: number;
   confirmedStops: string[];
   transitStop?: string;
+  transitDepartedStop?: string;
 }
 export interface Projection {
   meters: number;
@@ -171,6 +172,7 @@ export class NavigationEngine {
     );
     if (!journey.legs[this.progress.legIndex])
       throw new Error("Ungültiger Navigationsabschnitt.");
+    this.normalizeTransitProgress();
     this.preparePath();
   }
   get leg(): Leg {
@@ -186,6 +188,43 @@ export class NavigationEngine {
           ),
         )
       : 0;
+  }
+  get transitDepartedStopIndex(): number {
+    const stops = this.leg.transitStops;
+    if (!stops) return 0;
+    const index = stops.findIndex(
+      (_, i) => transitStopKey(stops, i) === this.progress.transitDepartedStop,
+    );
+    return Math.max(0, index);
+  }
+  private normalizeTransitProgress() {
+    const stops = this.leg.transitStops;
+    if (!stops) {
+      delete this.progress.transitStop;
+      delete this.progress.transitDepartedStop;
+      return;
+    }
+    const find = (key?: string) =>
+      stops.findIndex(
+        (stop, i) => !stop.cancelled && transitStopKey(stops, i) === key,
+      );
+    let reached = find(this.progress.transitStop);
+    let departed = find(this.progress.transitDepartedStop);
+    // Legacy snapshots confirm arrival, not departure from that same station.
+    if (departed < 0) departed = this.previousServedStop(reached);
+    // An unambiguous departure also proves arrival if a refresh removed it.
+    reached = Math.max(reached, departed);
+    this.progress.transitStop =
+      reached >= 0 ? transitStopKey(stops, reached) : undefined;
+    this.progress.transitDepartedStop =
+      departed >= 0 ? transitStopKey(stops, departed) : undefined;
+  }
+  private previousServedStop(index: number): number {
+    return (
+      this.leg.transitStops?.findLastIndex(
+        (stop, i) => i < index && !stop.cancelled,
+      ) ?? -1
+    );
   }
   get transitExitConfirmed(): boolean {
     const evidence = this.transitEvidence;
@@ -375,6 +414,29 @@ export class NavigationEngine {
     ) {
       const confirmed = Math.max(currentIndex, Math.min(index, previous.index));
       this.progress.transitStop = transitStopKey(stops, confirmed);
+      // Arrival at a later visit proves departure from earlier served visits.
+      let departed = Math.max(
+        this.transitDepartedStopIndex,
+        this.previousServedStop(confirmed),
+      );
+      if (offsets && meters !== undefined && previous.meters !== undefined) {
+        const next = stops.findIndex(
+          (stop, i) => i > confirmed && !stop.cancelled,
+        );
+        if (next >= 0) {
+          const boundary =
+            offsets[confirmed] +
+            Math.min(100, (offsets[next] - offsets[confirmed]) / 2);
+          // Compare against the fixed station anchor, not successive fixes:
+          // slow departures must work even with frequent GPS updates.
+          if (
+            meters - fix.accuracy > boundary &&
+            previous.meters - previous.fix.accuracy > boundary
+          )
+            departed = Math.max(departed, confirmed);
+        }
+      }
+      this.progress.transitDepartedStop = transitStopKey(stops, departed);
       if (meters !== undefined && previous.meters !== undefined)
         this.progress.meters = Math.max(
           this.progress.meters,
@@ -544,6 +606,7 @@ export class NavigationEngine {
     this.progress.meters = 0;
     this.progress.maneuverIndex = 0;
     delete this.progress.transitStop;
+    delete this.progress.transitDepartedStop;
     this.transitPositionConfirmed = false;
     this.offSamples = 0;
     this.offRoute = false;
@@ -564,30 +627,33 @@ export class NavigationEngine {
     const topologyChanged =
       transitTopologyKey(previous) !==
       transitTopologyKey(journey.legs[this.progress.legIndex]);
-    const confirmedIndex =
-      this.progress.transitStop && previousStops
-        ? previousStops.findIndex(
-            (_, i) =>
-              transitStopKey(previousStops, i) === this.progress.transitStop,
-          )
-        : -1;
+    const oldProgress = { ...this.progress };
     this.journey = journey;
     if (topologyChanged) {
       const stops = this.leg.transitStops;
-      const identity =
-        confirmedIndex >= 0
-          ? transitStopIdentity(previousStops![confirmedIndex], confirmedIndex)
-          : undefined;
-      const oldMatches = previousStops?.filter(
-        (stop, i) => transitStopIdentity(stop, i) === identity,
-      );
-      const matches = stops?.flatMap((stop, i) =>
-        !stop.cancelled && transitStopIdentity(stop, i) === identity ? [i] : [],
-      );
-      this.progress.transitStop =
-        oldMatches?.length === 1 && matches?.length === 1
-          ? transitStopKey(stops!, matches[0])
-          : undefined;
+      for (const field of ["transitStop", "transitDepartedStop"] as const) {
+        const oldIndex =
+          previousStops?.findIndex(
+            (_, i) => transitStopKey(previousStops, i) === oldProgress[field],
+          ) ?? -1;
+        const identity =
+          oldIndex >= 0
+            ? transitStopIdentity(previousStops![oldIndex], oldIndex)
+            : undefined;
+        const oldMatches = previousStops?.filter(
+          (stop, i) => transitStopIdentity(stop, i) === identity,
+        );
+        const matches = stops?.flatMap((stop, i) =>
+          !stop.cancelled && transitStopIdentity(stop, i) === identity
+            ? [i]
+            : [],
+        );
+        this.progress[field] =
+          oldMatches?.length === 1 && matches?.length === 1
+            ? transitStopKey(stops!, matches[0])
+            : undefined;
+      }
+      this.normalizeTransitProgress();
       this.progress.meters = 0;
       this.invalidateLocation();
       this.preparePath();

@@ -83,6 +83,7 @@ export class NavigationStations {
     for (let i = 1; i < stops.length - 1; i++)
       if (
         !stops[i].cancelled &&
+        i <= this.index &&
         (position
           ? i < position.position - 0.00001 ||
             (i <= this.index && i <= position.position + 0.00001)
@@ -184,9 +185,7 @@ export class NavigationStations {
         : i === stops.length - 1
           ? "Ausstieg"
           : i <= index
-            ? i <= this.confirmedIndex
-              ? "Erreicht"
-              : "Voraussichtlich passiert"
+            ? "Passiert"
             : "";
       if (this.guidance && !stop.cancelled) {
         if (i === stops.length - 1) {
@@ -397,7 +396,9 @@ export class NavigationStations {
     const position = this.located;
     let filled = -1;
     const anchors = this.anchors.filter(
-      (anchor) => !stops[anchor.index].cancelled,
+      // Leaving rows are visual remnants, not anchors of the new station rail.
+      (anchor) =>
+        !stops[anchor.index].cancelled && !this.leaving.has(anchor.element),
     );
     for (let i = 0; i < anchors.length; i++) {
       const anchor = anchors[i],

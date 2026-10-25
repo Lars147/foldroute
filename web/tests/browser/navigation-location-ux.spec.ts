@@ -155,9 +155,7 @@ test("GPS loss freezes the display without a usable timeline", async ({
   await expect(page.locator("#navigation-stations-announcement")).toContainText(
     "Nächster Halt: Ausstieg",
   );
-  await expect(page.locator("#navigation-station-status")).toContainText(
-    "Stationsstand geschätzt",
-  );
+  await expect(page.locator("#navigation-station-status")).toBeEmpty();
   await page.clock.runFor(2100);
   await expect(map).not.toHaveAttribute("data-position", held!);
 });
@@ -214,8 +212,7 @@ for (const colorScheme of ["light", "dark"] as const)
         };
       });
       // Short mobile layouts put GPS beside the horizontal map controls.
-      if (width < 900 && height <= 500)
-        expect(bounds.left).toBeCloseTo(12, 0);
+      if (width < 900 && height <= 500) expect(bounds.left).toBeCloseTo(12, 0);
       else expect(bounds.center).toBeCloseTo(width / 2, 0);
       expect(bounds.gap).toBeGreaterThanOrEqual(7);
       expect(bounds.height).toBeLessThanOrEqual(34);

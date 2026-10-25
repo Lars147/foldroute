@@ -51,6 +51,9 @@ export function validNavigationSnapshot(
     !p ||
     (p.transitStop !== undefined &&
       (typeof p.transitStop !== "string" || !p.transitStop.length)) ||
+    (p.transitDepartedStop !== undefined &&
+      (typeof p.transitDepartedStop !== "string" ||
+        !p.transitDepartedStop.length)) ||
     !Number.isInteger(p.legIndex) ||
     p.legIndex < 0 ||
     !s.journey.legs[p.legIndex] ||

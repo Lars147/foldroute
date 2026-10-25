@@ -331,6 +331,20 @@ it("validates saved navigation and rejects corrupt progress or maneuver metadata
   expect(
     validNavigationSnapshot({ ...s, progress: { ...s.progress, legIndex: 4 } }),
   ).toBe(false);
+  for (const transitDepartedStop of [null, 3, ""]) {
+    expect(
+      validNavigationSnapshot({
+        ...s,
+        progress: { ...s.progress, transitDepartedStop },
+      }),
+    ).toBe(false);
+  }
+  expect(
+    validNavigationSnapshot({
+      ...s,
+      progress: { ...s.progress, transitDepartedStop: "saved-visit" },
+    }),
+  ).toBe(true);
   j.legs[0].maneuvers![0].coordinates = [{ latitude: NaN, longitude: 0 }];
   expect(validNavigationSnapshot(s)).toBe(false);
 });

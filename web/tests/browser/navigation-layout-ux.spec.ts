@@ -150,7 +150,7 @@ for (const [width, height] of [
       page.locator("#navigation-stations-detail [data-state=passed]"),
     ).toHaveCount(3);
     await expect(page.locator("#navigation-stations-detail")).toContainText(
-      "Voraussichtlich passiert",
+      "Passiert",
     );
     if (width < 900) await page.locator("#navigation-details-toggle").click();
     const badge = (await page.locator("#navigation-gps-status").boundingBox())!;

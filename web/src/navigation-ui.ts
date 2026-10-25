@@ -625,7 +625,16 @@ export class NavigationView {
       detail = "",
       status = "";
     const confirmedIndex = onboard ? engine.transitStopIndex : -1;
-    const index = estimate?.stopIndex ?? confirmedIndex;
+    const exitConfirmed = !!(
+      onboard &&
+      session.hasCurrentLocation &&
+      !session.resumeNeedsConfirmation &&
+      engine.transitExitConfirmed
+    );
+    const index = exitConfirmed
+      ? confirmedIndex
+      : (estimate?.stopIndex ??
+        (onboard ? engine.transitDepartedStopIndex : -1));
     const stops =
       onboard && engine.leg.transitStops?.length
         ? engine.leg.transitStops
@@ -641,18 +650,15 @@ export class NavigationView {
         const remaining = stops?.filter(
           (stop, i) => i > index && !stop.cancelled,
         );
-        title =
-          estimate?.source === "estimated" && estimate.phase === "dwell"
-            ? `Voraussichtlich an: ${stops?.[estimate.fromIndex].name}`
-            : leg.transitStatus?.cancelled
-              ? `${leg.line || "ÖPNV"} · ${transitCancellationMessage(leg)}`
-              : !stops
-                ? "Stationsdaten nicht verfügbar"
-                : index === stops.length - 1 && confirmed
-                  ? "Hier aussteigen"
-                  : remaining?.length
-                    ? `Nächster Halt: ${remaining[0].name}`
-                    : `Ausstieg: ${leg.to.name}`;
+        title = leg.transitStatus?.cancelled
+          ? `${leg.line || "ÖPNV"} · ${transitCancellationMessage(leg)}`
+          : !stops
+            ? "Stationsdaten nicht verfügbar"
+            : exitConfirmed
+              ? "Hier aussteigen"
+              : remaining?.length
+                ? `Nächster Halt: ${remaining[0].name}`
+                : `Ausstieg: ${leg.to.name}`;
         detail = `${leg.line || "ÖPNV"}${remaining?.length ? ` · Noch ${remaining.length} ${remaining.length === 1 ? "Halt" : "Halte"}` : ""} · Ausstieg ${leg.to.name}`;
         status =
           !confirmed && !estimate && stops && session.hasCurrentLocation
@@ -664,7 +670,7 @@ export class NavigationView {
               ? "Stationsstand unklar"
               : estimate.atExit
                 ? "Ausstieg laut Fahrzeiten erreicht"
-                : "Stationsstand geschätzt";
+                : "";
       } else {
         const seconds = leg.start - Date.now() / 1000;
         const countdown =
@@ -794,7 +800,7 @@ export class NavigationView {
       : this.stationCursor?.source === "estimated"
         ? this.timeline?.nextMovementAt(
             now,
-            this.session?.engine?.transitStopIndex,
+            this.session?.engine?.transitDepartedStopIndex,
             this.stationCursor.position,
           )
         : undefined;
@@ -1144,6 +1150,7 @@ export class NavigationView {
         this.transitPath = TransitPath.forPresentation(leg);
       }
       const confirmedIndex = engine.transitStopIndex;
+      const departedIndex = engine.transitDepartedStopIndex;
       const originalPath = TransitPath.create(leg);
       const floor = Math.max(
         confirmedIndex,
@@ -1155,14 +1162,14 @@ export class NavigationView {
         session.hasCurrentLocation && engine.hasCurrentTransitPosition;
       const timeline = this.timeline;
       const sample = confirmed
-        ? () => stationCursor(leg, floor, confirmedIndex, "gps", "ride", key)
+        ? () => stationCursor(leg, floor, departedIndex, "gps", "ride", key)
         : timeline
-          ? (wall: number) => timeline.sample(wall, confirmedIndex, floor)
+          ? (wall: number) => timeline.sample(wall, departedIndex, floor)
           : () =>
               stationCursor(
                 leg,
                 floor,
-                confirmedIndex,
+                departedIndex,
                 "estimated",
                 "unclear",
                 key,
@@ -1171,7 +1178,7 @@ export class NavigationView {
         key,
         confirmed,
         floor,
-        confirmedIndex,
+        departedIndex,
       ]);
       if (presentationKey !== this.stationPresentationKey) {
         this.stopStationAnimation();
@@ -1199,7 +1206,7 @@ export class NavigationView {
         estimateSource = {
           timeline,
           path: this.transitPath,
-          confirmedIndex,
+          confirmedIndex: departedIndex,
           confirmedPosition: floor,
           sample: this.stationSample,
         };
@@ -1282,7 +1289,9 @@ export class NavigationView {
       ? estimateSource.path.schematic
         ? "Kartenposition grob geschätzt"
         : "Kartenposition geschätzt"
-      : "";
+      : estimate
+        ? "Stationsstand geschätzt"
+        : "";
     const gpsMessage =
       engine && !arrived && invalidLocation
         ? session.locationQuality === "inaccurate"
