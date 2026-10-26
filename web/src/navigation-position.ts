@@ -29,6 +29,7 @@ export class NavigationPositionTracker {
   private path?: NavigationPath;
   private timestamp = -Infinity;
   private anchor?: { meters: number; timestamp: number };
+  private backward?: { meters: number; timestamp: number; count: number };
   private outside = 0;
   private last?: NavigationPosition;
 
@@ -38,12 +39,14 @@ export class NavigationPositionTracker {
     this.path = undefined;
     this.timestamp = -Infinity;
     this.anchor = undefined;
+    this.backward = undefined;
     this.outside = 0;
     this.last = undefined;
   }
 
   interrupt() {
     this.anchor = undefined;
+    this.backward = undefined;
     this.outside = 0;
     if (this.last)
       this.last = { ...this.last, source: "last-known", preferEstimate: true };
@@ -103,8 +106,32 @@ export class NavigationPositionTracker {
     this.last.raw = fix;
     const path = this.path;
     const corridor = leg.kind === "transit" ? 100 : Math.max(40, fix.accuracy);
-    const projection = path && this.match(fix, leg, path, corridor);
+    let projection = path && this.match(fix, leg, path, corridor);
+    if (!projection && path && movement(leg) && this.anchor) {
+      const candidate = this.match(fix, leg, path, corridor, true);
+      if (candidate && candidate.meters < this.anchor.meters - 30) {
+        const previous = this.backward;
+        const allowance = previous
+          ? Math.max(
+              100,
+              Math.min(500, ((fix.timestamp - previous.timestamp) / 1000) * 20),
+            )
+          : 0;
+        const count =
+          previous && Math.abs(candidate.meters - previous.meters) <= allowance
+            ? previous.count + 1
+            : 1;
+        this.backward = {
+          meters: candidate.meters,
+          timestamp: fix.timestamp,
+          count,
+        };
+        // Repeated evidence may correct a bad display anchor, never progress.
+        if (count >= 3) projection = candidate;
+      } else this.backward = undefined;
+    } else this.backward = undefined;
     if (projection && path) {
+      this.backward = undefined;
       this.anchor = { meters: projection.meters, timestamp: fix.timestamp };
       this.outside = 0;
       return (this.last = {
@@ -153,14 +180,16 @@ export class NavigationPositionTracker {
     leg: Leg,
     path: NavigationPath,
     corridor: number,
+    allowBackward = false,
   ) {
     const transit = leg.kind === "transit";
     const elapsed = this.anchor
       ? (fix.timestamp - this.anchor.timestamp) / 1000
       : 0;
-    const min = this.anchor
-      ? Math.max(0, this.anchor.meters - (transit ? 100 : 30))
-      : 0;
+    const min =
+      this.anchor && !allowBackward
+        ? Math.max(0, this.anchor.meters - (transit ? 100 : 30))
+        : 0;
     const max = this.anchor
       ? this.anchor.meters +
         (transit
