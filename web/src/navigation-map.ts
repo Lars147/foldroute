@@ -16,7 +16,6 @@ import "ol/ol.css";
 import {
   headingDelta,
   projectPath,
-  projectTransitPath,
   type NavigationEngine,
 } from "./navigation-engine";
 import { type LocationFix, type LocationQuality } from "./live-location";
@@ -26,10 +25,13 @@ import { mapStyleEvent } from "./map-style";
 import { motionTargetTop } from "./motion";
 import {
   MarkerMotion,
-  TransitPath,
   type MarkerPosition,
   type TransitEstimateSource,
 } from "./navigation-estimate";
+import {
+  NavigationPositionTracker,
+  type NavigationPosition,
+} from "./navigation-position";
 const xy = (p: Coordinate) => fromLonLat([p.longitude, p.latitude]);
 const navigationZoom: Partial<Record<LegKind, number>> = {
   bike: 17,
@@ -53,8 +55,7 @@ export class NavigationMap {
   private reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   private displayed?: MarkerPosition;
   private displayedLeg?: string;
-  private stationPathKey = "";
-  private stationPath?: TransitPath;
+  private positionTracker = new NavigationPositionTracker();
   private lastDrawAt?: number;
   private desiredHeading?: number;
   private followLayout?: { size: [number, number]; anchor: [number, number] };
@@ -66,6 +67,7 @@ export class NavigationMap {
     fix?: LocationFix;
     state?: LocationQuality;
     estimate?: TransitEstimateSource;
+    position?: NavigationPosition;
   };
   private following = true;
   private heading?: number;
@@ -122,6 +124,7 @@ export class NavigationMap {
             this.frame.fix,
             this.frame.state,
             this.frame.estimate,
+            this.frame.position,
           );
       },
       { signal: this.events.signal },
@@ -136,6 +139,7 @@ export class NavigationMap {
             this.frame.fix,
             this.frame.state,
             this.frame.estimate,
+            this.frame.position,
           );
       },
       { signal: this.events.signal },
@@ -184,6 +188,7 @@ export class NavigationMap {
             this.frame.fix,
             this.frame.state,
             this.frame.estimate,
+            this.frame.position,
           );
       },
       { signal: this.events.signal },
@@ -197,6 +202,7 @@ export class NavigationMap {
             this.frame.fix,
             this.frame.state,
             this.frame.estimate,
+            this.frame.position,
           );
       },
       { signal: this.events.signal },
@@ -227,8 +233,11 @@ export class NavigationMap {
     fix?: LocationFix,
     state?: LocationQuality,
     estimate?: TransitEstimateSource,
+    displayPosition?: NavigationPosition,
   ) {
-    this.frame = { engine, fix, state, estimate };
+    const resolved =
+      displayPosition ?? this.positionTracker.update(engine, fix, state);
+    this.frame = { engine, fix, state, estimate, position: resolved };
     if (document.hidden) {
       this.suspended = true;
       this.stopAnimation();
@@ -361,14 +370,17 @@ export class NavigationMap {
         if (this.following) this.view.setZoom(zoom);
       }
     }
-    if (fix && state === "current") {
-      this.lastFix = fix;
+    this.lastFix = resolved.raw;
+    if (fix && state === "current" && resolved.source === "gps") {
       const course =
         fix.heading !== undefined && (fix.speed ?? 0) >= 1
           ? fix.heading
           : undefined;
       const initial = projectPath(fix, engine.leg.coordinates).bearing;
-      const desired = course ?? this.desiredHeading ?? initial;
+      const desired =
+        course ??
+        this.desiredHeading ??
+        (resolved.path ? resolved.position.bearing : initial);
       this.desiredHeading =
         this.desiredHeading === undefined
           ? desired
@@ -392,7 +404,7 @@ export class NavigationMap {
       fill: estimate
         ? new Fill({ color: theme.surface })
         : new Fill({
-            color: state === "current" ? theme.location : theme.secondary,
+            color: resolved.source === "gps" ? theme.location : theme.secondary,
           }),
       stroke: new Stroke({
         color: estimate ? theme.secondary : theme.halo,
@@ -400,17 +412,6 @@ export class NavigationMap {
       }),
     });
     this.marker.setStyle(new Style({ image: this.markerImage }));
-    const stationPathKey = JSON.stringify([
-      engine.leg.navigationId,
-      engine.leg.kind,
-      engine.leg.coordinates,
-      engine.leg.transitStops,
-      engine.leg.transitStatus?.cancelled,
-    ]);
-    if (this.stationPathKey !== stationPathKey) {
-      this.stationPathKey = stationPathKey;
-      this.stationPath = TransitPath.create(engine.leg);
-    }
     const now = Date.now() / 1000;
     const motionKey = JSON.stringify(
       estimate
@@ -429,22 +430,14 @@ export class NavigationMap {
             "gps",
             this.lastFix,
             this.desiredHeading,
-            stationPathKey,
-            engine.progress.meters,
+            resolved.path?.key,
+            resolved.position,
+            resolved.source,
           ],
     );
     if (motionKey !== this.motionKey) {
       this.stopAnimation();
       this.motionKey = motionKey;
-      const point = this.lastFix ?? engine.leg.from;
-      const meters =
-        this.lastFix && this.stationPath
-          ? projectTransitPath(
-              this.lastFix,
-              this.stationPath.path.coordinates,
-              Math.max(0, engine.progress.meters - 100),
-            )?.meters
-          : undefined;
       this.motion.setTarget(
         estimate
           ? {
@@ -452,9 +445,9 @@ export class NavigationMap {
               sample: (time) => estimate.path.at(estimate.sample(time)),
             }
           : {
+              path: resolved.path,
               sample: () => ({
-                point,
-                meters,
+                ...resolved.position,
                 bearing: this.desiredHeading ?? 0,
               }),
             },
@@ -478,9 +471,8 @@ export class NavigationMap {
       : "route";
     this.target.dataset.positionSource = estimate
       ? "estimated"
-      : state === "current"
-        ? "gps"
-        : "last-known";
+      : resolved.source;
+    this.target.dataset.positionMatched = String(!estimate && !!resolved.path);
     this.target.dataset.following = String(this.following);
     this.drawMarker(now);
     this.displayedLeg = engine.leg.navigationId;
@@ -506,23 +498,34 @@ export class NavigationMap {
           headingDelta(this.heading, position.bearing) *
             (1 - Math.exp(-elapsed / 0.15));
     this.lastDrawAt = now;
+    const raw = this.lastFix ?? position.point;
     const radius =
       (this.lastFix?.accuracy ?? 0) /
-      Math.max(0.1, Math.cos((position.point.latitude * Math.PI) / 180));
+      Math.max(0.1, Math.cos((raw.latitude * Math.PI) / 180));
+    const circle = this.accuracy.getGeometry()!;
+    const center = xy(raw);
+    if (
+      circle.getCenter()[0] !== center[0] ||
+      circle.getCenter()[1] !== center[1] ||
+      circle.getRadius() !== radius
+    )
+      circle.setCenterAndRadius(center, radius);
+    this.target.dataset.accuracyPosition = JSON.stringify({
+      latitude: raw.latitude,
+      longitude: raw.longitude,
+    });
+    this.target.dataset.accuracyRadius = String(radius);
     if (
       this.displayed?.point.latitude === position.point.latitude &&
       this.displayed.point.longitude === position.point.longitude &&
       this.displayed.meters === position.meters &&
-      Math.abs((previousHeading ?? 0) - this.heading) < 0.00001 &&
-      this.accuracy.getGeometry()!.getRadius() === radius
+      Math.abs((previousHeading ?? 0) - this.heading) < 0.00001
     )
       return;
     this.displayed = position;
     this.marker.getGeometry()!.setCoordinates(xy(position.point));
     this.markerImage!.setRotation((this.heading * Math.PI) / 180);
     this.marker.changed();
-    this.accuracy.getGeometry()!.setCenter(xy(position.point));
-    this.accuracy.getGeometry()!.setRadius(radius);
     this.target.dataset.bearing = String(this.heading);
     this.target.dataset.position = JSON.stringify(position.point);
     this.followMarker();

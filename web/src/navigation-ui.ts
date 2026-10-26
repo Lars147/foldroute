@@ -8,6 +8,7 @@ import {
   motionTime,
 } from "./motion";
 import type { NavigationMap } from "./navigation-map";
+import { NavigationPositionTracker } from "./navigation-position";
 import { NavigationGuidance } from "./navigation-guidance";
 import { NavigationStations } from "./navigation-stations";
 import { clock, duration, el, node, icon, setLocationFeedback } from "./ui";
@@ -50,6 +51,7 @@ interface NavigationNotice {
 export class NavigationView {
   readonly root: HTMLElement;
   private map?: NavigationMap;
+  private positionTracker = new NavigationPositionTracker();
   private finishedMap?: NavigationMap;
   private stationLists: NavigationStations[];
   private loading?: Promise<void>;
@@ -173,6 +175,7 @@ export class NavigationView {
     ];
     document.addEventListener("visibilitychange", () => {
       this.stopStationAnimation();
+      if (document.hidden) this.positionTracker.interrupt();
       if (!document.hidden && this.visible) {
         this.stationMotion.reset();
         this.stationPresentationKey = "";
@@ -953,6 +956,7 @@ export class NavigationView {
     }
   }
   hide() {
+    this.positionTracker.reset();
     this.stopStationAnimation();
     this.stationMotion.reset();
     this.stationSample = undefined;
@@ -1126,6 +1130,13 @@ export class NavigationView {
       }
       return;
     }
+    const displayPosition = engine
+      ? this.positionTracker.update(
+          engine,
+          session.fix,
+          session.locationQuality,
+        )
+      : undefined;
     let estimateSource: TransitEstimateSource | undefined;
     this.stationSample = undefined;
     if (
@@ -1200,8 +1211,7 @@ export class NavigationView {
           floor,
         );
       // The map may use a first suitable fix; the rail waits for confirmed evidence.
-      const mapLocated =
-        session.hasCurrentLocation && engine.hasTransitLocation;
+      const mapLocated = displayPosition && !displayPosition.preferEstimate;
       if (timeline && this.transitPath && !mapLocated)
         estimateSource = {
           timeline,
@@ -1299,7 +1309,9 @@ export class NavigationView {
           : "Kein GPS"
         : mapEstimateLabel
           ? mapEstimateLabel
-          : "";
+          : displayPosition?.source === "last-known"
+            ? "Standort wird geprüft"
+            : "";
     const gpsEstimate = invalidLocation ? mapEstimateLabel : "";
     for (const [id, message] of [
       ["navigation-gps-primary", gpsMessage],
@@ -1574,6 +1586,7 @@ export class NavigationView {
       session.fix,
       session.locationQuality,
       estimateSource,
+      displayPosition,
     );
   }
 }
