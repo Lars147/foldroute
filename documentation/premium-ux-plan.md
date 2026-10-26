@@ -126,4 +126,4 @@ Einstieg: [Etappendetails](../web/src/journey-detail.ts) und [Navigationsoberfl�
 - Branch: `Lars147/premium-ux-plan`
 - Basis: Standardbasis des Orca-Repos (`origin/main`), ohne Parent-Worktree.
 - Orca-Kommentar: „Premium-UX: sechs priorisierte Verbesserungen geplant.“
-- Ergebnis dieser Umsetzung: Änderung 3 mit fortsetzbarer Optimierung und konturierten Kartenbuttons. Die mobile Statuspille im Routenheader bleibt eine lokale Vorschau; Änderungen 1, 4, 5 und 6 bleiben geplant, Änderung 2 ist zurückgestellt.
+- Ergebnis dieser Umsetzung: Änderung 3 mit fortsetzbarer Optimierung und konturierten Kartenbuttons. Die mobile Statuspille im Routenheader ist nicht umgesetzt; Änderungen 1, 4, 5 und 6 bleiben geplant, Änderung 2 ist zurückgestellt.

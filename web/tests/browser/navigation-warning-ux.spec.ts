@@ -1,10 +1,13 @@
 import { expect, test, type Page } from "./test";
-import { previewNavigation } from "./navigation-preview";
+import {
+  mountNavigationFixture,
+  mountTransitFixture,
+} from "./navigation-layout-fixture";
 
 async function longTrip(page: Page) {
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.evaluate(() => {
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     const leg = session.engine.leg;
     leg.transitStatus = { updatedAt: Date.now() / 1000 };
     const first = leg.transitStops[0];
@@ -52,7 +55,7 @@ for (const [width, height, theme] of [
     });
     const before = await details.evaluate((element) => element.scrollTop);
     await page.evaluate(() => {
-      const { session, view } = (window as any).navigationPreview;
+      const { session, view } = (window as any).navigationFixture;
       session.engine.leg.transitStatus = {
         updatedAt: Date.now() / 1000,
         cancelled: true,
@@ -100,7 +103,7 @@ for (const [width, height, theme] of [
       (element) => element.scrollTop,
     );
     await page.evaluate(() => {
-      const { session, view } = (window as any).navigationPreview;
+      const { session, view } = (window as any).navigationFixture;
       session.engine.leg.transitStatus = { updatedAt: Date.now() / 1000 };
       session.disruption = undefined;
       view.render();
@@ -121,11 +124,11 @@ for (const [width, height, theme] of [
 test("warning details keep a separately selected section", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   const fold = page.getByRole("tab", { name: /^Falten nach/ });
   await fold.click();
   await page.evaluate(() => {
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     session.engine.leg.transitStatus = {
       updatedAt: Date.now() / 1000,
       failure: "network",
@@ -151,7 +154,7 @@ test("warning details keep a separately selected section", async ({ page }) => {
   ).toBeFocused();
 });
 
-test("section tabs preserve compact and expanded states in the long S8 preview", async ({
+test("section tabs preserve compact and expanded states in the long S8 journey", async ({
   page,
 }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -160,9 +163,7 @@ test("section tabs preserve compact and expanded states in the long S8 preview",
   await page.route("https://tiles.openfreemap.org/**", (route) =>
     route.abort(),
   );
-  await page.goto(
-    "/preview/navigation-scene.html?theme=dark&state=scroll-warning",
-  );
+  await mountTransitFixture(page, { longTrip: true, cancellation: "trip" });
   const fold = page.getByRole("tab", { name: /^Falten nach/ });
   const train = page.getByRole("tab", { name: /^S8 nach/ });
   const toggle = page.locator("#navigation-details-toggle");
@@ -240,7 +241,7 @@ for (const width of [320, 390])
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await previewNavigation(page);
+    await mountNavigationFixture(page);
     for (const [reason, message] of [
       ["trip", "Fahrt fällt aus"],
       ["boarding", "Halt in Bahnhof entfällt"],
@@ -250,7 +251,7 @@ for (const width of [320, 390])
     ] as const) {
       await page.evaluate(async (cancellationReason) => {
         const { transitDisruption } = await import("/src/transit-refresh.ts");
-        const { session, view } = (window as any).navigationPreview;
+        const { session, view } = (window as any).navigationFixture;
         session.engine.leg.transitStatus = {
           updatedAt: Date.now() / 1000,
           cancelled: true,
@@ -288,7 +289,7 @@ for (const width of [320, 390])
       await page.locator("#navigation-details-toggle").click();
     }
     await page.evaluate(() => {
-      const { session, view } = (window as any).navigationPreview;
+      const { session, view } = (window as any).navigationFixture;
       session.engine.leg.transitStatus = { updatedAt: Date.now() / 1000 };
       session.disruption = undefined;
       view.render();
@@ -306,7 +307,7 @@ for (const width of [320, 390, 1280])
     await page.route("https://tiles.openfreemap.org/**", (route) =>
       route.abort(),
     );
-    await page.goto("/preview/navigation-scene.html?state=boarding-cancelled");
+    await mountTransitFixture(page, { cancellation: "boarding" });
     const message = "S8: Halt in Ostbahnhof entfällt.";
     const toggle = page.locator("#navigation-details-toggle");
     const fold = page.getByRole("tab", { name: /^Falten nach/ });
@@ -360,10 +361,10 @@ test("a cancellation is counted once while separate offline details stay reachab
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.evaluate(async () => {
     const { transitDisruption } = await import("/src/transit-refresh.ts");
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     session.engine.leg.transitStatus = {
       updatedAt: Date.now() / 1000,
       cancelled: true,
@@ -401,12 +402,12 @@ test("a cancellation is counted once while separate offline details stay reachab
   ).toHaveLength(2);
 });
 
-for (const theme of ["dark", "light"])
+for (const theme of ["dark", "light"] as const)
   for (const [state, message] of [
-    ["scroll-warning", "S8: Fahrt fällt aus."],
-    ["scroll-exit-cancelled", "S8: Halt in Pasing entfällt."],
-  ]) {
-    test(`local ${state} preview keeps its warning while scrolling in ${theme}`, async ({
+    ["trip", "S8: Fahrt fällt aus."],
+    ["alighting", "S8: Halt in Pasing entfällt."],
+  ] as const) {
+    test(`${state} cancellation keeps its warning while scrolling in ${theme}`, async ({
       page,
     }, info) => {
       await page.setViewportSize({ width: 390, height: 844 });
@@ -415,9 +416,11 @@ for (const theme of ["dark", "light"])
       await page.route("https://tiles.openfreemap.org/**", (route) =>
         route.abort(),
       );
-      await page.goto(
-        `/preview/navigation-scene.html?theme=${theme}&state=${state}`,
-      );
+      await mountTransitFixture(page, {
+        longTrip: true,
+        theme,
+        cancellation: state,
+      });
       await page.clock.runFor(2000);
       await expect(
         page.locator("#navigation-stations-detail .navigation-station"),

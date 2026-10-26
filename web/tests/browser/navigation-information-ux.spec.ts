@@ -1,12 +1,15 @@
 import { expect, test } from "./test";
-import { previewNavigation } from "./navigation-preview";
+import {
+  mountNavigationFixture,
+  mountTransitFixture,
+} from "./navigation-layout-fixture";
 
 test("compact continue belongs to the selected running stop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await previewNavigation(page, 5);
+  await mountNavigationFixture(page, 5);
   const fold = page.getByRole("tab", { name: /^Falten nach/ });
   const complete = page.locator("#navigation-complete");
   await fold.click();
@@ -17,12 +20,12 @@ test("compact continue belongs to the selected running stop", async ({
   );
   await expect(complete).toBeHidden();
   const before = await page.evaluate(
-    () => (window as any).navigationPreview.session.engine.progress,
+    () => (window as any).navigationFixture.session.engine.progress,
   );
   await complete.evaluate((button: HTMLButtonElement) => button.click());
   expect(
     await page.evaluate(
-      () => (window as any).navigationPreview.session.engine.progress,
+      () => (window as any).navigationFixture.session.engine.progress,
     ),
   ).toEqual(before);
   await page.locator('[role="tab"][aria-current="step"]').click();
@@ -42,14 +45,14 @@ for (const width of [320, 390])
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await previewNavigation(page);
+    await mountNavigationFixture(page);
     const fold = page.getByRole("tab", { name: /^Falten nach/ });
     const train = page.getByRole("tab", { name: /^S1 nach/ });
     const toggle = page.locator("#navigation-details-toggle");
     const complete = page.locator("#navigation-complete");
     const content = page.locator("#navigation-section-content");
     const before = await page.evaluate(
-      () => (window as any).navigationPreview.session.engine.progress,
+      () => (window as any).navigationFixture.session.engine.progress,
     );
     await fold.click();
     await toggle.click();
@@ -75,7 +78,7 @@ for (const width of [320, 390])
     await expect(page.locator("#navigation-confirm")).toBeHidden();
     expect(
       await page.evaluate(
-        () => (window as any).navigationPreview.session.engine.progress,
+        () => (window as any).navigationFixture.session.engine.progress,
       ),
     ).toEqual(before);
     await toggle.click();
@@ -107,7 +110,7 @@ for (const width of [320, 390])
     await page.locator("#navigation-confirm-no").click();
     expect(
       await page.evaluate(
-        () => (window as any).navigationPreview.session.engine.progress,
+        () => (window as any).navigationFixture.session.engine.progress,
       ),
     ).toEqual(before);
   });
@@ -121,7 +124,7 @@ for (const [width, theme] of [
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await previewNavigation(page);
+    await mountNavigationFixture(page);
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;
     }, theme);
@@ -162,7 +165,7 @@ for (const [width, theme] of [
       await expect(page.locator("#navigation-stations-preview")).toBeHidden();
       await expect(page.locator("#navigation-complete")).toBeHidden();
       await page.evaluate(() =>
-        (window as any).navigationPreview.setLocation("current"),
+        (window as any).navigationFixture.setLocation("current"),
       );
       await expect(tab).toHaveAttribute("aria-selected", "true");
       await expect(page.locator("#navigation-instruction")).toHaveText(
@@ -192,7 +195,7 @@ for (const [width, height] of [
     }) => {
       await page.setViewportSize({ width, height });
       await page.emulateMedia({ reducedMotion: "reduce" });
-      await previewNavigation(page, index);
+      await mountNavigationFixture(page, index);
       const complete = page.locator("#navigation-complete");
       await expect(complete).toHaveText(label);
       await expect(complete).toBeInViewport({ ratio: 1 });
@@ -209,9 +212,9 @@ test("another selected train uses its own compact itinerary without the running 
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.evaluate(() => {
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     const journey = session.engine.journey;
     session.engine.leg.transitStatus = { updatedAt: Date.now() / 1000 };
     const departure = journey.legs.at(-1).end + 600;
@@ -268,9 +271,7 @@ for (const width of [320, 390])
     await page.route("https://tiles.openfreemap.org/**", (route) =>
       route.abort(),
     );
-    await page.goto(
-      "/preview/navigation-scene.html?theme=dark&state=scroll-ride",
-    );
+    await mountTransitFixture(page, { longTrip: true });
     const details = page.locator("#navigation-details");
     const toggle = page.locator("#navigation-details-toggle");
     const current = page.locator(
@@ -333,7 +334,7 @@ for (const [width, height] of [
   }, info) => {
     await page.setViewportSize({ width, height });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await previewNavigation(page);
+    await mountNavigationFixture(page);
     const tabs = page.locator("#navigation-phases-slot");
     const action = page.locator("#navigation-quick-actions");
     const preview = await page
@@ -369,13 +370,13 @@ test("compact station gap names only the omitted stops that are served", async (
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   const gap = page.locator(
     "#navigation-stations-preview .navigation-station-gap",
   );
   await expect(gap).toHaveText("1 Zwischenhalt");
   await page.evaluate(() => {
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     session.engine.leg.transitStops[2].cancelled = true;
     view.render();
   });
@@ -387,7 +388,7 @@ test("panel resizes continuously while menu, action and centered grip stay ancho
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.locator("#navigation-panel").evaluate((panel) => {
     for (const animation of panel.getAnimations()) animation.finish();
   });
@@ -462,7 +463,7 @@ for (const legIndex of [0, 2])
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await previewNavigation(page, legIndex);
+    await mountNavigationFixture(page, legIndex);
     const grip = (await page.locator(".navigation-grip").boundingBox())!;
     const panel = (await page.locator("#navigation-panel").boundingBox())!;
     expect(grip.x + grip.width / 2).toBeCloseTo(panel.x + panel.width / 2, 0);
@@ -490,9 +491,9 @@ for (const width of [320, 390, 1280])
     }, info) => {
       await page.setViewportSize({ width, height: 844 });
       await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
-      await previewNavigation(page);
+      await mountNavigationFixture(page);
       await page.evaluate(() => {
-        const { session, view } = (window as any).navigationPreview;
+        const { session, view } = (window as any).navigationFixture;
         const leg = session.engine.leg;
         leg.to.name = leg.transitStops.at(-1).name = "Pasing";
         leg.transitStops[1].name = "Rosenheimer Platz";
@@ -553,9 +554,9 @@ test("next stop and exit share one row and estimated arrival still needs confirm
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.clock.setFixedTime(new Date("2026-10-06T10:08:30Z"));
-  await page.evaluate(() => (window as any).navigationPreview.view.render());
+  await page.evaluate(() => (window as any).navigationFixture.view.render());
   const rail = page.locator("#navigation-stations-preview");
   await expect(rail.locator('[data-exit="true"]')).toHaveCount(1);
   await expect(rail.locator('[aria-current="step"]')).toHaveAttribute(
@@ -564,7 +565,7 @@ test("next stop and exit share one row and estimated arrival still needs confirm
   );
   await expect(rail).toContainText("Ausstieg am nächsten Halt");
   await page.clock.setFixedTime(new Date("2026-10-06T10:10:01Z"));
-  await page.evaluate(() => (window as any).navigationPreview.view.render());
+  await page.evaluate(() => (window as any).navigationFixture.view.render());
   await expect(page.locator("#navigation-context-status")).toHaveText(
     "Ausstieg laut Fahrzeiten erreicht",
   );
@@ -582,9 +583,9 @@ test("missing station data uses one exit summary without a stop count", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.evaluate(() => {
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     session.engine.leg.to.name = "Pasing";
     session.engine.leg.arrivalPlatform = "5";
     session.engine.leg.transitStops = [];
@@ -609,11 +610,11 @@ test("waiting before boarding retains the selected train details", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.clock.setFixedTime(new Date("2026-10-06T10:04:00Z"));
   await page.evaluate(async () => {
     const { NavigationEngine } = await import("/src/navigation-engine.ts");
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     const journey = session.engine.journey;
     const train = journey.legs[2];
     journey.legs.splice(2, 0, {
@@ -646,12 +647,12 @@ test("waiting before boarding retains the selected train details", async ({
   );
 });
 
-test("local S8 preview shows the real compact navigation without success or audio notices", async ({
+test("prepared S8 navigation shows compact and estimated states without success or audio notices", async ({
   page,
 }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.clock.install({ time: new Date("2026-10-21T07:18:00Z") });
-  await page.goto("/preview/navigation-scene.html?theme=dark");
+  await mountTransitFixture(page);
   await page.clock.runFor(2000);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "S8 Richtung Herrsching",
@@ -665,7 +666,7 @@ test("local S8 preview shows the real compact navigation without success or audi
   await page
     .locator("#navigation-panel")
     .screenshot({ path: info.outputPath("s8-panel-compact.png") });
-  await page.goto("/preview/navigation-scene.html?theme=light&state=estimated");
+  await mountTransitFixture(page, { theme: "light", estimated: true });
   await page.locator("#navigation-details-toggle").click();
   await expect(page.locator("#navigation-locate")).toBeHidden();
   await expect(page.locator("#navigation-location-status")).toContainText(

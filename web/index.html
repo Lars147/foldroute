@@ -182,29 +182,21 @@
     <script>
       (() => {
         const root = document.documentElement;
-        const preview = document.querySelector('meta[name="foldroute-dev"]')
-          ? new URLSearchParams(location.search).get("splash-preview")
-          : null;
         let preference = "system";
         try {
           preference = localStorage.getItem("foldroute.appearance") || "system";
         } catch {}
         const dark = matchMedia("(prefers-color-scheme: dark)").matches;
         const theme =
-          preview === "light" || preview === "dark"
-            ? preview
-            : preference === "light" || preference === "dark"
-              ? preference
-              : dark
-                ? "dark"
-                : "light";
+          preference === "light" || preference === "dark"
+            ? preference
+            : dark
+              ? "dark"
+              : "light";
         root.dataset.theme = theme;
         document.querySelector('meta[name="theme-color"]').content =
           getComputedStyle(root).getPropertyValue("--startup-paper").trim();
-        if (preview === "light" || preview === "dark")
-          root.dataset.startupPreview = preview;
         if (
-          root.dataset.startupPreview ||
           matchMedia("(display-mode: standalone)").matches ||
           navigator.standalone === true
         )

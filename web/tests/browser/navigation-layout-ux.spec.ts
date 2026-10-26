@@ -1,5 +1,5 @@
 import { expect, test } from "./test";
-import { previewNavigation } from "./navigation-preview";
+import { mountNavigationFixture } from "./navigation-layout-fixture";
 import { stationRail } from "./navigation-fixture";
 
 for (const colorScheme of ["light", "dark"] as const)
@@ -9,10 +9,10 @@ for (const colorScheme of ["light", "dark"] as const)
     }, info) => {
       await page.setViewportSize({ width, height: 844 });
       await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
-      await previewNavigation(page);
+      await mountNavigationFixture(page);
       if (width < 900) await page.locator("#navigation-details-toggle").click();
       await page.evaluate(() =>
-        (window as any).navigationPreview.setLocation("inaccurate"),
+        (window as any).navigationFixture.setLocation("inaccurate"),
       );
       const status = page.locator("#navigation-gps-status");
       const primary = page.locator("#navigation-gps-primary");
@@ -53,7 +53,7 @@ for (const colorScheme of ["light", "dark"] as const)
       };
       await checkBounds(true);
       await page.evaluate(() =>
-        (window as any).navigationPreview.setLocation("missing"),
+        (window as any).navigationFixture.setLocation("missing"),
       );
       await expect(status).toHaveText("Kein GPS Kartenposition geschätzt");
       await checkBounds(true);
@@ -64,14 +64,14 @@ for (const colorScheme of ["light", "dark"] as const)
         await checkBounds(true);
       }
       await page.screenshot({ path: info.outputPath("gps-estimate.png") });
-      await page.evaluate(() => (window as any).navigationPreview.showLeg(3));
+      await page.evaluate(() => (window as any).navigationFixture.showLeg(3));
       await expect(status).toHaveText("Kein GPS");
       await expect(secondary).toBeHidden();
       await expect(secondary).toBeEmpty();
       await expect(status).toHaveCSS("background-color", "rgb(255, 212, 59)");
       await checkBounds(false);
       await page.evaluate(() =>
-        (window as any).navigationPreview.setLocation("current"),
+        (window as any).navigationFixture.setLocation("current"),
       );
       await expect(status).toBeHidden();
       await expect(primary).toBeEmpty();
@@ -92,7 +92,7 @@ for (const [width, height] of [
       reducedMotion: "reduce",
       colorScheme: width === 320 ? "dark" : "light",
     });
-    await previewNavigation(page, 0);
+    await mountNavigationFixture(page, 0);
     await expect(page.locator("#navigation-context-title")).toHaveText(
       "S1 · in 5 Min.",
     );
@@ -101,7 +101,7 @@ for (const [width, height] of [
     );
     await page.clock.setFixedTime(new Date(Date.parse("2026-10-06T10:05:02Z")));
     await page.evaluate(() => {
-      (window as any).navigationPreview.showLeg(2);
+      (window as any).navigationFixture.showLeg(2);
     });
     const selector =
       width < 900
@@ -136,7 +136,7 @@ for (const [width, height] of [
     // A second prepared instant covers passed rows in both renderers without
     // replaying several minutes of train/map animation at every viewport.
     await page.clock.setFixedTime(new Date("2026-10-06T10:08:30Z"));
-    await page.evaluate(() => (window as any).navigationPreview.view.render());
+    await page.evaluate(() => (window as any).navigationFixture.view.render());
     await expect(
       page.locator("#navigation-stations-announcement"),
     ).toContainText("Nächster Halt: Ausstieg");
@@ -197,10 +197,10 @@ test("compact rail clips departing rows and finishes a normal transition", async
     reducedMotion: "no-preference",
     colorScheme: "dark",
   });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.evaluate(async () => {
     const { NavigationStations } = await import("/src/navigation-stations.ts");
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     view.hide();
     document.getElementById("navigation-stations-preview")!.remove();
     const panel = document.createElement("article");

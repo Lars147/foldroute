@@ -113,9 +113,7 @@ el("adjust-route").before(places);
 el("map-route").onclick = () => routeMap.fitRoute();
 el("close-route").setAttribute("aria-label", "Zur Landingpage");
 el("close-route").onclick = () =>
-  location.assign(
-    import.meta.env.DEV ? "/landing/#idee" : new URL("../#idee", location.href),
-  );
+  location.assign(new URL("../#idee", location.href));
 
 journeyView.render(state, settings.maxCyclingMinutes);
 journeyView.restoreNavigation(

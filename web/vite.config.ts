@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { resolve, extname, sep } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const buildCommit = execFileSync("git", ["rev-parse", "HEAD"], {
@@ -83,40 +83,6 @@ export default defineConfig({
       },
     },
     {
-      name: "foldroute-splash-preview",
-      apply: "serve",
-      transformIndexHtml() {
-        return [
-          {
-            tag: "meta",
-            attrs: { name: "foldroute-dev", content: "true" },
-            injectTo: "head-prepend",
-          },
-        ];
-      },
-      configureServer(server) {
-        server.middlewares.use((request, response, next) => {
-          const url = new URL(request.url!, "http://localhost");
-          if (url.pathname === "/splash-preview") {
-            response.writeHead(302, { Location: "/splash-preview/" });
-            response.end();
-            return;
-          }
-          if (url.pathname !== "/splash-preview/") return next();
-          void readFile(
-            new URL("./preview/splash.html", import.meta.url),
-            "utf8",
-          )
-            .then((html) => server.transformIndexHtml(url.pathname, html))
-            .then((html) => {
-              response.setHeader("Content-Type", "text/html; charset=utf-8");
-              response.end(html);
-            })
-            .catch(next);
-        });
-      },
-    },
-    {
       name: "foldroute-shared-theme",
       async generateBundle() {
         for (const fileName of ["theme.css", "appearance.js"])
@@ -128,76 +94,19 @@ export default defineConfig({
       },
     },
     {
-      name: "foldroute-landing-preview",
+      name: "foldroute-development-theme",
       apply: "serve",
       configureServer(server) {
-        server.watcher.add(landingRoot);
-        server.watcher.on("change", (path) => {
-          if (
-            path.startsWith(landingRoot + sep) &&
-            !path.startsWith(resolve(landingRoot, "plan") + sep)
-          )
-            server.ws.send({ type: "full-reload", path: "*" });
-        });
         server.middlewares.use((request, response, next) => {
-          const url = new URL(request.url!, "http://localhost");
-          if (
-            url.pathname === "/theme.css" ||
-            url.pathname === "/appearance.js"
-          ) {
-            void readFile(resolve(landingRoot, url.pathname.slice(1)))
-              .then((buffer) => {
-                response.setHeader(
-                  "Content-Type",
-                  url.pathname.endsWith(".css")
-                    ? "text/css"
-                    : "text/javascript",
-                );
-                response.end(buffer);
-              })
-              .catch(next);
-            return;
-          }
-          if (url.pathname === "/landing") {
-            response.writeHead(302, { Location: "/landing/" });
-            response.end();
-            return;
-          }
-          if (!url.pathname.startsWith("/landing/")) return next();
-          if (url.pathname.startsWith("/landing/plan/")) {
-            response.writeHead(302, {
-              Location:
-                url.pathname.replace("/landing/plan/", "/") + url.search,
-            });
-            response.end();
-            return;
-          }
-          const path = resolve(
-            landingRoot,
-            url.pathname.slice("/landing/".length) || "index.html",
-          );
-          if (!path.startsWith(landingRoot + sep)) return next();
-          const types: Record<string, string> = {
-            ".html": "text/html; charset=utf-8",
-            ".css": "text/css",
-            ".js": "text/javascript",
-            ".svg": "image/svg+xml",
-            ".png": "image/png",
-          };
-          void readFile(path)
-            .then(async (buffer) => {
+          const path = new URL(request.url!, "http://localhost").pathname;
+          if (path !== "/theme.css" && path !== "/appearance.js") return next();
+          void readFile(resolve(landingRoot, path.slice(1)))
+            .then((buffer) => {
               response.setHeader(
                 "Content-Type",
-                types[extname(path)] ?? "application/octet-stream",
+                path.endsWith(".css") ? "text/css" : "text/javascript",
               );
-              response.end(
-                extname(path) === ".html"
-                  ? await server.transformIndexHtml(
-                      url.pathname,
-                      buffer.toString(),
-                    )
-                  : buffer,
-              );
+              response.end(buffer);
             })
             .catch(next);
         });

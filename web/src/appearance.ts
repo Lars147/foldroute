@@ -13,20 +13,18 @@ class AppearanceController {
   onStorageError?: () => void;
   private media = window.matchMedia("(prefers-color-scheme: dark)");
 
-  initialize(personal: boolean) {
-    if (personal) {
-      try {
-        this.preference = preference(localStorage.getItem(storageKey));
-      } catch {
-        this.storageFailed = true;
-      }
-      window.addEventListener("storage", (event) => {
-        if (event.key === storageKey || event.key === null) {
-          this.preference = preference(event.newValue);
-          this.apply();
-        }
-      });
+  initialize() {
+    try {
+      this.preference = preference(localStorage.getItem(storageKey));
+    } catch {
+      this.storageFailed = true;
     }
+    window.addEventListener("storage", (event) => {
+      if (event.key === storageKey || event.key === null) {
+        this.preference = preference(event.newValue);
+        this.apply();
+      }
+    });
     this.media.addEventListener("change", () => this.apply());
     this.apply();
   }

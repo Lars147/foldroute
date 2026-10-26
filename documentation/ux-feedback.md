@@ -1,6 +1,6 @@
 # UX-Feedback: Webplaner
 
-Die Überarbeitung setzt das gesammelte Feedback im Webplaner und der PWA um. Die vorhandene Gestaltung bleibt die Grundlage. Die lokale Vorschau läuft unter http://127.0.0.1:4180/; die feste Beispielroute unter http://127.0.0.1:4180/?example=bike-transfer.
+Die Überarbeitung setzt das gesammelte Feedback im Webplaner und der PWA um. Die vorhandene Gestaltung bleibt die Grundlage.
 
 ## Änderungen und Abnahme
 

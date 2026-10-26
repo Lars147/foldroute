@@ -9,8 +9,8 @@ import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 const key = "foldroute.appearance";
 const root = () => test.info().project.use.baseURL!;
 
-async function open(page: Page) {
-  await page.goto("/");
+async function open(page: Page, url = "/") {
+  await page.goto(url);
   await page.locator("#tab-settings").click();
 }
 
@@ -330,12 +330,15 @@ test("landing stays light while planner and public example share appearance chan
     route.abort(),
   );
   await page.emulateMedia({ colorScheme: "dark" });
-  await open(page);
+  const production =
+    process.env.FOLDROUTE_PRODUCTION_URL ??
+    `http://127.0.0.1:${Number(process.env.FOLDROUTE_TEST_PORT ?? 4173) + 1}/docs/plan/`;
+  await open(page, production);
   await page.getByRole("radio", { name: "Dunkel", exact: true }).check();
   await theme(page, "dark");
   const landing = await context.newPage();
   await landing.emulateMedia({ colorScheme: "dark" });
-  await landing.goto("/landing/");
+  await landing.goto(new URL("../", production).href);
   await theme(landing, "light");
   await expect(
     landing.getByRole("combobox", { name: "Darstellung" }),
@@ -348,7 +351,7 @@ test("landing stays light while planner and public example share appearance chan
     "dark",
   );
   const planner = await context.newPage();
-  await planner.goto("/?example=bike-transfer");
+  await planner.goto(`${production}?example=bike-transfer`);
   await expect(planner.locator(".route-choice")).toBeVisible();
   await theme(planner, "dark");
   await page.getByRole("radio", { name: "Hell", exact: true }).check();
