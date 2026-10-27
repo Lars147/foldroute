@@ -4047,6 +4047,34 @@ body[data-navigation="active"] .app-tabs {
   background: var(--color-map);
   touch-action: none;
 }
+.navigation-status-bar {
+  display: none;
+}
+@media (max-width: 899px) {
+  :root[data-standalone] body[data-navigation="active"]::before {
+    display: none;
+  }
+  /* A real fixed color surface lets iOS replace its oversized scroll-edge blur. */
+  :root[data-standalone] body[data-navigation="active"] .navigation-status-bar {
+    display: block;
+    position: fixed;
+    inset: 0 0 auto;
+    height: var(--safe-top);
+    z-index: 1;
+    pointer-events: none;
+    background: var(--color-asphalt);
+  }
+  :root[data-standalone] body[data-navigation="active"] .navigation-status-bar::after {
+    content: "";
+    position: absolute;
+    inset: 100% 0 auto;
+    height: min(8px, var(--safe-top));
+    background: linear-gradient(to bottom, var(--color-asphalt), transparent);
+  }
+  :root[data-standalone] body[data-navigation="active"] .navigation-top {
+    z-index: 2;
+  }
+}
 .navigation-top {
   position: absolute;
   top: max(12px, var(--safe-top));

@@ -58,11 +58,15 @@ class AppearanceController {
         : this.preference;
     const changed = document.documentElement.dataset.theme !== effective;
     document.documentElement.dataset.theme = effective;
-    document.querySelector<HTMLMetaElement>(
-      'meta[name="theme-color"]',
-    )!.content = getComputedStyle(document.documentElement)
-      .getPropertyValue("--color-canvas")
-      .trim();
+    const styles = getComputedStyle(document.documentElement);
+    // The inline startup palette is available before the shared stylesheet loads.
+    const color =
+      styles.getPropertyValue("--color-canvas").trim() ||
+      styles.getPropertyValue("--startup-paper").trim();
+    if (color)
+      document.querySelector<HTMLMetaElement>(
+        'meta[name="theme-color"]',
+      )!.content = color;
     this.onChange?.();
     if (changed) window.dispatchEvent(new Event("foldroute:appearance"));
   }

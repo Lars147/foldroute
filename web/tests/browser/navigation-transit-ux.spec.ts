@@ -779,6 +779,8 @@ for (const width of [390])
   test(`GPS loss estimates stations and glides the map without confirming progress at ${width}px`, async ({
     page,
   }, info) => {
+    // Observe each animation window; software-rendered WebKit needs extra headroom.
+    test.setTimeout(60_000);
     await page.setViewportSize({ width, height: 844 });
     await page.emulateMedia({ reducedMotion: "no-preference" });
     const journey = stationJourney();

@@ -152,8 +152,11 @@ test("fixed example stays identical before and years after its recorded schedule
     await page.clock.setFixedTime(new Date(time));
     await page.goto(`/${examplePath}`);
     await expectExample(page);
+    // Finish loading map worker modules before replacing their document.
+    await page.waitForLoadState("networkidle");
     await page.reload();
     await expectExample(page);
+    await page.waitForLoadState("networkidle");
     await expectNoEffects(page, result);
   }
 });

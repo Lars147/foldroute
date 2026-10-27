@@ -2,6 +2,82 @@ import { expect, test } from "./test";
 import { mountNavigationFixture } from "./navigation-layout-fixture";
 import { stationRail } from "./navigation-fixture";
 
+for (const theme of ["light", "dark"] as const)
+  for (const layout of [
+    { width: 390, height: 844, top: 59, font: 16 },
+    { width: 430, height: 932, top: 62, font: 32 },
+    { width: 320, height: 568, top: 0, font: 16 },
+    { width: 844, height: 390, top: 0, font: 16 },
+  ])
+    test(`standalone navigation status bar stays compact at ${layout.width}px in ${theme}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width: layout.width, height: layout.height });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      await mountNavigationFixture(page, 0, { theme });
+      await page.addStyleTag({
+        content: `:root { --safe-top: ${layout.top}px; font-size: ${layout.font}px; }`,
+      });
+      await page.evaluate(() => {
+        document.body.dataset.navigation = "active";
+        (window as any).navigationFixture.view.render();
+      });
+      const statusBar = page.locator(".navigation-status-bar");
+      const guidance = page.locator("#navigation-guidance");
+      const initial = await guidance.boundingBox();
+      await expect(statusBar).toBeHidden();
+      await page.evaluate(() => {
+        document.documentElement.dataset.standalone = "";
+      });
+      expect(await guidance.boundingBox()).toEqual(initial);
+      await expect
+        .poll(
+          async () =>
+            (await page.locator(".navigation-map-controls").boundingBox())!.y,
+        )
+        .toBeGreaterThanOrEqual(initial!.y + initial!.height + 7);
+      await expect(statusBar).toHaveAttribute("aria-hidden", "true");
+      await expect(statusBar).toHaveCSS("pointer-events", "none");
+      const geometry = await statusBar.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const fade = getComputedStyle(element, "::after");
+        return {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          fadeHeight: parseFloat(fade.height),
+          background: getComputedStyle(element).backgroundColor,
+          oldLayer: getComputedStyle(document.body, "::before").display,
+        };
+      });
+      expect(geometry).toEqual({
+        x: 0,
+        y: 0,
+        width: layout.width,
+        height: layout.top,
+        fadeHeight: layout.top ? 8 : 0,
+        background: "rgb(23, 26, 28)",
+        oldLayer: "none",
+      });
+      if (layout.top) await expect(statusBar).toBeVisible();
+      else await expect(statusBar).toBeHidden();
+      await page.screenshot({ path: info.outputPath("compact-status-bar.png") });
+      await page.setViewportSize({ width: 1280, height: 844 });
+      await expect(statusBar).toBeHidden();
+      await page.setViewportSize({ width: layout.width, height: layout.height });
+      await page.evaluate(() => {
+        (window as any).navigationFixture.view.hide();
+        delete document.body.dataset.navigation;
+      });
+      await expect(statusBar).toBeHidden();
+      expect(
+        await page.evaluate(
+          () => getComputedStyle(document.body, "::before").display,
+        ),
+      ).not.toBe("none");
+    });
+
 for (const colorScheme of ["light", "dark"] as const)
   for (const width of [320, 390, 1280])
     test(`prepared GPS badge fits at ${width}px in ${colorScheme}`, async ({

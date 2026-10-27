@@ -23,6 +23,22 @@ async function theme(page: Page, value: "light" | "dark") {
   );
 }
 
+test("theme color retains the startup palette while shared theme tokens are unavailable", async ({
+  page,
+}) => {
+  await open(page);
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--color-canvas", "initial");
+  });
+  for (const [value, label] of [
+    ["dark", "Dunkel"],
+    ["light", "Hell"],
+  ] as const) {
+    await page.getByRole("radio", { name: label, exact: true }).check();
+    await theme(page, value);
+  }
+});
+
 async function expectPanelContrast(page: Page, selector = ".journey-panel") {
   const failures = await page.locator(selector).evaluate((panel) => {
     const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number);

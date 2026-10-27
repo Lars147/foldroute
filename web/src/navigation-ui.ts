@@ -102,6 +102,7 @@ export class NavigationView {
     this.root.setAttribute("aria-label", "Aktive Navigation");
     this.root.innerHTML = `
       <div id="navigation-map" tabindex="0" aria-label="Navigationskarte in Fahrtrichtung"></div>
+      <div class="navigation-status-bar" aria-hidden="true"></div>
       <div class="navigation-top" id="navigation-top"><div id="navigation-phases" role="tablist" aria-label="Reiseabschnitte"></div></div>
         <span id="navigation-undo-announcement" class="sr-only" role="status" aria-live="polite"></span>
         <div id="navigation-undo" class="toast" hidden><button id="navigation-undo-button" type="button">Rückgängig</button><span class="toast-countdown" aria-hidden="true"><span class="toast-countdown-fill"></span></span></div>

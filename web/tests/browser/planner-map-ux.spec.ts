@@ -665,6 +665,8 @@ test("planning URL reloads fixed endpoints without location access and keeps now
   });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // Complete background address requests before deliberately reloading the page.
+  await page.waitForLoadState("networkidle");
   await page.reload();
   await expectPlanningComplete(page);
   await expect(page.locator("#route-origin")).toHaveText("Startpunkt");
