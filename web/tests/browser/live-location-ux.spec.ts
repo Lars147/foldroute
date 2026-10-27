@@ -2,7 +2,11 @@ import { test, expect, type Page } from "./test";
 import { defaults } from "../../src/model";
 import { routeURL } from "../../src/route-url";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
-import { expectPlanningComplete, showMap } from "./assertions";
+import {
+  expectPlanningComplete,
+  openSelectedDetails,
+  showMap,
+} from "./assertions";
 
 async function setup(page: Page, permission = "granted") {
   await page.clock.install({ time: new Date("2026-09-04T08:00:00Z") });
@@ -341,7 +345,7 @@ test("screen lock denial does not interrupt planning", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("mobile list and itinerary pause GPS while keeping the screen awake", async ({
+test("mobile sheet keeps GPS active and full itinerary pauses it without releasing screen lock", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -351,10 +355,15 @@ test("mobile list and itinerary pause GPS while keeping the screen awake", async
     .poll(() => page.evaluate(() => (window as any).liveProbe.started))
     .toBe(1);
   await page.locator("#result-back").click();
+  await expect(page.locator("#alternatives-dialog")).toBeVisible();
+  expect(await page.evaluate(() => (window as any).liveProbe.stopped)).toBe(0);
+  await page.locator(".route-choice-row.selected .route-detail-link").click();
+  await expect(page.locator("#alternatives-title")).toHaveText("Reiseablauf");
+  expect(await page.evaluate(() => (window as any).liveProbe.stopped)).toBe(0);
+  await openSelectedDetails(page);
   await expect
     .poll(() => page.evaluate(() => (window as any).liveProbe.stopped))
     .toBe(1);
-  await page.locator(".route-choice-row.selected .route-detail-link").click();
   await expect
     .poll(() => page.evaluate(() => (window as any).liveProbe.started))
     .toBe(1);
