@@ -216,10 +216,14 @@ for (const width of [390, 1280])
     await expect.poll(activeJourney).toBe(ids[1]);
     await page.locator("#navigation-end").click();
     await page.locator("#navigation-confirm-yes").click();
-    const start = page.locator(".panel-actions #navigation-start");
+    const start = page.locator("#navigation-start");
     await expect(start).toBeFocused();
     await expect(start).toHaveText("Los");
     await expect(start).toBeEnabled();
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      width < 900 ? "map" : "desktop",
+    );
     await expect(page.locator("#saved-notice")).toBeHidden();
     await expect(page.locator("#replan-saved")).toBeHidden();
     await expect(page.locator("#result-stand")).toHaveText(originalStand!);
@@ -233,8 +237,11 @@ for (const width of [390, 1280])
     ).toEqual(ids);
     await page.screenshot({ path: info.outputPath("navigation-return.png") });
     if (width < 900) {
-      await page.locator("#result-back").click();
+      await expect(page.locator("#map-preview")).toBeVisible();
+      await expect(page.locator("#panel-details")).toBeHidden();
+      await showConnections(page);
       await expect(page.locator("#choices")).toBeVisible();
+      await showMap(page);
     }
     await start.click();
     await expect.poll(activeJourney).toBe(ids[1]);
