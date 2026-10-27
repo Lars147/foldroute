@@ -140,7 +140,9 @@ export class PlanningFeedback {
     const map =
       !matchMedia("(min-width: 900px)").matches &&
       el("map-view").dataset.resultScreen === "map";
-    if (this.state && planningRequestPreview(this.state))
+    if (el<HTMLDialogElement>("alternatives-dialog").open)
+      el("alternatives-body").prepend(recovery);
+    else if (this.state && planningRequestPreview(this.state))
       el("search-preview-feedback").prepend(recovery);
     else el(map ? "map-preview-status" : "stale-notice").after(recovery);
     const message = this.state ? planningProgress(this.state).message : "";
@@ -181,18 +183,24 @@ export class PlanningFeedback {
   private render() {
     const slot = el("planning-feedback-slot");
     const panel = el("journey-panel");
-    const container = panel.classList.contains("result-scroll-all")
-      ? panel
-      : el("panel-content");
+    const inSheet = el<HTMLDialogElement>("alternatives-dialog").open;
+    const container = inSheet
+      ? el("alternatives-body")
+      : panel.classList.contains("result-scroll-all")
+        ? panel
+        : el("panel-content");
     const anchor = el(el("panel-details").hidden ? "choices" : "panel-details");
     const preserve =
       !matchMedia("(min-width: 900px)").matches &&
       container.scrollTop > 0 &&
-      slot.parentElement === el("panel-content");
+      (inSheet || slot.parentElement === el("panel-content"));
     const top = preserve ? anchor.getBoundingClientRect().top : undefined;
     this.renderStatus();
     // Keep the reading position when an inline message changes height or disappears.
-    if (top !== undefined && slot.parentElement === el("panel-content")) {
+    if (
+      top !== undefined &&
+      (inSheet || slot.parentElement === el("panel-content"))
+    ) {
       const change = anchor.getBoundingClientRect().top - top;
       if (change) container.scrollTop += change;
     }
@@ -266,6 +274,13 @@ export class PlanningFeedback {
       mapElement.dataset.resultScreen === "map";
     toast.toggleAttribute("data-map-toast", mapScreen);
     const planning = !!toast.dataset.planningId;
+    if (el<HTMLDialogElement>("alternatives-dialog").open) {
+      toast.removeAttribute("data-map-toast");
+      this.moveToast(el("alternatives-feedback-slot"));
+      return true;
+    }
+    if (toast.parentElement === el("alternatives-feedback-slot"))
+      this.restoreToast();
     if (toast.hidden || (!planning && !mapScreen)) return true;
     if (planning && !this.visible()) {
       this.dismiss();

@@ -356,7 +356,7 @@ const planningFeedback = new PlanningFeedback(
     !document.hidden &&
     !navigationChecking &&
     !navigationView?.visible &&
-    !document.querySelector("dialog[open]"),
+    !document.querySelector("dialog[open]:not(#alternatives-dialog)"),
 );
 const routeMap = new RouteMap(
   (id) => session.select(id),
@@ -471,6 +471,18 @@ const session = new PlanningSession(api, renderPlanning, (request, options) => {
   writeHistory();
 });
 journeyView.onDetailsOpened = () => session.holdSelection();
+let alternativesHistoryClosing = false;
+journeyView.onAlternativesChange = (action) => {
+  if (action === "open") {
+    writeHistory(true, history.state?.resultDepth ?? 0);
+  } else if (
+    action === "close" &&
+    history.state?.journeyNavigation?.alternatives
+  ) {
+    alternativesHistoryClosing = true;
+    history.back();
+  } else writeHistory();
+};
 journeyView.onLayoutChange = () => {
   if (!journeyView.mapVisible) cancelMapCenter();
   syncLiveLocation();
@@ -699,6 +711,7 @@ setInterval(() => {
     renderNavigationCheck();
 }, 5000);
 async function launchNavigation(replan = false, restored?: NavigationSnapshot) {
+  journeyView.dismissAlternatives();
   if (navigationChecking) return;
   if (navigationView?.visible && navigation?.engine) {
     if (replan) await navigation.reroute();
@@ -921,6 +934,7 @@ function releasePlan() {
   settingsUI();
 }
 function beginPlanning(replaceEditor = false) {
+  journeyView.dismissAlternatives();
   cancelNavigationCheck();
   navigationRevision++;
   activePlan = undefined;
@@ -1015,6 +1029,7 @@ async function restoreLink(
   }
 }
 function show(next: View, push = true) {
+  if (next !== "map") journeyView.dismissAlternatives();
   if (next !== view) cancelNavigationCheck();
   if (restoringSettingsPosition !== undefined) return false;
   if (
@@ -1120,6 +1135,20 @@ window.addEventListener("popstate", async (event) => {
   const revision = ++navigationRevision;
   const navigation = event.state?.journeyNavigation as
     JourneyNavigation | undefined;
+  if (
+    (alternativesHistoryClosing || journeyView.alternativesOpen) &&
+    !navigation?.alternatives &&
+    event.state?.view === "map" &&
+    event.state?.planId === activePlanId
+  ) {
+    alternativesHistoryClosing = false;
+    journeyView.restoreNavigation(navigation, false);
+    if (matchMedia("(min-width: 900px)").matches) journeyView.focusSelection();
+    else el("result-back").focus({ preventScroll: true });
+    writeHistory();
+    return;
+  }
+  alternativesHistoryClosing = false;
   if (navigationView?.visible) {
     history.pushState(
       { ...history.state, navigation: true, position: ++historyPosition },

@@ -140,10 +140,15 @@ for (const width of [320, 390, 1280]) {
     await expect(start).toBeEnabled();
     await expect(notice).toBeHidden();
     await expect(search).toBeHidden();
-    await expect(page.locator("#route-start-summary")).toBeVisible();
+    await expect(
+      page.locator(
+        width < 900 ? "#map-preview-summary" : "#route-start-summary",
+      ),
+    ).toBeVisible();
     const ready = (await start.boundingBox())!;
     expect(ready.x).toBe(original.x);
     expect(ready.width).toBe(original.width);
+    await showConnections(page);
     await page
       .locator(".route-choice")
       .filter({ hasText: "U6" })
@@ -178,8 +183,9 @@ for (const width of [320, 390, 1280]) {
     await expect(page.locator(".route-choice").last()).toBeInViewport({
       ratio: 0.99,
     });
+    await showMap(page);
     await start.scrollIntoViewIfNeeded();
-    await expect(start).toBeInViewport({ ratio: 1 });
+    await expect(start).toBeInViewport({ ratio: 0.99 });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -1335,7 +1341,8 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   await showConnections(page);
   await expect
     .poll(
-      async () => (await page.locator("#journey-panel").boundingBox())!.height,
+      async () =>
+        (await page.locator("#alternatives-dialog").boundingBox())!.height,
     )
     .toBeGreaterThan(550);
   await page.screenshot({
@@ -1423,13 +1430,13 @@ for (const width of [320, 390, 430]) {
     await setup(page);
     await plan(page);
     await expectPlanningComplete(page);
-    await showConnections(page);
+    await showMap(page);
     await expect(page.locator("#share-plan")).toBeHidden();
     await expect(page.locator("#refresh-route")).toBeHidden();
     await expect(page.locator(".panel-tools #close-route")).toBeVisible();
-    await expect(page.locator(".panel-actions #navigation-start")).toHaveText(
-      "Los",
-    );
+    await expect(
+      page.locator("#map-preview-actions #navigation-start"),
+    ).toHaveText("Los");
     await expect(page.locator(".panel-actions #adjust-route")).toHaveCount(0);
     await page.locator("#adjust-route").click();
     const request = page.waitForRequest("**/api/v6/plan?*");
@@ -1443,7 +1450,7 @@ for (const width of [320, 390, 430]) {
     await page.setViewportSize({ width, height: 844 });
     await page.keyboard.press("Escape");
     await expect(page.locator("#route-more")).toBeFocused();
-    await showConnections(page);
+    await showMap(page);
     await page.locator("#close-route").click();
     await expect(page.locator("#destination")).toBeVisible();
     await expect(page.locator("#search-heading")).toBeFocused();

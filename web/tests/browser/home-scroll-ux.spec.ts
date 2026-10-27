@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "./test";
 import {
   showConnections,
+  showMap,
   expectMotionSettled,
   expectSelectedJourneySaved,
   openCachedJourney,
@@ -94,7 +95,7 @@ for (const width of [390, 1280]) {
       } else await openCachedJourney(page, page.locator("#open-saved"));
       const beforeClose = plans;
       const summary = await page.locator("#saved-description").textContent();
-      if (source === "fresh") await showConnections(page);
+      if (source === "fresh") await showMap(page);
       await page.locator("#close-route").click();
       await expect(page.locator("#search-view")).toBeVisible();
       await expect(page.locator("#map-view")).toBeHidden();

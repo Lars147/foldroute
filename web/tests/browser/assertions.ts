@@ -45,7 +45,22 @@ export async function expectPlanningComplete(page: Page) {
   );
 }
 
+async function closeAlternatives(page: Page) {
+  if (
+    (await page.locator("#alternatives-dialog").getAttribute("open")) === null
+  )
+    return;
+  await page.locator("#alternatives-close").click();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await expect
+    .poll(() =>
+      page.evaluate(() => !!history.state?.journeyNavigation?.alternatives),
+    )
+    .toBe(false);
+}
+
 export async function openSelectedDetails(page: Page) {
+  await closeAlternatives(page);
   if (await page.evaluate(() => innerWidth >= 900)) {
     await page.locator("#panel-details").scrollIntoViewIfNeeded();
     return;
@@ -62,6 +77,7 @@ export async function openSelectedDetails(page: Page) {
     await page.locator(".route-choice-row.selected .route-detail-link").click();
 }
 export async function showMap(page: Page) {
+  await closeAlternatives(page);
   if (await page.evaluate(() => innerWidth >= 900)) return;
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
@@ -75,6 +91,10 @@ export async function showMap(page: Page) {
 }
 
 export async function showConnections(page: Page) {
+  if (
+    (await page.locator("#alternatives-dialog").getAttribute("open")) !== null
+  )
+    return;
   if (await page.evaluate(() => innerWidth >= 900)) return;
   // matchMedia updates the result layout asynchronously after viewport changes.
   await expect(page.locator("#map-view")).toHaveAttribute(

@@ -316,7 +316,7 @@ test("closing the route cancels optimization and ignores delayed responses", asy
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("32 min");
-  await showConnections(page);
+  await showMap(page);
   await expect(page.locator("#adjust-route")).toBeEnabled();
   await expect(page.locator("#navigation-start")).toBeVisible();
   await expect(page.locator("#navigation-start")).toBeEnabled();
@@ -1336,7 +1336,10 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
     ).toHaveCount(1);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect.poll(animation).toBe("route-loading");
-    if (outcome === "cancel") await page.locator("#close-route").click();
+    if (outcome === "cancel") {
+      await showMap(page);
+      await page.locator("#close-route").click();
+    }
     release();
     await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
     await expect.poll(animation).toBe("none");

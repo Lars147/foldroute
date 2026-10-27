@@ -5432,3 +5432,90 @@ body[data-example] #route-start-summary {
   height: 16px;
   flex: 0 0 16px;
 }
+
+/* Mobile alternatives use the existing result cards inside a modal sheet. */
+#alternatives-dialog {
+  position: fixed;
+  inset: auto 0 0;
+  width: 100%;
+  max-width: none;
+  height: 85dvh;
+  max-height: calc(100dvh - max(12px, var(--safe-top)));
+  margin: 0;
+  padding: 0;
+  border-radius: 24px 24px 0 0;
+  background: var(--panel);
+  color: var(--panel-text);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+#alternatives-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.alternatives-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 12px max(16px, var(--safe-right)) 12px max(16px, var(--safe-left));
+  border-bottom: 1px solid var(--panel-line);
+}
+#alternatives-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.4;
+}
+.alternatives-header .icon-button {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  flex: 0 0 44px;
+  color: var(--panel-text);
+}
+#alternatives-back .icon { transform: rotate(180deg); }
+#alternatives-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px max(16px, var(--safe-right)) max(16px, var(--safe-bottom)) max(16px, var(--safe-left));
+  overflow-wrap: anywhere;
+}
+#alternatives-body .panel-details {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+#alternatives-body .route-choices { margin: 0; }
+#alternatives-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--panel-line);
+  padding: 12px max(16px, var(--safe-right)) max(12px, var(--safe-bottom)) max(16px, var(--safe-left));
+}
+#alternatives-select { width: 100%; min-height: 48px; }
+body:has(#alternatives-dialog[open]) { overflow: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+  #alternatives-dialog { translate: 0 calc(100% + 8px); }
+  #alternatives-dialog[open] { translate: 0 0; }
+  @starting-style {
+    #alternatives-dialog[open] { translate: 0 calc(100% + 8px); }
+  }
+}
+
+#alternatives-dialog [data-sheet-detail-hidden] { display: none; }
+#alternatives-dialog .route-detail-link {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+#alternatives-feedback-slot #toast {
+  position: relative;
+  inset: auto;
+  width: auto;
+  max-width: 100%;
+  max-height: none;
+  margin: 0 0 12px;
+}

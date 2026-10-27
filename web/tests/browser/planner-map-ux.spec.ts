@@ -763,7 +763,8 @@ test("browser navigation restores itinerary, list and map without another search
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await plan(page);
-  await showConnections(page);
+  await openSelectedDetails(page);
+  await page.locator("#result-back").click();
   let requests = 0;
   page.on("request", (r) => {
     if (r.url().includes("/api/v6/plan")) requests++;
@@ -847,7 +848,6 @@ test("route markers identify endpoints and ordered stops with accessible popups"
   await expect(page.locator(".route-marker-info")).toBeVisible();
   await page.locator(".leaflet-popup-close-button").click();
 
-  await page.locator("#result-back").click();
   await page.locator("#adjust-route").click();
   await page
     .getByRole("button", { name: "Zwischenziel 3 nach oben", exact: true })
@@ -982,7 +982,6 @@ for (const [width, height] of [
     await page.screenshot({
       path: `test-results/route-fit-${width}-${test.info().project.name}.png`,
     });
-    if (width < 900) await page.locator("#result-back").click();
     await page.locator("#close-route").click();
     await expect(page.locator("#map-route")).toBeHidden();
   });

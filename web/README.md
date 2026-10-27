@@ -174,6 +174,8 @@ Vor Veröffentlichung auf einem echten iPhone prüfen: Installation und Icon, ei
 
 Die Kartenübersicht bleibt beim Wechsel zwischen Alternativen stehen. Während der Optimierung erweitern nachgeladene Umwege sie bei Bedarf; entfallene Alternativen verkleinern sie zunächst nicht. Nach Abschluss der Suche passt sich die Übersicht einmal an die endgültig angebotenen Routen an. Eigenes Verschieben oder Zoomen verhindert auch diese abschließende Anpassung und pausiert automatische Anpassungen bis zur Übersichtsaktion oder einer neuen erfolgreichen Berechnung. Auch der eingeblendete Fahrradvergleich gehört zur gemeinsamen Übersicht.
 
+Mobil öffnet „Alternativen“ in der Kartenansicht ein Bottom Sheet über der abgedunkelten Karte. Der Header mit X bleibt fest; die Verbindungsliste und der Reiseablauf scrollen im Inhalt. Eine Verbindung antippen übernimmt sie und schließt das Sheet. „Details“ zeigt zunächst eine Vorschau, ohne die Auswahl zu ändern. Der Zurück-Pfeil führt zur Liste an die vorherige Leseposition; „Verbindung auswählen“ übernimmt die Vorschau. X, Escape und Browser-Zurück schließen das ganze Sheet. Tippen auf den Hintergrund und Ziehen schließen es nicht. Kartenposition und Auswahl bleiben beim Schließen erhalten. Auf dem Desktop und bei den normalen Suchergebnissen bleibt der bisherige Ablauf erhalten.
+
 Das erste Einpassen wartet auf das aktualisierte Ergebnislayout. Automatik und „Alle Routen anzeigen“ verwenden dieselben Abstände zu Panel, Kartensteuerung und Quellenangabe; ein Klick bei unveränderten Routen und unverändertem Layout erhält Ausschnitt und Zoom.
 
 ### Live-Standort auf der Routenkarte

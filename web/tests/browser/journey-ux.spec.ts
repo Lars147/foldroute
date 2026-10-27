@@ -1,94 +1,6 @@
 import { test, expect, type Page } from "./test";
 
-async function preview(page: Page) {
-  // Isolate the component: the application entrypoint would create a second
-  // JourneyView with competing resize/focus observers on these same elements.
-  await page.route("**/src/main.ts*", (route) =>
-    route.fulfill({
-      contentType: "text/javascript",
-      body: 'import "/src/style.css"; import { icon } from "/src/ui.ts"; document.querySelectorAll("[data-icon]").forEach(element => element.append(icon(element.dataset.icon)));',
-    }),
-  );
-  await page.route("https://tiles.openfreemap.org/**", (route) =>
-    route.abort(),
-  );
-  await page.goto("/");
-  await page.evaluate(async () => {
-    const path = "/src/journey-view.ts";
-    const { JourneyView } = await import(path);
-    const from = { name: "Start", detail: "", latitude: 48, longitude: 11 };
-    const to = { ...from, name: "Ziel", latitude: 48.1 };
-    const departure = Date.parse("2026-09-11T08:00:00Z") / 1000;
-    const makeJourney = (id: string, duration: number, direct = false) => ({
-      id,
-      origin: from,
-      destination: to,
-      departure,
-      arrival: departure + duration * 60,
-      transfers: direct ? 0 : 1,
-      isDirect: direct,
-      legs: (direct
-        ? [["bike", duration]]
-        : [
-            ["bike", 10],
-            ["fold", 2],
-            ["transit", duration - 20],
-            ["unfold", 2],
-            ["bike", 4],
-            ["walk", 2],
-          ]
-      ).map(([kind, minutes]) => ({
-        kind,
-        from,
-        to,
-        start: departure,
-        end: departure + Number(minutes) * 60,
-        distance: 1000,
-        coordinates: [from, to],
-      })),
-    });
-    const journeys = [
-      makeJourney("best", 50),
-      makeJourney("selected", 55),
-      makeJourney("third", 60),
-      makeJourney("comparison", 65, true),
-    ];
-    const state = {
-      journeys,
-      selected: journeys[1],
-      request: {
-        origin: from,
-        destination: to,
-        timing: "now",
-        time: departure,
-      },
-      queriedAt: departure,
-      busy: false,
-      locating: false,
-      message: "",
-      issues: [],
-      restored: false,
-    };
-    const view = new JourneyView((id: string) => {
-      state.selected = journeys.find((j) => j.id === id)!;
-      view.render(state, 30);
-    });
-    view.onDetailsOpened = () => {
-      document.body.dataset.detailOpens = String(
-        Number(document.body.dataset.detailOpens ?? 0) + 1,
-      );
-    };
-    (window as any).uxPreview = { state, view };
-    document.body.dataset.view = "map";
-    document.getElementById("search-view")!.hidden = true;
-    document.getElementById("map-view")!.hidden = false;
-    // Main owns start availability. Mount a ready footer for these isolated
-    // JourneyView layout checks; planner tests exercise the actual transitions.
-    document.querySelector<HTMLElement>(".panel-actions")!.hidden = false;
-    document.getElementById("navigation-start")!.hidden = false;
-    view.render(state, 30);
-  });
-}
+import { preview } from "./journey-preview-fixture";
 
 async function expectRequestMarkersAligned(page: Page) {
   const geometry = await page.locator("#adjust-route").evaluate((button) => {
@@ -363,6 +275,11 @@ for (const width of [320, 390, 1280]) {
       );
       await page.locator("#result-back").click();
       await expect(stops).toHaveCount(3);
+      await expect(page.locator("#alternatives-dialog")).toBeVisible();
+      await expect(page.locator("#choices")).toBeVisible();
+      await page.locator("#alternatives-close").click();
+      await page.locator("#map-open-details").click();
+      await page.locator("#result-back").click();
       await expect(stops.first()).toBeVisible();
     }
     // Updating the confirmed request must work even when JourneyView's detail key is unchanged.
@@ -592,6 +509,9 @@ test("map action stays in the route header across desktop resizing", async ({
   await page.locator("#result-back").click();
   await expect(page.locator("#choices")).toBeVisible();
   await page.locator(".route-choice-row.selected .route-detail-link").click();
+  await expect(page.locator("#alternatives-title")).toHaveText("Reiseablauf");
+  await page.locator("#alternatives-close").click();
+  await page.locator("#map-open-details").click();
   await expect(
     page.locator("#planning-context-footer #panel-map-toggle"),
   ).toBeVisible();
@@ -704,10 +624,12 @@ for (const width of [320, 390, 768, 1280]) {
         .locator(".route-choice-row.selected .route-detail-link")
         .click();
       await expect(page.locator("#panel-details")).toBeVisible();
-      await expect(page.locator("#panel-content")).toHaveJSProperty(
+      await expect(page.locator("#alternatives-body")).toHaveJSProperty(
         "scrollTop",
-        scroll,
+        0,
       );
+      await expect(page.locator("#alternatives-dialog")).toBeVisible();
+      await page.locator("#alternatives-close").click();
     } else {
       await expect(page.locator("#choices")).toBeVisible();
       await expect(page.locator("#panel-map-toggle")).toBeHidden();
@@ -873,9 +795,11 @@ test("compact map keeps constraints, warnings and focus across layouts", async (
     page.locator("#map-preview-feedback #late-settings"),
   ).toBeFocused();
   await page.locator("#result-back").click();
-  await expect(page.locator("#panel-content #late-departure")).toBeVisible();
+  await expect(
+    page.locator("#alternatives-body #late-departure"),
+  ).toBeVisible();
   await page.locator('[data-journey="comparison"]').click();
-  await page.locator("#panel-map-toggle").click();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
   await expect(page.locator("#map-preview-heading")).toHaveText(
     "Fahrradvergleich",
   );

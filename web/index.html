@@ -874,6 +874,50 @@
           </div>
         </article>
       </section>
+      <dialog
+        id="alternatives-dialog"
+        aria-labelledby="alternatives-title"
+        closedby="closerequest"
+      >
+        <header class="alternatives-header">
+          <button
+            id="alternatives-back"
+            class="icon-button"
+            type="button"
+            aria-label="Zurück zu den Alternativen"
+            hidden
+          >
+            <span data-icon="chevron" aria-hidden="true"></span>
+          </button>
+          <h2 id="alternatives-title" tabindex="-1">Alternativen</h2>
+          <button
+            id="alternatives-close"
+            class="icon-button"
+            type="button"
+            aria-label="Alternativen schließen"
+          >
+            <span data-icon="close" aria-hidden="true"></span>
+          </button>
+        </header>
+        <div
+          id="alternatives-body"
+          tabindex="0"
+          aria-label="Verbindungen und Reiseablauf"
+        >
+          <div id="alternatives-feedback-slot"></div>
+        </div>
+        <footer id="alternatives-footer" hidden>
+          <button id="alternatives-select" class="primary" type="button">
+            Verbindung auswählen
+          </button>
+        </footer>
+        <span
+          id="alternatives-announcement"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+        ></span>
+      </dialog>
       <dialog id="route-actions-dialog" aria-labelledby="route-actions-title">
         <h2 id="route-actions-title">Routenaktionen</h2>
         <dl id="route-action-context">
