@@ -405,8 +405,8 @@ export async function complete(page: Page) {
   if (!(await page.locator("#navigation-complete").isVisible()))
     await page.locator("#navigation-details-toggle").click();
   await page.locator("#navigation-complete").click();
-  await page.locator("#navigation-confirm-yes").click();
   await expect(page.locator("#navigation-confirm")).toBeHidden();
+  await page.clock.runFor(400);
 }
 
 export function stationJourney() {

@@ -94,8 +94,7 @@ test("estimated arrival keeps the train active and exposes manual exit in the co
   await expect(exit).toHaveText("Ausgestiegen");
   await expect(exit).toBeInViewport();
   await exit.click();
-  await expect(page.locator("#navigation-confirm")).toBeVisible();
-  await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#navigation-confirm")).toBeHidden();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt entfalten",
   );

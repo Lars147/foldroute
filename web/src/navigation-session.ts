@@ -160,11 +160,85 @@ export class NavigationSession {
   }
   private savedKey = "";
   private arrivalCleared = false;
+  private pendingCompletionUndo?: {
+    engine: NavigationEngine;
+    nextId: string;
+    progress: NavigationProgress;
+    trip?: NavigationTrip;
+    resumeNeedsConfirmation: boolean;
+    timing?: {
+      id: string;
+      start: number;
+      end: number;
+      appliedStart: number;
+      appliedEnd: number;
+    };
+  };
+  get completionUndo() {
+    const undo = this.pendingCompletionUndo;
+    if (
+      undo &&
+      (this.engine !== undo.engine ||
+        this.engine.phase !== "active" ||
+        this.engine.leg.navigationId !== undo.nextId)
+    )
+      this.pendingCompletionUndo = undefined;
+    return this.pendingCompletionUndo;
+  }
+  discardCompletionUndo(expected = this.pendingCompletionUndo) {
+    if (this.pendingCompletionUndo === expected)
+      this.pendingCompletionUndo = undefined;
+  }
+  undoLastCompletion() {
+    const undo = this.completionUndo;
+    if (!undo) return false;
+    this.discardCompletionUndo();
+    this.controller?.abort();
+    this.controller = undefined;
+    this.transitController?.abort();
+    this.transitController = undefined;
+    this.locationGeneration++;
+    this.locating = false;
+    this.busy = false;
+    const journey = structuredClone(undo.engine.journey);
+    const timing = undo.timing;
+    const leg =
+      timing && journey.legs.find((leg) => leg.navigationId === timing.id);
+    if (leg && timing) {
+      if (leg.start === timing.appliedStart) leg.start = timing.start;
+      if (leg.end === timing.appliedEnd) leg.end = timing.end;
+    }
+    this.engine = new NavigationEngine(journey, undo.progress);
+    this.trip = undo.trip;
+    this.resumeNeedsConfirmation = undo.resumeNeedsConfirmation;
+    this.alternative = undefined;
+    this.pendingAlternativeLocation = undefined;
+    this.lastIssue = undefined;
+    this.message = "";
+    this.retryAvailable = false;
+    this.disruption = transitDisruption(
+      journey,
+      this.engine.progress.legIndex,
+      Date.now() / 1000,
+    );
+    this.assessment = assessConnection(
+      journey,
+      this.engine.progress.legIndex,
+      Date.now() / 1000,
+      { onboard: this.engine.leg.kind === "transit" },
+    );
+    this.savedKey = "";
+    this.persist(true);
+    this.emit();
+    void this.refresh();
+    return true;
+  }
   constructor(private deps: NavigationDependencies) {
     this.store = deps.store ?? new NavigationStore();
     this.refresher = deps.refresher ?? new TransitRefresher();
   }
   private emit() {
+    void this.completionUndo;
     this.deps.changed();
   }
   private async plan(
@@ -952,19 +1026,50 @@ export class NavigationSession {
     return this.proposeAlternative("stop");
   }
   completeLeg(expectedId: string) {
+    const engine = this.engine;
     if (
-      !this.engine ||
+      !engine ||
+      engine.phase !== "active" ||
       this.busy ||
-      this.engine.leg.navigationId !== expectedId ||
-      this.engine.leg.kind === "stop"
+      engine.leg.navigationId !== expectedId ||
+      engine.leg.kind === "stop"
     )
-      return;
+      return false;
+    this.updateTrip();
+    const progress = structuredClone(engine.progress);
+    const trip = this.trip && structuredClone(this.trip);
+    const resumeNeedsConfirmation = this.resumeNeedsConfirmation;
+    const next = engine.journey.legs[engine.progress.legIndex + 1];
+    const timing = next && {
+      id: next.navigationId!,
+      start: next.start,
+      end: next.end,
+    };
+    if (!engine.advance(true)) {
+      engine.progress = progress;
+      return false;
+    }
+    this.pendingCompletionUndo =
+      engine.phase === "active"
+        ? {
+            engine,
+            nextId: engine.leg.navigationId!,
+            progress,
+            trip,
+            resumeNeedsConfirmation,
+            timing: timing && {
+              ...timing,
+              appliedStart: engine.leg.start,
+              appliedEnd: engine.leg.end,
+            },
+          }
+        : undefined;
     this.resumeNeedsConfirmation = false;
-    this.engine.advance(true);
     this.alternative = undefined;
     this.pendingAlternativeLocation = undefined;
     this.persist(true);
     this.emit();
+    return true;
   }
   async proposeAlternative(reason?: "reroute" | "stop") {
     const engine = this.engine,
@@ -1244,6 +1349,7 @@ export class NavigationSession {
     this.emit();
   }
   async stop() {
+    this.discardCompletionUndo();
     const tripId = this.trip?.id;
     const completion = this.completion;
     this.abortTasks();

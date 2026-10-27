@@ -104,10 +104,11 @@ for (const width of [320, 390])
     );
     await expect(complete).toHaveText("Ausgestiegen");
     await complete.click();
-    await expect(page.locator("#navigation-confirm-message")).toContainText(
-      "S1 Richtung Altstadt",
+    await expect(page.locator("#navigation-confirm")).toBeHidden();
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      "Rad jetzt entfalten",
     );
-    await page.locator("#navigation-confirm-no").click();
+    await page.locator("#navigation-undo-button").click();
     expect(
       await page.evaluate(
         () => (window as any).navigationFixture.session.engine.progress,
@@ -549,7 +550,7 @@ for (const width of [320, 390, 1280])
       });
     });
 
-test("next stop and exit share one row and estimated arrival still needs confirmation", async ({
+test("next stop and exit share one row and manual exit offers undo", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -572,8 +573,11 @@ test("next stop and exit share one row and estimated arrival still needs confirm
   await expect(page.locator("#navigation-complete")).toHaveText("Ausgestiegen");
   await expect(page.locator("#navigation-complete")).toBeInViewport();
   await page.locator("#navigation-complete").click();
-  await expect(page.locator("#navigation-confirm")).toBeVisible();
-  await page.locator("#navigation-confirm-no").click();
+  await expect(page.locator("#navigation-confirm")).toBeHidden();
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Rad jetzt entfalten",
+  );
+  await page.locator("#navigation-undo-button").click();
   await expect(page.locator("#navigation-instruction")).toContainText(
     "S1 Richtung",
   );

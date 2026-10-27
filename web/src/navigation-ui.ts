@@ -1,3 +1,4 @@
+import { UndoNotice } from "./undo-notice";
 import type { NavigationSession } from "./navigation-session";
 import {
   reveal,
@@ -78,6 +79,9 @@ export class NavigationView {
   private reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   private dragY?: number;
   private confirmationTrigger?: HTMLElement;
+  private undoNotice: UndoNotice;
+  private shownUndo?: object;
+  private lastCompletionAt = -Infinity;
   private guidance = new NavigationGuidance((message) => {
     this.voiceMessage = message;
     el("navigation-audio-status").textContent = message;
@@ -99,6 +103,8 @@ export class NavigationView {
     this.root.innerHTML = `
       <div id="navigation-map" tabindex="0" aria-label="Navigationskarte in Fahrtrichtung"></div>
       <div class="navigation-top" id="navigation-top"><div id="navigation-phases" role="tablist" aria-label="Reiseabschnitte"></div></div>
+        <span id="navigation-undo-announcement" class="sr-only" role="status" aria-live="polite"></span>
+        <div id="navigation-undo" class="toast" hidden><button id="navigation-undo-button" type="button">Rückgängig</button><span class="toast-countdown" aria-hidden="true"><span class="toast-countdown-fill"></span></span></div>
       <div id="navigation-gps-status" role="status" aria-live="polite" aria-atomic="true" hidden><strong id="navigation-gps-primary"></strong> <span id="navigation-gps-estimate" hidden></span></div>
       <div class="navigation-map-controls" role="group" aria-label="Kartensteuerung">
         <button id="navigation-audio" class="navigation-icon-button secondary" type="button" aria-label="Ton ausschalten" title="Ton ausschalten"></button>
@@ -169,6 +175,20 @@ export class NavigationView {
       </article>
       <dialog id="navigation-confirm" aria-labelledby="navigation-confirm-title" aria-describedby="navigation-confirm-message"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary" type="button">Bestätigen</button><button id="navigation-confirm-no" class="secondary" type="button">Abbrechen</button></div></dialog>`;
     el("main").append(this.root);
+    el("navigation-undo-button").prepend(icon("undo"));
+    this.undoNotice = new UndoNotice(
+      el("navigation-undo"),
+      el<HTMLButtonElement>("navigation-undo-button"),
+    );
+    const positionUndo = () => {
+      if (!this.visible) return;
+      const panel = el("navigation-panel");
+      el("navigation-undo").style.bottom =
+        `${this.root.clientHeight - panel.offsetTop + 12}px`;
+    };
+    const undoPositionObserver = new ResizeObserver(positionUndo);
+    undoPositionObserver.observe(el("navigation-panel"));
+    undoPositionObserver.observe(this.root);
     this.stationLists = [
       new NavigationStations(el("navigation-stations-preview"), true),
       new NavigationStations(el("navigation-stations-detail")),
@@ -276,19 +296,21 @@ export class NavigationView {
       else if (this.session.disruption) void this.session.proposeAlternative();
       else void this.session.reroute();
     };
-    el("navigation-complete").onclick = () => {
+    el("navigation-complete").onkeydown = (event) => {
+      if (event.repeat && (event.key === "Enter" || event.key === " "))
+        event.preventDefault();
+    };
+    el("navigation-complete").onclick = (event) => {
+      if (event.detail > 1 || performance.now() - this.lastCompletionAt < 350)
+        return;
       const engine = this.session?.engine;
       if (!engine || !this.completionAvailable || this.session?.busy) return;
       if (engine.leg.kind === "stop") {
         void this.session!.continueStop();
         return;
       }
-      const id = engine.leg.navigationId!;
-      this.confirm(
-        "Abschnitt beenden?",
-        `${engine.instruction} bei ${engine.leg.to.name} abschließen?`,
-        () => this.session?.completeLeg(id),
-      );
+      if (this.session!.completeLeg(engine.leg.navigationId!))
+        this.lastCompletionAt = performance.now();
     };
     el("navigation-accept").onclick = async () => {
       const previous = this.session?.engine;
@@ -956,6 +978,8 @@ export class NavigationView {
     }
   }
   hide() {
+    this.undoNotice.clear();
+    this.shownUndo = undefined;
     this.positionTracker.reset();
     this.stopStationAnimation();
     this.stationMotion.reset();
@@ -1051,6 +1075,33 @@ export class NavigationView {
   render() {
     const session = this.session;
     if (!session || !this.visible) return;
+    const undo = session.completionUndo;
+    if (undo !== this.shownUndo) {
+      this.shownUndo = undo;
+      el("navigation-undo-announcement").textContent = undo
+        ? "Abschnitt abgeschlossen. Rückgängig verfügbar."
+        : "";
+      if (undo)
+        this.undoNotice.show(
+          async () => {
+            this.selectedSectionId = undefined;
+            this.positionTracker.reset();
+            this.guidance.reset();
+            this.phaseKey = "";
+            if (session.undoLastCompletion()) {
+              el("navigation-undo-announcement").textContent =
+                "Abschnitt wiederhergestellt.";
+              const complete = el("navigation-complete");
+              (complete.getClientRects().length
+                ? complete
+                : el("navigation-instruction")
+              ).focus({ preventScroll: true });
+            }
+          },
+          () => session.discardCompletionUndo(undo),
+        );
+      else this.undoNotice.clear();
+    }
     const engine = session.engine,
       arrived = engine?.phase === "arrived",
       leg = engine?.leg;

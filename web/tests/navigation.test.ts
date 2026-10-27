@@ -1735,3 +1735,172 @@ it.each(["onboard", "after-exit"] as const)(
     await session.stop();
   },
 );
+
+it("undo restores progress, adjusted times and distance without reverting live data", async () => {
+  const { session, store } = sessionHarness();
+  const route = journey([
+    bike(),
+    transition("fold", c, now + 180, now + 300),
+    { ...train(), distance: 1000 },
+  ]);
+  await session.start(route, request, defaults);
+  session.updateLocation(fix(b, 1), "current");
+  const before = structuredClone(store.save.mock.calls.at(-1)![0]);
+  const legId = session.engine!.leg.navigationId!;
+  expect(session.completeLeg(legId)).toBe(true);
+  expect(session.engine!.leg.start).toBe(now);
+  session.engine!.journey.legs[2].departurePlatform = "9";
+  expect(session.undoLastCompletion()).toBe(true);
+  expect(session.engine!.progress).toEqual(before.progress);
+  expect(session.engine!.journey.legs[1].start).toBe(now + 180);
+  expect(session.engine!.journey.legs[1].end).toBe(now + 300);
+  expect(session.engine!.journey.legs[2].departurePlatform).toBe("9");
+  expect(store.save.mock.calls.at(-1)![0].trip).toEqual(before.trip);
+  expect(session.undoLastCompletion()).toBe(false);
+  session.completeLeg(legId);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.summary!.distanceMeters).toBe(
+    370 + session.engine!.journey.legs[2].distance,
+  );
+  expect(session.completionUndo).toBeUndefined();
+  expect(store.completeTrip).toHaveBeenCalledTimes(1);
+  await session.stop();
+});
+
+it("undo only applies to the latest manual completion on the same section", async () => {
+  const { session } = sessionHarness();
+  await session.start(
+    journey([bike(), transition("fold", c, now, now + 60), train()]),
+    request,
+    defaults,
+  );
+  const firstId = session.engine!.leg.navigationId!;
+  session.completeLeg(firstId);
+  const firstUndo = session.completionUndo;
+  expect(session.completeLeg(firstId)).toBe(false);
+  expect(session.completionUndo).toBe(firstUndo);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  session.discardCompletionUndo(firstUndo);
+  expect(session.undoLastCompletion()).toBe(true);
+  expect(session.engine!.progress.legIndex).toBe(1);
+  expect(session.undoLastCompletion()).toBe(false);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  session.engine!.advance(false, now + 1000);
+  expect(session.undoLastCompletion()).toBe(false);
+  await session.stop();
+});
+
+it("automatic completion has no undo and replacing the route invalidates manual undo", async () => {
+  const { session } = sessionHarness();
+  const route = journey([
+    bike(),
+    transition("unfold", c, now, now + 60),
+    bike(),
+  ]);
+  await session.start(route, request, defaults);
+  session.engine!.advance(false);
+  expect(session.completionUndo).toBeUndefined();
+  session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.completionUndo).toBeDefined();
+  await session.reroute();
+  expect(session.undoLastCompletion()).toBe(false);
+  await session.stop();
+});
+
+it("undo cancels a pending reroute and ignores its late response", async () => {
+  let resolve!: (route: Journey) => void;
+  const plan = vi.fn(
+    () =>
+      new Promise<Journey>((done) => {
+        resolve = done;
+      }),
+  );
+  const { session } = sessionHarness(plan);
+  await session.start(
+    journey([
+      bike(),
+      { ...bike(), from: c, to: a, coordinates: [c, b, a], maneuvers: [] },
+    ]),
+    request,
+    defaults,
+  );
+  const progress = structuredClone(session.engine!.progress);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  const pending = session.reroute();
+  expect(session.busy).toBe(true);
+  expect(session.undoLastCompletion()).toBe(true);
+  const restored = session.engine;
+  resolve({ ...journey(), id: "late-route" });
+  await pending;
+  expect(session.engine).toBe(restored);
+  expect(session.engine!.progress).toEqual(progress);
+  expect(session.busy).toBe(false);
+  expect(session.retryAvailable).toBe(false);
+  await session.stop();
+});
+
+it("undo restores the resume confirmation guard and confirmed stops", async () => {
+  const { session } = sessionHarness();
+  const route = journey([
+    { ...train(), start: now - 500, end: now - 100 },
+    bike(),
+  ]);
+  const progress = {
+    legIndex: 0,
+    maneuverIndex: 0,
+    meters: 0,
+    confirmedStops: ["earlier-stop"],
+  };
+  await session.start(route, request, defaults, {
+    version: 1,
+    savedAt: now - 500,
+    journey: route,
+    request,
+    settings: defaults,
+    progress,
+  });
+  expect(session.resumeNeedsConfirmation).toBe(true);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.resumeNeedsConfirmation).toBe(false);
+  session.undoLastCompletion();
+  expect(session.engine!.progress).toEqual(progress);
+  expect(session.resumeNeedsConfirmation).toBe(true);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(session.engine!.progress.legIndex).toBe(0);
+  await session.stop();
+});
+
+it("undo removes through stops confirmed by the manual exit", async () => {
+  const via: RouteStop = {
+    id: "via",
+    stayMinutes: 0,
+    place: { ...b, stopId: "B" },
+  };
+  const required = {
+    ...b,
+    stopId: "B",
+    scheduledArrival: now + 400,
+    scheduledDeparture: now + 420,
+  };
+  const transit = {
+    ...train(),
+    viaStops: [{ stop: via, place: required }],
+    transitStops: [train().from, required, train().to],
+  };
+  const route = journey([transit, bike()]);
+  const { session } = sessionHarness();
+  await session.start(route, request, defaults, {
+    version: 1,
+    savedAt: now,
+    journey: route,
+    request,
+    settings: defaults,
+    progress: { legIndex: 0, maneuverIndex: 0, meters: 0, confirmedStops: [] },
+  });
+  expect(session.completeLeg(session.engine!.leg.navigationId!)).toBe(true);
+  expect(session.engine!.progress.confirmedStops).toContain(via.id);
+  expect(session.undoLastCompletion()).toBe(true);
+  expect(session.engine!.progress.confirmedStops).not.toContain(via.id);
+  await session.stop();
+});

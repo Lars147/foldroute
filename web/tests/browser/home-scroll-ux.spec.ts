@@ -59,6 +59,24 @@ for (const width of [390, 1280]) {
     await setup(page);
     await populateHome(page);
     await page.clock.setFixedTime(new Date("2026-09-04T08:00:01Z"));
+    // Database persistence can finish before the home shortcut has rendered.
+    // Keep that interval observable even when this test runs on its own.
+    await page.evaluate(async () => {
+      const { OfflineStore } = await import("/src/offline.ts");
+      const read = OfflineStore.prototype.read;
+      let delayNextPlanningRead = true;
+      OfflineStore.prototype.read = async function () {
+        const result = await read.call(this);
+        if (
+          delayNextPlanningRead &&
+          result.snapshot?.journey.destination.name === "Ziel"
+        ) {
+          delayNextPlanningRead = false;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        return result;
+      };
+    });
     let plans = 0;
     page.on("request", (request) => {
       if (request.url().includes("/api/v6/plan")) plans++;
@@ -69,6 +87,10 @@ for (const width of [390, 1280]) {
       if (source === "fresh") {
         await plan(page);
         await expectSelectedJourneySaved(page);
+        // Saving in IndexedDB precedes reloadHistory updating the home UI.
+        await expect(page.locator("#saved-description")).toHaveText(
+          "Ziel · 4. Sept., 10:00",
+        );
       } else await openCachedJourney(page, page.locator("#open-saved"));
       const beforeClose = plans;
       const summary = await page.locator("#saved-description").textContent();

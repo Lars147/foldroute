@@ -3,6 +3,7 @@ import { defaults } from "../../src/model";
 import { expectMotionSettled } from "./assertions";
 import {
   setup,
+  route,
   complete,
   savedActive,
   savedProgress,
@@ -149,30 +150,102 @@ test("browser back dismisses an open navigation confirmation without losing prog
   await expect(page.locator("#navigation-view")).toBeVisible();
 });
 
-test("section confirmation keeps its labels and placement after cancelling navigation end", async ({
+for (const width of [390, 1280])
+  test(`manual completion offers only undo and restores saved progress at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setup(page, true);
+    const before = await savedProgress(page);
+    if (width < 900) await page.locator("#navigation-details-toggle").click();
+    const completeSection = page.locator("#navigation-complete");
+    await completeSection.focus();
+    await completeSection.press("Enter");
+    await expect(page.locator("#navigation-confirm")).toBeHidden();
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      "Rad jetzt falten",
+    );
+    const undo = page.getByRole("button", { name: "Rückgängig", exact: true });
+    await expect(undo).toBeInViewport();
+    expect(await page.locator("#navigation-undo").innerText()).toBe(
+      "Rückgängig",
+    );
+    expect((await undo.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(
+      await undo.evaluate((button) => button.closest("#navigation-panel")),
+    ).toBeNull();
+    await expectMotionSettled(page.locator("#navigation-undo"));
+    const toastBounds = (await page.locator("#navigation-undo").boundingBox())!;
+    const panelBounds = (await page
+      .locator("#navigation-panel")
+      .boundingBox())!;
+    expect(panelBounds.y - toastBounds.y - toastBounds.height).toBeCloseTo(
+      12,
+      0,
+    );
+    expect(toastBounds.x + toastBounds.width / 2).toBeCloseTo(width / 2, 0);
+
+    if (width < 900) await page.locator("#navigation-details-toggle").click();
+    await expect(undo).toBeInViewport();
+    await page.screenshot({
+      path: test.info().outputPath("navigation-undo.png"),
+    });
+    await undo.click();
+    await expect(undo).toBeHidden();
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      "Links abbiegen auf Zweite Straße",
+    );
+    await expect.poll(() => savedProgress(page)).toEqual(before);
+    await page.reload();
+    await page.locator("#navigation-resume").click();
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      "Links abbiegen auf Zweite Straße",
+    );
+    await expect(page.locator("#navigation-undo")).toBeHidden();
+  });
+
+test("undo expires after eight seconds and pauses for focus and mouse hover", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
   await setup(page, true);
-  await page.locator("#navigation-end").click();
-  await page.locator("#navigation-confirm-no").click();
-  await page.locator("#navigation-details-toggle").click();
-  const completeSection = page.locator("#navigation-complete");
-  await completeSection.focus();
-  await completeSection.press("Enter");
-  const dialog = page.getByRole("dialog", { name: "Abschnitt beenden?" });
-  await expect(
-    dialog.getByRole("button", { name: "Bestätigen" }),
-  ).toBeFocused();
-  await expect(dialog.getByRole("button", { name: "Abbrechen" })).toBeVisible();
-  await expectMotionSettled(dialog);
-  expect((await dialog.boundingBox())!.y).toBeCloseTo(12, 0);
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
-  await expect(completeSection).toBeFocused();
+  await complete(page);
+  const undo = page.locator("#navigation-undo-button");
+  const bar = page.locator("#navigation-undo .toast-countdown-fill");
+  await expect(bar).toHaveCSS("animation-duration", "8s");
+  await undo.focus();
+  await expect(bar).toHaveCSS("animation-play-state", "paused");
+  await page.clock.runFor(9000);
+  await expect(undo).toBeVisible();
+  await undo.hover();
+  await page.locator("#navigation-audio").focus();
+  await page.clock.runFor(9000);
+  await expect(undo).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expect(bar).toHaveCSS("animation-play-state", "running");
+  await page.clock.runFor(8000);
+  await expect(undo).toBeHidden();
+});
+
+test("double click completes one section and arrival has no undo or confirmation", async ({
+  page,
+}) => {
+  const journey = route(true);
+  journey.legs = journey.legs.slice(0, 5);
+  journey.destination = journey.legs.at(-1)!.to;
+  journey.arrival = journey.legs.at(-1)!.end;
+  await setup(page, true, true, {}, journey);
+  await page.locator("#navigation-complete").dblclick();
   await expect(page.locator("#navigation-instruction")).toHaveText(
-    "Links abbiegen auf Zweite Straße",
+    "Rad jetzt falten",
   );
+  await page.clock.runFor(400);
+  await complete(page);
+  await complete(page);
+  await complete(page);
+  await complete(page);
+  await expect(page.locator("#navigation-finish")).toBeVisible();
+  await expect(page.locator("#navigation-confirm")).toBeHidden();
+  await expect(page.locator("#navigation-undo")).toBeHidden();
 });
 
 for (const [width, height, largeText] of [
@@ -353,3 +426,66 @@ test("ending resumed navigation restores stops without replacing personal prefer
     (defaults.cyclingSpeedKilometersPerHour / 3.6).toFixed(3),
   );
 });
+
+for (const width of [390, 1280])
+  for (const reducedMotion of ["no-preference", "reduce"] as const)
+    test(`undo remains centered throughout entry at ${width} with ${reducedMotion}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ reducedMotion });
+      await setup(page, true);
+      if (width < 900) await page.locator("#navigation-details-toggle").click();
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await page.evaluate(() => {
+          const samples: { center: number; animated: boolean }[] = [];
+          (window as unknown as { undoFrames: typeof samples }).undoFrames =
+            samples;
+          const toast = document.getElementById("navigation-undo")!;
+          document.getElementById("navigation-complete")!.addEventListener(
+            "click",
+            () => {
+              const started = performance.now();
+              const sample = () => {
+                if (toast.hidden) return;
+                const bounds = toast.getBoundingClientRect();
+                samples.push({
+                  center: bounds.x + bounds.width / 2,
+                  animated: toast
+                    .getAnimations()
+                    .some((animation) => animation.playState === "running"),
+                });
+                if (performance.now() - started < 500)
+                  requestAnimationFrame(sample);
+              };
+              queueMicrotask(sample);
+            },
+            { once: true },
+          );
+        });
+        await page.locator("#navigation-complete").click();
+        await page.clock.runFor(600);
+        const frames = await page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                undoFrames: { center: number; animated: boolean }[];
+              }
+            ).undoFrames,
+        );
+        expect(frames.length).toBeGreaterThan(3);
+        expect(
+          Math.max(
+            ...frames.map((frame) => Math.abs(frame.center - width / 2)),
+          ),
+        ).toBeLessThanOrEqual(1);
+        expect(frames.some((frame) => frame.animated)).toBe(
+          reducedMotion === "no-preference",
+        );
+        await expectMotionSettled(page.locator("#navigation-undo"));
+        const bounds = (await page.locator("#navigation-undo").boundingBox())!;
+        expect(bounds.x + bounds.width / 2).toBeCloseTo(width / 2, 0);
+        await page.locator("#navigation-undo-button").click();
+        await expect(page.locator("#navigation-undo")).toBeHidden();
+      }
+    });

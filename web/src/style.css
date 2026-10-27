@@ -5398,3 +5398,37 @@ body[data-example] #route-start-summary {
     scroll-behavior: auto !important;
   }
 }
+
+#navigation-undo {
+  position: absolute;
+  z-index: 3;
+  top: auto;
+  left: 16px;
+  right: 16px;
+  bottom: calc(100% - var(--navigation-panel-top, 100%) + 12px);
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  margin: 0 auto;
+  padding: 0;
+  --toast-duration: 8000ms;
+}
+#navigation-undo-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 44px;
+  min-height: 48px;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--panel-text);
+  font-size: inherit;
+  text-decoration: none;
+}
+
+#navigation-undo-button .icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
