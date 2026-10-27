@@ -1,6 +1,7 @@
-import { test, expect } from "./test";
+import { test, expect, type Page } from "./test";
 import { defaults } from "../../src/model";
-import { expectMotionSettled } from "./assertions";
+import { expectMotionSettled, showMap } from "./assertions";
+import { expectRouteFits } from "./planner-fixture";
 import {
   setup,
   route,
@@ -9,6 +10,27 @@ import {
   savedProgress,
   startSelected,
 } from "./navigation-fixture";
+
+async function expectOverview(page: Page) {
+  await expect(page.locator("#navigation-view")).toBeHidden();
+  await expect(page.locator("#map-view")).toBeVisible();
+  const mobile = page.viewportSize()!.width < 900;
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    mobile ? "map" : "desktop",
+  );
+  await expect(page.locator("#map")).toBeVisible();
+  await expect(page.locator(".app-tabs")).toBeVisible();
+  if (mobile) {
+    await expect(page.locator("#map-preview")).toBeVisible();
+    await expect(page.locator("#panel-details")).toBeHidden();
+    await expect(page.locator("#result-back")).toHaveText("Alternativen");
+  } else await expect(page.locator("#panel-details")).toBeVisible();
+  expect(await page.evaluate(() => history.state.navigation)).toBeUndefined();
+  expect(
+    await page.evaluate(() => history.state.journeyNavigation.screen),
+  ).toBe("map");
+}
 
 for (const width of [390, 1280])
   test(`ending confirmation preserves progress and restores focus at ${width}`, async ({
@@ -75,7 +97,53 @@ for (const width of [390, 1280])
     await expect(page.locator("#navigation-start")).toBeFocused();
     await expect(page.locator("#navigation-start")).toHaveText("Los");
     await expect(page.locator("#saved-notice")).toBeHidden();
+    await expectOverview(page);
   });
+
+test("ending navigation refits the overview and keeps details, alternatives and restart usable", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page, false, false);
+  await showMap(page);
+  await page.locator("#map-location").click();
+  await page.clock.runFor(1000);
+  await page.locator("#map-controls .leaflet-control-zoom-in").click();
+  await page.clock.runFor(1000);
+  await startSelected(page);
+  await expect(page.locator("#navigation-view")).toBeVisible();
+  let searches = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/v6/plan")) searches++;
+  });
+  await page.locator("#navigation-end").click();
+  await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#navigation-start")).toBeFocused();
+  await expectOverview(page);
+  await page.clock.runFor(1000);
+  await expect(page.locator("#map .route-marker")).toHaveCount(2);
+  await expectRouteFits(page);
+  await page.screenshot({
+    path: test.info().outputPath("return-overview.png"),
+  });
+  await page.locator("#map-open-details").click();
+  await expect(page.locator("#panel-details")).toBeVisible();
+  await page.locator("#panel-map-toggle").click();
+  await expectOverview(page);
+  await page.locator("#result-back").click();
+  await expect(page.locator("#alternatives-dialog")).toBeVisible();
+  await expect(page.locator('.route-choice[aria-pressed="true"]')).toHaveCount(
+    1,
+  );
+  await page.locator("#alternatives-close").click();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await expectOverview(page);
+  await startSelected(page);
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Links abbiegen auf Zweite Straße",
+  );
+  expect(searches).toBe(0);
+});
 
 for (const failure of ["offline", "storage"] as const)
   test(`ending navigation retains Los and the selected route despite ${failure}`, async ({
@@ -103,6 +171,7 @@ for (const failure of ["offline", "storage"] as const)
     await expect(page.locator("#navigation-start")).toBeFocused();
     await expect(page.locator("#navigation-start")).toBeEnabled();
     await expect(page.locator("#navigation-start")).toHaveText("Los");
+    await expectOverview(page);
     await expect(page.locator("#saved-notice")).toBeHidden();
     await expect(page.locator("#result-stand")).toContainText(
       "Stand: 6. Okt., 12:00",
@@ -344,6 +413,7 @@ test("browser back confirms ending and storage opt-out prevents recovery", async
   await expect(page.locator("#navigation-confirm")).toBeVisible();
   await page.locator("#navigation-confirm-yes").click();
   await expect(page.locator("#navigation-start")).toBeFocused();
+  await expectOverview(page);
   await page.locator("#tab-settings").click();
   await page.locator("#navigation-storage-enabled").uncheck();
   await page.locator("#tab-route").click();
@@ -396,6 +466,7 @@ test("ending resumed navigation restores stops without replacing personal prefer
   await page.locator("#navigation-end").click();
   await page.locator("#navigation-confirm-yes").click();
   await expect(page.locator("#navigation-view")).toBeHidden();
+  await expectOverview(page);
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Start");
   await expect(page.locator("#destination")).toHaveValue("Ziel");

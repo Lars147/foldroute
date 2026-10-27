@@ -877,13 +877,15 @@ async function endNavigation() {
   delete resultNavigation.savedOrigin;
   journeyView.restoreNavigation({
     ...resultNavigation,
-    screen: "detail",
+    screen: "map",
     mapReturn: "list",
   });
   syncLiveLocation();
   writeHistory(false, 0);
   renderPlanning(session.state);
   cancelNavigationCheck();
+  routeMap.resize();
+  routeMap.fitRoute();
   const primary = el<HTMLButtonElement>(
     !el("navigation-search-now").hidden
       ? "navigation-search-now"

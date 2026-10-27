@@ -131,6 +131,11 @@ for (const mobile of [false, true])
     await page.locator("#navigation-end").click();
     await page.locator("#navigation-confirm-yes").click();
     await expect(page.locator("#navigation-start")).toBeFocused();
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      mobile ? "map" : "desktop",
+    );
+    if (mobile) await expect(page.locator("#map-preview")).toBeVisible();
     await expect(page.locator("#choices .route-choice")).toHaveCount(1);
     await expect(page.locator("#choices .route-choice")).toHaveAttribute(
       "data-journey",
@@ -1263,6 +1268,7 @@ test("ending navigation keeps updated transit predictions without an archive war
 test("ending a cancelled connection offers explicit recovery instead of an archive replan", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await setup(page, true);
   await page.route("**/api/v6/trip?*", (r) =>
     r.fulfill({
@@ -1293,6 +1299,11 @@ test("ending a cancelled connection offers explicit recovery instead of an archi
   await page.locator("#navigation-end").click();
   await page.locator("#navigation-confirm-yes").click();
   await expect(page.locator("#navigation-search-now")).toBeFocused();
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  await expect(page.locator("#map-preview")).toBeVisible();
   await expect(page.locator("#navigation-start")).toBeDisabled();
   await expect(page.locator("#navigation-search-now")).toHaveText(
     "Ab jetzt suchen",

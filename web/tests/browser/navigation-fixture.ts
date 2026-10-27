@@ -601,7 +601,7 @@ export async function savedProgress(page: Page) {
 }
 
 export async function startSelected(page: Page) {
-  if (!(await page.locator(".panel-actions #navigation-start").isVisible()))
+  if (!(await page.locator("#navigation-start").isVisible()))
     await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
 }
