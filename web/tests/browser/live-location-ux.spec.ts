@@ -345,7 +345,7 @@ test("screen lock denial does not interrupt planning", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("mobile sheet keeps GPS active and full itinerary pauses it without releasing screen lock", async ({
+test("mobile alternatives and itinerary keep GPS and screen lock active", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -363,7 +363,7 @@ test("mobile sheet keeps GPS active and full itinerary pauses it without releasi
   await openSelectedDetails(page);
   await expect
     .poll(() => page.evaluate(() => (window as any).liveProbe.stopped))
-    .toBe(1);
+    .toBe(0);
   await expect
     .poll(() => page.evaluate(() => (window as any).liveProbe.started))
     .toBe(1);
@@ -371,5 +371,5 @@ test("mobile sheet keeps GPS active and full itinerary pauses it without releasi
   await showMap(page);
   await expect
     .poll(() => page.evaluate(() => (window as any).liveProbe.started))
-    .toBe(2);
+    .toBe(1);
 });

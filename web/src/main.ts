@@ -51,7 +51,11 @@ import {
 import { PlanningSession, type PlanningState } from "./planning-state";
 import { planningRequestPreview } from "./planning-progress";
 import { RouteMap } from "./map-view";
-import { JourneyView, type JourneyNavigation } from "./journey-view";
+import {
+  JourneyView,
+  normalizeJourneyNavigation,
+  type JourneyNavigation,
+} from "./journey-view";
 import {
   OfflineStore,
   sameHistoryRoute,
@@ -141,7 +145,6 @@ const suppressedCalculations = new Set<string>();
 let currentSaveSuppressed = false;
 let sharingPlan = false;
 let planningWasBusy = false;
-let mapEntryPending = false;
 let navigationRevision = 0;
 let historyPosition = Number.isSafeInteger(history.state?.position)
   ? (history.state.position as number)
@@ -460,7 +463,6 @@ window.addEventListener("focus", () => {
   if (!pagePresent) resumePage();
 });
 const journeyView = new JourneyView((id) => {
-  mapEntryPending = false;
   cancelNavigationCheck();
   session.select(id);
 });
@@ -471,15 +473,19 @@ const session = new PlanningSession(api, renderPlanning, (request, options) => {
   writeHistory();
 });
 journeyView.onDetailsOpened = () => session.holdSelection();
-let alternativesHistoryClosing = false;
-journeyView.onAlternativesChange = (action) => {
+let sheetHistoryClosing = false;
+journeyView.onSheetChange = (action) => {
+  navigationRevision++;
   if (action === "open") {
+    cancelNavigationCheck();
+    // Focus and scroll events can fire while the dialog is mounting. Keep the
+    // underlying entry on the map even if a position update already saved it.
+    const base = journeyView.snapshot();
+    delete base.sheet;
+    history.replaceState({ ...history.state, journeyNavigation: base }, "");
     writeHistory(true, history.state?.resultDepth ?? 0);
-  } else if (
-    action === "close" &&
-    history.state?.journeyNavigation?.alternatives
-  ) {
-    alternativesHistoryClosing = true;
+  } else if (action === "close" && history.state?.journeyNavigation?.sheet) {
+    sheetHistoryClosing = true;
     history.back();
   } else writeHistory();
 };
@@ -490,39 +496,24 @@ journeyView.onLayoutChange = () => {
   renderNavigationCheck();
 };
 journeyView.onPositionChange = () => {
-  if (view === "map" && history.state?.planId === activePlanId)
+  if (
+    !sheetHistoryClosing &&
+    view === "map" &&
+    history.state?.planId === activePlanId
+  )
     history.replaceState(
       { ...history.state, journeyNavigation: journeyView.snapshot() },
       "",
     );
 };
-journeyView.onNavigate = (screen, replace) => {
-  mapEntryPending = false;
+journeyView.onBack = () => {
   cancelNavigationCheck();
   navigationRevision++;
-  if (
-    replace &&
-    screen === "detail" &&
-    journeyView.screen === "map" &&
-    journeyView.backScreen === "detail" &&
-    (history.state?.resultDepth ?? 0) > 0
-  ) {
-    history.back();
-    return;
-  }
-  const depth = history.state?.resultDepth ?? 0;
-  writeHistory();
-  journeyView.showScreen(screen);
-  writeHistory(!replace, replace ? depth : depth + 1);
-};
-journeyView.onBack = () => {
-  mapEntryPending = false;
-  cancelNavigationCheck();
-  if (journeyView.screen === "map") {
-    if (journeyView.savedOrigin) {
-      navigationRevision++;
-      writeHistory();
-      show("history");
+  const origin = journeyView.savedOrigin;
+  if (origin) {
+    writeHistory();
+    show(origin);
+    if (origin === "history") {
       const row = [
         ...el("history-list").querySelectorAll<HTMLElement>(".history-row"),
       ].find((item) => item.dataset.historyId === openedHistoryId);
@@ -530,17 +521,9 @@ journeyView.onBack = () => {
         row?.querySelector<HTMLElement>(".history-open") ??
         el("history-heading")
       ).focus({ preventScroll: true });
-    } else journeyView.onNavigate?.("list", false);
-    return;
-  }
-  if ((history.state?.resultDepth ?? 0) > 0) {
-    history.back();
-  } else if (journeyView.screen === "detail" && journeyView.savedOrigin) {
-    history.back();
-  } else {
-    journeyView.showScreen(journeyView.backScreen);
-    writeHistory();
-  }
+    }
+  } else if (historyPosition > 0) history.back();
+  else show("search");
 };
 navigation = new NavigationSession({
   api,
@@ -711,7 +694,7 @@ setInterval(() => {
     renderNavigationCheck();
 }, 5000);
 async function launchNavigation(replan = false, restored?: NavigationSnapshot) {
-  journeyView.dismissAlternatives();
+  journeyView.dismissSheet();
   if (navigationChecking) return;
   if (navigationView?.visible && navigation?.engine) {
     if (replan) await navigation.reroute();
@@ -734,7 +717,6 @@ async function launchNavigation(replan = false, restored?: NavigationSnapshot) {
       restored.settings,
     );
     show("map", false);
-    journeyView.showScreen("detail", false);
   }
   const state = session.state;
   if (!restored && (!state.selected || !state.request)) return;
@@ -827,7 +809,7 @@ el("navigation-search-now").onclick = async () => {
   openedHistoryId = undefined;
   activePlan = { request, settings: structuredClone(settings) };
   restorePlanContext(activePlan);
-  journeyView.showScreen("list", false);
+  journeyView.dismissSheet();
   writeHistory(true);
   await session.calculate(
     request,
@@ -878,7 +860,6 @@ async function endNavigation() {
   journeyView.restoreNavigation({
     ...resultNavigation,
     screen: "map",
-    mapReturn: "list",
   });
   syncLiveLocation();
   writeHistory(false, 0);
@@ -936,7 +917,7 @@ function releasePlan() {
   settingsUI();
 }
 function beginPlanning(replaceEditor = false) {
-  journeyView.dismissAlternatives();
+  journeyView.dismissSheet();
   cancelNavigationCheck();
   navigationRevision++;
   activePlan = undefined;
@@ -957,7 +938,6 @@ async function restoreLink(
   parsed: ParsedRouteLink,
   next: View = "map",
   id?: string,
-  navigation?: JourneyNavigation,
 ) {
   resetEditor();
   journeyView.reset();
@@ -1025,13 +1005,11 @@ async function restoreLink(
   }
   if (navigator.onLine) {
     const calculation = session.calculate(request, settings, false);
-    // Browser history restores its own result screen after the calculation.
-    if (navigation) mapEntryPending = false;
     await calculation;
   }
 }
 function show(next: View, push = true) {
-  if (next !== "map") journeyView.dismissAlternatives();
+  if (next !== "map") journeyView.dismissSheet();
   if (next !== view) cancelNavigationCheck();
   if (restoringSettingsPosition !== undefined) return false;
   if (
@@ -1047,7 +1025,6 @@ function show(next: View, push = true) {
     return;
   }
   if (push) navigationRevision++;
-  if (next !== "map") mapEntryPending = false;
   const replan =
     view === "settings" &&
     next !== "settings" &&
@@ -1097,9 +1074,9 @@ function show(next: View, push = true) {
     if (next === "map")
       reveal(
         el(
-          journeyView.screen === "map"
-            ? "map-preview-summary"
-            : "panel-content",
+          matchMedia("(min-width: 900px)").matches
+            ? "panel-content"
+            : "map-preview-summary",
         ),
       );
     else if (next === "settings") {
@@ -1111,7 +1088,6 @@ function show(next: View, push = true) {
     } else reveal(document.querySelector<HTMLElement>(".search-content")!);
 }
 window.addEventListener("popstate", async (event) => {
-  mapEntryPending = false;
   cancelNavigationCheck();
   const position = Number.isSafeInteger(event.state?.position)
     ? (event.state.position as number)
@@ -1135,22 +1111,27 @@ window.addEventListener("popstate", async (event) => {
   }
   historyPosition = position;
   const revision = ++navigationRevision;
+  // Normalize legacy detail pages after their plan has been restored, so their
+  // sheet uses that plan's selected journey rather than the one being left.
   const navigation = event.state?.journeyNavigation as
     JourneyNavigation | undefined;
   if (
-    (alternativesHistoryClosing || journeyView.alternativesOpen) &&
-    !navigation?.alternatives &&
+    (sheetHistoryClosing || journeyView.sheetOpen) &&
     event.state?.view === "map" &&
-    event.state?.planId === activePlanId
+    event.state?.planId === activePlanId &&
+    !normalizeJourneyNavigation(
+      navigation,
+      session.state.selected?.id,
+      !!session.state.journeys.length,
+    ).sheet
   ) {
-    alternativesHistoryClosing = false;
+    sheetHistoryClosing = false;
     journeyView.restoreNavigation(navigation, false);
-    if (matchMedia("(min-width: 900px)").matches) journeyView.focusSelection();
-    else el("result-back").focus({ preventScroll: true });
+    journeyView.focusSheetTrigger();
     writeHistory();
     return;
   }
-  alternativesHistoryClosing = false;
+  sheetHistoryClosing = false;
   if (navigationView?.visible) {
     history.pushState(
       { ...history.state, navigation: true, position: ++historyPosition },
@@ -1176,7 +1157,6 @@ window.addEventListener("popstate", async (event) => {
         readRouteURL(new URL(location.href)),
         "map",
         event.state?.planId,
-        navigation,
       );
       if (revision !== navigationRevision) return;
     }
@@ -1245,7 +1225,6 @@ window.addEventListener("popstate", async (event) => {
       readRouteURL(new URL(location.href)),
       next,
       event.state?.planId,
-      navigation,
     );
     if (revision !== navigationRevision) return;
     journeyView.restoreNavigation(navigation, next === "map");
@@ -1470,6 +1449,8 @@ function showRouteMap(state: PlanningState) {
 }
 function renderPlanning(state: PlanningState) {
   planningFeedback.update(state);
+  if (state.busy && !planningWasBusy) currentSaveSuppressed = false;
+  planningWasBusy = state.busy;
   if (navigationChecking && navigationCheckKey !== navigationContextKey())
     cancelNavigationCheck();
   if (activePlanId && activePlan && (state.request || state.pendingRequest)) {
@@ -1481,30 +1462,11 @@ function renderPlanning(state: PlanningState) {
     if (planResults.size > 32)
       planResults.delete(planResults.keys().next().value!);
   }
-  if (state.busy && !planningWasBusy) {
-    currentSaveSuppressed = false;
-    // A fresh calculation has a pending request; optimization resumes do not.
-    mapEntryPending = !!state.pendingRequest;
-  }
-  planningWasBusy = state.busy;
-  const enterMap =
-    mapEntryPending &&
-    !!state.selected &&
-    !!state.calculationId &&
-    !state.pendingRequest &&
-    !state.staleReason &&
-    !state.restored;
-  if (enterMap || !state.busy) mapEntryPending = false;
   updateLinkUI();
   journeyView.render(
     state,
     state.resultSettings?.maxCyclingMinutes ?? settings.maxCyclingMinutes,
   );
-  if (enterMap && view === "map" && matchMedia("(max-width: 899px)").matches) {
-    if (journeyView.screen !== "map")
-      journeyView.showScreen("map", !document.querySelector("dialog[open]"));
-    writeHistory();
-  }
   if (view === "map") showRouteMap(state);
   if (
     state.selected &&
@@ -2638,7 +2600,7 @@ function openSnapshot(
   planId?: string,
 ) {
   const origin = view === "history" ? "history" : "search";
-  journeyView.reset("detail", origin);
+  journeyView.reset(origin);
   const entry = historyEntries.find((entry) => entry.id === id);
   if (entry) snapshot = historySnapshot(entry);
   settingsReplanPending = false;
@@ -2659,6 +2621,7 @@ function openSnapshot(
   if (view === "map") {
     if (push) writeHistory(true);
   } else show("map", push);
+  if (push) journeyView.openDetails();
   if (focus) journeyView.focusSelection();
 }
 function openSaved(focus = true) {
@@ -3035,8 +2998,18 @@ function initializeLink() {
   if (initialShare && !sharedInitialized) {
     sharedInitialized = true;
     openSharedDestination();
-  } else if (initialLink.kind !== "none") void restoreLink(initialLink);
-  else writeHistory();
+  } else if (initialLink.kind !== "none") {
+    const navigation = history.state?.journeyNavigation as
+      JourneyNavigation | undefined;
+    const planId = history.state?.planId;
+    const revision = navigationRevision;
+    void restoreLink(initialLink, "map", planId).then(() => {
+      if (navigation && revision === navigationRevision && view === "map") {
+        journeyView.restoreNavigation(navigation, true);
+        writeHistory();
+      }
+    });
+  } else writeHistory();
 }
 el("share-plan").onclick = async () => {
   if (!activePlan || session.state.locating || sharingPlan) return;

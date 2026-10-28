@@ -907,7 +907,7 @@ test("request map stays open for the first result and preserves explicit choices
   );
 });
 
-test("refresh opens the map only for current results and respects navigation while waiting", async ({
+test("refresh keeps the map and closes old details when current results arrive", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -925,9 +925,9 @@ test("refresh opens the map only for current results and respects navigation whi
       .toBe(run);
     await expect(page.locator("#map-view")).toHaveAttribute(
       "data-result-screen",
-      "list",
+      "map",
     );
-    await expect(page.locator("#stale-notice")).toBeVisible();
+    await expect(page.locator("#map-preview-status")).toBeVisible();
   };
   await refresh(2);
   await publish(page, { phase: "base", ids: ["fresh"], status: "complete" });
@@ -944,9 +944,9 @@ test("refresh opens the map only for current results and respects navigation whi
   await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
-    "list",
+    "map",
   );
-  await expect(page.locator("#stale-notice")).toBeVisible();
+  await expect(page.locator("#map-preview-status")).toBeVisible();
   await page.locator("#recover-planning").click();
   await expect
     .poll(() => page.evaluate(() => (window as any).searchControlRuns))
@@ -956,8 +956,9 @@ test("refresh opens the map only for current results and respects navigation whi
   await expect(page.locator('[data-journey="latest"]')).toBeAttached();
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
-    "detail",
+    "map",
   );
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
 });
 
 async function expectFeedbackPosition(page: Page, width: number) {
@@ -1004,8 +1005,9 @@ async function expectFeedbackPosition(page: Page, width: number) {
         inline: feedback.parentElement?.id === "planning-feedback-slot",
         inlineParent: feedback.parentElement?.parentElement?.id,
         sheet: sheet.open,
-        sheetHeaderBottom: sheet.querySelector("header")!.getBoundingClientRect()
-          .bottom,
+        sheetHeaderBottom: sheet
+          .querySelector("header")!
+          .getBoundingClientRect().bottom,
         feedbackParent: feedback.parentElement?.id,
         position: getComputedStyle(feedback).position,
         contentTop: content.getBoundingClientRect().top,
@@ -1219,7 +1221,7 @@ for (const width of [320, 390, 1280])
         });
       });
       const control = page.locator(
-        width >= 900 ? "#route-more" : "#panel-map-toggle",
+        width >= 900 ? "#route-more" : "#alternatives-close",
       );
       await control.focus();
       for (const phase of ["bike-transfers", "walking", "via"]) {
@@ -1475,9 +1477,9 @@ test("mobile search switches directly to optimization without shifting the sheet
   await expect(page.locator("#planning-announcement")).toHaveText(
     "Routenoptimierung abgeschlossen.",
   );
-  expect((await page.locator(".alternatives-header").boundingBox())!.height).toBe(
-    header!.height,
-  );
+  expect(
+    (await page.locator(".alternatives-header").boundingBox())!.height,
+  ).toBe(header!.height);
   await expect(page.locator("#toast")).toBeHidden();
 });
 
@@ -1706,11 +1708,14 @@ for (const width of [390, 1280])
     await page.locator('.route-choice[data-journey="chosen"]').click();
     await openSelectedDetails(page);
     await expectMotionSettled(page.locator("#panel-details"));
+    await expectMotionSettled(page.locator("#alternatives-dialog"));
     const position = await page.evaluate(() => {
       const panel = document.getElementById("journey-panel")!;
-      const container = panel.classList.contains("result-scroll-all")
-        ? panel
-        : document.getElementById("panel-content")!;
+      const container = document.querySelector("#alternatives-dialog[open]")
+        ? document.getElementById("alternatives-body")!
+        : panel.classList.contains("result-scroll-all")
+          ? panel
+          : document.getElementById("panel-content")!;
       container.scrollTop = 100;
       return {
         scrollTop: container.scrollTop,

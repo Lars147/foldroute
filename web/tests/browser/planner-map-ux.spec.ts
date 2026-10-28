@@ -270,8 +270,7 @@ for (const [width, height] of [
         },
       });
     });
-    if (await page.locator("#map-location").evaluate((e) => e.inert))
-      await page.locator("#panel-map-toggle").click();
+    await showMap(page);
     await page.locator("#map-location").click({ position: { x: 24, y: 4 } });
     await expect.poll(() => locationCenterError(page)).toBeLessThan(2);
     if (width < 900) {
@@ -759,51 +758,41 @@ test("request preview stays hidden across breakpoints until location resolves", 
   await expect(page.locator("#map .route-marker")).toHaveCount(2);
 });
 
-test("browser navigation restores itinerary, list and map without another search", async ({
+test("browser navigation restores itinerary and alternatives over the map without another search", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 390, height: 600 });
   await setup(page);
   await plan(page);
-  await openSelectedDetails(page);
-  await page.locator("#result-back").click();
   let requests = 0;
   page.on("request", (r) => {
     if (r.url().includes("/api/v6/plan")) requests++;
   });
   const selected = page.locator('.route-choice[aria-pressed="true"]');
   const id = await selected.getAttribute("data-journey");
-  const historyLength = await page.evaluate(() => history.length);
+  const position = await page.evaluate(() => history.state.position);
+  await showConnections(page);
   await selected.click();
-  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  await expect
+    .poll(() => page.evaluate(() => history.state.position))
+    .toBe(position);
   await openSelectedDetails(page);
-  await page.locator("#panel-content").evaluate((e) => (e.scrollTop = 80));
-  const scroll = await page
-    .locator("#panel-content")
-    .evaluate((e) => e.scrollTop);
-  await showMap(page);
   await page.goBack();
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    "detail",
-  );
-  await expect(page.locator("#panel-content")).toHaveJSProperty(
-    "scrollTop",
-    scroll,
-  );
-  await page.goBack();
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    "list",
-  );
-  await expect(selected).toHaveAttribute("data-journey", id!);
-  await expect(
-    page.locator(".route-choice-row.selected .route-detail-link"),
-  ).toBeFocused();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await expect(page.locator("#map-open-details")).toBeFocused();
   await page.goForward();
   await expect(page.locator("#panel-details")).toBeVisible();
+  await expect(page.locator("#alternatives-title")).toBeFocused();
+  await showConnections(page);
+  await expect(selected).toHaveAttribute("data-journey", id!);
+  await page.goBack();
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
   await page.goForward();
-  await expect(page.locator("#map-preview")).toBeVisible();
+  await expect(page.locator("#choices")).toBeVisible();
   expect(requests).toBe(0);
 });
 
@@ -1080,31 +1069,31 @@ for (const width of [320, 390]) {
       await page.locator("#map-open-details").click();
       await expect(page.locator("#panel-details")).toBeVisible();
       await expect(selected).toHaveAttribute("aria-pressed", "true");
-      await page.locator("#result-back").click();
+      await showConnections(page);
       await expect(page.locator("#choices")).toBeVisible();
       expect(requests).toBe(0);
     });
   }
 }
 
-test("map itinerary action returns directly to comparison after reading", async ({
+test("map itinerary closes to the map and alternatives remain separately reachable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await plan(page);
-  await openSelectedDetails(page);
-  await showMap(page);
-  await page.locator("#map-open-details").click();
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    "detail",
-  );
-  await page.locator("#result-back").click();
-  await expect(page.locator("#choices")).toBeVisible();
-  await showMap(page);
-  await page.locator("#map-open-details").click();
-  await expect(page.locator("#panel-details")).toBeVisible();
-  await page.locator("#result-back").click();
-  await expect(page.locator("#choices")).toBeVisible();
+  for (let visit = 0; visit < 2; visit++) {
+    await openSelectedDetails(page);
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      "map",
+    );
+    await expect(page.locator("#panel-details")).toBeVisible();
+    await showMap(page);
+    await expect(page.locator("#choices")).toBeHidden();
+    await expect(page.locator("#map-open-details")).toBeFocused();
+    await showConnections(page);
+    await expect(page.locator("#choices")).toBeVisible();
+    await showMap(page);
+  }
 });

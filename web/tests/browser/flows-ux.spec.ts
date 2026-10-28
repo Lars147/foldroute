@@ -271,6 +271,7 @@ test("offline routes expose the cached itinerary and keep replanning explicit on
   await expect(page.locator("#saved-notice")).toContainText(
     "Zeiten wurden nicht aktualisiert",
   );
+  await showMap(page);
   await expect(page.locator("#replan-saved")).toBeVisible();
   await expect(page.locator("#replan-saved")).toBeDisabled();
   await page.locator("#route-more").click();
@@ -360,7 +361,7 @@ test("retry stays next to an update error in the map and is disabled offline", a
   await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expect(page.locator("#recover-planning")).toBeVisible();
-  await expect(page.locator("#stale-notice")).toBeVisible();
+  await expect(page.locator("#map-preview-status")).toBeVisible();
   await showMap(page);
   await expect(page.locator("#map-preview #recover-planning")).toBeVisible();
   await expect(page.locator("#map-preview-status")).toContainText(

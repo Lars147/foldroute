@@ -1379,6 +1379,7 @@ test("mobile stop planning shares and reloads pauses and restores the complete o
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("50 min");
+  await showMap(page);
   await page.locator("#tab-history").click();
   await expect(page.locator(".history-open").first()).toContainText("Café");
   await openCachedJourney(page, page.locator(".history-open").first());

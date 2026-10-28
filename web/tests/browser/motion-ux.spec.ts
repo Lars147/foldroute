@@ -8,102 +8,82 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
 });
 
-test("route transitions are interruptible and preserve real history and focus", async ({
+test("sheet transitions are interruptible and preserve history and focus", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/?example=bike-transfer");
   await expect(page.locator("#main")).not.toHaveAttribute("inert");
-  const started = await page
-    .locator(".route-detail-link")
-    .evaluate((button) => {
-      (button as HTMLButtonElement).click();
-      return document.getElementById("panel-details")!.getAnimations().length;
-    });
+  const started = await page.locator("#map-open-details").evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    return document.getElementById("alternatives-dialog")!.getAnimations()
+      .length;
+  });
   expect(started).toBeGreaterThan(0);
-  await expect(page.locator("#journey-heading")).toBeFocused();
-  // Switch again while the previous entrance is still running.
+  await expect(page.locator("#alternatives-title")).toBeFocused();
+  // Close during the entrance, then restore the same overlay through history.
   await page
-    .locator("#panel-map-toggle")
+    .locator("#alternatives-close")
     .evaluate((button) => (button as HTMLButtonElement).click());
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    "map",
-  );
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await expect(page.locator("#map-open-details")).toBeFocused();
+  await expect
+    .poll(() => page.evaluate(() => !!history.state?.exampleView?.sheet))
+    .toBe(false);
+  await page.goForward();
+  await expect(page.locator("#alternatives-dialog")).toBeVisible();
+  await expect(page.locator("#alternatives-title")).toBeFocused();
   await page.goBack();
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    "detail",
-  );
-  await expect(page.locator("#journey-heading")).toBeFocused();
-  await page.goBack();
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    "list",
-  );
-  await expect(page.locator(".route-detail-link")).toBeFocused();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await expect(page.locator("#map-open-details")).toBeFocused();
   await expect
     .poll(() =>
       page
-        .locator("#journey-panel")
-        .evaluate((panel) => panel.getAnimations({ subtree: true }).length),
+        .locator("#alternatives-dialog")
+        .evaluate((dialog) => dialog.getAnimations().length),
     )
     .toBe(0);
   expect(errors).toEqual([]);
 });
 
-test("changing Reduced Motion ends current motion and restores inline styles", async ({
-  page,
-}) => {
+test("changing Reduced Motion ends the sheet transition", async ({ page }) => {
   await page.goto("/?example=bike-transfer");
   await expect(page.locator("#main")).not.toHaveAttribute("inert");
-  const started = await page
-    .locator(".route-detail-link")
-    .evaluate((button) => {
-      (button as HTMLButtonElement).click();
-      const animations = document
-        .getElementById("panel-details")!
-        .getAnimations();
-      // A paused animation cannot finish naturally and hide a missing abort.
-      for (const animation of animations) animation.pause();
-      return animations.length;
-    });
+  const started = await page.locator("#map-open-details").evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    const animations = document
+      .getElementById("alternatives-dialog")!
+      .getAnimations();
+    for (const animation of animations) animation.pause();
+    return animations.length;
+  });
   expect(started).toBeGreaterThan(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect
     .poll(() =>
-      page.locator("#panel-details").evaluate((panel) => ({
-        count: panel.getAnimations().length,
-        translate: (panel as HTMLElement).style.translate,
-        opacity: (panel as HTMLElement).style.opacity,
-      })),
+      page
+        .locator("#alternatives-dialog")
+        .evaluate((dialog) => dialog.getAnimations().length),
     )
-    .toEqual({ count: 0, translate: "", opacity: "" });
-  await page.locator("#panel-map-toggle").click();
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    "map",
-  );
-  const count = await page
-    .locator("#map-preview-summary")
-    .evaluate((summary) => summary.getAnimations().length);
-  expect(count).toBe(0);
+    .toBe(0);
+  await page.locator("#alternatives-close").click();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await page.locator("#map-open-details").click();
+  expect(
+    await page
+      .locator("#alternatives-dialog")
+      .evaluate((dialog) => dialog.getAnimations().length),
+  ).toBe(0);
+  await page.locator("#alternatives-close").click();
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goBack();
-  await page.goBack();
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    "list",
-  );
-  const resumed = await page
-    .locator(".route-detail-link")
-    .evaluate((button) => {
-      (button as HTMLButtonElement).click();
-      return document.getElementById("panel-details")!.getAnimations().length;
-    });
+  const resumed = await page.locator("#map-open-details").evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    return document.getElementById("alternatives-dialog")!.getAnimations()
+      .length;
+  });
   expect(resumed).toBeGreaterThan(0);
-  await expect(page.locator("#journey-heading")).toBeFocused();
+  await expect(page.locator("#alternatives-title")).toBeFocused();
 });
 
 test("rapid main navigation keeps the indicator aligned after resizing", async ({
@@ -288,14 +268,14 @@ test("the app remains usable without the Web Animations API", async ({
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/?example=bike-transfer");
-  await page.locator(".route-detail-link").click();
-  await expect(page.locator("#journey-heading")).toBeFocused();
-  await page.locator("#panel-map-toggle").click();
+  await page.locator("#map-open-details").click();
+  await expect(page.locator("#alternatives-title")).toBeFocused();
+  await page.locator("#alternatives-close").click();
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
     "map",
   );
-  await page.goBack();
-  await expect(page.locator("#journey-heading")).toBeFocused();
+  await page.goForward();
+  await expect(page.locator("#alternatives-title")).toBeFocused();
   expect(errors).toEqual([]);
 });

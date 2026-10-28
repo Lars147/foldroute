@@ -723,15 +723,6 @@
                     <span id="result-stand"></span>
                   </div>
                 </div>
-                <button
-                  id="panel-map-toggle"
-                  class="text-button"
-                  type="button"
-                  aria-label="Karte anzeigen"
-                >
-                  <span data-icon="map" aria-hidden="true"></span>
-                  <span>Karte</span>
-                </button>
               </div>
               <p id="map-request-meta" hidden></p>
             </div>
@@ -752,7 +743,14 @@
             <div id="map-preview" hidden>
               <div class="map-preview-heading">
                 <h2 id="map-preview-heading" tabindex="-1"></h2>
-                <button id="map-open-details" class="text-button" type="button">
+                <button
+                  id="map-open-details"
+                  class="text-button"
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-controls="alternatives-dialog"
+                  aria-expanded="false"
+                >
                   Details <span aria-hidden="true">›</span>
                 </button>
               </div>

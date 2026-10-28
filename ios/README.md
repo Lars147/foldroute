@@ -61,6 +61,8 @@ xcodebuild \
 
 Der Simulatorname ist ein Beispiel; eine lokal installierte passende Destination wählen. Fehlt eine iOS-Plattform, die passende Simulator-Runtime in Xcode installieren. Erfolgreiche frühere Läufe ersetzen keine Prüfung des aktuellen Codes.
 
+Die Testaktion startet ohne Debugger, damit der Testhost bei CLI-Läufen nicht auf eine LLDB-Verbindung wartet. Für Breakpoints in Tests lässt sich der Debugger in Xcode unter **Scheme → Edit Scheme → Test → Info → Debug executable** einschalten.
+
 ## Manuelle Geräteabnahme
 
 Diese fünf Fahrtentypen mit passenden Orten in der Testregion auf einem echten iPhone testen. Ziel: Route wird berechnet, alle Phasen stimmen zeitlich, Linien/Gleise sind plausibel, GPS-Fortschritt funktioniert und die Fahrt kann abgeschlossen werden.

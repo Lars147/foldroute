@@ -933,6 +933,8 @@ test.describe("touch input", () => {
       selected: "alternative",
       selections: ["alternative"],
     });
+    // Separate gestures: a rapid double-tap intentionally zooms the map.
+    await page.waitForTimeout(500);
     await page.touchscreen.tap(p.x, p.y);
     expect(await state(page)).toEqual(selected);
     await expectPreview(page, 0);

@@ -128,7 +128,7 @@ test("ending navigation refits the overview and keeps details, alternatives and 
   });
   await page.locator("#map-open-details").click();
   await expect(page.locator("#panel-details")).toBeVisible();
-  await page.locator("#panel-map-toggle").click();
+  await showMap(page);
   await expectOverview(page);
   await page.locator("#result-back").click();
   await expect(page.locator("#alternatives-dialog")).toBeVisible();

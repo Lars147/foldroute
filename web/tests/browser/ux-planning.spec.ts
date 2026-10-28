@@ -2,6 +2,7 @@ import {
   openCachedJourney,
   openSettingsSection,
   openSelectedDetails,
+  showConnections,
   expectPlanningComplete,
   expectSelectedJourneySaved,
 } from "./assertions";
@@ -295,7 +296,7 @@ test("opening an available itinerary holds it as better options arrive", async (
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("1 h");
   await expect(page.locator("#better-connection")).toHaveCount(0);
-  await page.locator("#result-back").click();
+  await showConnections(page);
   await page
     .locator(".route-choice")
     .filter({ hasText: "53 min" })

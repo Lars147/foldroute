@@ -20,6 +20,7 @@ export async function openRecordedRouteEditor(page: Page) {
   });
   await page.reload();
   await openCachedJourney(page, page.locator("#open-saved"));
+  await showMap(page);
   await page.locator("#adjust-route").click();
   await expect(page.locator("#route-editor")).toHaveAttribute(
     "data-mode",
@@ -45,67 +46,69 @@ export async function expectPlanningComplete(page: Page) {
   );
 }
 
-async function closeAlternatives(page: Page) {
-  if (
-    (await page.locator("#alternatives-dialog").getAttribute("open")) === null
-  )
-    return;
-  await page.locator("#alternatives-close").click();
-  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+export async function closeResultSheet(page: Page) {
+  const dialog = page.locator("#alternatives-dialog");
+  if ((await dialog.getAttribute("open")) !== null) {
+    // Finish the sheet's entrance before aiming at a control that moves with it.
+    await expectMotionSettled(dialog);
+    // A result update can close the sheet while its entrance is settling.
+    if ((await dialog.getAttribute("open")) !== null)
+      await page.locator("#alternatives-close").click();
+  }
+  await expect(dialog).toBeHidden();
   await expect
     .poll(() =>
-      page.evaluate(() => !!history.state?.journeyNavigation?.alternatives),
+      page.evaluate(
+        () =>
+          !!(
+            history.state?.journeyNavigation?.sheet ||
+            history.state?.exampleView?.sheet
+          ),
+      ),
     )
     .toBe(false);
 }
 
 export async function openSelectedDetails(page: Page) {
-  await closeAlternatives(page);
   if (await page.evaluate(() => innerWidth >= 900)) {
-    await page.locator("#panel-details").scrollIntoViewIfNeeded();
+    await page.locator(".route-choice-row.selected .route-detail-link").click();
     return;
   }
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    /^(list|detail|map)$/,
+  if (
+    await page.locator('#alternatives-dialog[open][data-mode="detail"]').count()
+  )
+    return;
+  await closeResultSheet(page);
+  await page.locator("#map-open-details").click();
+  await expect(page.locator("#alternatives-dialog")).toHaveAttribute(
+    "data-mode",
+    "detail",
   );
-  const screen = await page
-    .locator("#map-view")
-    .getAttribute("data-result-screen");
-  if (screen === "map") await page.locator("#map-open-details").click();
-  else if (screen !== "detail")
-    await page.locator(".route-choice-row.selected .route-detail-link").click();
+  await expect(page.locator("#panel-details")).toBeVisible();
 }
 export async function showMap(page: Page) {
-  await closeAlternatives(page);
+  await closeResultSheet(page);
   if (await page.evaluate(() => innerWidth >= 900)) return;
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
-    /^(list|detail|map)$/,
+    "map",
   );
-  if (
-    (await page.locator("#map-view").getAttribute("data-result-screen")) !==
-    "map"
-  )
-    await page.locator("#panel-map-toggle").click();
 }
 
 export async function showConnections(page: Page) {
-  if (
-    (await page.locator("#alternatives-dialog").getAttribute("open")) !== null
-  )
-    return;
   if (await page.evaluate(() => innerWidth >= 900)) return;
-  // matchMedia updates the result layout asynchronously after viewport changes.
-  await expect(page.locator("#map-view")).toHaveAttribute(
-    "data-result-screen",
-    /^(list|detail|map)$/,
-  );
-  if (
-    (await page.locator("#map-view").getAttribute("data-result-screen")) !==
-    "list"
-  )
-    await page.locator("#result-back").click();
+  const dialog = page.locator("#alternatives-dialog");
+  if ((await dialog.getAttribute("open")) !== null) {
+    if ((await dialog.getAttribute("data-mode")) === "alternatives") return;
+    if ((await dialog.getAttribute("data-mode")) === "preview") {
+      await page.locator("#alternatives-back").click();
+      return;
+    }
+    await closeResultSheet(page);
+  }
+  await page.locator("#result-back").click();
+  await expect(dialog).toHaveAttribute("data-mode", "alternatives");
+  await expect(dialog).toBeVisible();
 }
 
 export async function openSettingsSection(

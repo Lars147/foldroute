@@ -739,7 +739,13 @@ for (const problem of ["departed", "cancelled"] as const)
     expect(searched).toHaveLength(0);
     expect(await savedActive(page)).toBe(false);
     await expect(page.locator("#navigation-view-connection")).toHaveCount(0);
-    await expect(page.locator("#panel-details")).toBeVisible();
+    await expect(
+      page.locator(
+        (await page.evaluate(() => innerWidth < 900))
+          ? "#map-preview"
+          : "#panel-details",
+      ),
+    ).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath(`connection-${problem}.png`),
     });
@@ -763,7 +769,7 @@ for (const problem of ["departed", "cancelled"] as const)
     await expect(page.locator("#navigation-view")).toBeHidden();
     await expect(page.locator("#map-view")).toHaveAttribute(
       "data-result-screen",
-      "list",
+      "map",
     );
   });
 
@@ -794,7 +800,13 @@ test("editing during a delayed start check prevents late navigation activation",
   await expect(page.locator("#navigation-view")).toBeHidden();
   expect(await savedActive(page)).toBe(false);
   await page.locator("#cancel-adjust").click();
-  await expect(page.locator("#panel-details")).toBeVisible();
+  await expect(
+    page.locator(
+      (await page.evaluate(() => innerWidth < 900))
+        ? "#map-preview"
+        : "#panel-details",
+    ),
+  ).toBeVisible();
 });
 
 for (const width of [320, 390, 1280])

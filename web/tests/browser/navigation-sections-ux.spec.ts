@@ -646,6 +646,8 @@ test("following restores the current section zoom after progressing with a manua
 }) => {
   await setup(page, true);
   const map = page.locator("#navigation-map");
+  // Keyboard interactions are ignored until OpenLayers has rendered a frame.
+  await expect(map.locator("canvas").first()).toBeVisible();
   await map.press("-");
   await page.clock.runFor(400);
   await complete(page); // Fold retains the cycling default.

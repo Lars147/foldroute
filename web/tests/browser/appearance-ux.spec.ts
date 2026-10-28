@@ -148,7 +148,9 @@ for (const width of [390, 1280])
       await page.emulateMedia({ contrast: "no-preference" });
       await page.locator("#cancel-delete-data").click();
       await page.goto("/?example=bike-transfer");
-      const card = page.locator(".route-choice");
+      const card = page.locator(
+        width < 900 ? "#map-preview-summary" : ".route-choice",
+      );
       await expect(card).toBeVisible();
       await expect(page.locator(".journey-panel")).toHaveCSS(
         "background-color",

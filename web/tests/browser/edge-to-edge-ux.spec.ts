@@ -124,13 +124,15 @@ test("details, search, time dialog and offline banner respect iPhone safe areas"
   await runMapClock(page);
   await showMap(page);
   await page.locator("#map-open-details").click();
-  const detail = (await page.locator("#map-view").boundingBox())!;
-  const bar = (await page.locator(".app-tabs").boundingBox())!;
+  const detail = (await page.locator("#alternatives-dialog").boundingBox())!;
   expect(detail.y).toBeGreaterThanOrEqual(59);
-  expect(detail.y + detail.height).toBeLessThanOrEqual(bar.y + 1);
-  await page
-    .getByRole("button", { name: "Karte anzeigen", exact: true })
-    .click();
+  expect(detail.y + detail.height).toBe(844);
+  expect(
+    await page
+      .locator("#alternatives-body")
+      .evaluate((body) => parseFloat(getComputedStyle(body).paddingBottom)),
+  ).toBeGreaterThanOrEqual(34);
+  await showMap(page);
   await context.setOffline(true);
   await expect(page.locator("#connection")).toBeVisible();
   const banner = (await page.locator("#connection").boundingBox())!;
@@ -142,6 +144,7 @@ test("details, search, time dialog and offline banner respect iPhone safe areas"
   await expectRouteFits(page);
   await context.setOffline(false);
   await page.locator("#map-open-details").click();
+  await showMap(page);
   await page.locator("#close-route").click();
   await page.locator("#destination").click();
   expect((await page.locator(".search-focus-back").boundingBox())!.y).toBe(67);

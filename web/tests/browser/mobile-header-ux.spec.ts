@@ -2,7 +2,7 @@ import { test, expect, type Page } from "./test";
 import {
   expectPlanningComplete,
   openSelectedDetails,
-  showConnections,
+  showMap,
 } from "./assertions";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 
@@ -104,24 +104,22 @@ test("route header stays fixed when browser history opens and closes details", a
   await page.locator("#destination-options .place-select").click();
   await expectPlanningComplete(page);
   await openSelectedDetails(page);
-  await page.locator("#result-back").click();
+  await showMap(page);
   const header = page.locator("#result-header");
   const initial = (await header.boundingBox())!;
   for (let visit = 0; visit < 2; visit++) {
     await openSelectedDetails(page);
-    await expect(page.locator("#journey-heading")).toBeFocused();
+    await expect(page.locator("#alternatives-title")).toBeFocused();
     expect(await header.boundingBox()).toEqual(initial);
     await page.goBack();
-    await expect(page.locator("#choices")).toBeVisible();
-    await expect(
-      page.locator(".route-choice-row.selected .route-detail-link"),
-    ).toBeFocused();
+    await expect(page.locator("#choices")).toBeHidden();
+    await expect(page.locator("#map-open-details")).toBeFocused();
     expect(await header.boundingBox()).toEqual(initial);
     await page.goForward();
     await expect(page.locator("#panel-details")).toBeVisible();
     expect(await header.boundingBox()).toEqual(initial);
-    await page.locator("#result-back").click();
-    await expect(page.locator("#choices")).toBeVisible();
+    await showMap(page);
+    await expect(page.locator("#choices")).toBeHidden();
     expect(await header.boundingBox()).toEqual(initial);
   }
 });
@@ -143,8 +141,7 @@ test("map and accordion use reclaimed space across offline, desktop and landscap
   await page.context().setOffline(true);
   await expect
     .poll(async () => {
-      const badge = (await page.locator("#connection").boundingBox())!;
-      return (await page.locator("#map").boundingBox())!.y - badge.height;
+      return (await page.locator("#map").boundingBox())!.y;
     })
     .toBe(0);
   await page.setViewportSize({ width: 1100, height: 844 });
@@ -159,6 +156,8 @@ test("map and accordion use reclaimed space across offline, desktop and landscap
   expect(badge.y + badge.height).toBeLessThanOrEqual(header.y + header.height);
   await page.setViewportSize({ width: 844, height: 390 });
   await expect(page.locator(".app-header")).toBeHidden();
+  await expect(page.locator("#panel-details")).toBeHidden();
+  await openSelectedDetails(page);
   await expect(page.locator("#panel-details")).toBeVisible();
   await page.context().setOffline(false);
   await expect

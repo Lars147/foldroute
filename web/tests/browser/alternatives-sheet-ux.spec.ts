@@ -8,7 +8,6 @@ const sheet = (page: Page) =>
 async function component(page: Page, width = 390, height = 844) {
   await page.setViewportSize({ width, height });
   await preview(page);
-  await page.locator("#panel-map-toggle").click();
   await page.locator("#result-back").click();
   await expect(sheet(page)).toBeVisible();
   await expectMotionSettled(page.locator("#alternatives-dialog"));
@@ -75,14 +74,14 @@ test("details preview keeps the selected route and returns to the list position"
   await details.click();
   await expect(page.locator("#alternatives-title")).toHaveText("Reiseablauf");
   await expect(page.locator("#alternatives-footer")).toBeVisible();
-  const detail = await page.locator("#journey-detail > :first-child").elementHandle();
+  const detail = await page
+    .locator("#journey-detail > :first-child")
+    .elementHandle();
   await page.evaluate(() => {
     const { state, view } = (window as any).uxPreview;
     view.render(state, 30);
   });
-  expect(
-    await detail!.evaluate((element) => element.isConnected),
-  ).toBe(true);
+  expect(await detail!.evaluate((element) => element.isConnected)).toBe(true);
   expect(
     await page.evaluate(() => (window as any).uxPreview.state.selected.id),
   ).toBe(selected);
@@ -146,7 +145,7 @@ test("updates preserve list scroll and an unavailable preview returns to alterna
   await page.evaluate(() => {
     const { view } = (window as any).uxPreview;
     const navigation = view.snapshot();
-    view.closeAlternatives();
+    view.closeSheet();
     view.restoreNavigation(navigation);
   });
   expect(
@@ -217,7 +216,9 @@ test("browser back and forward manage one overlay entry and escape restores focu
     .toBe(position - 1);
 });
 
-test("resizing to desktop consumes the overlay history entry", async ({ page }) => {
+test("resizing to desktop consumes the overlay history entry", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await plan(page);
@@ -231,7 +232,9 @@ test("resizing to desktop consumes the overlay history entry", async ({ page }) 
   await expect
     .poll(() => page.evaluate(() => history.state.position))
     .toBe(position);
-  await expect(page.locator('.route-choice[aria-pressed="true"]')).toBeFocused();
+  await expect(
+    page.locator('.route-choice[aria-pressed="true"]'),
+  ).toBeFocused();
   await page.goBack();
   await expect
     .poll(() => page.evaluate(() => history.state.position))

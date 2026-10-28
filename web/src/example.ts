@@ -52,27 +52,32 @@ function saveScreen(push = false) {
   );
 }
 journeyView.onLayoutChange = drawMap;
-journeyView.onPositionChange = () => saveScreen();
-journeyView.onNavigate = (screen, replace) => {
-  if (
-    replace &&
-    screen === "detail" &&
-    journeyView.screen === "map" &&
-    journeyView.backScreen === "detail"
-  ) {
-    history.back();
-    return;
-  }
-  saveScreen();
-  journeyView.showScreen(screen);
-  saveScreen(!replace);
+let sheetHistoryClosing = false;
+journeyView.onPositionChange = () => {
+  if (!sheetHistoryClosing) saveScreen();
 };
-journeyView.onBack = () => history.back();
+journeyView.onSheetChange = (action) => {
+  if (action === "open") {
+    const base = journeyView.snapshot();
+    delete base.sheet;
+    history.replaceState({ exampleView: base }, "");
+    saveScreen(true);
+  } else if (action === "close" && history.state?.exampleView?.sheet) {
+    sheetHistoryClosing = true;
+    history.back();
+  } else saveScreen();
+};
 window.addEventListener("popstate", (event) => {
+  const closing =
+    (sheetHistoryClosing || journeyView.sheetOpen) &&
+    !event.state?.exampleView?.sheet;
+  sheetHistoryClosing = false;
   journeyView.restoreNavigation(
     event.state?.exampleView as JourneyNavigation | undefined,
-    true,
+    !closing,
   );
+  if (closing) journeyView.focusSheetTrigger();
+  saveScreen();
 });
 for (const event of ["online", "offline"])
   window.addEventListener(event, drawMap);

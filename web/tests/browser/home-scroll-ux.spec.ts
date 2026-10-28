@@ -95,7 +95,7 @@ for (const width of [390, 1280]) {
       } else await openCachedJourney(page, page.locator("#open-saved"));
       const beforeClose = plans;
       const summary = await page.locator("#saved-description").textContent();
-      if (source === "fresh") await showMap(page);
+      await showMap(page);
       await page.locator("#close-route").click();
       await expect(page.locator("#search-view")).toBeVisible();
       await expect(page.locator("#map-view")).toBeHidden();
@@ -141,6 +141,7 @@ for (const width of [390, 1280]) {
       expect(plans).toBe(beforeClose);
 
       await openCachedJourney(page, page.locator("#open-saved"));
+      await showMap(page);
       await page.goBack();
       await expect(page.locator("#search-view")).toBeVisible();
       await expect(list).toBeVisible();

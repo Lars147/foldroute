@@ -1,4 +1,4 @@
-import { openCachedJourney } from "./assertions";
+import { openCachedJourney, showMap } from "./assertions";
 import { expect, type Page } from "@playwright/test";
 import {
   defaults,
@@ -346,6 +346,7 @@ export async function setup(
   await page.goto("/");
   await expect(page.locator("#main")).not.toHaveAttribute("inert");
   await openCachedJourney(page, page.locator("#open-saved"));
+  await showMap(page);
   if (!start) return;
   await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
@@ -353,6 +354,9 @@ export async function setup(
     "Links abbiegen auf Zweite Straße",
   );
   await expect(page.locator("#navigation-storage-status")).toBeEmpty();
+  await expect
+    .poll(() => page.evaluate(() => history.state?.navigation))
+    .toBe(true);
 }
 
 export function guidanceRoute(singleStep = false): Journey {
@@ -601,6 +605,7 @@ export async function savedProgress(page: Page) {
 }
 
 export async function startSelected(page: Page) {
+  await showMap(page);
   if (!(await page.locator("#navigation-start").isVisible()))
     await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();

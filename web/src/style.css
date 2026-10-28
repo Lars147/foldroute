@@ -3223,25 +3223,11 @@ dialog.editing-time {
   display: none;
 }
 .result-nav .text-button,
-#panel-map-toggle,
 #result-freshness .text-button {
   min-height: 44px;
   padding: 8px 4px;
   font-size: 0.875rem;
   color: var(--panel-text);
-}
-#panel-map-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex-shrink: 0;
-  min-width: 44px;
-  margin-left: auto;
-}
-#panel-map-toggle .icon {
-  width: 18px;
-  height: 18px;
 }
 .planning-context {
   container-type: inline-size;
@@ -3746,9 +3732,6 @@ dialog.editing-time {
     font-size: 0.75rem;
     color: var(--panel-muted);
     overflow-wrap: anywhere;
-  }
-  [data-result-screen="detail"] .panel-details {
-    margin-top: 8px;
   }
 }
 @media (min-width: 900px) {
@@ -5461,7 +5444,7 @@ body[data-example] #route-start-summary {
   flex: 0 0 16px;
 }
 
-/* Mobile alternatives use the existing result cards inside a modal sheet. */
+/* Mobile results share one modal sheet for alternatives and the itinerary. */
 #alternatives-dialog {
   position: fixed;
   inset: auto 0 0;
@@ -5502,6 +5485,9 @@ body[data-example] #route-start-summary {
   min-width: 44px;
   flex: 0 0 44px;
   color: var(--panel-text);
+}
+.alternatives-header .icon-button > [data-icon] {
+  display: flex;
 }
 #alternatives-back .icon { transform: rotate(180deg); }
 #alternatives-body {

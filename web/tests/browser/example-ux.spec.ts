@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "./test";
 import { defaults } from "../../src/model";
+import { showMap } from "./assertions";
 
 const examplePath = "?example=bike-transfer";
 const production =
@@ -164,14 +165,13 @@ test("fixed example stays identical before and years after its recorded schedule
 test("example retains the usual map, details and browser navigation on small screens", async ({
   page,
   context,
+  browserName,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const result = await prepare(page);
   await page.goto(`/${examplePath}`);
   await expectExample(page);
-  await page
-    .getByRole("button", { name: "Details zur Beispielroute", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "57 min gesamt", exact: true }),
   ).toBeVisible();
@@ -183,9 +183,7 @@ test("example retains the usual map, details and browser navigation on small scr
   expect(await page.locator("#journey-detail").innerText()).not.toMatch(
     /\b\d{1,2}:\d{2}\b/,
   );
-  await page
-    .getByRole("button", { name: "Karte anzeigen", exact: true })
-    .click();
+  await showMap(page);
   await expect(page.locator("#map")).toBeVisible();
   await expect(page.locator("#map-preview-heading")).toHaveText(
     "Beispielroute",
@@ -208,15 +206,42 @@ test("example retains the usual map, details and browser navigation on small scr
   await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.locator("#panel-details")).toBeVisible();
   await page.goBack();
-  await expect(page.locator("#choices")).toBeVisible();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await expect(page.locator("#map-open-details")).toBeFocused();
   await page.goForward();
   await expect(page.locator("#panel-details")).toBeVisible();
   await page.reload();
   await expect(page.locator("#panel-details")).toBeVisible();
+  await expect(
+    page.locator("#map .leaflet-overlay-pane svg path:visible"),
+  ).not.toHaveCount(0);
+  // Map workers can still be loading after Leaflet has drawn the route.
+  // Let their modules finish before cutting the development server connection.
+  if (await page.locator(".maplibregl-canvas").count()) {
+    const workerCount =
+      browserName === "webkit"
+        ? await page.evaluate(() =>
+            Math.max(
+              1,
+              Math.min(3, Math.floor((navigator.hardwareConcurrency || 4) / 2)),
+            ),
+          )
+        : 1;
+    await expect.poll(() => page.workers().length).toBe(workerCount);
+    await Promise.all(
+      page.workers().map(async (worker) => {
+        await expect
+          .poll(() =>
+            worker.evaluate(() =>
+              Boolean((self as typeof self & { worker?: unknown }).worker),
+            ),
+          )
+          .toBe(true);
+      }),
+    );
+  }
   await context.setOffline(true);
-  await page
-    .getByRole("button", { name: "Karte anzeigen", exact: true })
-    .click();
+  await showMap(page);
   await expect(page.locator("#map-error")).toContainText("Offline");
   await expect(
     page.locator("#map .leaflet-overlay-pane svg path:visible"),

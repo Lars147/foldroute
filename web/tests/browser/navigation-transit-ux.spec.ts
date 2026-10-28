@@ -307,13 +307,17 @@ for (const width of [390])
         "Rathaus",
         "Ausstieg",
       ]);
-    const mapPoint = await page
-      .locator("#navigation-map")
-      .evaluate((el) => JSON.parse(el.dataset.position!));
-    expect(departing.progress).toBeCloseTo(
-      (3 * distance(c, mapPoint)) / distance(c, d),
-      2,
-    );
+    // The mocked clock advances rAF, but the row collapse's ResizeObserver
+    // repaint still runs on the browser's rendering cycle.
+    await expect
+      .poll(async () => {
+        const rail = await stationRail(page, selector);
+        const mapPoint = await page
+          .locator("#navigation-map")
+          .evaluate((el) => JSON.parse(el.dataset.position!));
+        return rail.progress - (3 * distance(c, mapPoint)) / distance(c, d);
+      })
+      .toBeCloseTo(0, 2);
     // One GPS point can move the map; the station rail waits for a second
     // plausible point before correcting its estimated progress.
     await page.evaluate(

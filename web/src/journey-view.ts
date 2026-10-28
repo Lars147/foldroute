@@ -29,7 +29,12 @@ import {
   icon,
   routeSymbolColor,
 } from "./ui";
-export type JourneyScreen = "list" | "detail" | "map";
+export interface JourneySheet {
+  mode: "alternatives" | "preview" | "detail";
+  journeyId?: string;
+  scrollTop: number;
+  listScrollTop?: number;
+}
 
 function movePreservingFocus(
   element: HTMLElement,
@@ -50,17 +55,60 @@ function movePreservingFocus(
 }
 
 export interface JourneyNavigation {
-  screen: JourneyScreen;
-  mapReturn: "list" | "detail";
+  screen: "map";
+  savedOrigin?: "search" | "history";
+  positions: Record<string, number>;
+  sheet?: JourneySheet;
+}
+
+interface LegacyJourneyNavigation {
+  screen: "list" | "detail" | "map";
   savedOrigin?: "search" | "history";
   positions: Record<string, number>;
   alternatives?: { previewId?: string; scrollTop: number };
 }
+
+/** History entries from an older tab can still contain full-screen results. */
+export function normalizeJourneyNavigation(
+  value?: JourneyNavigation | LegacyJourneyNavigation,
+  selectedId?: string,
+  hasJourneys = false,
+): JourneyNavigation {
+  const navigation: JourneyNavigation = {
+    screen: "map",
+    savedOrigin: value?.savedOrigin,
+    positions: { ...value?.positions },
+  };
+  if (value && "sheet" in value && value.sheet)
+    navigation.sheet = structuredClone(value.sheet);
+  else if (value && "alternatives" in value && value.alternatives) {
+    const { previewId, scrollTop } = value.alternatives;
+    navigation.sheet = previewId
+      ? {
+          mode: "preview",
+          journeyId: previewId,
+          scrollTop: 0,
+          listScrollTop: scrollTop,
+        }
+      : { mode: "alternatives", scrollTop };
+  } else if (value?.screen === "detail" && selectedId)
+    navigation.sheet = {
+      mode: "detail",
+      journeyId: selectedId,
+      scrollTop: value.positions[`detail:${selectedId}`] ?? 0,
+    };
+  else if (value?.screen === "list" && hasJourneys)
+    navigation.sheet = {
+      mode: "alternatives",
+      scrollTop: value.positions.list ?? 0,
+    };
+  return navigation;
+}
+
 export class JourneyView {
   onDetailsOpened?: () => void;
-  onNavigate?: (screen: JourneyScreen, replace: boolean) => void;
   onBack?: () => void;
-  onAlternativesChange?: (action: "open" | "update" | "close") => void;
+  onSheetChange?: (action: "open" | "update" | "close") => void;
   onLayoutChange?: () => void;
   onPositionChange?: () => void;
   private key = "";
@@ -74,8 +122,7 @@ export class JourneyView {
   private statusCountdown = new RetryCountdown();
   private mapCountdown = new RetryCountdown();
   private navigation: JourneyNavigation = {
-    screen: "list",
-    mapReturn: "list",
+    screen: "map",
     positions: {},
   };
   private readonly desktop = matchMedia("(min-width: 900px)");
@@ -91,7 +138,7 @@ export class JourneyView {
   private sheetDetailKey = "";
   private renderedDetailKey = "";
   private sheetAnchor?: { id: string; top: number };
-  private sheetPreviewReturnId?: string;
+  private sheetReturnTrigger = "result-back";
 
   constructor(
     private select: (id: string) => void,
@@ -122,7 +169,7 @@ export class JourneyView {
       element.before(home);
       this.sheetHomes.set(element, home);
     }
-    el("alternatives-close").onclick = () => this.closeAlternatives();
+    el("alternatives-close").onclick = () => this.closeSheet();
     this.alternativesDialog.addEventListener("keydown", (event) => {
       if (event.key !== "Tab") return;
       const controls = [
@@ -148,55 +195,51 @@ export class JourneyView {
     });
     this.alternativesDialog.addEventListener("cancel", (event) => {
       event.preventDefault();
-      this.closeAlternatives();
+      this.closeSheet();
     });
     el("alternatives-back").onclick = () => {
-      const sheet = this.navigation.alternatives;
-      if (!sheet) return;
-      delete sheet.previewId;
-      this.refreshAlternatives();
-      this.onAlternativesChange?.("update");
+      const sheet = this.navigation.sheet;
+      if (sheet?.mode !== "preview") return;
+      this.navigation.sheet = {
+        mode: "alternatives",
+        scrollTop: sheet.listScrollTop ?? 0,
+      };
+      this.refreshSheet();
+      this.onSheetChange?.("update");
       el("choices")
         .querySelector<HTMLElement>(
-          `.route-detail-link[data-detail-journey="${CSS.escape(this.sheetPreviewReturnId ?? "")}"]`,
+          `.route-detail-link[data-detail-journey="${CSS.escape(sheet.journeyId ?? "")}"]`,
         )
         ?.focus({ preventScroll: true });
     };
     el("alternatives-select").onclick = () => {
-      const id = this.navigation.alternatives?.previewId;
+      const sheet = this.navigation.sheet;
+      const id = sheet?.mode === "preview" ? sheet.journeyId : undefined;
       if (!id || !this.lastState?.journeys.some((journey) => journey.id === id))
         return;
       this.select(id);
-      this.closeAlternatives();
+      this.closeSheet();
     };
     el("alternatives-body").addEventListener(
       "scroll",
       () => {
-        const sheet = this.navigation.alternatives;
-        if (sheet && !sheet.previewId) {
-          sheet.scrollTop = el("alternatives-body").scrollTop;
+        if (this.navigation.sheet) {
+          this.saveSheetPosition();
           this.onPositionChange?.();
         }
       },
       { passive: true },
     );
-    el("panel-map-toggle").onclick = () => this.requestScreen("map");
     el("result-back").onclick = () => {
-      if (
-        !this.desktop.matches &&
-        this.screen === "map" &&
-        !this.savedOrigin &&
-        !this.example
-      ) {
+      if (!this.desktop.matches && !this.savedOrigin && !this.example) {
         this.openAlternatives();
         return;
       }
       if (this.onBack) this.onBack();
-      else this.showScreen("list");
+      else this.openAlternatives();
     };
     el("map-open-details").onclick = () => {
-      this.onDetailsOpened?.();
-      this.requestScreen("detail", true);
+      this.openDetails();
     };
     el("choices").onkeydown = (event) => {
       if (
@@ -236,9 +279,8 @@ export class JourneyView {
       el(id).addEventListener("click", closeActions, { capture: true });
     }
     this.desktop.addEventListener("change", () => {
-      if (this.desktop.matches) this.closeAlternatives(true, false);
+      if (this.desktop.matches) this.closeSheet(true, false);
       const active = document.activeElement as HTMLElement;
-      this.selectPreviewScreen();
       this.applyLayout();
       this.restorePosition();
       if (
@@ -271,15 +313,12 @@ export class JourneyView {
             : 0) +
           panel.querySelector<HTMLElement>(".panel-actions")!.offsetHeight +
           48;
-        const row =
-          this.screen === "list"
-            ? Math.max(
-                100,
-                ...[...el("choices").children].map(
-                  (e) => e.getBoundingClientRect().height,
-                ),
-              )
-            : 180;
+        const row = Math.max(
+          100,
+          ...[...el("choices").children].map(
+            (e) => e.getBoundingClientRect().height,
+          ),
+        );
         // Wrapping changes between scroll modes. Leave spare room before
         // returning to the fixed header and footer to avoid resize oscillation.
         const spare = wasScrolling
@@ -287,7 +326,7 @@ export class JourneyView {
           : 0;
         panel.classList.toggle(
           "result-scroll-all",
-          (this.desktop.matches || this.screen !== "map") &&
+          this.desktop.matches &&
             el("map-view").clientHeight < fixed + row + spare,
         );
         if (wasScrolling && panel.classList.contains("result-scroll-all"))
@@ -314,61 +353,102 @@ export class JourneyView {
     }
     this.applyLayout();
   }
-  get alternativesOpen() {
+  get sheetOpen() {
     return this.alternativesDialog.open;
   }
   openAlternatives() {
     if (
       this.desktop.matches ||
-      this.screen !== "map" ||
       !this.lastState?.journeys.length ||
       this.requestPreview ||
-      this.alternativesOpen
+      this.sheetOpen
     )
       return;
-    closeMapStylePickers();
-    this.navigation.alternatives = { scrollTop: 0 };
-    el("alternatives-announcement").textContent = "";
-    this.sheetCalculationId = this.lastState.calculationId;
-    this.refreshAlternatives();
+    this.openSheet({ mode: "alternatives", scrollTop: 0 });
     const selected = el("choices").querySelector<HTMLElement>(
       '.route-choice[aria-pressed="true"]',
     );
     selected?.scrollIntoView({ block: "nearest" });
     selected?.focus({ preventScroll: true });
-    this.onAlternativesChange?.("open");
   }
-  closeAlternatives(notify = true, focus = true) {
-    if (!this.navigation.alternatives && !this.alternativesOpen) return;
-    delete this.navigation.alternatives;
-    this.refreshAlternatives();
-    if (focus && this.screen === "map" && !this.desktop.matches)
-      el("result-back").focus({ preventScroll: true });
-    if (notify) this.onAlternativesChange?.("close");
+  openDetails() {
+    if (
+      this.desktop.matches ||
+      !this.lastState?.selected ||
+      this.requestPreview ||
+      this.sheetOpen
+    )
+      return;
+    this.onDetailsOpened?.();
+    this.openSheet({
+      mode: "detail",
+      journeyId: this.lastState.selected.id,
+      scrollTop: 0,
+    });
+    el("alternatives-title").focus({ preventScroll: true });
   }
-  dismissAlternatives() {
-    if (!this.navigation.alternatives && !this.alternativesOpen) return;
-    this.closeAlternatives(false, false);
-    this.onAlternativesChange?.("update");
+  private openSheet(sheet: JourneySheet) {
+    closeMapStylePickers();
+    this.navigation.sheet = sheet;
+    this.sheetReturnTrigger =
+      sheet.mode === "detail" ? "map-open-details" : "result-back";
+    el("alternatives-announcement").textContent = "";
+    this.sheetCalculationId = this.lastState?.calculationId;
+    this.refreshSheet();
+    this.onSheetChange?.("open");
   }
-  private refreshAlternatives() {
+  closeSheet(notify = true, focus = true) {
+    if (!this.navigation.sheet && !this.sheetOpen) return;
+    delete this.navigation.sheet;
+    this.refreshSheet();
+    if (focus) this.focusSheetTrigger();
+    if (notify) this.onSheetChange?.("close");
+  }
+  focusSheetTrigger() {
+    if (this.desktop.matches) this.focusSelection();
+    else {
+      const trigger = el(this.sheetReturnTrigger);
+      (trigger.getClientRects().length
+        ? trigger
+        : el("map-preview-heading")
+      ).focus({ preventScroll: true });
+    }
+  }
+  dismissSheet() {
+    if (!this.navigation.sheet && !this.sheetOpen) return;
+    this.closeSheet(false, false);
+    this.onSheetChange?.("update");
+  }
+  private refreshSheet() {
     this.key = "";
     if (this.lastState) this.render(this.lastState, this.lastCyclingLimit);
     else this.applyLayout();
   }
   private previewAlternative(id: string) {
-    const sheet = this.navigation.alternatives;
-    if (!sheet) return;
-    sheet.scrollTop = el("alternatives-body").scrollTop;
-    sheet.previewId = id;
-    this.sheetPreviewReturnId = id;
+    const sheet = this.navigation.sheet;
+    if (sheet?.mode !== "alternatives") return;
+    this.saveSheetPosition();
+    this.navigation.sheet = {
+      mode: "preview",
+      journeyId: id,
+      listScrollTop: sheet.scrollTop,
+      scrollTop: 0,
+    };
     this.onDetailsOpened?.();
-    this.refreshAlternatives();
+    this.refreshSheet();
     el("alternatives-title").focus({ preventScroll: true });
-    this.onAlternativesChange?.("update");
+    this.onSheetChange?.("update");
   }
-  private renderAlternatives() {
-    const sheet = this.navigation.alternatives;
+  private sheetKey(sheet: JourneySheet) {
+    return `${sheet.mode}:${sheet.journeyId ?? ""}`;
+  }
+  private saveSheetPosition() {
+    const sheet = this.navigation.sheet;
+    if (sheet && this.sheetOpen && this.sheetKey(sheet) === this.sheetDetailKey)
+      sheet.scrollTop = el("alternatives-body").scrollTop;
+  }
+  private renderSheet() {
+    let sheet = this.navigation.sheet;
     if (!sheet) {
       if (this.alternativesDialog.open) this.alternativesDialog.close();
       for (const [element, home] of this.sheetHomes)
@@ -376,23 +456,34 @@ export class JourneyView {
       this.sheetDetailKey = "";
       return;
     }
-    const preview = this.lastState?.journeys.find(
-      (journey) => journey.id === sheet.previewId,
+    const journeyId = sheet.journeyId;
+    const journey = this.lastState?.journeys.find(
+      (journey) => journey.id === journeyId,
     );
-    const unavailable = !!sheet.previewId && !preview;
+    const unavailable = sheet.mode === "preview" && !journey;
     if (unavailable) {
-      delete sheet.previewId;
+      sheet = this.navigation.sheet = {
+        mode: "alternatives",
+        scrollTop: sheet.listScrollTop ?? 0,
+      };
       el("alternatives-announcement").textContent =
         "Diese Verbindung ist nicht mehr verfügbar. Bitte wähle eine Alternative.";
-      this.onAlternativesChange?.("update");
     }
-    const detail = !!preview;
-    this.alternativesDialog.dataset.mode = detail ? "detail" : "list";
+    const detail = sheet.mode !== "alternatives";
+    this.alternativesDialog.dataset.mode = sheet.mode;
     el("alternatives-title").textContent = detail
       ? "Reiseablauf"
       : "Alternativen";
-    el("alternatives-back").hidden = !detail;
-    el("alternatives-footer").hidden = !detail;
+    el("alternatives-close").setAttribute(
+      "aria-label",
+      detail ? "Reiseablauf schließen" : "Alternativen schließen",
+    );
+    el("alternatives-body").setAttribute(
+      "aria-label",
+      detail ? "Reiseablauf" : "Verbindungen",
+    );
+    el("alternatives-back").hidden = sheet.mode !== "preview";
+    el("alternatives-footer").hidden = sheet.mode !== "preview";
     const body = el("alternatives-body");
     for (const id of [
       "status",
@@ -406,6 +497,16 @@ export class JourneyView {
       "choices",
       "panel-details",
     ]) {
+      if (
+        sheet.mode === "detail" &&
+        !["panel-details", "saved-notice", "stale-notice"].includes(id)
+      ) {
+        const element = el(id);
+        const home = this.sheetHomes.get(element);
+        if (home)
+          movePreservingFocus(element, home.parentNode!, home.nextSibling);
+        continue;
+      }
       if (id === "planning-recovery" && el(id).dataset.planningToast) continue;
       movePreservingFocus(el(id), body);
     }
@@ -424,13 +525,16 @@ export class JourneyView {
     ])
       el(id).toggleAttribute(
         "data-sheet-detail-hidden",
-        detail && !(id === "planning-recovery" && el(id).dataset.planningToast),
+        detail &&
+          !(
+            sheet.mode === "detail" &&
+            ["saved-notice", "stale-notice"].includes(id)
+          ) &&
+          !(id === "planning-recovery" && el(id).dataset.planningToast),
       );
-    if (preview) this.renderDetailContent(preview, this.restored);
+    if (detail && journey) this.renderDetailContent(journey, this.restored);
     if (!this.alternativesDialog.open) this.alternativesDialog.showModal();
-    const key = preview?.id ?? "list";
-    if (!detail || key !== this.sheetDetailKey)
-      body.scrollTop = detail ? 0 : sheet.scrollTop;
+    body.scrollTop = sheet.scrollTop;
     if (!detail && this.sheetAnchor) {
       const row = el("choices")
         .querySelector<HTMLElement>(
@@ -440,107 +544,71 @@ export class JourneyView {
       if (row)
         body.scrollTop +=
           row.getBoundingClientRect().top - this.sheetAnchor.top;
-      sheet.scrollTop = body.scrollTop;
     }
     this.sheetAnchor = undefined;
-    this.sheetDetailKey = key;
-    if (unavailable) el("alternatives-title").focus({ preventScroll: true });
-  }
-  get screen() {
-    return this.navigation.screen;
+    this.sheetDetailKey = this.sheetKey(sheet);
+    sheet.scrollTop = body.scrollTop;
+    if (unavailable) {
+      el("alternatives-title").focus({ preventScroll: true });
+      this.onSheetChange?.("update");
+    }
   }
   private get example() {
     return this.presentation === "example";
   }
   get mapVisible() {
-    return (
-      (this.desktop.matches || this.screen === "map") &&
-      (!this.requestPreview || this.requestMapReady)
-    );
+    return !this.requestPreview || this.requestMapReady;
   }
   get savedOrigin() {
     return this.navigation.savedOrigin;
-  }
-  get backScreen() {
-    return this.screen === "map" ? this.navigation.mapReturn : "list";
   }
   snapshot(): JourneyNavigation {
     this.savePosition();
     return structuredClone(this.navigation);
   }
-  restoreNavigation(value?: JourneyNavigation, focus = false) {
-    const previous = this.screen;
-    stopMotionWithin(el("journey-panel"));
-    const fromDetail = this.screen === "detail";
-    this.navigation =
-      value && ["list", "detail", "map"].includes(value.screen)
-        ? structuredClone(value)
-        : { screen: "list", mapReturn: "list", positions: {} };
-    this.key = "";
-    if (this.navigation.alternatives)
+  restoreNavigation(
+    value?: JourneyNavigation | LegacyJourneyNavigation,
+    focus = false,
+  ) {
+    if (this.navigation.sheet)
+      this.sheetReturnTrigger =
+        this.navigation.sheet.mode === "detail"
+          ? "map-open-details"
+          : "result-back";
+    this.navigation = normalizeJourneyNavigation(
+      value,
+      this.lastState?.selected?.id,
+      !!this.lastState?.journeys.length,
+    );
+    if (this.desktop.matches) delete this.navigation.sheet;
+    if (this.navigation.sheet) {
       this.sheetCalculationId = this.lastState?.calculationId;
-    this.refreshAlternatives();
+      if (this.navigation.sheet.mode !== "alternatives")
+        this.onDetailsOpened?.();
+      this.sheetReturnTrigger =
+        this.navigation.sheet.mode === "detail"
+          ? "map-open-details"
+          : "result-back";
+    }
+    this.sheetDetailKey = "";
+    this.refreshSheet();
     this.restorePosition();
-    if (focus) this.focusSelection(fromDetail);
-    if (focus) this.animateScreen(previous);
+    if (focus) this.focusSelection();
   }
-  reset(screen: JourneyScreen = "list", savedOrigin?: "search" | "history") {
-    this.restoreNavigation({
-      screen,
-      mapReturn: "list",
-      savedOrigin,
-      positions: {},
-    });
-  }
-  showScreen(screen: JourneyScreen, focus = true) {
-    if (screen !== "map") this.dismissAlternatives();
-    const previous = this.screen;
-    stopMotionWithin(el("journey-panel"));
-    const fromDetail = this.screen === "detail";
-    this.savePosition();
-    if (screen === "map" && this.screen !== "map")
-      this.navigation.mapReturn = this.screen;
-    this.navigation.screen = screen;
-    this.applyLayout();
-    this.restorePosition();
-    if (focus) this.focusSelection(fromDetail);
-    this.animateScreen(previous);
-  }
-  private animateScreen(previous: JourneyScreen) {
-    if (previous === this.screen || this.desktop.matches) return;
-    const target =
-      this.screen === "map"
-        ? el("map-preview-summary")
-        : this.screen === "detail"
-          ? this.detailPanel
-          : el("choices");
-    const mapChange = previous === "map" || this.screen === "map";
-    reveal(target, {
-      x: mapChange ? 0 : this.screen === "detail" ? 18 : -18,
-      y: mapChange ? 12 : 0,
-    });
-  }
-  private requestScreen(screen: JourneyScreen, replace = false) {
-    if (this.onNavigate) this.onNavigate(screen, replace);
-    else this.showScreen(screen);
-  }
-  private selectPreviewScreen() {
-    if (this.requestPreview && !this.desktop.matches)
-      this.navigation.screen = "map";
+  reset(savedOrigin?: "search" | "history") {
+    this.restoreNavigation({ screen: "map", savedOrigin, positions: {} });
   }
   private scrollContainer() {
-    return el("journey-panel").classList.contains("result-scroll-all")
+    return !this.desktop.matches ||
+      el("journey-panel").classList.contains("result-scroll-all")
       ? el("journey-panel")
       : el("panel-content");
   }
   private positionKey() {
-    return this.desktop.matches
-      ? "desktop"
-      : this.screen === "detail"
-        ? `detail:${this.displayedID}`
-        : this.screen;
+    return this.desktop.matches ? "desktop" : "map";
   }
   private savePosition() {
+    this.saveSheetPosition();
     this.navigation.positions[this.positionKey()] =
       this.scrollContainer().scrollTop;
   }
@@ -551,33 +619,28 @@ export class JourneyView {
   private applyLayout() {
     const active = document.activeElement as HTMLElement;
     const mobile = !this.desktop.matches;
-    const map = mobile && this.screen === "map";
-    const detail = mobile && this.screen === "detail";
-    el("map-view").dataset.resultScreen = mobile ? this.screen : "desktop";
+    const map = mobile;
+    el("map-view").dataset.resultScreen = mobile ? "map" : "desktop";
     el("journey-panel").toggleAttribute(
       "data-request-preview",
       this.requestPreview,
     );
-    el("choices").hidden = map || detail || this.requestPreview;
+    el("choices").hidden = mobile || this.requestPreview;
     this.detailPanel.hidden =
-      this.requestPreview || !this.displayedID || (mobile && !detail);
+      this.requestPreview || !this.displayedID || mobile;
     this.detailPanel.inert = this.detailPanel.hidden;
     el("result-back").hidden =
-      this.requestPreview || !mobile || this.screen === "list";
-    el("result-back").className = map ? "secondary" : "text-button";
-    el("result-back").textContent = this.example
-      ? map
-        ? "Beispielroute"
-        : "‹ Beispielroute"
-      : map
-        ? this.savedOrigin
-          ? "Verlauf"
-          : "Alternativen"
-        : this.savedOrigin === "history"
-          ? "‹ Verlauf"
-          : this.savedOrigin === "search"
-            ? "‹ Zur Suche"
-            : "‹ Alle Verbindungen";
+      this.requestPreview ||
+      !mobile ||
+      this.example ||
+      (!this.savedOrigin && !this.lastState?.journeys.length);
+    el("result-back").className = "secondary";
+    el("result-back").textContent =
+      this.savedOrigin === "history"
+        ? "Verlauf"
+        : this.savedOrigin === "search"
+          ? "Zur Suche"
+          : "Alternativen";
     const resultNav = el("result-nav");
     const resultHeader = el("result-header");
     const mapActions = el("map-preview-actions");
@@ -595,7 +658,10 @@ export class JourneyView {
       el("result-back").setAttribute("aria-controls", "alternatives-dialog");
       el("result-back").setAttribute(
         "aria-expanded",
-        String(!!this.navigation.alternatives),
+        String(
+          this.navigation.sheet?.mode === "alternatives" ||
+            this.navigation.sheet?.mode === "preview",
+        ),
       );
     } else {
       el("result-back").removeAttribute("aria-controls");
@@ -611,15 +677,12 @@ export class JourneyView {
         resultHeader.nextSibling,
       );
     }
-    const mapToggle = el<HTMLButtonElement>("panel-map-toggle");
-    const mapToggleParent = el(
-      mobile && !map ? "planning-context-footer" : "result-nav",
-    );
-    if (mapToggle.parentElement !== mapToggleParent)
-      mapToggleParent.append(mapToggle);
-    mapToggle.hidden = this.requestPreview || !mobile || map;
-    mapToggle.disabled = !this.displayedID;
     el("map-preview").hidden = !map || this.requestPreview;
+    el("map-open-details").hidden = !this.displayedID || this.requestPreview;
+    el("map-open-details").setAttribute(
+      "aria-expanded",
+      String(this.navigation.sheet?.mode === "detail"),
+    );
     const recovery = el("planning-recovery");
     const recoveryAnchor = el(
       this.requestPreview
@@ -629,7 +692,7 @@ export class JourneyView {
           : "stale-notice",
     );
     if (
-      !this.navigation.alternatives &&
+      (!this.navigation.sheet || this.navigation.sheet.mode === "detail") &&
       !recovery.dataset.planningToast &&
       (this.requestPreview
         ? recovery.parentElement !== el("search-preview-feedback")
@@ -646,7 +709,8 @@ export class JourneyView {
       );
     for (const [element, home] of this.feedbackHomes) {
       if (
-        this.navigation.alternatives &&
+        this.navigation.sheet &&
+        this.navigation.sheet.mode !== "detail" &&
         [
           "issues",
           "map-error",
@@ -691,7 +755,7 @@ export class JourneyView {
         el(id).hidden = true;
       el<HTMLButtonElement>("navigation-start").disabled = true;
     }
-    el("result-context").hidden = detail || map;
+    el("result-context").hidden = map;
     el("result-freshness").hidden = this.example;
     for (const element of [
       el("map"),
@@ -718,48 +782,39 @@ export class JourneyView {
       active === el("result-context")
     )
       el("search-preview-heading").focus({ preventScroll: true });
-    this.renderAlternatives();
+    this.renderSheet();
     this.onLayoutChange?.();
   }
-  focusSelection(fromDetail = false) {
-    if (this.alternativesOpen) {
-      (this.navigation.alternatives?.previewId
-        ? el("alternatives-title")
-        : (el("choices").querySelector<HTMLElement>(
+  focusSelection() {
+    if (this.sheetOpen) {
+      (this.navigation.sheet?.mode === "alternatives"
+        ? (el("choices").querySelector<HTMLElement>(
             '.route-choice[aria-pressed="true"]',
           ) ?? el("alternatives-title"))
+        : el("alternatives-title")
       ).focus({ preventScroll: true });
       return;
     }
     const target = this.requestPreview
       ? el(this.desktop.matches ? "result-context" : "search-preview-heading")
-      : !this.desktop.matches && this.screen === "map"
+      : !this.desktop.matches
         ? el("map-preview-heading")
-        : !this.desktop.matches && this.screen === "detail"
-          ? el("journey-heading")
-          : (el("choices").querySelector<HTMLElement>(
-              fromDetail
-                ? ".route-choice-row.selected .route-detail-link"
-                : '.route-choice[aria-pressed="true"]',
-            ) ?? el("result-context"));
+        : (el("choices").querySelector<HTMLElement>(
+            '.route-choice[aria-pressed="true"]',
+          ) ?? el("result-context"));
     target.focus({ preventScroll: true });
   }
   render(state: PlanningState, cyclingLimit = 30) {
-    if (
-      this.alternativesOpen &&
-      this.alternativesDialog.dataset.mode === "list" &&
-      this.navigation.alternatives &&
-      !this.navigation.alternatives.previewId
-    )
-      this.navigation.alternatives.scrollTop =
-        el("alternatives-body").scrollTop;
+    this.saveSheetPosition();
+    const newRequest =
+      !!state.pendingRequest &&
+      state.pendingRequest !== this.lastState?.pendingRequest;
     // Preserve the visible connection when live results rebuild the shared list.
     this.sheetAnchor = undefined;
     if (
-      this.alternativesOpen &&
-      this.alternativesDialog.dataset.mode === "list" &&
-      this.navigation.alternatives &&
-      !this.navigation.alternatives.previewId &&
+      this.sheetOpen &&
+      this.sheetDetailKey === "alternatives:" &&
+      this.navigation.sheet?.mode === "alternatives" &&
       el("alternatives-body").scrollTop > 0
     ) {
       const top = el("alternatives-body").getBoundingClientRect().top;
@@ -773,15 +828,17 @@ export class JourneyView {
     }
     this.lastState = state;
     this.lastCyclingLimit = cyclingLimit;
-    if (
-      this.navigation.alternatives &&
+    const sheetClosed =
+      !!this.navigation.sheet &&
       (this.desktop.matches ||
-        this.screen !== "map" ||
         state.calculationId !== this.sheetCalculationId ||
         !state.journeys.length ||
-        state.pendingRequest)
-    )
-      delete this.navigation.alternatives;
+        newRequest ||
+        (this.navigation.sheet.mode === "detail" &&
+          !state.journeys.some(
+            (journey) => journey.id === this.navigation.sheet?.journeyId,
+          )));
+    if (sheetClosed) delete this.navigation.sheet;
     this.statusCountdown.clear();
     this.mapCountdown.clear();
     const previewHeadingFocused =
@@ -790,7 +847,6 @@ export class JourneyView {
     this.requestPreview = !!preview;
     this.requestMapReady =
       !!preview && !state.locating && state.pendingRequestResolved !== false;
-    this.selectPreviewScreen();
     const firstResults = !this.hadChoices && state.journeys.length > 0;
     this.hadChoices = state.journeys.length > 0;
     const request = state.request;
@@ -938,7 +994,8 @@ export class JourneyView {
       );
     if (onlyComparison && !state.busy)
       el("status").textContent =
-        `${progressMessage ? progressMessage + " " : ""}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`;
+        mapStatus.textContent = `${progressMessage ? progressMessage + " " : ""}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`;
+    if (onlyComparison && !state.busy) mapStatus.hidden = false;
     el("cycling-comparison").textContent = j
       ? cyclingComparisonLabel(j, cyclingLimit)
       : "";
@@ -962,15 +1019,17 @@ export class JourneyView {
       .filter((j) => cyclingExcess(j, cyclingLimit) === 0)
       .sort((a, b) => compare(a, b, state.request?.timing ?? "now"))[0];
     const recommendedID = recommended?.id;
-    el("map-preview-heading").textContent = this.example
-      ? "Beispielroute"
-      : state.restored
-        ? "Gespeicherte Route"
-        : j && cyclingExcess(j, cyclingLimit) > 0
-          ? "Fahrradvergleich"
-          : j?.id === recommendedID
-            ? recommendation
-            : "Ausgewählte Verbindung";
+    el("map-preview-heading").textContent = !j
+      ? "Routensuche"
+      : this.example
+        ? "Beispielroute"
+        : state.restored
+          ? "Gespeicherte Route"
+          : j && cyclingExcess(j, cyclingLimit) > 0
+            ? "Fahrradvergleich"
+            : j?.id === recommendedID
+              ? recommendation
+              : "Ausgewählte Verbindung";
     el("saved-notice").hidden = !state.restored;
     if (state.restored)
       el("saved-notice").textContent =
@@ -992,6 +1051,10 @@ export class JourneyView {
     if (key === this.key) {
       this.applyLayout();
       this.restorePosition();
+      if (sheetClosed) {
+        this.focusSheetTrigger();
+        this.onSheetChange?.("close");
+      }
       return;
     }
     this.key = key;
@@ -1027,12 +1090,12 @@ export class JourneyView {
           : `${comparison ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: Ankunft ${dateLabel(journey.arrival)} ${clock(journey.arrival)}, Abfahrt ${dateLabel(journey.departure)} ${clock(journey.departure)}, Gesamtdauer ${duration(journey.arrival - journey.departure)}, ${effortText}. ${outline}`,
       );
       button.onclick = () => {
-        const fromSheet = !!this.navigation.alternatives;
+        const fromSheet = !!this.navigation.sheet;
         this.savePosition();
         const changed = journey.id !== this.displayedID;
         this.select(journey.id);
         if (fromSheet) {
-          this.closeAlternatives();
+          this.closeSheet();
           return;
         }
         if (changed) {
@@ -1062,19 +1125,19 @@ export class JourneyView {
           ? "Details zur Beispielroute"
           : `Details: Abfahrt ${clock(journey.departure)}, Ankunft ${clock(journey.arrival)}`,
       );
-      details.disabled = !this.navigation.alternatives && journey.id !== j?.id;
+      details.disabled = !this.navigation.sheet && journey.id !== j?.id;
       details.inert = details.disabled;
       details.onclick = () => {
-        if (this.navigation.alternatives) {
+        if (this.navigation.sheet) {
           this.previewAlternative(journey.id);
           return;
         }
-        this.onDetailsOpened?.();
         if (this.desktop.matches) {
+          this.onDetailsOpened?.();
           el("journey-heading").focus({ preventScroll: true });
           this.detailPanel.scrollIntoView({ block: "nearest" });
           reveal(el("journey-detail"), { y: 8 });
-        } else this.requestScreen("detail");
+        } else this.openDetails();
       };
       row.append(button, details);
       el("choices").append(row);
@@ -1082,7 +1145,7 @@ export class JourneyView {
     if (j) {
       const detailJourney =
         state.journeys.find(
-          (journey) => journey.id === this.navigation.alternatives?.previewId,
+          (journey) => journey.id === this.navigation.sheet?.journeyId,
         ) ?? j;
       this.renderDetailContent(detailJourney, state.restored);
       el("map-preview-summary").replaceChildren(
@@ -1097,6 +1160,18 @@ export class JourneyView {
     this.applyLayout();
     this.restorePosition();
     if (firstResults) reveal(el("choices"), { y: 10 });
+    if (
+      firstResults &&
+      !this.desktop.matches &&
+      !el("map-view").hidden &&
+      !document.querySelector("dialog[open]") &&
+      (active === document.body ||
+        active === el("result-context") ||
+        active === el("map-preview-heading") ||
+        active.closest("#search-preview") ||
+        !active.getClientRects().length)
+    )
+      this.focusSelection();
     if (previewHeadingFocused && !preview && state.selected)
       el(this.desktop.matches ? "result-context" : "map-preview-heading").focus(
         { preventScroll: true },
@@ -1113,6 +1188,10 @@ export class JourneyView {
       [...el("choices").querySelectorAll<HTMLButtonElement>("button")]
         .find((b) => b.dataset.journey === focused)
         ?.focus({ preventScroll: true });
+    if (sheetClosed) {
+      this.focusSheetTrigger();
+      this.onSheetChange?.("close");
+    }
   }
 
   private summary(

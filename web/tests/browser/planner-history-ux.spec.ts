@@ -74,6 +74,7 @@ test("Back and Forward restore distinct submitted plans without result history e
   await page.locator(".route-choice").last().click();
   expect(page.url()).toBe(first);
   expect(await page.evaluate(() => history.length)).toBe(length);
+  await showMap(page);
   await page.locator("#adjust-route").click();
   await page.route("**/api/v1/geocode?*", (r) =>
     r.fulfill({
@@ -109,6 +110,7 @@ test("editing a saved now result uses its original search time without starting 
   page.on("request", (r) => {
     if (r.url().includes("/v6/plan")) requests++;
   });
+  await showMap(page);
   await page.locator("#adjust-route").click();
   await expect(page.locator("#time-summary")).toHaveText("Heute, ab 10:00");
   await expect(page.locator("#when")).toHaveValue("2026-09-04T10:00");
@@ -153,11 +155,14 @@ test("history deduplicates routes, restores without requests and replans from fi
   await openCachedJourney(page, page.locator(".history-open").last());
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(page.locator("#route-origin")).toHaveText("Startpunkt");
+  await showMap(page);
   await page.goBack();
   await expect(page.locator("#history-view")).toBeVisible();
   await page.goForward();
+  await page.locator("#map-open-details").click();
   await expect(page.locator("#saved-notice")).toBeVisible();
   expect(requests).toBe(0);
+  await showMap(page);
   await context.setOffline(true);
   await page.locator("#tab-history").click();
   await openCachedJourney(page, page.locator(".history-open").first());
@@ -165,6 +170,7 @@ test("history deduplicates routes, restores without requests and replans from fi
   await expect(page.locator("#replan-saved")).toBeDisabled();
   expect(requests).toBe(0);
   await context.setOffline(false);
+  await showMap(page);
   const queried = page.waitForRequest("**/api/v6/plan?*");
   await page.locator("#replan-saved").click();
   const url = new URL((await queried).url());
@@ -352,6 +358,7 @@ test("small itinerary screens keep archived actions reachable", async ({
       (size) => (document.documentElement.style.fontSize = `${size}px`),
       fontSize,
     );
+    await showMap(page);
     await page.locator("#route-more").scrollIntoViewIfNeeded();
     await page.locator("#replan-saved").scrollIntoViewIfNeeded();
     await expect(page.locator("#replan-saved")).toBeInViewport({ ratio: 1 });
@@ -579,6 +586,7 @@ test("new GPS planning enriches history without renaming the active origin", asy
     await page.evaluate(() => (window as any).gpsRequests),
   ).toBeGreaterThan(gpsRequests);
   await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
+  await showMap(page);
   await page.locator("#adjust-route").click();
   await expect(page.locator("#origin")).toHaveValue("Aktueller Standort");
   await page.locator("#cancel-adjust").click();
@@ -590,11 +598,13 @@ test("new GPS planning enriches history without renaming the active origin", asy
   await expect(page.locator("#route-origin")).toHaveText(
     "Marienplatz 22, München",
   );
+  await showMap(page);
   await page.locator("#adjust-route").click();
   await choose(page, "origin", "Start");
   await page.locator("#calculate").click();
   await expectPlanningComplete(page);
   await expect(page.locator("#route-origin")).toHaveText("Start");
+  await showMap(page);
   await page.locator("#adjust-route").click();
   await page.locator("#origin-location").click();
   await expect(page.locator("#origin-location")).toBeEnabled();
@@ -604,7 +614,7 @@ test("new GPS planning enriches history without renaming the active origin", asy
 });
 
 for (const origin of ["history", "search"]) {
-  test(`saved map returns to Verlauf from ${origin}`, async ({ page }) => {
+  test(`saved map returns to its origin from ${origin}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setup(page);
     await plan(page);
@@ -619,7 +629,9 @@ for (const origin of ["history", "search"]) {
       if (request.url().includes("/api/v6/plan?")) requests++;
     });
     await showMap(page);
-    await expect(page.locator("#result-back")).toHaveText("Verlauf");
+    await expect(page.locator("#result-back")).toHaveText(
+      origin === "history" ? "Verlauf" : "Zur Suche",
+    );
     await expect(page.locator("#map-preview-heading")).toHaveText(
       "Gespeicherte Route",
     );
@@ -636,15 +648,16 @@ for (const origin of ["history", "search"]) {
     );
     await page.keyboard.press("Escape");
     await page.locator("#result-back").click();
-    await expect(page.locator("#history-view")).toBeVisible();
-    await expect(page.locator(".history-open")).toBeFocused();
+    await expect(page.locator(`#${origin}-view`)).toBeVisible();
+    if (origin === "history")
+      await expect(page.locator(".history-open")).toBeFocused();
     await page.goBack();
     await expect(page.locator("#map-view")).toHaveAttribute(
       "data-result-screen",
       "map",
     );
     await page.goForward();
-    await expect(page.locator("#history-view")).toBeVisible();
+    await expect(page.locator(`#${origin}-view`)).toBeVisible();
     await page.goBack();
     await page.locator("#map-open-details").click();
     await expect(page.locator("#panel-details")).toBeVisible();

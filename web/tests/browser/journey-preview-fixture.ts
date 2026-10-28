@@ -87,5 +87,6 @@ export async function preview(page: Page) {
     document.querySelector<HTMLElement>(".panel-actions")!.hidden = false;
     document.getElementById("navigation-start")!.hidden = false;
     view.render(state, 30);
+    view.focusSelection();
   });
 }
