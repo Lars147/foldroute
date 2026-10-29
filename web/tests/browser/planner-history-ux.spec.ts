@@ -922,6 +922,7 @@ test.describe("history touch gestures", () => {
     await swipe(page, -80);
     await page.locator(".history-remove").tap();
     await expect(page.locator(".history-row")).toHaveCount(0);
+    await expectMotionSettled(page.locator("#history-undo"));
     await page.locator("#history-undo-button").tap();
     await expect(page.locator(".history-row")).toHaveCount(1);
   });

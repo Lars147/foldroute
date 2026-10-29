@@ -152,13 +152,19 @@ for (const { name, width } of [
       await page.setViewportSize({ width, height: 812 });
       await page.emulateMedia({ reducedMotion: "no-preference" });
       await example(page);
-      await picker(page);
       const panel = page.locator("#overview-map-style-panel");
       const trigger = page.getByRole("button", {
         name: "Kartenstil wählen",
         exact: true,
       });
-      const open = await panel.evaluate((element) => {
+      const open = await panel.evaluate(async (element) => {
+        const opened = new Promise<void>((resolve) => {
+          element.addEventListener("toggle", () => resolve(), { once: true });
+        });
+        // Capture entry in the same task as opening, before the transition can finish.
+        document
+          .querySelector<HTMLButtonElement>("#map-style-control button")!
+          .click();
         const animations = element.getAnimations();
         const entry = animations.find(
           (animation) =>
@@ -167,6 +173,8 @@ for (const { name, width } of [
         if (!entry) throw new Error("Missing menu entry transition");
         const duration = Number(entry.effect!.getTiming().duration);
         animations.forEach((animation) => animation.finish());
+        // The toggle handler positions the desktop menu before measuring it.
+        await opened;
         const bounds = element.getBoundingClientRect();
         element.addEventListener("toggle", function pauseExit(event) {
           if ((event as ToggleEvent).newState !== "closed") return;
@@ -614,72 +622,78 @@ for (const colorScheme of ["light", "dark"] as const) {
     expect(layoutErrors).toEqual([]);
   });
 
-  test(`map tools form a reachable column without covering the travel panel in ${colorScheme}`, async ({
-    page,
-  }, info) => {
-    await page.emulateMedia({ colorScheme });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await example(page);
-    for (const [width, height] of [
-      [320, 568],
-      [390, 844],
-      [844, 390],
-      [1280, 900],
-    ]) {
-      await page.setViewportSize({ width, height });
-      await showMap(page);
-      const tools = [
-        page.locator("#map-route"),
-        page.locator("#map-style-control button").first(),
-        page.locator(".leaflet-control-zoom-in"),
-        page.locator(".leaflet-control-zoom-out"),
-      ];
-      await expect
-        .poll(async () => {
-          const panel = (await page.locator("#journey-panel").boundingBox())!;
-          const bounds = await Promise.all(
-            tools.map((tool) => tool.boundingBox()),
-          );
-          return bounds.every(
-            (box) =>
-              box &&
-              box.width === 48 &&
-              box.height === 48 &&
-              box.x >= 0 &&
-              box.y >= 0 &&
-              box.x + box.width <= width &&
-              box.y + box.height <= height &&
-              !(
-                box.x < panel.x + panel.width &&
-                box.x + box.width > panel.x &&
-                box.y < panel.y + panel.height &&
-                box.y + box.height > panel.y
-              ),
-          );
-        })
-        .toBe(true);
-      const bounds = await Promise.all(
-        tools.map(async (tool) => (await tool.boundingBox())!),
-      );
-      const group = (await page.locator("#map-controls").boundingBox())!;
-      const map = (await page.locator("#map").boundingBox())!;
-      expect(bounds.every((box) => box.x === bounds[0].x)).toBe(true);
-      expect(map.x + map.width - group.x - group.width).toBe(16);
-      expect(bounds[0].y - map.y).toBe(14);
-      expect(bounds[1].y - bounds[0].y - 48).toBe(8);
-      expect(bounds[2].y - bounds[1].y - 48).toBe(8);
-      expect(bounds[3].y - bounds[2].y - 48).toBe(0);
-      const panel = await picker(page);
-      await expect(
-        panel.getByRole("radio", { name: "Dunkel", exact: true }),
-      ).toBeInViewport({ ratio: 1 });
-      await page.keyboard.press("Escape");
-      await expect(panel).toBeHidden();
-      await page.screenshot({
-        path: info.outputPath(`map-controls-${width}x${height}.png`),
-      });
-    }
-  });
+  for (const standalone of [false, true])
+    test(`map tools form a reachable column without covering the travel panel in ${colorScheme} (${standalone ? "standalone" : "browser"})`, async ({
+      page,
+    }, info) => {
+      await page.emulateMedia({ colorScheme });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await example(page);
+      await page.evaluate((standalone) => {
+        document.documentElement.toggleAttribute("data-standalone", standalone);
+      }, standalone);
+      for (const [width, height] of [
+        [320, 568],
+        [390, 844],
+        [844, 390],
+        [1280, 900],
+      ]) {
+        await page.setViewportSize({ width, height });
+        await showMap(page);
+        const tools = [
+          page.locator("#map-route"),
+          page.locator("#map-style-control button").first(),
+          page.locator(".leaflet-control-zoom-in"),
+          page.locator(".leaflet-control-zoom-out"),
+        ];
+        await expect
+          .poll(async () => {
+            const panel = (await page.locator("#journey-panel").boundingBox())!;
+            const bounds = await Promise.all(
+              tools.map((tool) => tool.boundingBox()),
+            );
+            return bounds.every(
+              (box) =>
+                box &&
+                box.width === 48 &&
+                box.height === 48 &&
+                box.x >= 0 &&
+                box.y >= 0 &&
+                box.x + box.width <= width &&
+                box.y + box.height <= height &&
+                !(
+                  box.x < panel.x + panel.width &&
+                  box.x + box.width > panel.x &&
+                  box.y < panel.y + panel.height &&
+                  box.y + box.height > panel.y
+                ),
+            );
+          })
+          .toBe(true);
+        const bounds = await Promise.all(
+          tools.map(async (tool) => (await tool.boundingBox())!),
+        );
+        const group = (await page.locator("#map-controls").boundingBox())!;
+        const map = (await page.locator("#map").boundingBox())!;
+        expect(bounds.every((box) => box.x === bounds[0].x)).toBe(true);
+        expect(map.x + map.width - group.x - group.width).toBe(16);
+        expect(bounds[0].y - map.y).toBe(
+          standalone && width < 900 && height > 500 ? 38 : 14,
+        );
+        expect(bounds[1].y - bounds[0].y - 48).toBe(8);
+        expect(bounds[2].y - bounds[1].y - 48).toBe(8);
+        expect(bounds[3].y - bounds[2].y - 48).toBe(0);
+        const panel = await picker(page);
+        await expect(
+          panel.getByRole("radio", { name: "Dunkel", exact: true }),
+        ).toBeInViewport({ ratio: 1 });
+        await page.keyboard.press("Escape");
+        await expect(panel).toBeHidden();
+        await page.screenshot({
+          path: info.outputPath(`map-controls-${width}x${height}.png`),
+        });
+      }
+    });
 }
 
 test("map style selection supports keyboard and large text on narrow screens", async ({

@@ -262,6 +262,9 @@ for (const width of [320, 390]) {
       );
       await page.goto("/");
       await openRecordedRouteEditor(page);
+      await page.evaluate(() => {
+        document.documentElement.dataset.standalone = "";
+      });
       const dialog = page.locator(".route-editor-places");
       for (const id of ["origin", "destination", "via-0"]) {
         if (id === "via-0") await addStop(page);
@@ -271,6 +274,25 @@ for (const width of [320, 390]) {
           page.locator(`#${id}-options .place-select`).last(),
         ).toBeVisible();
         await expect(input).toBeFocused();
+        expect(
+          await page.locator("body").evaluate((body) => {
+            const top = getComputedStyle(body, "::before");
+            const overlay = getComputedStyle(body, "::after");
+            return {
+              topContent: top.content,
+              topImage: top.backgroundImage,
+              image: overlay.backgroundImage,
+              filter: overlay.filter,
+              backdrop: overlay.backdropFilter,
+            };
+          }),
+        ).toEqual({
+          topContent: "none",
+          topImage: "none",
+          image: "none",
+          filter: "none",
+          backdrop: "none",
+        });
         await expect(input).toHaveCSS("outline-style", "solid");
         await expectMotionSettled(page.locator(`#${id}-options`));
         const bounds = (await input.boundingBox())!;

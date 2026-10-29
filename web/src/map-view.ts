@@ -611,7 +611,7 @@ export class RouteMap {
     }
     if (!this.map || el("map-view").hidden || el("map").inert) return;
     // Reserve room above the mobile panel for the currently visible controls.
-    const controlsSpace = `${Math.ceil(el("map-controls").getBoundingClientRect().height) + 22}px`;
+    const controlsSpace = `${Math.ceil(el("map-controls").getBoundingClientRect().height) + 8}px`;
     if (
       el("map-view").style.getPropertyValue("--map-controls-space") !==
       controlsSpace

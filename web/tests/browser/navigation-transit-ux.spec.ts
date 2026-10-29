@@ -1351,9 +1351,9 @@ test("requires confirmation after reload and resumes offline without fresh trans
 test("GPS advances street legs, fresh transit waits for confirmed exit, stops remain explicit", async ({
   page,
 }) => {
-  test.setTimeout(60000);
-  // This covers navigation decisions across a full journey; short dedicated
-  // cases above verify animation without replaying minutes of animation frames.
+  test.setTimeout(120_000);
+  // Replay sixteen simulated minutes with every timer tick and trip refresh.
+  // Short dedicated cases above verify the animation itself.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const journey = stationJourney();
   // Keep the walk longer than the 40m arrival tolerance: a fix at the exit

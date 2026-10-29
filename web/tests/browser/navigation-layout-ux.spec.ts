@@ -9,10 +9,13 @@ for (const theme of ["light", "dark"] as const)
     { width: 320, height: 568, top: 0, font: 16 },
     { width: 844, height: 390, top: 0, font: 16 },
   ])
-    test(`standalone navigation status bar stays compact at ${layout.width}px in ${theme}`, async ({
+    test(`standalone navigation has no artificial status bar shading at ${layout.width}px in ${theme}`, async ({
       page,
     }, info) => {
-      await page.setViewportSize({ width: layout.width, height: layout.height });
+      await page.setViewportSize({
+        width: layout.width,
+        height: layout.height,
+      });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
       await mountNavigationFixture(page, 0, { theme });
       await page.addStyleTag({
@@ -25,57 +28,55 @@ for (const theme of ["light", "dark"] as const)
       const statusBar = page.locator(".navigation-status-bar");
       const guidance = page.locator("#navigation-guidance");
       const initial = await guidance.boundingBox();
-      await expect(statusBar).toBeHidden();
+      await expect(statusBar).toHaveCount(0);
       await page.evaluate(() => {
         document.documentElement.dataset.standalone = "";
       });
       expect(await guidance.boundingBox()).toEqual(initial);
+      expect(await page.locator("#navigation-map").boundingBox()).toEqual({
+        x: 0,
+        y: 0,
+        width: layout.width,
+        height: layout.height,
+      });
       await expect
         .poll(
           async () =>
             (await page.locator(".navigation-map-controls").boundingBox())!.y,
         )
         .toBeGreaterThanOrEqual(initial!.y + initial!.height + 7);
-      await expect(statusBar).toHaveAttribute("aria-hidden", "true");
-      await expect(statusBar).toHaveCSS("pointer-events", "none");
-      const geometry = await statusBar.evaluate((element) => {
-        const rect = element.getBoundingClientRect();
-        const fade = getComputedStyle(element, "::after");
+      const shading = await page.evaluate(() => {
+        const style = getComputedStyle(document.body, "::before");
         return {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          fadeHeight: parseFloat(fade.height),
-          background: getComputedStyle(element).backgroundColor,
-          oldLayer: getComputedStyle(document.body, "::before").display,
+          background: style.backgroundColor,
+          image: style.backgroundImage,
+          filter: style.backdropFilter,
         };
       });
-      expect(geometry).toEqual({
-        x: 0,
-        y: 0,
-        width: layout.width,
-        height: layout.top,
-        fadeHeight: layout.top ? 8 : 0,
-        background: "rgb(23, 26, 28)",
-        oldLayer: "none",
+      expect(shading).toEqual({
+        background: "rgba(0, 0, 0, 0)",
+        image: "none",
+        filter: "none",
       });
-      if (layout.top) await expect(statusBar).toBeVisible();
-      else await expect(statusBar).toBeHidden();
-      await page.screenshot({ path: info.outputPath("compact-status-bar.png") });
+      await page.screenshot({
+        path: info.outputPath("unshaded-status-bar.png"),
+      });
       await page.setViewportSize({ width: 1280, height: 844 });
-      await expect(statusBar).toBeHidden();
-      await page.setViewportSize({ width: layout.width, height: layout.height });
+      await expect(statusBar).toHaveCount(0);
+      await page.setViewportSize({
+        width: layout.width,
+        height: layout.height,
+      });
       await page.evaluate(() => {
         (window as any).navigationFixture.view.hide();
         delete document.body.dataset.navigation;
       });
-      await expect(statusBar).toBeHidden();
+      await expect(statusBar).toHaveCount(0);
       expect(
         await page.evaluate(
-          () => getComputedStyle(document.body, "::before").display,
+          () => getComputedStyle(document.body, "::before").backgroundImage,
         ),
-      ).not.toBe("none");
+      ).toBe("none");
     });
 
 for (const colorScheme of ["light", "dark"] as const)

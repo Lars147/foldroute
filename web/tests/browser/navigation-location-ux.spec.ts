@@ -122,6 +122,8 @@ test("automatic navigation lookups pause in the background and resume after a fr
 test("GPS loss freezes the display without a usable timeline", async ({
   page,
 }) => {
+  // Two interpolation windows render real frames in software-rendered WebKit.
+  test.setTimeout(60_000);
   const journey = stationJourney();
   const train = journey.legs[2];
   delete train.transitReference;

@@ -20,12 +20,6 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  --status-bar-background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--color-asphalt) 80%, transparent),
-    color-mix(in srgb, var(--color-asphalt) 65%, transparent) 75%,
-    transparent
-  );
   --mobile-status-height: 0px;
   --tabs: calc(max(64px, 4rem) + var(--safe-bottom));
   --motion-feedback: 120ms;
@@ -52,24 +46,6 @@
 }
 body {
   margin: 0;
-}
-/* Translucent iOS status bars use light system text over every app surface. */
-:root[data-standalone] body::before {
-  content: "";
-  position: fixed;
-  inset: 0 0 auto;
-  height: var(--safe-top);
-  z-index: 1100;
-  pointer-events: none;
-  background: var(--status-bar-background);
-}
-/* Let map content remain visible behind the system status bar. */
-:root[data-standalone] body[data-navigation="active"]::before,
-:root[data-standalone]
-  body[data-view="map"]:has(
-    #map-view[data-result-screen="map"]:not([hidden])
-  )::before {
-  background: none;
 }
 button,
 input,
@@ -501,6 +477,7 @@ input[type="search"]::-webkit-search-cancel-button {
   margin-top: 4px;
 }
 .map-screen {
+  --map-controls-top-gap: 14px;
   position: fixed;
   inset: calc(var(--header) + var(--mobile-status-height) + var(--safe-top))
     var(--safe-right) var(--tabs) var(--safe-left);
@@ -1591,7 +1568,6 @@ dialog {
 }
 dialog::backdrop {
   background: var(--color-scrim);
-  backdrop-filter: blur(3px);
 }
 .shared-pending {
   position: fixed;
@@ -2871,14 +2847,6 @@ dialog.compact .dialog-actions {
   }
   body.search-focus-mode dialog[open]:has(.search-focus-input)::backdrop {
     background: var(--paper);
-    backdrop-filter: none;
-  }
-  :root[data-standalone]
-    body.search-focus-mode
-    dialog[open]:has(.search-focus-input)::backdrop {
-    background-image: var(--status-bar-background);
-    background-size: 100% var(--safe-top);
-    background-repeat: no-repeat;
   }
   body.search-focus-mode .search-focus-back {
     position: fixed;
@@ -3133,8 +3101,6 @@ dialog.editing-time {
     border-radius: 20px;
     background: var(--surface);
     box-shadow: 0 5px 20px var(--color-shadow);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
   }
   .app-tabs button {
     flex: 1;
@@ -3161,7 +3127,10 @@ dialog.editing-time {
     padding-bottom: var(--tabs);
   }
   [data-result-screen="map"] .map-controls {
-    top: calc(var(--safe-top) + var(--mobile-status-height) + 14px);
+    top: calc(
+      var(--safe-top) + var(--mobile-status-height) +
+        var(--map-controls-top-gap)
+    );
     right: max(16px, calc(var(--safe-right) + 12px));
   }
   .app-header {
@@ -3774,8 +3743,15 @@ dialog.editing-time {
   [data-result-screen="map"] .journey-panel {
     max-height: calc(
       100% - var(--tabs) - 12px - var(--safe-top) -
-        var(--mobile-status-height) - var(--map-controls-space, 286px)
+        var(--mobile-status-height) - var(--map-controls-top-gap) -
+        var(--map-controls-space, 272px)
     );
+  }
+}
+
+@media (max-width: 899px) and (min-height: 501px) {
+  :root[data-standalone] .map-screen[data-result-screen="map"] {
+    --map-controls-top-gap: 38px;
   }
 }
 
@@ -4019,7 +3995,9 @@ body[data-navigation="active"] .app-tabs {
     :root[data-standalone] body[data-view="history"],
     :root[data-standalone] body[data-navigation="active"],
     :root[data-standalone]
-      body[data-view="map"]:has(#map-view[data-result-screen="map"]:not([hidden])) {
+      body[data-view="map"]:has(
+        #map-view[data-result-screen="map"]:not([hidden])
+      ) {
       min-height: 100lvh;
     }
   }
@@ -4029,34 +4007,6 @@ body[data-navigation="active"] .app-tabs {
   inset: 0;
   background: var(--color-map);
   touch-action: none;
-}
-.navigation-status-bar {
-  display: none;
-}
-@media (max-width: 899px) {
-  :root[data-standalone] body[data-navigation="active"]::before {
-    display: none;
-  }
-  /* A real fixed color surface lets iOS replace its oversized scroll-edge blur. */
-  :root[data-standalone] body[data-navigation="active"] .navigation-status-bar {
-    display: block;
-    position: fixed;
-    inset: 0 0 auto;
-    height: var(--safe-top);
-    z-index: 1;
-    pointer-events: none;
-    background: var(--color-asphalt);
-  }
-  :root[data-standalone] body[data-navigation="active"] .navigation-status-bar::after {
-    content: "";
-    position: absolute;
-    inset: 100% 0 auto;
-    height: min(8px, var(--safe-top));
-    background: linear-gradient(to bottom, var(--color-asphalt), transparent);
-  }
-  :root[data-standalone] body[data-navigation="active"] .navigation-top {
-    z-index: 2;
-  }
 }
 .navigation-top {
   position: absolute;
@@ -5489,13 +5439,16 @@ body[data-example] #route-start-summary {
 .alternatives-header .icon-button > [data-icon] {
   display: flex;
 }
-#alternatives-back .icon { transform: rotate(180deg); }
+#alternatives-back .icon {
+  transform: rotate(180deg);
+}
 #alternatives-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 16px max(16px, var(--safe-right)) max(16px, var(--safe-bottom)) max(16px, var(--safe-left));
+  padding: 16px max(16px, var(--safe-right)) max(16px, var(--safe-bottom))
+    max(16px, var(--safe-left));
   overflow-wrap: anywhere;
 }
 #alternatives-body .panel-details {
@@ -5503,23 +5456,39 @@ body[data-example] #route-start-summary {
   padding: 0;
   border: 0;
 }
-#alternatives-body .route-choices { margin: 0; }
+#alternatives-body .route-choices {
+  margin: 0;
+}
 #alternatives-footer {
   flex: 0 0 auto;
   border-top: 1px solid var(--panel-line);
-  padding: 12px max(16px, var(--safe-right)) max(12px, var(--safe-bottom)) max(16px, var(--safe-left));
+  padding: 12px max(16px, var(--safe-right)) max(12px, var(--safe-bottom))
+    max(16px, var(--safe-left));
 }
-#alternatives-select { width: 100%; min-height: 48px; }
-body:has(#alternatives-dialog[open]) { overflow: hidden; }
+#alternatives-select {
+  width: 100%;
+  min-height: 48px;
+}
+body:has(#alternatives-dialog[open]) {
+  overflow: hidden;
+}
 @media (prefers-reduced-motion: no-preference) {
-  #alternatives-dialog { translate: 0 calc(100% + 8px); }
-  #alternatives-dialog[open] { translate: 0 0; }
+  #alternatives-dialog {
+    translate: 0 calc(100% + 8px);
+  }
+  #alternatives-dialog[open] {
+    translate: 0 0;
+  }
   @starting-style {
-    #alternatives-dialog[open] { translate: 0 calc(100% + 8px); }
+    #alternatives-dialog[open] {
+      translate: 0 calc(100% + 8px);
+    }
   }
 }
 
-#alternatives-dialog [data-sheet-detail-hidden] { display: none; }
+#alternatives-dialog [data-sheet-detail-hidden] {
+  display: none;
+}
 #alternatives-dialog .route-detail-link {
   visibility: visible;
   pointer-events: auto;

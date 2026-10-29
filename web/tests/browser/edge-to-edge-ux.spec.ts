@@ -72,7 +72,9 @@ for (const layout of layouts)
       expect(card.y).toBeGreaterThanOrEqual(layout.top);
       expect(card.y + card.height).toBeLessThanOrEqual(bar.y - 11);
       const controls = (await page.locator("#map-controls").boundingBox())!;
-      expect(controls.y).toBeGreaterThanOrEqual(layout.top + 14);
+      expect(controls.y).toBe(layout.top + (layout.height > 500 ? 38 : 14));
+      if (layout.width < 600)
+        expect(controls.y + controls.height).toBeLessThanOrEqual(card.y - 7);
       expect(controls.x + controls.width).toBeLessThanOrEqual(
         layout.width - layout.side - 12,
       );
@@ -139,7 +141,7 @@ test("details, search, time dialog and offline banner respect iPhone safe areas"
   expect(banner.y).toBe(59);
   await expect
     .poll(async () => (await page.locator("#map-controls").boundingBox())!.y)
-    .toBeGreaterThanOrEqual(banner.y + banner.height + 14);
+    .toBeGreaterThanOrEqual(banner.y + banner.height + 38);
   await page.locator("#map-route").click();
   await expectRouteFits(page);
   await context.setOffline(false);

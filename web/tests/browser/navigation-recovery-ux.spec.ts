@@ -244,6 +244,7 @@ for (const width of [390, 1280])
       await undo.evaluate((button) => button.closest("#navigation-panel")),
     ).toBeNull();
     await expectMotionSettled(page.locator("#navigation-undo"));
+    await expectMotionSettled(page.locator("#navigation-panel"));
     const toastBounds = (await page.locator("#navigation-undo").boundingBox())!;
     const panelBounds = (await page
       .locator("#navigation-panel")

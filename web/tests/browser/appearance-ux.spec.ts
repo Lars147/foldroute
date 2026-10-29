@@ -91,6 +91,13 @@ for (const width of [390, 1280])
         route.abort(),
       );
       await page.goto("/");
+      await expect(page.locator("#app-startup")).toHaveJSProperty(
+        "hidden",
+        true,
+      );
+      await page.evaluate(() => {
+        document.documentElement.dataset.standalone = "";
+      });
       const ink = value === "dark" ? "rgb(245, 246, 243)" : "rgb(23, 26, 28)";
       const canvas =
         value === "dark" ? "rgb(16, 19, 20)" : "rgb(245, 246, 243)";
@@ -104,6 +111,10 @@ for (const width of [390, 1280])
         "background-color",
         surface,
       );
+      await expect(page.locator(".app-tabs")).toHaveCSS(
+        "backdrop-filter",
+        "none",
+      );
       for (const [tab, screen] of [
         ["route", "search"],
         ["history", "history"],
@@ -112,6 +123,12 @@ for (const width of [390, 1280])
         await page.locator(`#tab-${tab}`).click();
         await expect(page.locator(`#${screen}-view`)).toBeVisible();
         await expect(page.locator(`#${screen}-view`)).toHaveCSS("color", ink);
+        expect(
+          await page.locator("body").evaluate((body) => {
+            const style = getComputedStyle(body, "::before");
+            return { content: style.content, image: style.backgroundImage };
+          }),
+        ).toEqual({ content: "none", image: "none" });
         await expectPanelContrast(page, `#${screen}-view`);
         const tabColor = await page
           .locator(`#tab-${tab}`)
@@ -134,6 +151,16 @@ for (const width of [390, 1280])
       await expect(dialog).toBeVisible();
       await expect(dialog).toHaveCSS("background-color", canvas);
       await expect(dialog).toHaveCSS("color", ink);
+      expect(
+        await dialog.evaluate((dialog) => {
+          const style = getComputedStyle(dialog, "::backdrop");
+          return {
+            filter: style.filter,
+            backdrop: style.backdropFilter,
+            image: style.backgroundImage,
+          };
+        }),
+      ).toEqual({ filter: "none", backdrop: "none", image: "none" });
       await expectPanelContrast(page, "#delete-data-dialog");
       await dialog.screenshot({ path: info.outputPath(`dialog-${value}.png`) });
       await page.emulateMedia({ contrast: "more" });
