@@ -405,12 +405,36 @@ export function guidanceRoute(singleStep = false): Journey {
   return journey;
 }
 
+export async function completionButton(page: Page) {
+  const quick = page.locator("#navigation-complete");
+  if (await quick.isVisible()) return quick;
+  const toggle = page.locator("#navigation-details-toggle");
+  if (
+    (await toggle.isVisible()) &&
+    (await toggle.getAttribute("aria-expanded")) === "false"
+  )
+    await toggle.click();
+  const manual = page.locator("#navigation-complete-manually");
+  if (!(await manual.isVisible()))
+    await page.locator("#navigation-more-actions").click();
+  await expect(manual).toBeVisible();
+  return manual;
+}
+
 export async function complete(page: Page) {
-  if (!(await page.locator("#navigation-complete").isVisible()))
-    await page.locator("#navigation-details-toggle").click();
-  await page.locator("#navigation-complete").click();
+  const toggle = page.locator("#navigation-details-toggle");
+  const collapsed =
+    (await toggle.isVisible()) &&
+    (await toggle.getAttribute("aria-expanded")) === "false";
+  await (await completionButton(page)).click();
   await expect(page.locator("#navigation-confirm")).toBeHidden();
   await page.clock.runFor(400);
+  if (
+    collapsed &&
+    (await toggle.isVisible()) &&
+    (await toggle.getAttribute("aria-expanded")) === "true"
+  )
+    await toggle.click();
 }
 
 export function stationJourney() {

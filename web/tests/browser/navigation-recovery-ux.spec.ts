@@ -6,6 +6,7 @@ import {
   setup,
   route,
   complete,
+  completionButton,
   savedActive,
   savedProgress,
   startSelected,
@@ -227,7 +228,7 @@ for (const width of [390, 1280])
     await setup(page, true);
     const before = await savedProgress(page);
     if (width < 900) await page.locator("#navigation-details-toggle").click();
-    const completeSection = page.locator("#navigation-complete");
+    const completeSection = await completionButton(page);
     await completeSection.focus();
     await completeSection.press("Enter");
     await expect(page.locator("#navigation-confirm")).toBeHidden();
@@ -304,7 +305,7 @@ test("double click completes one section and arrival has no undo or confirmation
   journey.destination = journey.legs.at(-1)!.to;
   journey.arrival = journey.legs.at(-1)!.end;
   await setup(page, true, true, {}, journey);
-  await page.locator("#navigation-complete").dblclick();
+  await (await completionButton(page)).dblclick();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt falten",
   );
@@ -509,12 +510,14 @@ for (const width of [390, 1280])
       await setup(page, true);
       if (width < 900) await page.locator("#navigation-details-toggle").click();
       for (let cycle = 0; cycle < 2; cycle++) {
-        await page.evaluate(() => {
+        const action = await completionButton(page);
+        const actionId = (await action.getAttribute("id"))!;
+        await page.evaluate((actionId) => {
           const samples: { center: number; animated: boolean }[] = [];
           (window as unknown as { undoFrames: typeof samples }).undoFrames =
             samples;
           const toast = document.getElementById("navigation-undo")!;
-          document.getElementById("navigation-complete")!.addEventListener(
+          document.getElementById(actionId)!.addEventListener(
             "click",
             () => {
               const started = performance.now();
@@ -534,8 +537,8 @@ for (const width of [390, 1280])
             },
             { once: true },
           );
-        });
-        await page.locator("#navigation-complete").click();
+        }, actionId);
+        await action.click();
         await page.clock.runFor(600);
         const frames = await page.evaluate(
           () =>

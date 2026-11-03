@@ -4240,6 +4240,12 @@ body[data-navigation="active"] .app-tabs {
   flex: 1 1 120px;
   min-height: 44px;
 }
+#navigation-more-actions {
+  cursor: pointer;
+  padding: 12px 0;
+  min-height: 44px;
+  color: var(--panel-muted);
+}
 .navigation-panel .secondary,
 #navigation-alternative .secondary {
   background: transparent;

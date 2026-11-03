@@ -364,6 +364,13 @@ export class NavigationEngine {
       projectPath(this.leg.from, this.path).length - this.progress.meters,
     );
   }
+  get navigationPath(): readonly Coordinate[] {
+    return this.path;
+  }
+  get hasMovementPath(): boolean {
+    const length = projectPath(this.leg.from, this.path).length;
+    return movement(this.leg) && Number.isFinite(length) && length > 0;
+  }
   get remainingSeconds(): number {
     const leg = this.leg;
     const length = projectPath(leg.from, this.path).length;
@@ -776,13 +783,18 @@ export class NavigationEngine {
     )
       throw new Error("Navigationsabschnitte stimmen nicht überein.");
     const previous = this.leg;
+    const nextLeg = journey.legs[this.progress.legIndex];
+    const maneuverPathChanged =
+      movement(previous) &&
+      JSON.stringify([previous.kind, previous.maneuvers]) !==
+        JSON.stringify([nextLeg.kind, nextLeg.maneuvers]);
     const previousStops = previous.transitStops;
     const topologyChanged =
       transitTopologyKey(previous) !==
       transitTopologyKey(journey.legs[this.progress.legIndex]);
     const oldProgress = { ...this.progress };
     this.journey = journey;
-    if (topologyChanged) {
+    if (topologyChanged || maneuverPathChanged) {
       const stops = this.leg.transitStops;
       for (const field of ["transitStop", "transitDepartedStop"] as const) {
         const oldIndex =

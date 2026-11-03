@@ -11,6 +11,7 @@ import {
   stationJourney,
   setup,
   complete,
+  completionButton,
   expectTabVisible,
   expectCurrentTabAligned,
   expectMobileCredit,
@@ -57,7 +58,8 @@ for (const width of [390, 1280]) {
     const details = page.locator("#navigation-section-content");
     await expect(details).toHaveText("Noch 1 min · 371 m");
     await expect(page.locator("#navigation-stage")).toHaveClass("sr-only");
-    await expect(page.locator("#navigation-complete")).toBeVisible();
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await expect(await completionButton(page)).toBeVisible();
     const walk = page.getByRole("tab", { name: /^Zu Fuß nach Ausstieg/ });
     const progress = await savedProgress(page);
     const spoken = await page.evaluate(() => [
@@ -83,7 +85,8 @@ for (const width of [390, 1280]) {
     await expect(details).toHaveText(
       `Noch 2 min · ${Math.round(distance(c, d))} m`,
     );
-    await expect(page.locator("#navigation-complete")).toBeVisible();
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await expect(await completionButton(page)).toBeVisible();
     await expect(
       page.locator("#navigation-view").getByText(/^Am Ziel /),
     ).toHaveCount(0);
