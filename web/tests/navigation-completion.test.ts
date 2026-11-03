@@ -78,6 +78,7 @@ describe("navigation completion visibility", () => {
     expect(completion.update(engine, fix(301, now, 51), true, now)).toBe(false);
     expect(completion.update(engine, fix(301), true, now + 60001)).toBe(false);
     expect(completion.update(engine, fix(301), false, now)).toBe(false);
+    engine.update(fix(301), now);
     expect(completion.update(engine, fix(301), true, now)).toBe(true);
   });
 
@@ -168,4 +169,19 @@ describe("navigation completion visibility", () => {
         new NavigationCompletion().update(new NavigationEngine(route(kind))),
       ).toBe(true),
   );
+});
+
+it("does not unlock a restored section from a GPS jump rejected by the engine", () => {
+  const journey = route();
+  const engine = new NavigationEngine(journey, {
+    legIndex: 0,
+    maneuverIndex: 0,
+    meters: 350,
+    confirmedStops: [],
+  });
+  const completion = new NavigationCompletion();
+  expect(move(completion, engine, 0)).toBe(false);
+  expect(move(completion, engine, 320, now + 1000)).toBe(false);
+  expect(engine.guidanceUsable).toBe(false);
+  expect(move(completion, engine, 320, now + 21000)).toBe(true);
 });

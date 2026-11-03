@@ -118,3 +118,43 @@ test("manual completion keeps keyboard focus when the layout changes", async ({
   await page.keyboard.press("Enter");
   await expect(page.locator("#navigation-complete-manually")).toBeVisible();
 });
+
+test("a rejected GPS jump cannot unlock completion after restoring near the target", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mountNavigationFixture(page, 0, { progress: { meters: 340 } });
+  await page.evaluate(() =>
+    (window as any).navigationFixture.setLocation("current"),
+  );
+  const quick = page.locator("#navigation-complete");
+  await expect(quick).toBeHidden();
+  const nearTarget = async (elapsed: number) => {
+    await page.clock.setFixedTime(
+      new Date((await page.evaluate(() => Date.now())) + elapsed),
+    );
+    await page.evaluate(() => {
+      const { session } = (window as any).navigationFixture;
+      const target = session.engine.leg.to;
+      session.updateLocation(
+        {
+          latitude: target.latitude - 50 / 111195,
+          longitude: target.longitude,
+          accuracy: 10,
+          timestamp: Date.now(),
+        },
+        "current",
+      );
+    });
+  };
+  await nearTarget(1000);
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Standort wird geprüft",
+  );
+  await expect(quick).toBeHidden();
+  await expect(await completionButton(page)).toBeVisible();
+  await nearTarget(20000);
+  await expect(quick).toBeVisible();
+  await expect(page.locator("#navigation-complete-manually")).toBeHidden();
+});
