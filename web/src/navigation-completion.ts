@@ -41,12 +41,16 @@ export class NavigationCompletion {
       current &&
       fix &&
       quality(fix, now) === "current" &&
-      fix.accuracy <= 50
+      fix.accuracy <= 50 &&
+      engine.plausibleMovementTimestamp === fix.timestamp
     ) {
       const targetDistance = distance(fix, engine.leg.to);
       if (targetDistance > 150) this.available = false;
       else if (
         targetDistance <= 100 &&
+        engine.guidanceUsable &&
+        engine.movementMatchTimestamp === fix.timestamp &&
+        engine.movementMatch &&
         engine.hasMovementPath &&
         engine.remainingMeters <= 100
       )
