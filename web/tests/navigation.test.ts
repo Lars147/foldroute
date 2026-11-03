@@ -183,6 +183,9 @@ it("instructs the next turn at its beginning and advances after reaching it", ()
   e.update(fix(b, 10), (now + 10) * 1000);
   expect(e.instruction).toBe(`Mit dem Rad nach ${c.name}`);
   e.update(fix(c, 30), (now + 30) * 1000);
+  expect(e.phase).toBe("active");
+  expect(e.completionCountdown?.remainingSeconds).toBe(30);
+  e.tick(now + 60);
   expect(e.phase).toBe("arrived");
 });
 it("rejects noisy, stale and duplicate GPS and only reroutes on three reliable samples", () => {
@@ -845,6 +848,8 @@ it("discards a proposal as soon as GPS advances to another section", async () =>
   session.disruption = { id: "connection", message: "Anschluss gefährdet" };
   await session.proposeAlternative();
   session.updateLocation(fix(c, 20), "current");
+  expect(session.engine?.progress.legIndex).toBe(0);
+  await vi.advanceTimersByTimeAsync(30000);
   expect(session.engine?.progress.legIndex).toBe(1);
   expect(session.alternative).toBeUndefined();
   await session.stop();
@@ -1331,6 +1336,8 @@ it("allows a past bike departure while keeping the selected train and projecting
   expect(prepared.assessment.status).toBe("ready");
   expect(batch).not.toHaveBeenCalled();
   session.activateStart(prepared);
+  expect(session.engine?.leg.kind).toBe("bike");
+  await vi.advanceTimersByTimeAsync(30000);
   expect(session.engine?.leg.kind).toBe("fold");
   expect(session.engine?.journey.legs.at(-1)?.transitReference).toEqual(ref);
   await session.stop();
@@ -2407,11 +2414,13 @@ it("keeps the elevator as a manual activity after repairing the approach to its 
   expect(session.engine!.journey.legs[1].navigationId).toBe(elevatorId);
   vi.setSystemTime((now + 12) * 1000);
   session.updateLocation(fix(a, 12), "current");
+  expect(session.engine!.completionCountdown?.remainingSeconds).toBe(30);
+  await vi.advanceTimersByTimeAsync(30000);
   expect(session.engine!.leg.navigationId).toBe(elevatorId);
   expect(session.engine!.instruction).toBe("Aufzug nehmen");
   expect(session.engine!.phase).toBe("active");
-  vi.setSystemTime((now + 15) * 1000);
-  session.updateLocation(fix(a, 15), "current");
+  vi.setSystemTime((now + 45) * 1000);
+  session.updateLocation(fix(a, 45), "current");
   expect(session.engine!.phase).toBe("active");
   expect(session.completeLeg(elevatorId!)).toBe(true);
   expect(session.engine!.phase).toBe("arrived");

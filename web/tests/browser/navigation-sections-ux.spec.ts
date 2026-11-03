@@ -80,6 +80,8 @@ for (const width of [390, 1280]) {
     await page.evaluate(() => (window as any).navProbe.push(48, 11.002));
     await page.clock.runFor(12000);
     await page.evaluate(() => (window as any).navProbe.push(48.002, 11.002, 0));
+    await expect(page.locator("#navigation-auto-complete")).toBeVisible();
+    await page.clock.runFor(30000);
     await expect(walk).toHaveAttribute("aria-selected", "true");
     await expect(walk).toHaveAttribute("aria-current", "step");
     await expect(details).toHaveText(
@@ -230,6 +232,8 @@ for (const width of [320, 390, 1280])
     await page.evaluate(() => (window as any).navProbe.push(48, 11.002));
     await page.clock.runFor(12000);
     await page.evaluate(() => (window as any).navProbe.push(48.002, 11.002, 0));
+    await expect(page.locator("#navigation-auto-complete")).toBeVisible();
+    await page.clock.runFor(30000);
     await expect(page.locator("#navigation-instruction")).toHaveText(
       "Rad jetzt falten",
     );

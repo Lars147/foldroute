@@ -2,6 +2,64 @@ import { expect, test } from "./test";
 import { mountNavigationFixture } from "./navigation-layout-fixture";
 import { route, completionButton } from "./navigation-fixture";
 
+for (const width of [390, 1280])
+  for (const [index, kind, label] of [
+    [1, "fold", "Rad gefaltet"],
+    [3, "unfold", "Rad entfaltet"],
+    [5, "wait", "Warten beenden"],
+  ] as const)
+    test(`${kind} shows its remaining time inside the completion button at ${width}px`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      const journey = route(true);
+      journey.legs[index].kind = kind;
+      const leg = journey.legs[index];
+      const seconds = leg.end - leg.start;
+      await mountNavigationFixture(page, index, { journey, time: leg.start });
+      const complete = page.locator("#navigation-complete");
+      await expect(complete).toHaveText(label);
+      await expect(complete).toBeInViewport({ ratio: 1 });
+      await expect(complete).toHaveAttribute("data-countdown", String(seconds));
+      await expect(complete).toHaveAttribute(
+        "aria-describedby",
+        "navigation-complete-countdown-description",
+      );
+      const bar = () =>
+        complete.locator(".countdown-bar-fill").evaluate((element) => {
+          const style = getComputedStyle(element);
+          return {
+            height: style.height,
+            scale: new DOMMatrix(style.transform).a,
+          };
+        });
+      expect(await bar()).toEqual({ height: "3px", scale: 1 });
+      await page.clock.setFixedTime(new Date((leg.start + seconds / 2) * 1000));
+      await page.evaluate(() =>
+        (window as any).navigationFixture.view.render(),
+      );
+      await expect(complete).toHaveAttribute(
+        "data-countdown",
+        String(seconds / 2),
+      );
+      expect((await bar()).scale).toBeCloseTo(0.5);
+      await page.screenshot({
+        path: info.outputPath("completion-button-countdown.png"),
+      });
+      await page.getByRole("tab").first().click();
+      await expect(complete).toBeHidden();
+      await expect(complete).not.toHaveAttribute("data-countdown", /./);
+      await page.getByRole("tab").nth(index).click();
+      await complete.click();
+      expect(
+        await page.evaluate(
+          () =>
+            (window as any).navigationFixture.session.engine.progress.legIndex,
+        ),
+      ).toBe(index + 1);
+    });
+
 for (const width of [390, 1280]) {
   for (const kind of ["bike", "walk"] as const)
     test(`${kind} completion follows target proximity at ${width}px`, async ({

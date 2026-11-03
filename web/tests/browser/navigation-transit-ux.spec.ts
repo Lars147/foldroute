@@ -1363,7 +1363,7 @@ test("GPS advances street legs, fresh transit waits for confirmed exit, stops re
   // Short dedicated cases above verify the animation itself.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const journey = stationJourney();
-  // Keep the walk longer than the 40m arrival tolerance: a fix at the exit
+  // Keep the walk longer than the completion area: a fix at the exit
   // must not also reach the stop when the unfold timer has already expired.
   const stop = { ...e, latitude: d.latitude + 0.001 };
   for (const leg of journey.legs) {
@@ -1389,10 +1389,12 @@ test("GPS advances street legs, fresh transit waits for confirmed exit, stops re
   }
   await gps(b, 10000);
   await gps(c, 20000);
+  await expect(page.locator("#navigation-auto-complete")).toBeVisible();
+  await page.clock.runFor(30000);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt falten",
   );
-  await gps(c, 270000);
+  await gps(c, 240000);
   await page.clock.runFor(1100);
   await expect(page.locator("#navigation-instruction")).toContainText(
     "S1 Richtung Altstadt",
@@ -1410,6 +1412,7 @@ test("GPS advances street legs, fresh transit waits for confirmed exit, stops re
   await page.clock.runFor(1100);
   await expect(page.locator("#navigation-instruction")).toContainText("Zu Fuß");
   await gps(stop, 30000);
+  await page.clock.runFor(30000);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Zwischenziel erreicht",
   );
@@ -1418,7 +1421,10 @@ test("GPS advances street legs, fresh transit waits for confirmed exit, stops re
     "Zwischenziel erreicht",
   );
   await page.locator("#navigation-complete").click();
+  await page.locator("#navigation-instruction").focus();
+  await page.mouse.move(0, 0);
   await gps(f, 80000);
+  await page.clock.runFor(30000);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Ziel erreicht",
   );

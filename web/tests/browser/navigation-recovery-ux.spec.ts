@@ -281,7 +281,7 @@ test("undo expires after eight seconds and pauses for focus and mouse hover", as
   await setup(page, true);
   await complete(page);
   const undo = page.locator("#navigation-undo-button");
-  const bar = page.locator("#navigation-undo .toast-countdown-fill");
+  const bar = page.locator("#navigation-undo .countdown-bar-fill");
   await expect(bar).toHaveCSS("animation-duration", "8s");
   await undo.focus();
   await expect(bar).toHaveCSS("animation-play-state", "paused");

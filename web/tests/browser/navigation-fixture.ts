@@ -350,6 +350,9 @@ export async function setup(
   if (!start) return;
   await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
+  // A newly revealed action can occupy the old start button's pointer position.
+  // Automatic-progress tests must not accidentally request a hover pause.
+  await page.mouse.move(0, 0);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );

@@ -1,33 +1,24 @@
 import { reveal, stopMotion } from "./motion";
+import { CountdownBar } from "./countdown-bar";
+import { CountdownInteraction } from "./countdown-interaction";
 
 /** One undo action, with an eight-second reading window. */
 export class UndoNotice {
   private timer?: ReturnType<typeof setTimeout>;
   private remaining = 8000;
   private started = 0;
-  private hovered = false;
+  private interaction: CountdownInteraction;
   private action?: () => Promise<void>;
   private revision = 0;
   private onClear?: () => void;
-  private countdown?: HTMLElement;
+  private countdown = new CountdownBar();
   constructor(
     private banner: HTMLElement,
     private button: HTMLButtonElement,
   ) {
-    this.countdown =
-      banner.querySelector<HTMLElement>(".toast-countdown-fill") ?? undefined;
-    banner.addEventListener("pointerenter", (event) => {
-      if (event.pointerType !== "mouse") return;
-      this.hovered = true;
-      this.pause();
-    });
-    banner.addEventListener("pointerleave", () => {
-      this.hovered = false;
-      this.resume();
-    });
-    banner.addEventListener("focusin", () => this.pause());
-    banner.addEventListener("focusout", () =>
-      queueMicrotask(() => this.resume()),
+    banner.append(this.countdown.element);
+    this.interaction = new CountdownInteraction([banner], (paused) =>
+      paused ? this.pause() : this.resume(),
     );
     button.onclick = async () => {
       const action = this.action,
@@ -47,17 +38,11 @@ export class UndoNotice {
     this.action = action;
     this.onClear = onClear;
     this.remaining = 8000;
-    if (this.countdown) {
-      const fresh = this.countdown.cloneNode(true) as HTMLElement;
-      fresh.style.animationPlayState = "paused";
-      this.countdown.replaceWith(fresh);
-      this.countdown = fresh;
-    }
+    this.countdown.set(this.remaining, 8000);
     this.banner.hidden = false;
     this.button.disabled = false;
     reveal(this.banner, { y: 8 });
-    this.hovered =
-      matchMedia("(any-hover: hover)").matches && this.banner.matches(":hover");
+    this.interaction.refresh();
     this.resume();
   }
   clear() {
@@ -65,8 +50,10 @@ export class UndoNotice {
     clearTimeout(this.timer);
     this.timer = undefined;
     this.action = undefined;
+    this.countdown.hide();
     stopMotion(this.banner);
     this.banner.hidden = true;
+    this.interaction.refresh();
     const onClear = this.onClear;
     this.onClear = undefined;
     onClear?.();
@@ -76,19 +63,18 @@ export class UndoNotice {
     clearTimeout(this.timer);
     this.timer = undefined;
     this.remaining -= performance.now() - this.started;
-    if (this.countdown) this.countdown.style.animationPlayState = "paused";
+    this.countdown.pause();
   }
   private resume() {
     if (
       !this.action ||
       this.timer !== undefined ||
-      this.hovered ||
-      this.banner.contains(document.activeElement) ||
+      this.interaction.paused ||
       this.button.disabled
     )
       return;
     this.started = performance.now();
-    if (this.countdown) this.countdown.style.animationPlayState = "running";
+    this.countdown.start(this.remaining, 8000);
     this.timer = setTimeout(() => this.clear(), Math.max(0, this.remaining));
   }
 }
