@@ -10,6 +10,7 @@ import {
 } from "./motion";
 import type { NavigationMap } from "./navigation-map";
 import { NavigationPositionTracker } from "./navigation-position";
+import { NavigationCompletion } from "./navigation-completion";
 import { NavigationGuidance } from "./navigation-guidance";
 import { NavigationStations } from "./navigation-stations";
 import { clock, duration, el, node, icon, setLocationFeedback } from "./ui";
@@ -53,6 +54,8 @@ export class NavigationView {
   readonly root: HTMLElement;
   private map?: NavigationMap;
   private positionTracker = new NavigationPositionTracker();
+  private completion = new NavigationCompletion();
+  private quickCompletionAvailable = false;
   private finishedMap?: NavigationMap;
   private stationLists: NavigationStations[];
   private loading?: Promise<void>;
@@ -138,6 +141,7 @@ export class NavigationView {
         <p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
         <div id="navigation-alternative" hidden><p id="navigation-alternative-text"></p><button id="navigation-accept" class="primary">Verbindung übernehmen</button><button id="navigation-dismiss" class="secondary">Bisherige behalten</button></div>
         <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
+        <details id="navigation-manual-actions" hidden><summary id="navigation-more-actions">Weitere Aktionen</summary><div class="navigation-actions"><button id="navigation-complete-manually" class="secondary" type="button">Abschnitt manuell abschließen</button></div></details>
         <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
         </div>
         <div id="navigation-phases-slot"></div>
@@ -308,15 +312,19 @@ export class NavigationView {
         void this.session.retryStreet();
       else void this.session.reroute();
     };
-    el("navigation-complete").onkeydown = (event) => {
-      if (event.repeat && (event.key === "Enter" || event.key === " "))
-        event.preventDefault();
-    };
-    el("navigation-complete").onclick = (event) => {
+    const completeSection = (event: MouseEvent, manual: boolean) => {
       if (event.detail > 1 || performance.now() - this.lastCompletionAt < 350)
         return;
       const engine = this.session?.engine;
-      if (!engine || !this.completionAvailable || this.session?.busy) return;
+      if (
+        !engine ||
+        !this.completionAvailable ||
+        this.session?.busy ||
+        (manual
+          ? !movement(engine.leg) || this.quickCompletionAvailable
+          : !this.quickCompletionAvailable)
+      )
+        return;
       if (engine.leg.kind === "stop") {
         void this.session!.continueStop();
         return;
@@ -324,6 +332,15 @@ export class NavigationView {
       if (this.session!.completeLeg(engine.leg.navigationId!))
         this.lastCompletionAt = performance.now();
     };
+    for (const id of ["navigation-complete", "navigation-complete-manually"])
+      el(id).onkeydown = (event) => {
+        if (event.repeat && (event.key === "Enter" || event.key === " "))
+          event.preventDefault();
+      };
+    el("navigation-complete").onclick = (event) =>
+      completeSection(event, false);
+    el("navigation-complete-manually").onclick = (event) =>
+      completeSection(event, true);
     el("navigation-accept").onclick = async () => {
       const previous = this.session?.engine;
       await this.session?.acceptAlternative();
@@ -969,6 +986,8 @@ export class NavigationView {
       this.currentSectionId = undefined;
     }
     this.session = session;
+    this.completion.reset();
+    el<HTMLDetailsElement>("navigation-manual-actions").open = false;
     this.root.hidden = false;
     this.phaseKey = "";
     this.guidance.reset();
@@ -1020,6 +1039,7 @@ export class NavigationView {
     this.undoNotice.clear();
     this.shownUndo = undefined;
     this.positionTracker.reset();
+    this.completion.reset();
     this.stopStationAnimation();
     this.stationMotion.reset();
     this.stationSample = undefined;
@@ -1467,8 +1487,39 @@ export class NavigationView {
     el("navigation-current-transit-status").textContent =
       transit !== viewedTransit ? currentTransitWarning : "";
     const complete = el<HTMLButtonElement>("navigation-complete");
-    complete.hidden = !this.completionAvailable;
+    const nearTarget = this.completion.update(
+      engine,
+      session.fix,
+      session.hasCurrentLocation && session.foreground && !session.busy,
+    );
+    this.quickCompletionAvailable = this.completionAvailable && nearTarget;
+    const manualActions = el<HTMLDetailsElement>("navigation-manual-actions");
+    const moreActions = el("navigation-more-actions");
+    const manualAvailable =
+      this.completionAvailable && movement(leg) && !nearTarget;
+    const focused = document.activeElement;
+    if (!manualAvailable) manualActions.open = false;
+    else if (this.mobile.matches) manualActions.open = true;
+    else if (moreActions.hidden) manualActions.open = false;
+    moreActions.hidden = this.mobile.matches;
+    manualActions.hidden = !manualAvailable;
+    el<HTMLButtonElement>("navigation-complete-manually").disabled =
+      session.busy;
+    complete.hidden = !this.quickCompletionAvailable;
     complete.disabled = session.busy;
+    if (
+      (focused === complete && complete.hidden) ||
+      (focused === moreActions && moreActions.hidden) ||
+      (focused instanceof HTMLElement &&
+        manualActions.contains(focused) &&
+        (!manualAvailable || (!manualActions.open && focused !== moreActions)))
+    )
+      (this.quickCompletionAvailable
+        ? complete
+        : manualAvailable && !this.mobile.matches
+          ? moreActions
+          : el("navigation-instruction")
+      ).focus({ preventScroll: true });
     complete.textContent =
       leg?.kind === "stop"
         ? "Weiterfahren"

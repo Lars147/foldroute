@@ -185,10 +185,8 @@ for (const [width, height] of [
   [844, 390],
 ] as const)
   for (const [index, label] of [
-    [0, "Abschnitt fertig"],
     [1, "Rad gefaltet"],
     [3, "Rad entfaltet"],
-    [4, "Abschnitt fertig"],
     [5, "Weiterfahren"],
   ] as const)
     test(`the selected running section keeps its compact action on leg ${index} at ${width}x${height}`, async ({

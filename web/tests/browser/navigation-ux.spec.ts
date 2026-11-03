@@ -322,8 +322,8 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await setup(page, true);
     await expect(page.locator("#navigation-details")).toBeHidden();
-    await expect(page.locator("#navigation-complete")).toBeVisible();
-    await expect(page.locator("#navigation-complete")).toBeEnabled();
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await expect(page.locator("#navigation-complete-manually")).toBeHidden();
     await expect(page.locator("#navigation-alert")).toBeHidden();
     await expect(page.locator(".navigation-panel")).toHaveCSS("bottom", "12px");
     await expectMobileCredit(page);
@@ -388,7 +388,8 @@ for (const [width, height] of [
     });
     await page.locator("#navigation-details-toggle").press("Enter");
     await expect(page.locator("#navigation-details")).toBeVisible();
-    await expect(page.locator("#navigation-complete")).toBeVisible();
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await expect(page.locator("#navigation-complete-manually")).toBeVisible();
     await expectMobileCredit(page);
     await page.locator("#navigation-details-toggle").press("Escape");
     await expect(page.locator("#navigation-details")).toBeHidden();
@@ -1054,7 +1055,7 @@ test("arrival summary obeys storage opt-out and early stops do not count", async
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
-  await expect(page.locator("#navigation-complete")).toBeVisible();
+  await expect(page.locator("#navigation-complete")).toBeHidden();
   await complete(page);
   await expect(page.locator("#navigation-finish-storage")).toHaveText(
     "Gesamtstatistik ist ausgeschaltet.",
