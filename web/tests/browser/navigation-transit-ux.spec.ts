@@ -88,7 +88,14 @@ for (const mobile of [false, true])
     await page.clock.runFor(55000);
     await page.evaluate(() => (window as any).navProbe.push(48, 11));
     await page.clock.runFor(5000);
+    await expect(page.locator("#navigation-alternative")).toBeHidden();
+    if (mobile) await page.locator("#navigation-details-toggle").click();
+    await page
+      .getByRole("button", { name: "Andere Verbindung suchen", exact: true })
+      .click();
+    await expect(page.locator("#navigation-alternative")).toBeVisible();
     if (mobile) {
+      await page.locator("#navigation-details-toggle").click();
       await expect(page.locator("#navigation-details")).toBeHidden();
       await expect(page.locator("#navigation-alternative")).toBeHidden();
       await expect(page.locator("#navigation-alert-open")).toContainText(

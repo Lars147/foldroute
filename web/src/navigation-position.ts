@@ -6,6 +6,8 @@ import {
 } from "./live-location";
 import {
   headingDelta,
+  movementCoordinates,
+  projectMovementPath,
   movement,
   projectPath,
   type NavigationEngine,
@@ -63,7 +65,7 @@ export class NavigationPositionTracker {
       engine.progress.legIndex,
       leg.navigationId,
       leg.kind,
-      leg.coordinates,
+      movement(leg) ? movementCoordinates(leg) : leg.coordinates,
       leg.transitStatus?.cancelled,
     ]);
     if (this.engine !== engine || this.key !== key) {
@@ -73,12 +75,14 @@ export class NavigationPositionTracker {
       // Only drawn route geometry supplies display metres. Station-to-station
       // schematic lines must never become GPS matching evidence.
       if (
-        (movement(leg) && leg.coordinates.length >= 2) ||
+        (movement(leg) && movementCoordinates(leg).length >= 2) ||
         (leg.kind === "transit" &&
           !leg.transitStatus?.cancelled &&
           leg.coordinates.length > 2)
       )
-        this.path = new NavigationPath(leg.coordinates);
+        this.path = new NavigationPath(
+          movement(leg) ? movementCoordinates(leg) : leg.coordinates,
+        );
     }
     this.last ??= {
       position: { point: leg.from, bearing: 0 },
@@ -103,7 +107,29 @@ export class NavigationPositionTracker {
     if (fix.timestamp <= this.timestamp) return this.last;
     if (fix.timestamp - this.timestamp > 60000) this.interrupt();
     this.timestamp = fix.timestamp;
+    if (
+      movement(leg) &&
+      engine.movementMatchTimestamp === fix.timestamp &&
+      engine.plausibleMovementTimestamp !== fix.timestamp
+    )
+      return (this.last = {
+        ...this.last,
+        source: "last-known",
+        preferEstimate: true,
+      });
     this.last.raw = fix;
+    if (movement(leg) && engine.routeState === "deviated") {
+      this.anchor = undefined;
+      return (this.last = {
+        position: {
+          point: fix,
+          bearing: fix.heading ?? this.last.position.bearing,
+        },
+        raw: fix,
+        source: "gps",
+        preferEstimate: true,
+      });
+    }
     const path = this.path;
     const corridor = leg.kind === "transit" ? 100 : Math.max(40, fix.accuracy);
     let projection = path && this.match(fix, leg, path, corridor);
@@ -192,10 +218,13 @@ export class NavigationPositionTracker {
         : 0;
     const max = this.anchor
       ? this.anchor.meters +
-        (transit
-          ? 100 + elapsed * 100
-          : Math.max(100, Math.min(500, elapsed * 20)))
+        (transit ? 100 + elapsed * 100 : Math.max(100, elapsed * 20))
       : Infinity;
+    if (movement(leg) && !allowBackward) {
+      if (this.engine?.movementMatchTimestamp === fix.timestamp)
+        return this.engine.movementMatch;
+      return projectMovementPath(fix, path.coordinates, min, max);
+    }
     const candidates: Projection[] = [];
     for (let i = 1; i < path.coordinates.length; i++) {
       const candidate = projectPath(fix, [

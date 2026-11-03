@@ -308,7 +308,7 @@ describe("navigation display matching", () => {
     expect(update(tracker, engine, fix(110, 0, 10, 4)).source).toBe("gps");
   });
 
-  it("uses drawn geometry rather than maneuver metres and resets when it changes", () => {
+  it("shares maneuver geometry with guidance and resets when that geometry changes", () => {
     const engine = route(),
       tracker = new NavigationPositionTracker();
     engine.leg.maneuvers = [
@@ -316,13 +316,13 @@ describe("navigation display matching", () => {
         direction: "CONTINUE",
         streetName: "",
         distance: 3000,
-        coordinates: [a, { ...b, latitude: 48.01 }, c],
+        coordinates: [a, b, c],
       },
     ];
     engine.progress.meters = 800;
     const first = update(tracker, engine);
     expect(first.position.meters).toBeCloseTo(100, 0);
-    engine.leg.coordinates = [c, b, a];
+    engine.leg.maneuvers[0].coordinates = [c, b, a];
     const changed = update(tracker, engine, fix(100, 0, 10, 1));
     expect(changed.path?.key).not.toBe(first.path?.key);
     expect(changed.position.meters).toBeCloseTo(path.offsets.at(-1)! - 100, 0);

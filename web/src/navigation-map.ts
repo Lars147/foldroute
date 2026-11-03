@@ -15,6 +15,8 @@ import { Style, Stroke, Fill, Circle, Text, RegularShape } from "ol/style.js";
 import "ol/ol.css";
 import {
   headingDelta,
+  movement,
+  movementCoordinates,
   projectPath,
   type NavigationEngine,
 } from "./navigation-engine";
@@ -303,7 +305,13 @@ export class NavigationMap {
       }
       engine.journey.legs.forEach((leg, index) => {
         if (leg.coordinates.length < 2) return;
-        const feature = new Feature(new LineString(leg.coordinates.map(xy)));
+        const feature = new Feature(
+          new LineString(
+            (movement(leg) ? movementCoordinates(leg) : leg.coordinates).map(
+              xy,
+            ),
+          ),
+        );
         feature.setStyle([
           new Style({
             stroke: new Stroke({

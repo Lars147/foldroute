@@ -74,6 +74,19 @@ function reachableAlternative(
   );
 }
 
+/** Only an immediate boarding can invalidate the current street destination. */
+function unavailableBoarding(journey: Journey, index: number, now: number) {
+  for (const leg of journey.legs.slice(index + 1)) {
+    if (movement(leg) || leg.kind === "stop") return false;
+    if (leg.kind === "transit")
+      return (
+        !!leg.transitStatus?.cancelled ||
+        (freshTransit(leg, now) && leg.start < now)
+      );
+  }
+  return false;
+}
+
 export interface NavigationAlternative {
   journey: Journey;
   legIndex: number;
@@ -148,6 +161,9 @@ export class NavigationSession {
   private readonly store: NavigationStore;
   private refresher: TransitRefresher;
   private lastReroute = -Infinity;
+  private streetRetryAt = 0;
+  private streetFailures = 0;
+  private streetEngine?: NavigationEngine;
   private lastIssue?: string;
   private pendingAlternativeLocation?: {
     engine: NavigationEngine;
@@ -670,6 +686,8 @@ export class NavigationSession {
     this.pendingAlternativeLocation = undefined;
     this.disruption = undefined;
     this.lastIssue = undefined;
+    this.streetRetryAt = 0;
+    this.streetFailures = 0;
     this.savedKey = "";
     this.arrivalCleared = false;
     this.retryAvailable = false;
@@ -690,18 +708,17 @@ export class NavigationSession {
     if (this.hasCurrentLocation) this.locationError = undefined;
     else if (error) this.locationError = error;
     if (!this.engine || !this.foreground) return;
-    if (this.busy) {
+    // Only street repair can safely follow progress on its original engine.
+    // User-requested itinerary changes retain their existing section boundary.
+    if (this.busy && this.streetEngine !== this.engine) {
       this.emit();
       return;
     }
     if (!fix || state !== "current") this.engine.invalidateLocation();
-    else if (
-      this.engine.update(fix) &&
-      !this.busy &&
-      !this.retryAvailable &&
-      Date.now() / 1000 - this.lastReroute >= 30
-    )
-      void this.reroute();
+    else this.engine.update(fix);
+    if (this.streetEngine === this.engine && !this.engine.offRoute)
+      this.controller?.abort();
+    void this.repairStreet();
     this.discardChangedAlternative();
     this.persist();
     this.emit();
@@ -818,6 +835,7 @@ export class NavigationSession {
     );
     this.persist();
     this.emit();
+    void this.repairStreet();
     void this.refresh();
   }
   private applyTransitResults(
@@ -853,16 +871,7 @@ export class NavigationSession {
     }
     if (this.alternative && this.alternative.issueId !== this.disruption?.id)
       this.alternative = undefined;
-    if (
-      this.disruption &&
-      !this.alternative &&
-      this.assessment.status !== "risk" &&
-      this.lastIssue !== this.disruption.id &&
-      engine.leg.kind !== "stop"
-    ) {
-      this.lastIssue = this.disruption.id;
-      void this.proposeAlternative();
-    }
+    if (this.disruption) this.retryAvailable = true;
     this.persist(result.size > 0);
     this.emit();
   }
@@ -932,8 +941,11 @@ export class NavigationSession {
       if (!controller.signal.aborted) this.message = message ?? "";
     } catch (error) {
       if (controller.signal.aborted && this.engine === engine) {
-        this.message = "Berechnung unterbrochen. Erneut versuchen.";
-        this.retryAvailable = true;
+        const returned = this.streetEngine === engine && !engine.offRoute;
+        this.message = returned
+          ? ""
+          : "Berechnung unterbrochen. Erneut versuchen.";
+        this.retryAvailable = !returned;
       }
       if (!controller.signal.aborted && this.engine === engine) {
         if (error instanceof LocationError) {
@@ -951,6 +963,134 @@ export class NavigationSession {
         this.emit();
       }
     }
+  }
+  /** Automatic repairs replace streets only. Transit changes require a user request. */
+  private async repairStreet() {
+    const engine = this.engine,
+      now = Date.now() / 1000;
+    if (
+      !engine ||
+      !movement(engine.leg) ||
+      !engine.offRoute ||
+      this.busy ||
+      !this.foreground ||
+      !navigator.onLine ||
+      !this.hasCurrentLocation ||
+      this.fix!.accuracy > 50 ||
+      engine.plausibleMovementTimestamp !== this.fix!.timestamp ||
+      now <
+        Math.max(
+          this.streetRetryAt,
+          this.lastReroute + 10,
+          this.deps.api.retryAt || 0,
+        )
+    )
+      return;
+    if (unavailableBoarding(engine.journey, engine.progress.legIndex, now)) {
+      const assessment = assessConnection(
+        engine.journey,
+        engine.progress.legIndex,
+        now,
+      );
+      this.disruption = { id: assessment.id, message: assessment.message };
+      this.retryAvailable = true;
+      return;
+    }
+    this.lastReroute = now;
+    this.streetEngine = engine;
+    await this.changeRoute(async (signal, active) => {
+      const leg = active.leg;
+      const settings = structuredClone(
+        this.deps.routingSettings?.() ?? this.settings!,
+      );
+      const result = await this.deps.api.batch(
+        {
+          origin: fixPlace(this.usableFix()),
+          destination: active.requiresElevatorConfirmation ? leg.from : leg.to,
+          timing: "now",
+          time: Date.now() / 1000,
+        },
+        settings,
+        {
+          direct: true,
+          directMode: leg.kind === "walk" ? "WALK" : "BIKE",
+          pre: "BIKE",
+          post: "BIKE",
+        },
+        signal,
+      );
+      signal.throwIfAborted();
+      if (this.engine !== active || !active.offRoute) return;
+      const replacement = result.journeys[0];
+      if (!replacement) throw new Error("Kein neuer Weg gefunden.");
+      const latest = this.usableFix();
+      if (
+        latest.accuracy > 50 ||
+        active.plausibleMovementTimestamp !== latest.timestamp ||
+        !movement(replacement.legs[0]) ||
+        projectPath(latest, replacement.legs[0].coordinates).distance >
+          Math.max(20, latest.accuracy)
+      ) {
+        this.streetRetryAt = Date.now() / 1000 + 10;
+        return "Standort hat sich geändert. Weg wird erneut berechnet …";
+      }
+      const index = active.progress.legIndex;
+      const route = applyTransit(
+        {
+          ...active.journey,
+          legs: [
+            ...active.journey.legs.slice(0, index),
+            ...replacement.legs.map((part) => ({
+              ...part,
+              navigationId: crypto.randomUUID(),
+            })),
+            ...(active.requiresElevatorConfirmation ? [leg] : []),
+            ...active.journey.legs.slice(index + 1),
+          ],
+        },
+        index,
+        new Map(),
+      );
+      const assessment = assessConnection(route, index, Date.now() / 1000);
+      if (
+        unavailableBoarding(
+          route,
+          index + replacement.legs.length - 1,
+          Date.now() / 1000,
+        )
+      ) {
+        this.disruption = { id: assessment.id, message: assessment.message };
+        this.retryAvailable = true;
+        this.streetRetryAt = Date.now() / 1000 + 60;
+        return assessment.message;
+      }
+      const progress = { ...active.progress, maneuverIndex: 0, meters: 0 };
+      this.activate(route, progress, settings);
+      this.engine!.update(latest);
+      this.assessment = assessment;
+      this.disruption =
+        assessment.status === "ready"
+          ? undefined
+          : { id: assessment.id, message: assessment.message };
+      this.retryAvailable = !!this.disruption;
+      this.streetFailures = 0;
+      this.streetRetryAt = 0;
+      return assessment.message;
+    }, "Route wird angepasst …");
+    if (this.engine === engine && engine.offRoute && this.retryAvailable) {
+      this.streetFailures++;
+      this.streetRetryAt = Math.max(
+        this.streetRetryAt,
+        Date.now() / 1000 + [10, 30, 60][Math.min(2, this.streetFailures - 1)],
+        this.deps.api.retryAt || 0,
+      );
+    }
+    if (this.streetEngine === engine) this.streetEngine = undefined;
+  }
+  async retryStreet() {
+    this.streetRetryAt = 0;
+    this.lastReroute = -Infinity;
+    await this.repairStreet();
   }
   async reroute() {
     this.lastReroute = Date.now() / 1000;
@@ -1023,7 +1163,8 @@ export class NavigationSession {
       id: `stop-${stop.navigationId}`,
       message: "Weiterfahrt prüfen. Die bisherige Verbindung bleibt aktiv.",
     };
-    return this.proposeAlternative("stop");
+    this.retryAvailable = true;
+    this.emit();
   }
   completeLeg(expectedId: string) {
     const engine = this.engine;

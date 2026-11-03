@@ -278,7 +278,11 @@ export class NavigationView {
     el("navigation-audio").onclick = () => {
       this.guidance.toggle();
       this.voiceMessage = "";
-      if (this.session?.engine && this.guidance.enabled)
+      if (
+        this.session?.engine &&
+        this.session.engine.guidanceUsable &&
+        this.guidance.enabled
+      )
         this.guidance.speak(
           `unmute-${Date.now()}`,
           this.session.engine.instruction,
@@ -291,9 +295,17 @@ export class NavigationView {
     el("navigation-replan").onclick = () => this.restart(true);
     el("navigation-retry").onclick = () => {
       if (!this.session?.engine) this.restart(false);
+      else if (this.session.disruption)
+        void this.session.proposeAlternative(
+          this.session.engine.leg.kind === "stop" ? "stop" : undefined,
+        );
       else if (this.session.engine.leg.kind === "stop")
         void this.session.continueStop();
-      else if (this.session.disruption) void this.session.proposeAlternative();
+      else if (
+        movement(this.session.engine.leg) &&
+        this.session.engine.offRoute
+      )
+        void this.session.retryStreet();
       else void this.session.reroute();
     };
     el("navigation-complete").onkeydown = (event) => {
@@ -1279,8 +1291,15 @@ export class NavigationView {
     const cursor = this.stationSample?.(Date.now() / 1000);
     this.stationCursor = cursor;
     const estimate = cursor?.source === "estimated" ? cursor : undefined;
-    el("navigation-instruction").textContent =
-      engine && !arrived && leg?.kind === "bike" && !engine.maneuver
+    const streetPaused = !!engine && movement(leg) && !engine.guidanceUsable;
+    el("navigation-instruction").textContent = streetPaused
+      ? session.busy
+        ? "Route wird angepasst …"
+        : engine.offRoute
+          ? (session.disruption?.message ?? session.message) ||
+            "Route verlassen · Weg wird neu berechnet"
+          : "Standort wird geprüft"
+      : engine && !arrived && leg?.kind === "bike" && !engine.maneuver
         ? `Nach ${leg.to.name}`
         : (engine?.instruction ??
           (session.busy || !session.message
@@ -1316,7 +1335,8 @@ export class NavigationView {
             : leg?.kind === "stop"
               ? "●"
               : "↑";
-    const meters = engine?.distanceToNext;
+    if (streetPaused) arrow.textContent = "";
+    const meters = streetPaused ? undefined : engine?.distanceToNext;
     el("navigation-distance").textContent =
       arrived || leg?.kind === "transit" || meters === undefined
         ? ""
@@ -1436,9 +1456,12 @@ export class NavigationView {
                 : "Abschnitt fertig";
     const locationRetry = !engine && session.needsLocation;
     el("navigation-retry").hidden =
-      !session.retryAvailable ||
+      (!session.retryAvailable && !session.disruption) ||
       locationRetry ||
       (invalidLocation && !!session.locationError);
+    el("navigation-retry").textContent = session.disruption
+      ? "Andere Verbindung suchen"
+      : "Erneut versuchen";
     el("navigation-replan").hidden = !session.distantStart;
     el("navigation-locate").hidden =
       arrived === true ||
@@ -1595,8 +1618,9 @@ export class NavigationView {
     // Reveal progress after placing the strip, even while previewing another step.
     if (revealCurrent) this.alignCurrentTab();
     if (!engine) return;
+    if (streetPaused) this.guidance.cancel();
     const phaseKey = `${engine.journey.legs.map((l) => l.navigationId).join("|")}-${engine.leg.navigationId}-${engine.phase}`;
-    if (this.phaseKey !== phaseKey) {
+    if (!streetPaused && this.phaseKey !== phaseKey) {
       this.phaseKey = phaseKey;
       this.guidance.speak(
         engine.maneuver && (engine.distanceToNext ?? Infinity) <= 100
@@ -1608,7 +1632,11 @@ export class NavigationView {
       );
     }
     if (session.foreground && !session.busy) {
-      if (engine.maneuver && (engine.distanceToNext ?? Infinity) <= 100)
+      if (
+        !streetPaused &&
+        engine.maneuver &&
+        (engine.distanceToNext ?? Infinity) <= 100
+      )
         this.guidance.speak(
           `${phaseKey}-turn-${engine.guidanceKey}`,
           `In ${Math.round((engine.distanceToNext ?? 0) / 10) * 10} Metern ${engine.instruction}`,

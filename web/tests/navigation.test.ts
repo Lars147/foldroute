@@ -192,7 +192,7 @@ it("rejects noisy, stale and duplicate GPS and only reroutes on three reliable s
   expect(e.update(fix(away, 1), (now + 1) * 1000)).toBe(false);
   expect(e.update(fix(away, 1), (now + 1) * 1000)).toBe(false);
   expect(e.update(fix(away, 2), (now + 2) * 1000)).toBe(false);
-  expect(e.update(fix(away, 3), (now + 3) * 1000)).toBe(true);
+  expect(e.update(fix(away, 6), (now + 6) * 1000)).toBe(true);
   e.update(fix(away, 4), (now + 100) * 1000);
   expect(e.distanceToNext).toBeUndefined();
 });
@@ -364,18 +364,19 @@ function sessionHarness(
   };
   const storageEnabled = vi.fn(() => true);
   const locate = vi.fn(async (): Promise<LocationFix> => fix());
+  const api = new ApiClient();
   const session = new NavigationSession({
     changed: vi.fn(),
     locate,
     routingSettings,
     resumeEnabled: storageEnabled,
     statisticsEnabled: storageEnabled,
-    api: new ApiClient(),
+    api,
     store: store as unknown as NavigationStore,
     plan,
     refresher: { refresh: async () => new Map() } as any,
   });
-  return { session, store, plan, locate, storageEnabled };
+  return { session, store, plan, locate, storageEnabled, api };
 }
 const request = {
   origin: a,
@@ -885,24 +886,99 @@ it("an elevator anchor survives validation and produces a maneuver at that point
   expect(validated.steps[1].coordinates).toEqual([b]);
 });
 
-it("retains coincident elevator guidance and requires confirmation at a vertical endpoint", () => {
-  const leg: Leg = {
+function pointElevator(kind: "walk" | "bike" = "walk", repeated = false): Leg {
+  return {
     ...bike(),
-    kind: "walk",
+    kind,
     from: a,
     to: a,
     distance: 0,
-    coordinates: [a],
+    coordinates: repeated ? [a, a] : [a],
     maneuvers: [
-      { direction: "ELEVATOR", streetName: "", distance: 0, coordinates: [a] },
+      {
+        direction: "ELEVATOR",
+        streetName: "",
+        distance: 0,
+        coordinates: repeated ? [a, a] : [a],
+      },
     ],
   };
-  const engine = new NavigationEngine(journey([leg]));
-  expect(engine.instruction).toBe("Aufzug nehmen");
+}
+
+it.each(["walk", "bike"] as const)(
+  "retains point elevator guidance for %s until manual confirmation",
+  (kind) => {
+    for (const repeated of [false, true]) {
+      const engine = new NavigationEngine(
+        journey([pointElevator(kind, repeated)]),
+      );
+      for (const seconds of [0, 3, 6]) {
+        engine.update(fix(a, seconds), (now + seconds) * 1000);
+        expect(engine.instruction).toBe("Aufzug nehmen");
+        expect(engine.guidanceUsable).toBe(true);
+        expect(engine.routeState).toBe("following");
+        expect(engine.offRoute).toBe(false);
+        expect(engine.distanceToNext).toBe(0);
+      }
+      engine.tick(now + 600);
+      expect(engine.phase).toBe("active");
+      expect(engine.advance(true)).toBe(true);
+      expect(engine.phase).toBe("arrived");
+      expect(engine.advance(true)).toBe(false);
+    }
+  },
+);
+
+it("keeps point elevator instructions through inaccurate, stale and unavailable GPS", () => {
+  const engine = new NavigationEngine(journey([pointElevator()]));
   engine.update(fix(a), now * 1000);
+  engine.update(fix(a, 1, 70), (now + 1) * 1000);
+  expect(engine.guidanceUsable).toBe(true);
+  engine.update(fix(a, 2, 500), (now + 2) * 1000);
+  expect(engine.guidanceUsable).toBe(true);
+  engine.update(fix(a, 3), (now + 100) * 1000);
+  expect(engine.guidanceUsable).toBe(true);
+  engine.invalidateLocation();
+  expect(engine.instruction).toBe("Aufzug nehmen");
+  expect(engine.guidanceUsable).toBe(true);
+  expect(engine.offRoute).toBe(false);
+});
+
+it("detects real departures from an elevator anchor and confirms return", () => {
+  const engine = new NavigationEngine(journey([pointElevator()]));
+  engine.update(fix(a), now * 1000);
+  for (const [longitude, seconds] of [
+    [11.0005, 1],
+    [11.0007, 3],
+    [11.001, 6],
+  ])
+    engine.update(fix(place(longitude), seconds), (now + seconds) * 1000);
+  expect(engine.offRoute).toBe(true);
+  expect(engine.guidanceUsable).toBe(false);
+  engine.invalidateLocation();
+  expect(engine.guidanceUsable).toBe(false);
+  for (const seconds of [7, 10, 12])
+    engine.update(fix(a, seconds), (now + seconds) * 1000);
+  expect(engine.offRoute).toBe(false);
+  expect(engine.guidanceUsable).toBe(true);
   expect(engine.phase).toBe("active");
-  engine.advance(true);
-  expect(engine.phase).toBe("arrived");
+});
+
+it("does not classify a GPS teleport at the elevator as a real departure", () => {
+  const engine = new NavigationEngine(journey([pointElevator()]));
+  engine.update(fix(a), now * 1000);
+  for (const seconds of [1, 3, 6])
+    engine.update(fix(place(12), seconds), (now + seconds) * 1000);
+  expect(engine.offRoute).toBe(false);
+  expect(engine.guidanceUsable).toBe(true);
+});
+
+it("does not exempt a point-shaped ordinary street step from uncertain matching", () => {
+  const leg = pointElevator();
+  leg.maneuvers![0].direction = "CONTINUE";
+  const engine = new NavigationEngine(journey([leg]));
+  engine.update(fix(a), now * 1000);
+  expect(engine.guidanceUsable).toBe(false);
 });
 
 it("retains a cancelled selection after a delayed transit check without silently planning", async () => {
@@ -1344,6 +1420,8 @@ it("confirms a stop only when its newly planned continuation is accepted", async
   const engine = session.engine!;
   engine.journey.legs[1].transitStatus!.cancelled = true;
   await session.continueStop();
+  expect(session.alternative).toBeUndefined();
+  await session.proposeAlternative("stop");
   expect(session.engine).toBe(engine);
   expect(engine.progress.confirmedStops).toEqual([]);
   expect(session.alternative?.reason).toBe("stop");
@@ -1433,6 +1511,8 @@ it("starts the waiting prefix of a proposed stop continuation at the current sto
   await session.start(route, request, defaults, snapshot);
   session.engine!.journey.legs[2].transitStatus!.cancelled = true;
   await session.continueStop();
+  expect(session.alternative).toBeUndefined();
+  await session.proposeAlternative("stop");
   expect(session.alternative?.journey.origin).toEqual(a);
   expect(session.alternative?.journey.departure).toBe(now);
   expect(session.alternative?.journey.legs[0]).toMatchObject({
@@ -1902,5 +1982,438 @@ it("undo removes through stops confirmed by the manual exit", async () => {
   expect(session.engine!.progress.confirmedStops).toContain(via.id);
   expect(session.undoLastCompletion()).toBe(true);
   expect(session.engine!.progress.confirmedStops).not.toContain(via.id);
+  await session.stop();
+});
+
+it.each(["bike", "walk"] as const)(
+  "recovers %s guidance beyond 500 m after continuous inaccurate fixes",
+  (kind) => {
+    const end = place(11.02);
+    const engine = new NavigationEngine(
+      journey([
+        {
+          ...bike(),
+          kind,
+          to: end,
+          coordinates: [a, end],
+          maneuvers: undefined,
+        },
+      ]),
+    );
+    engine.update(fix(a), now * 1000);
+    for (let seconds = 5; seconds <= 100; seconds += 5)
+      engine.update(
+        fix(place(11 + seconds / 10000), seconds, 70),
+        (now + seconds) * 1000,
+      );
+    expect(engine.progress.meters).toBe(0);
+    expect(engine.guidanceUsable).toBe(false);
+    engine.update(fix(place(11.0105), 105), (now + 105) * 1000);
+    expect(engine.progress.meters).toBeGreaterThan(700);
+    expect(engine.guidanceUsable).toBe(true);
+  },
+);
+
+it("confirms a nearby parallel street and requires sustained return, ignoring duplicates", () => {
+  const end = place(11.02);
+  const engine = new NavigationEngine(
+    journey([
+      { ...bike(), to: end, coordinates: [a, end], maneuvers: undefined },
+    ]),
+  );
+  engine.update(fix(a), now * 1000);
+  const sample = (seconds: number, latitude: number) =>
+    engine.update(
+      fix(place(11 + seconds / 10000, latitude), seconds),
+      (now + seconds) * 1000,
+    );
+  sample(1, 48.0003);
+  sample(3, 48.0003);
+  expect(engine.offRoute).toBe(false);
+  sample(6, 48.0003);
+  expect(engine.offRoute).toBe(true);
+  sample(7, 48);
+  sample(7, 48);
+  sample(10, 48);
+  expect(engine.offRoute).toBe(true);
+  sample(12, 48);
+  expect(engine.offRoute).toBe(false);
+  expect(engine.guidanceUsable).toBe(true);
+});
+
+it("detects sustained reverse travel on the route without treating a stationary correction as a turn", () => {
+  const end = place(11.02);
+  const engine = new NavigationEngine(
+    journey([
+      { ...bike(), to: end, coordinates: [a, end], maneuvers: undefined },
+    ]),
+  );
+  engine.update(fix(place(11.01)), now * 1000);
+  for (const seconds of [1, 3, 6])
+    engine.update(fix(place(11.0094), seconds), (now + seconds) * 1000);
+  expect(engine.offRoute).toBe(false);
+  for (const seconds of [8, 10, 13])
+    engine.update(
+      fix(place(11.0094 - (seconds - 6) / 10000), seconds),
+      (now + seconds) * 1000,
+    );
+  expect(engine.offRoute).toBe(true);
+});
+
+it.each([false, true])(
+  "automatically repairs streets, preserving transit=%s without invoking the journey planner",
+  async (multimodal) => {
+    const { session, api, plan } = sessionHarness();
+    await session.start(
+      multimodal ? connection() : journey(),
+      request,
+      defaults,
+    );
+    const old = session.engine!,
+      id = old.leg.navigationId;
+    const batch = vi.spyOn(api, "batch").mockImplementation(async (input) => ({
+      journeys: [
+        journey([
+          {
+            ...bike(),
+            from: input.origin,
+            coordinates: [input.origin, c],
+            maneuvers: undefined,
+          },
+        ]),
+      ],
+      issues: [],
+      stop: false,
+      rejected: false,
+    }));
+    for (const seconds of [1, 3, 6]) {
+      vi.setSystemTime((now + seconds) * 1000);
+      session.updateLocation(
+        fix(place(11 + 0.0001 * seconds, 48.0004), seconds),
+        "current",
+      );
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls[0][2]).toMatchObject({
+      direct: true,
+      directMode: "BIKE",
+    });
+    expect(plan).not.toHaveBeenCalled();
+    expect(session.engine).not.toBe(old);
+    expect(session.engine!.leg.navigationId).not.toBe(id);
+    if (multimodal)
+      expect(
+        session.engine!.journey.legs.find((l) => l.kind === "transit")
+          ?.transitReference,
+      ).toEqual(
+        old.journey.legs.find((l) => l.kind === "transit")?.transitReference,
+      );
+    await session.stop();
+  },
+);
+
+it("automatically retries failed street repairs with backoff and the latest location", async () => {
+  const { session, api, plan } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  const batch = vi.spyOn(api, "batch").mockRejectedValue(new Error("network"));
+  for (const seconds of [1, 3, 6]) {
+    vi.setSystemTime((now + seconds) * 1000);
+    session.updateLocation(
+      fix(place(11 + 0.0001 * seconds, 48.0004), seconds),
+      "current",
+    );
+  }
+  await vi.advanceTimersByTimeAsync(0);
+  expect(batch).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(9000);
+  expect(batch).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(batch).toHaveBeenCalledTimes(2);
+  expect(plan).not.toHaveBeenCalled();
+  await session.stop();
+});
+
+it("does not call forward travel after a backward GPS correction a U-turn", () => {
+  const end = place(11.02);
+  const engine = new NavigationEngine(
+    journey([
+      { ...bike(), to: end, coordinates: [a, end], maneuvers: undefined },
+    ]),
+  );
+  engine.update(fix(place(11.015)), now * 1000);
+  for (const [longitude, seconds] of [
+    [11.0137, 1],
+    [11.0139, 3],
+    [11.0141, 6],
+  ])
+    engine.update(
+      { ...fix(place(longitude), seconds), heading: 90, speed: 3 },
+      (now + seconds) * 1000,
+    );
+  expect(engine.offRoute).toBe(false);
+});
+
+it("never repairs from a rejected GPS teleport while already off route", async () => {
+  const { session, api } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  const batch = vi.spyOn(api, "batch").mockRejectedValue(new Error("network"));
+  for (const seconds of [1, 3, 6]) {
+    vi.setSystemTime((now + seconds) * 1000);
+    session.updateLocation(
+      fix(place(11 + seconds * 0.0001, 48.0004), seconds),
+      "current",
+    );
+  }
+  await vi.advanceTimersByTimeAsync(0);
+  expect(batch).toHaveBeenCalledTimes(1);
+  vi.setSystemTime((now + 20) * 1000);
+  session.updateLocation(fix(place(12), 20), "current");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(batch).toHaveBeenCalledTimes(1);
+  expect(session.engine!.plausibleMovementTimestamp).not.toBe(
+    (now + 20) * 1000,
+  );
+  await session.stop();
+});
+
+it.each(["risk", "unknown"] as const)(
+  "keeps street guidance working when the unchanged train is %s",
+  async (status) => {
+    const { session, api, plan } = sessionHarness();
+    const route = connection(status === "risk" ? now + 240 : now + 800);
+    if (status === "unknown")
+      route.legs[2].transitStatus = { failure: "network" };
+    await session.start(route, request, defaults);
+    const batch = vi.spyOn(api, "batch").mockImplementation(async (input) => ({
+      journeys: [
+        journey([
+          {
+            ...bike(),
+            from: input.origin,
+            coordinates: [input.origin, c],
+            maneuvers: undefined,
+          },
+        ]),
+      ],
+      issues: [],
+      stop: false,
+      rejected: false,
+    }));
+    for (const seconds of [1, 3, 6]) {
+      vi.setSystemTime((now + seconds) * 1000);
+      session.updateLocation(
+        fix(place(11 + seconds * 0.0001, 48.0004), seconds),
+        "current",
+      );
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(session.engine!.guidanceUsable).toBe(true);
+    expect(session.assessment?.status).toBe(status);
+    expect(session.alternative).toBeUndefined();
+    expect(plan).not.toHaveBeenCalled();
+    await session.stop();
+  },
+);
+
+it("ignores ambiguous later visits to the same street after a long GPS gap", () => {
+  const far = place(11.02);
+  const engine = new NavigationEngine(
+    journey([
+      {
+        ...bike(),
+        from: a,
+        to: b,
+        coordinates: [a, far, a, b],
+        maneuvers: undefined,
+      },
+    ]),
+  );
+  engine.update(fix(a), now * 1000);
+  engine.invalidateLocation();
+  engine.update(fix(place(11.001), 100), (now + 100) * 1000);
+  expect(engine.progress.meters).toBe(0);
+  expect(engine.routeState).toBe("uncertain");
+  expect(engine.phase).toBe("active");
+});
+
+it("aborts a pending street repair on confirmed return and ignores its late answer", async () => {
+  const { session, api } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  const original = session.engine;
+  let finish!: (value: any) => void;
+  let signal!: AbortSignal;
+  vi.spyOn(api, "batch").mockImplementation(
+    (_request, _settings, _variant, pendingSignal) => {
+      signal = pendingSignal;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
+  for (const seconds of [1, 3, 6]) {
+    vi.setSystemTime((now + seconds) * 1000);
+    session.updateLocation(
+      fix(place(11 + seconds * 0.0001, 48.0004), seconds),
+      "current",
+    );
+  }
+  expect(session.busy).toBe(true);
+  for (const seconds of [7, 10, 12]) {
+    vi.setSystemTime((now + seconds) * 1000);
+    session.updateLocation(
+      fix(place(11 + seconds * 0.0001), seconds),
+      "current",
+    );
+  }
+  expect(signal.aborted).toBe(true);
+  finish({ journeys: [journey()], issues: [], rejected: false, stop: false });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(session.engine).toBe(original);
+  expect(session.engine!.guidanceUsable).toBe(true);
+  expect(session.busy).toBe(false);
+  expect(session.retryAvailable).toBe(false);
+  await session.stop();
+});
+
+it("preserves accumulated distance when a long street is replaced by a shorter one", async () => {
+  const { session, api, store } = sessionHarness();
+  const end = place(11.02);
+  await session.start(
+    journey([
+      {
+        ...bike(),
+        to: end,
+        coordinates: [a, end],
+        maneuvers: undefined,
+        distance: 1500,
+      },
+    ]),
+    request,
+    defaults,
+  );
+  vi.setSystemTime((now + 100) * 1000);
+  session.updateLocation(fix(place(11.01075), 100), "current");
+  const before = store.save.mock.lastCall![0].trip.distanceMeters;
+  expect(before).toBeGreaterThan(800);
+  vi.spyOn(api, "batch").mockImplementation(async (input) => ({
+    journeys: [
+      journey([
+        {
+          ...bike(),
+          from: input.origin,
+          to: end,
+          coordinates: [input.origin, end],
+          maneuvers: undefined,
+          distance: 200,
+        },
+      ]),
+    ],
+    issues: [],
+    rejected: false,
+    stop: false,
+  }));
+  for (const seconds of [101, 103, 106]) {
+    vi.setSystemTime((now + seconds) * 1000);
+    session.updateLocation(
+      fix(place(11.01075 + (seconds - 100) * 0.0001, 48.0004), seconds),
+      "current",
+    );
+  }
+  await vi.advanceTimersByTimeAsync(0);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.summary?.distanceMeters).toBeCloseTo(before + 200);
+  await session.stop();
+});
+
+it("still repairs the way to an outstanding stop when a later train is cancelled", async () => {
+  const { session, api, plan } = sessionHarness();
+  const stop = {
+    ...transition("stop", c, now + 180, now + 240),
+    stop: { id: "coffee", place: c, stayMinutes: 1 },
+  };
+  await session.start(journey([bike(), stop, train()]), request, defaults);
+  session.engine!.journey.legs[2].transitStatus!.cancelled = true;
+  const batch = vi.spyOn(api, "batch").mockImplementation(async (input) => ({
+    journeys: [
+      journey([
+        {
+          ...bike(),
+          from: input.origin,
+          coordinates: [input.origin, c],
+          maneuvers: undefined,
+        },
+      ]),
+    ],
+    issues: [],
+    stop: false,
+    rejected: false,
+  }));
+  for (const seconds of [1, 3, 6]) {
+    vi.setSystemTime((now + seconds) * 1000);
+    session.updateLocation(
+      fix(place(11 + seconds * 0.0001, 48.0004), seconds),
+      "current",
+    );
+  }
+  await vi.advanceTimersByTimeAsync(0);
+  expect(batch).toHaveBeenCalledTimes(1);
+  expect(session.engine!.guidanceUsable).toBe(true);
+  expect(session.engine!.journey.legs[1].stop?.id).toBe("coffee");
+  expect(plan).not.toHaveBeenCalled();
+  await session.stop();
+});
+
+it("keeps the elevator as a manual activity after repairing the approach to its anchor", async () => {
+  const { session, api } = sessionHarness();
+  await session.start(
+    journey([
+      { ...pointElevator(), from: { ...a, level: 0 }, to: { ...a, level: 1 } },
+    ]),
+    { ...request, destination: a },
+    defaults,
+  );
+  const elevatorId = session.engine!.leg.navigationId;
+  const batch = vi.spyOn(api, "batch").mockImplementation(async (input) => ({
+    journeys: [
+      journey([
+        {
+          ...bike(),
+          kind: "walk",
+          from: input.origin,
+          to: input.destination,
+          coordinates: [input.origin, a],
+          maneuvers: undefined,
+          distance: 75,
+        },
+      ]),
+    ],
+    issues: [],
+    rejected: false,
+    stop: false,
+  }));
+  for (const [longitude, seconds] of [
+    [11.0005, 1],
+    [11.0007, 3],
+    [11.001, 6],
+  ]) {
+    vi.setSystemTime((now + seconds) * 1000);
+    session.updateLocation(fix(place(longitude), seconds), "current");
+  }
+  await vi.advanceTimersByTimeAsync(0);
+  expect(batch).toHaveBeenCalledTimes(1);
+  expect(batch.mock.calls[0][0].destination.level).toBe(0);
+  expect(session.engine!.journey.legs[1].navigationId).toBe(elevatorId);
+  vi.setSystemTime((now + 12) * 1000);
+  session.updateLocation(fix(a, 12), "current");
+  expect(session.engine!.leg.navigationId).toBe(elevatorId);
+  expect(session.engine!.instruction).toBe("Aufzug nehmen");
+  expect(session.engine!.phase).toBe("active");
+  vi.setSystemTime((now + 15) * 1000);
+  session.updateLocation(fix(a, 15), "current");
+  expect(session.engine!.phase).toBe("active");
+  expect(session.completeLeg(elevatorId!)).toBe(true);
+  expect(session.engine!.phase).toBe("arrived");
   await session.stop();
 });

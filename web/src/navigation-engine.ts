@@ -79,6 +79,54 @@ export function projectPath(
   return { ...best, length };
 }
 
+/** Street matching must agree for guidance and presentation, including route loops. */
+export function projectMovementPath(
+  fix: LocationFix,
+  path: Coordinate[],
+  min = 0,
+  max = Infinity,
+): Projection | undefined {
+  const candidates: Projection[] = [];
+  let offset = 0;
+  for (let i = 1; i < path.length; i++) {
+    const candidate = projectPath(fix, [path[i - 1], path[i]]);
+    candidate.meters += offset;
+    offset += candidate.length;
+    if (
+      candidate.meters >= min &&
+      candidate.meters <= max &&
+      candidate.distance <= Math.max(40, fix.accuracy)
+    )
+      candidates.push(candidate);
+  }
+  candidates.sort((a, b) => a.distance - b.distance);
+  const best = candidates[0];
+  if (!best) return;
+  const nearby = candidates.filter(
+    (c) => c.distance <= best.distance + Math.max(10, fix.accuracy),
+  );
+  const separated = (a: Projection, b: Projection) =>
+    Math.abs(a.meters - b.meters) > Math.max(30, 2 * fix.accuracy);
+  let selected = best;
+  if (nearby.some((c) => separated(best, c))) {
+    if (fix.heading === undefined || (fix.speed ?? 0) < 1) return;
+    const aligned = nearby.filter(
+      (c) => Math.abs(headingDelta(fix.heading!, c.bearing)) <= 60,
+    );
+    if (!aligned[0] || aligned.some((c) => separated(aligned[0], c))) return;
+    selected = aligned[0];
+  }
+  return { ...selected, length: offset };
+}
+
+export function movementCoordinates(leg: Leg): Coordinate[] {
+  return leg.maneuvers?.length
+    ? leg.maneuvers.flatMap((step) => step.coordinates)
+    : leg.coordinates.length > 1
+      ? leg.coordinates
+      : [leg.from, leg.to];
+}
+
 /** Reject off-route and ambiguous projections, including overlapping route loops. */
 export function projectTransitPath(
   fix: LocationFix,
@@ -139,8 +187,39 @@ export class NavigationEngine {
   progress: NavigationProgress;
   distanceToNext?: number;
   offRoute = false;
-  private offSamples = 0;
   private lastTimestamp = 0;
+  private acceptedTimestamp = 0;
+  routeState: "following" | "uncertain" | "deviated" = "following";
+  movementMatch?: Projection;
+  movementMatchTimestamp = 0;
+  plausibleMovementTimestamp = -Infinity;
+  private evidence?: {
+    kind: "leave" | "return";
+    first: LocationFix;
+    firstMeters?: number;
+    count: number;
+  };
+  private previousMovementFix?: LocationFix;
+  private get elevatorAnchor(): Coordinate | undefined {
+    if (this.maneuver?.direction !== "ELEVATOR" || !this.path.length) return;
+    const anchor = this.path[0];
+    return this.path.every(
+      (point) =>
+        point.latitude === anchor.latitude &&
+        point.longitude === anchor.longitude,
+    )
+      ? anchor
+      : undefined;
+  }
+  get guidanceUsable() {
+    return (
+      this.routeState === "following" ||
+      (!!this.elevatorAnchor && !this.offRoute)
+    );
+  }
+  get requiresElevatorConfirmation() {
+    return !!this.elevatorAnchor;
+  }
   private path: Coordinate[] = [];
   private offsets: number[] = [];
   private cues: NavigationCue[] = [];
@@ -476,9 +555,14 @@ export class NavigationEngine {
         : Math.max(0, this.cue.meters - this.progress.meters);
   }
   invalidateLocation() {
-    this.offSamples = 0;
     this.distanceToNext = undefined;
     this.lastTimestamp = 0;
+    this.acceptedTimestamp = 0;
+    this.evidence = undefined;
+    this.previousMovementFix = undefined;
+    this.plausibleMovementTimestamp = -Infinity;
+    this.movementMatch = undefined;
+    if (movement(this.leg)) this.routeState = "uncertain";
     this.transitSample = undefined;
     this.transitEvidence = undefined;
     this.transitPositionConfirmed = false;
@@ -489,8 +573,8 @@ export class NavigationEngine {
       return false;
     }
     if (fix.timestamp <= this.lastTimestamp) return false;
-    const elapsed = this.lastTimestamp
-      ? (fix.timestamp - this.lastTimestamp) / 1000
+    const elapsed = this.acceptedTimestamp
+      ? (fix.timestamp - this.acceptedTimestamp) / 1000
       : 0;
     this.lastTimestamp = fix.timestamp;
     if (!movement(this.leg)) {
@@ -498,23 +582,87 @@ export class NavigationEngine {
       if (this.leg.kind === "transit") this.updateTransit(fix);
       return false;
     }
-    const projection = projectPath(
-      fix,
-      this.path,
-      Math.max(0, this.progress.meters - 30),
-      elapsed === 0
-        ? Infinity
-        : this.progress.meters + Math.max(100, Math.min(500, elapsed * 20)),
-    );
-    const whole = projectPath(fix, this.path);
-    this.offSamples =
-      fix.accuracy <= 50 && whole.distance > 60 ? this.offSamples + 1 : 0;
-    this.offRoute = this.offSamples >= 3;
+    const previous = this.previousMovementFix;
+    this.movementMatchTimestamp = fix.timestamp;
+    this.movementMatch = undefined;
+    const gap = previous ? (fix.timestamp - previous.timestamp) / 1000 : 0;
     if (
-      projection.distance <= Math.max(40, fix.accuracy) &&
-      fix.accuracy <= 50
+      previous &&
+      distance(previous, fix) >
+        Math.max(100, gap * 20) + previous.accuracy + fix.accuracy
     ) {
+      this.evidence = undefined;
+      this.routeState = this.offRoute ? "deviated" : "uncertain";
+      this.distanceToNext = undefined;
+      return this.offRoute;
+    }
+    this.previousMovementFix = fix;
+    this.plausibleMovementTimestamp = fix.timestamp;
+    const anchor = this.elevatorAnchor;
+    const anchorDistance = anchor ? distance(fix, anchor) : undefined;
+    const projection = anchor
+      ? anchorDistance! <= Math.max(40, fix.accuracy)
+        ? { meters: 0, distance: anchorDistance!, length: 0, bearing: 0 }
+        : undefined
+      : projectMovementPath(
+          fix,
+          this.path,
+          Math.max(0, this.progress.meters - 30),
+          elapsed === 0
+            ? Infinity
+            : this.progress.meters + Math.max(100, elapsed * 20),
+        );
+    const whole = anchor ? projection : projectMovementPath(fix, this.path);
+    const separation = anchorDistance ?? projectPath(fix, this.path).distance;
+    const backward = whole && whole.meters < this.progress.meters - 30;
+    const leave = separation > Math.max(20, fix.accuracy) || !!backward;
+    const returned =
+      projection && projection.distance <= Math.max(10, fix.accuracy / 2);
+    if (fix.accuracy > 50 || (gap > 15 && this.evidence))
+      this.evidence = undefined;
+    const kind =
+      fix.accuracy <= 50 && leave
+        ? "leave"
+        : fix.accuracy <= 50 && returned && this.offRoute
+          ? "return"
+          : undefined;
+    if (kind) {
+      if (
+        !this.evidence ||
+        this.evidence.kind !== kind ||
+        fix.timestamp - this.evidence.first.timestamp > 30000
+      )
+        this.evidence = {
+          kind,
+          first: fix,
+          firstMeters: whole?.meters,
+          count: 0,
+        };
+      this.evidence.count++;
+      const moved =
+        distance(this.evidence.first, fix) >
+        Math.max(20, this.evidence.first.accuracy + fix.accuracy);
+      if (
+        this.evidence.count >= 3 &&
+        fix.timestamp - this.evidence.first.timestamp >= 5000 &&
+        (!backward ||
+          (moved &&
+            whole.meters < (this.evidence.firstMeters ?? whole.meters) - 20))
+      ) {
+        this.offRoute = kind === "leave";
+        this.evidence = undefined;
+      }
+    } else this.evidence = undefined;
+    this.movementMatch = leave || this.offRoute ? undefined : projection;
+    this.routeState = this.offRoute
+      ? "deviated"
+      : leave || !projection || fix.accuracy > 50
+        ? "uncertain"
+        : "following";
+    if (!this.guidanceUsable) this.distanceToNext = undefined;
+    if (projection && this.guidanceUsable && fix.accuracy <= 50) {
       this.progress.meters = Math.max(this.progress.meters, projection.meters);
+      this.acceptedTimestamp = fix.timestamp;
       this.updateManeuver();
       if (
         projection.length - this.progress.meters <= 40 &&
@@ -608,9 +756,14 @@ export class NavigationEngine {
     delete this.progress.transitStop;
     delete this.progress.transitDepartedStop;
     this.transitPositionConfirmed = false;
-    this.offSamples = 0;
     this.offRoute = false;
     this.lastTimestamp = 0;
+    this.acceptedTimestamp = 0;
+    this.routeState = "following";
+    this.evidence = undefined;
+    this.previousMovementFix = undefined;
+    this.plausibleMovementTimestamp = -Infinity;
+    this.movementMatch = undefined;
     this.preparePath();
     return true;
   }

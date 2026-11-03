@@ -18,7 +18,7 @@ Im Anpassungsdialog steht **Start** oben und **Ziel** darunter. Beide Felder öf
 
 Zwischenziele werden auf der Karte nummeriert und im Reiseablauf angezeigt. Das Radlimit gilt je Teilstrecke zwischen den ausgewählten Orten: zweimal 20 Minuten Radfahrt über ein Zwischenziel sind bei einem Limit von 30 Minuten zulässig, auch ohne Pause. Der optionale Fahrradvergleich besucht dieselben Stopps und überschreitet das Limit nur, wenn mindestens eine Radetappe zu lang ist. Die Anzahl zusätzlicher Rad-Umstiege gilt weiterhin für die gesamte Reise; ein gewähltes Zwischenziel ist selbst kein Rad-Umstieg.
 
-In der iPhone- und PWA-Navigation bleibt **Zwischenziel erreicht** aktiv, bis du **Weiterfahren** wählst. Bei früher Bestätigung wartet die Navigation bis zur geplanten Weiterfahrt. Ist ein Anschluss nicht mehr erreichbar oder nicht zuverlässig prüfbar, wird die verbleibende Reise neu berechnet. Ohne erfolgreiche Neuberechnung bleibt der Stopp aktiv. Noch offene Zwischenziele bleiben erhalten; bestätigte Stopps werden nicht erneut angefahren. Das gilt auch nach Wiederaufnahme einer gespeicherten Navigation.
+In der iPhone- und PWA-Navigation bleibt **Zwischenziel erreicht** aktiv, bis du **Weiterfahren** wählst. Bei früher Bestätigung wartet die Navigation bis zur geplanten Weiterfahrt. Ist ein Anschluss nicht mehr erreichbar, bietet **Andere Verbindung suchen** eine neue Suche an. Eine neue Verbindung wird erst nach deiner Bestätigung übernommen. Ohne erfolgreiche Neuberechnung bleibt der Stopp aktiv. Noch offene Zwischenziele bleiben erhalten; bestätigte Stopps werden nicht erneut angefahren. Das gilt auch nach Wiederaufnahme einer gespeicherten Navigation.
 
 ## Favoriten und Ortssuche
 
