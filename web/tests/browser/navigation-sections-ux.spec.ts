@@ -1,5 +1,6 @@
 import { test, expect } from "./test";
 import { expectMotionSettled } from "./assertions";
+import { distance } from "../../src/geometry";
 import {
   now,
   c,
@@ -54,7 +55,7 @@ for (const width of [390, 1280]) {
       page.getByRole("group", { name: "Gesamte Reise" }),
     ).toHaveCount(0);
     const details = page.locator("#navigation-section-content");
-    await expect(details).toHaveText("Geplant: 1 min · 370 m");
+    await expect(details).toHaveText("Noch 1 min · 371 m");
     await expect(page.locator("#navigation-stage")).toHaveClass("sr-only");
     await expect(page.locator("#navigation-complete")).toBeVisible();
     const walk = page.getByRole("tab", { name: /^Zu Fuß nach Ausstieg/ });
@@ -79,7 +80,9 @@ for (const width of [390, 1280]) {
     await page.evaluate(() => (window as any).navProbe.push(48.002, 11.002, 0));
     await expect(walk).toHaveAttribute("aria-selected", "true");
     await expect(walk).toHaveAttribute("aria-current", "step");
-    await expect(details).toHaveText("Geplant: 2 min · 200 m");
+    await expect(details).toHaveText(
+      `Noch 2 min · ${Math.round(distance(c, d))} m`,
+    );
     await expect(page.locator("#navigation-complete")).toBeVisible();
     await expect(
       page.locator("#navigation-view").getByText(/^Am Ziel /),

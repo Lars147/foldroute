@@ -591,7 +591,33 @@ export class NavigationView {
       }
       el("navigation-details").scrollTop = selectionChanged ? 0 : scrollTop;
     }
+    // Progress changes independently of the section structure. Keep its DOM stable.
+    if (compactMovement && selected) {
+      const summary = el("navigation-section-content").querySelector(
+        ".navigation-section-summary",
+      );
+      const text = this.remainingMovementText(selected.main);
+      if (summary && text !== undefined && summary.textContent !== text)
+        summary.textContent = text;
+    }
     return { current, selected, revealCurrent: currentChanged || tabsChanged };
+  }
+  private remainingMovementText(leg: Leg): string | undefined {
+    const engine = this.session?.engine;
+    if (
+      engine?.phase !== "active" ||
+      this.selectedSectionId !== this.currentSectionId ||
+      leg !== engine.leg ||
+      !movement(leg) ||
+      engine.requiresElevatorConfirmation
+    )
+      return;
+    const meters = engine.remainingMeters;
+    const distance =
+      meters >= 1000
+        ? `${(meters / 1000).toFixed(1)} km`
+        : `${Math.round(meters)} m`;
+    return `Noch ${duration(engine.remainingSeconds)} · ${distance}`;
   }
   private renderSectionPreview(selected?: NavigationSection) {
     const preview = el("navigation-section-preview");
@@ -629,7 +655,8 @@ export class NavigationView {
           ]
         : [
             sectionLabel(selected),
-            `${duration(leg.end - leg.start)}${movement(leg) ? ` · ${distance}` : ""}`,
+            this.remainingMovementText(leg) ??
+              `${duration(leg.end - leg.start)}${movement(leg) ? ` · ${distance}` : ""}`,
             leg.to.name,
           ];
     for (const [index, id] of [
