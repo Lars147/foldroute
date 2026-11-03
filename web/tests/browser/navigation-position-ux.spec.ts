@@ -67,6 +67,34 @@ for (const reducedMotion of ["reduce", "no-preference"] as const)
     }
   });
 
+test("GPS circle appears only from 10 metres diameter while the bike marker stays pinned", async ({
+  page,
+}) => {
+  await setup(page);
+  const map = page.locator("#navigation-map");
+  const raw = { latitude: 48.000018, longitude: 11.001 };
+  await push(page, raw.latitude, raw.longitude, 5.1);
+  const before = await savedProgress(page);
+  for (const [accuracy, visible] of [
+    [4.9, false],
+    [5, true],
+    [5.1, true],
+    [4.9, false],
+  ] as const) {
+    await push(page, raw.latitude, raw.longitude, accuracy);
+    await expect(map).toHaveAttribute("data-accuracy-visible", String(visible));
+    await expect(map).toHaveAttribute("data-position-matched", "true");
+    expect(
+      distance(await position(page), { latitude: 48, longitude: 11.001 }),
+    ).toBeLessThan(0.1);
+    const circle = JSON.parse(
+      (await map.getAttribute("data-accuracy-position"))!,
+    );
+    expect(circle).toEqual(raw);
+  }
+  expect(await savedProgress(page)).toEqual(before);
+});
+
 test("GPS circle drifts independently while the bike marker stays pinned", async ({
   page,
 }) => {
@@ -77,6 +105,7 @@ test("GPS circle drifts independently while the bike marker stays pinned", async
     await push(page, latitude, 11.001);
     await expect(map).toHaveAttribute("data-position-source", "gps");
     await expect(map).toHaveAttribute("data-position-matched", "true");
+    await expect(map).toHaveAttribute("data-accuracy-visible", "true");
     expect(
       distance(await position(page), { latitude: 48, longitude: 11.001 }),
     ).toBeLessThan(0.1);
@@ -182,14 +211,17 @@ test("transit drift, held outliers and timetable estimates share the map source 
   }
   await push(page, 48.02, 11.02);
   await expect(map).toHaveAttribute("data-position-source", "estimated");
+  await expect(map).toHaveAttribute("data-accuracy-visible", "false");
   await expect(page.locator("#navigation-gps-status")).toContainText(
     "Kartenposition geschätzt",
   );
   expect(await savedProgress(page)).toEqual(before);
   await push(page, target.latitude, target.longitude);
   await expect(map).toHaveAttribute("data-position-source", "gps");
+  await expect(map).toHaveAttribute("data-accuracy-visible", "true");
   await push(page, target.latitude, target.longitude, 500);
   await expect(map).toHaveAttribute("data-position-source", "estimated");
+  await expect(map).toHaveAttribute("data-accuracy-visible", "false");
   await expect(page.locator("#navigation-gps-status")).toHaveText(
     "GPS ungenau Kartenposition geschätzt",
   );

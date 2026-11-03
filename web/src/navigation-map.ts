@@ -395,13 +395,16 @@ export class NavigationMap {
           : this.desiredHeading +
             headingDelta(this.desiredHeading, desired) * 0.4;
     }
+    // Accuracy is the radius in ground metres, before projection scaling.
+    const showAccuracy = !estimate && (this.lastFix?.accuracy ?? 0) >= 5;
+    this.target.dataset.accuracyVisible = String(showAccuracy);
     this.accuracy.setStyle(
-      estimate
-        ? []
-        : new Style({
+      showAccuracy
+        ? new Style({
             fill: new Fill({ color: `${theme.location}20` }),
             stroke: new Stroke({ color: `${theme.location}80`, width: 1 }),
-          }),
+          })
+        : [],
     );
     this.markerImage = new RegularShape({
       points: 3,
