@@ -140,6 +140,8 @@ for (const width of [390, 1280]) {
     await expect(meters).toHaveText("165 m");
     await page.clock.runFor(10000);
     await page.evaluate(() => (window as any).navProbe.push(48.0006, 11.003));
+    await expect(page.locator("#navigation-auto-complete")).toBeVisible();
+    await page.clock.runFor(30000);
     await expect(instruction).toHaveText("Ziel erreicht");
     spoken = await page.evaluate(
       () => (window as any).navProbe.spoken as string[],

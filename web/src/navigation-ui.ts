@@ -1,4 +1,6 @@
 import { UndoNotice } from "./undo-notice";
+import { CountdownBar } from "./countdown-bar";
+import { CountdownInteraction } from "./countdown-interaction";
 import type { NavigationSession } from "./navigation-session";
 import {
   reveal,
@@ -83,6 +85,9 @@ export class NavigationView {
   private dragY?: number;
   private confirmationTrigger?: HTMLElement;
   private undoNotice: UndoNotice;
+  private automaticCountdownBar = new CountdownBar(1000);
+  private completionCountdownBar = new CountdownBar(1000);
+  private countdownInteraction: CountdownInteraction;
   private shownUndo?: object;
   private lastCompletionAt = -Infinity;
   private guidance = new NavigationGuidance((message) => {
@@ -107,7 +112,9 @@ export class NavigationView {
       <div id="navigation-map" tabindex="0" aria-label="Navigationskarte in Fahrtrichtung"></div>
       <div class="navigation-top" id="navigation-top"><div id="navigation-phases" role="tablist" aria-label="Reiseabschnitte"></div></div>
         <span id="navigation-undo-announcement" class="sr-only" role="status" aria-live="polite"></span>
-        <div id="navigation-undo" class="toast" hidden><button id="navigation-undo-button" type="button">Rückgängig</button><span class="toast-countdown" aria-hidden="true"><span class="toast-countdown-fill"></span></span></div>
+        <div id="navigation-undo" class="toast" hidden><button id="navigation-undo-button" type="button">Rückgängig</button></div>
+        <span id="navigation-auto-announcement" class="sr-only" role="status" aria-live="polite"></span>
+        <div id="navigation-auto-complete" class="toast" hidden><span id="navigation-auto-label" aria-hidden="true"></span><button id="navigation-auto-cancel" type="button">Abbrechen</button></div>
       <div id="navigation-gps-status" role="status" aria-live="polite" aria-atomic="true" hidden><strong id="navigation-gps-primary"></strong> <span id="navigation-gps-estimate" hidden></span></div>
       <div class="navigation-map-controls" role="group" aria-label="Kartensteuerung">
         <button id="navigation-audio" class="navigation-icon-button secondary" type="button" aria-label="Ton ausschalten" title="Ton ausschalten"></button>
@@ -142,8 +149,9 @@ export class NavigationView {
         <div id="navigation-alternative" hidden><p id="navigation-alternative-text"></p><button id="navigation-accept" class="primary">Verbindung übernehmen</button><button id="navigation-dismiss" class="secondary">Bisherige behalten</button></div>
         <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
         <details id="navigation-manual-actions" hidden><summary id="navigation-more-actions">Weitere Aktionen</summary><div class="navigation-actions"><button id="navigation-complete-manually" class="secondary" type="button">Abschnitt manuell abschließen</button></div></details>
-        <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden>Abschnitt fertig</button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
+        <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden><span id="navigation-complete-label">Abschnitt fertig</span></button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
         </div>
+        <span id="navigation-complete-countdown-description" class="sr-only"></span>
         <div id="navigation-phases-slot"></div>
         <div id="navigation-quick-actions" class="navigation-actions"></div>
         <div id="navigation-finish" hidden>
@@ -179,20 +187,39 @@ export class NavigationView {
       </article>
       <dialog id="navigation-confirm" aria-labelledby="navigation-confirm-title" aria-describedby="navigation-confirm-message"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary" type="button">Bestätigen</button><button id="navigation-confirm-no" class="secondary" type="button">Abbrechen</button></div></dialog>`;
     el("main").append(this.root);
+    el("navigation-auto-complete").append(this.automaticCountdownBar.element);
+    el("navigation-complete").append(this.completionCountdownBar.element);
+    this.countdownInteraction = new CountdownInteraction(
+      [el("navigation-auto-complete"), el("navigation-complete")],
+      (paused) => {
+        this.session?.engine?.setCompletionPaused(paused);
+        this.render();
+      },
+    );
     el("navigation-undo-button").prepend(icon("undo"));
     this.undoNotice = new UndoNotice(
       el("navigation-undo"),
       el<HTMLButtonElement>("navigation-undo-button"),
     );
+    el("navigation-auto-cancel").onclick = () => {
+      this.session?.engine?.cancelCompletionCountdown();
+      el("navigation-auto-announcement").textContent =
+        "Automatischer Wechsel abgebrochen. Abschnitt manuell abschließen.";
+      this.render();
+    };
     const positionUndo = () => {
       if (!this.visible) return;
       const panel = el("navigation-panel");
       el("navigation-undo").style.bottom =
         `${this.root.clientHeight - panel.offsetTop + 12}px`;
+      el("navigation-auto-complete").style.bottom =
+        `${this.root.clientHeight - panel.offsetTop + 12 + (el("navigation-undo").hidden ? 0 : el("navigation-undo").offsetHeight + 8)}px`;
     };
     const undoPositionObserver = new ResizeObserver(positionUndo);
     undoPositionObserver.observe(el("navigation-panel"));
     undoPositionObserver.observe(this.root);
+    undoPositionObserver.observe(el("navigation-undo"));
+    undoPositionObserver.observe(el("navigation-auto-complete"));
     this.stationLists = [
       new NavigationStations(el("navigation-stations-preview"), true),
       new NavigationStations(el("navigation-stations-detail")),
@@ -987,6 +1014,8 @@ export class NavigationView {
     }
     this.session = session;
     this.completion.reset();
+    el("navigation-auto-complete").hidden = true;
+    el("navigation-auto-announcement").textContent = "";
     el<HTMLDetailsElement>("navigation-manual-actions").open = false;
     this.root.hidden = false;
     this.phaseKey = "";
@@ -1134,6 +1163,7 @@ export class NavigationView {
   render() {
     const session = this.session;
     if (!session || !this.visible) return;
+    session.engine?.setCompletionPaused(this.countdownInteraction.paused);
     const undo = session.completionUndo;
     if (undo !== this.shownUndo) {
       this.shownUndo = undo;
@@ -1164,6 +1194,33 @@ export class NavigationView {
     const engine = session.engine,
       arrived = engine?.phase === "arrived",
       leg = engine?.leg;
+    const countdown = engine?.completionCountdown;
+    const autoNotice = el("navigation-auto-complete");
+    const showCountdown =
+      !!countdown && !arrived && session.foreground && !session.busy;
+    if (showCountdown) {
+      const last =
+        engine!.progress.legIndex === engine!.journey.legs.length - 1;
+      el("navigation-auto-label").textContent =
+        `${last ? "Ziel erreicht" : "Nächster Abschnitt"} in ${Math.ceil(countdown.remainingSeconds)} s${engine!.completionPaused ? " · pausiert" : ""}`;
+      this.automaticCountdownBar.set(
+        countdown.remainingSeconds * 1000,
+        30000,
+        engine!.completionPaused,
+      );
+      if (autoNotice.hidden) {
+        el("navigation-auto-announcement").textContent = last
+          ? "Ziel erreicht in 30 Sekunden. Automatischen Abschluss abbrechen möglich."
+          : "Nächster Abschnitt startet in 30 Sekunden. Automatischen Wechsel abbrechen möglich.";
+        autoNotice.hidden = false;
+        reveal(autoNotice, { y: 8 });
+      }
+    } else {
+      this.automaticCountdownBar.hide();
+      if (autoNotice.contains(document.activeElement))
+        el("navigation-instruction").focus({ preventScroll: true });
+      autoNotice.hidden = true;
+    }
     const enteringSummary = this.root.dataset.arrived !== "true";
     this.root.dataset.arrived = String(!!arrived);
     if (arrived) {
@@ -1520,7 +1577,7 @@ export class NavigationView {
           ? moreActions
           : el("navigation-instruction")
       ).focus({ preventScroll: true });
-    complete.textContent =
+    el("navigation-complete-label").textContent =
       leg?.kind === "stop"
         ? "Weiterfahren"
         : leg?.kind === "transit"
@@ -1532,6 +1589,51 @@ export class NavigationView {
               : leg?.kind === "wait"
                 ? "Warten beenden"
                 : "Abschnitt fertig";
+    const timedActivity = leg && ["fold", "unfold", "wait"].includes(leg.kind);
+    const countdownDuration = countdown
+      ? 30
+      : timedActivity
+        ? Math.max(0, leg.end - leg.start)
+        : 0;
+    const countdownRemaining = countdown
+      ? countdown.remainingSeconds
+      : timedActivity
+        ? Math.min(countdownDuration, engine!.remainingSeconds)
+        : 0;
+    const countdownDescription = el(
+      "navigation-complete-countdown-description",
+    );
+    if (this.quickCompletionAvailable && countdownDuration > 0) {
+      const seconds = Math.ceil(countdownRemaining);
+      const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+      const label = countdown
+        ? "Automatischer Wechsel"
+        : leg?.kind === "fold"
+          ? "Faltzeit"
+          : leg?.kind === "unfold"
+            ? "Entfaltzeit"
+            : "Wartezeit";
+      complete.dataset.countdown = String(seconds);
+      this.completionCountdownBar.set(
+        countdownRemaining * 1000,
+        countdownDuration * 1000,
+        engine!.completionPaused,
+      );
+      complete.title = `${label} · ${time} verbleibend${engine!.completionPaused ? " · pausiert" : ""}`;
+      countdownDescription.textContent =
+        (seconds > 0
+          ? `${label}: noch ${seconds} Sekunden.`
+          : `${label} abgelaufen. Abschnitt kann manuell bestätigt werden.`) +
+        (engine!.completionPaused ? " Countdown pausiert." : "");
+      complete.setAttribute("aria-describedby", countdownDescription.id);
+    } else {
+      delete complete.dataset.countdown;
+      this.completionCountdownBar.hide();
+      complete.removeAttribute("title");
+      complete.removeAttribute("aria-describedby");
+      countdownDescription.textContent = "";
+    }
+    engine?.setCompletionPaused(this.countdownInteraction.paused);
     const locationRetry = !engine && session.needsLocation;
     el("navigation-retry").hidden =
       (!session.retryAvailable && !session.disruption) ||

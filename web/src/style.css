@@ -1975,7 +1975,8 @@ dialog form {
   overflow-wrap: anywhere;
   margin: 0;
 }
-.toast-countdown {
+.toast-countdown,
+.countdown-bar {
   position: absolute;
   left: 14px;
   right: 14px;
@@ -1983,19 +1984,25 @@ dialog form {
   height: 2px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--panel-subtle);
+  background: var(--countdown-track, var(--panel-subtle));
   pointer-events: none;
 }
-.toast-countdown-fill {
+.toast-countdown-fill,
+.countdown-bar-fill {
   display: block;
   width: 100%;
   height: 100%;
-  background: var(--panel-muted);
+  background: var(--countdown-color, var(--panel-muted));
   transform-origin: left center;
-  animation: toast-countdown var(--toast-duration) linear forwards;
+}
+.countdown-bar-fill {
+  transition: transform var(--countdown-transition, 0ms) linear;
+}
+.toast-countdown-fill {
+  animation: countdown-drain var(--toast-duration) linear forwards;
   animation-delay: calc(-1 * var(--toast-elapsed, 0ms));
 }
-@keyframes toast-countdown {
+@keyframes countdown-drain {
   from {
     transform: scaleX(1);
   }
@@ -2108,7 +2115,8 @@ body:has(#toast[data-planning-stage="searching"]:not([hidden]))
   display: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .toast-countdown {
+  .toast-countdown,
+  .countdown-bar[data-animated] {
     visibility: hidden;
   }
   .planning-toast-spinner {
@@ -4246,6 +4254,17 @@ body[data-navigation="active"] .app-tabs {
   min-height: 44px;
   color: var(--panel-muted);
 }
+#navigation-complete[data-countdown] {
+  position: relative;
+}
+#navigation-complete .countdown-bar {
+  --countdown-track: color-mix(in srgb, currentColor 20%, transparent);
+  --countdown-color: currentColor;
+  left: 12px;
+  right: 12px;
+  bottom: 5px;
+  height: 3px;
+}
 .navigation-panel .secondary,
 #navigation-alternative .secondary {
   background: transparent;
@@ -5366,7 +5385,8 @@ body[data-example] #route-start-summary {
   }
 }
 
-#navigation-undo {
+#navigation-undo,
+#navigation-auto-complete {
   position: absolute;
   z-index: 3;
   top: auto;
@@ -5377,7 +5397,24 @@ body[data-example] #route-start-summary {
   max-width: calc(100% - 32px);
   margin: 0 auto;
   padding: 0;
-  --toast-duration: 8000ms;
+}
+#navigation-auto-complete {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px 0 16px;
+}
+#navigation-auto-label {
+  padding: 12px 0;
+}
+#navigation-auto-cancel {
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--panel-text);
+  font-size: inherit;
+  font-weight: 700;
 }
 #navigation-undo-button {
   display: inline-flex;

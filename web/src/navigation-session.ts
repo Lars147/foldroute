@@ -225,6 +225,7 @@ export class NavigationSession {
       if (leg.end === timing.appliedEnd) leg.end = timing.end;
     }
     this.engine = new NavigationEngine(journey, undo.progress);
+    this.engine.cancelCompletionCountdown();
     this.trip = undo.trip;
     this.resumeNeedsConfirmation = undo.resumeNeedsConfirmation;
     this.alternative = undefined;
@@ -711,6 +712,7 @@ export class NavigationSession {
     // Only street repair can safely follow progress on its original engine.
     // User-requested itinerary changes retain their existing section boundary.
     if (this.busy && this.streetEngine !== this.engine) {
+      this.engine.resetCompletionCountdown();
       this.emit();
       return;
     }
@@ -804,6 +806,7 @@ export class NavigationSession {
     this.emit();
   }
   private tick() {
+    if (this.busy) this.engine?.resetCompletionCountdown();
     if (
       !this.engine ||
       !this.foreground ||
@@ -823,7 +826,7 @@ export class NavigationSession {
       this.engine.tick();
     this.discardChangedAlternative();
     this.assessment = assessConnection(
-      this.engine.journey,
+      this.engine.connectionJourney,
       this.engine.progress.legIndex,
       Date.now() / 1000,
       {
@@ -847,7 +850,7 @@ export class NavigationSession {
       applyTransit(engine.journey, engine.progress.legIndex, result),
     );
     this.assessment = assessConnection(
-      engine.journey,
+      engine.connectionJourney,
       engine.progress.legIndex,
       Date.now() / 1000,
       {
@@ -858,7 +861,7 @@ export class NavigationSession {
       },
     );
     const detected = transitDisruption(
-      engine.journey,
+      engine.connectionJourney,
       engine.progress.legIndex,
       Date.now() / 1000,
       movement(engine.leg) ? engine.remainingSeconds : undefined,
@@ -933,6 +936,7 @@ export class NavigationSession {
     this.controller = new AbortController();
     const controller = this.controller;
     this.busy = true;
+    engine.resetCompletionCountdown();
     this.message = label;
     this.retryAvailable = false;
     this.emit();

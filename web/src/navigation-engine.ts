@@ -193,6 +193,13 @@ export class NavigationEngine {
   movementMatch?: Projection;
   movementMatchTimestamp = 0;
   plausibleMovementTimestamp = -Infinity;
+  completionCountdown?: { startedAt: number; remainingSeconds: number };
+  completionPaused = false;
+  private completionUpdatedAt = 0;
+  private completionPauseStarted?: number;
+  private activityPauseSeconds = 0;
+  private completionFix?: LocationFix;
+  private completionCancelled = false;
   private evidence?: {
     kind: "leave" | "return";
     first: LocationFix;
@@ -372,6 +379,13 @@ export class NavigationEngine {
     return movement(this.leg) && Number.isFinite(length) && length > 0;
   }
   get remainingSeconds(): number {
+    if (this.completionCountdown)
+      return this.completionCountdown.remainingSeconds;
+    if (this.timedActivity)
+      return Math.max(
+        0,
+        this.activityEnd(Date.now() / 1000) - Date.now() / 1000,
+      );
     const leg = this.leg;
     const length = projectPath(leg.from, this.path).length;
     return length
@@ -379,6 +393,11 @@ export class NavigationEngine {
       : Math.max(0, leg.end - Date.now() / 1000);
   }
   private preparePath() {
+    this.resetCompletionCountdown();
+    this.completionCancelled = false;
+    this.completionPaused = false;
+    this.completionPauseStarted = undefined;
+    this.activityPauseSeconds = 0;
     this.path = [];
     this.offsets = [];
     let total = 0;
@@ -562,6 +581,7 @@ export class NavigationEngine {
         : Math.max(0, this.cue.meters - this.progress.meters);
   }
   invalidateLocation() {
+    this.resetCompletionCountdown();
     this.distanceToNext = undefined;
     this.lastTimestamp = 0;
     this.acceptedTimestamp = 0;
@@ -574,12 +594,110 @@ export class NavigationEngine {
     this.transitEvidence = undefined;
     this.transitPositionConfirmed = false;
   }
+  resetCompletionCountdown() {
+    this.completionCountdown = undefined;
+    this.completionFix = undefined;
+    this.completionUpdatedAt = 0;
+  }
+  private get timedActivity() {
+    return ["fold", "unfold", "wait"].includes(this.leg.kind);
+  }
+  private activityEnd(now: number) {
+    return (
+      this.leg.end +
+      this.activityPauseSeconds +
+      (this.completionPauseStarted === undefined
+        ? 0
+        : Math.max(0, now - this.completionPauseStarted / 1000))
+    );
+  }
+  get connectionJourney(): Journey {
+    if (
+      !this.timedActivity ||
+      (!this.activityPauseSeconds && this.completionPauseStarted === undefined)
+    )
+      return this.journey;
+    const legs = this.journey.legs.slice();
+    legs[this.progress.legIndex] = {
+      ...this.leg,
+      end: this.activityEnd(Date.now() / 1000),
+    };
+    return { ...this.journey, legs };
+  }
+  setCompletionPaused(paused: boolean, now = Date.now()) {
+    paused &&=
+      this.phase === "active" && (movement(this.leg) || this.timedActivity);
+    if (paused === this.completionPaused) return;
+    this.updateCountdownTime(now);
+    if (paused) this.completionPauseStarted = now;
+    else {
+      if (this.timedActivity && this.completionPauseStarted !== undefined)
+        this.activityPauseSeconds +=
+          Math.max(0, now - this.completionPauseStarted) / 1000;
+      this.completionPauseStarted = undefined;
+    }
+    this.completionPaused = paused;
+  }
+  private updateCountdownTime(now: number) {
+    if (!this.completionCountdown) return;
+    if (!this.completionPaused)
+      this.completionCountdown.remainingSeconds =
+        Math.max(
+          0,
+          Math.round(this.completionCountdown.remainingSeconds * 1000) -
+            Math.max(0, Math.round(now - this.completionUpdatedAt)),
+        ) / 1000;
+    this.completionUpdatedAt = now;
+  }
+  cancelCompletionCountdown() {
+    this.resetCompletionCountdown();
+    this.completionCancelled = true;
+  }
+  private updateCompletionCountdown(now: number) {
+    const fix = this.completionFix;
+    const plausible =
+      fix &&
+      quality(fix, now) === "current" &&
+      fix.accuracy <= 50 &&
+      this.plausibleMovementTimestamp === fix.timestamp;
+    const targetDistance = plausible ? distance(fix, this.leg.to) : Infinity;
+    if (plausible && targetDistance > 20) this.completionCancelled = false;
+    if (
+      !plausible ||
+      targetDistance > 20 ||
+      !this.guidanceUsable ||
+      this.movementMatchTimestamp !== fix.timestamp ||
+      !this.movementMatch ||
+      !this.hasMovementPath ||
+      this.maneuver
+    ) {
+      this.completionCountdown = undefined;
+      return;
+    }
+    if (
+      !this.completionCountdown &&
+      !this.completionCancelled &&
+      targetDistance <= 10 &&
+      this.remainingMeters <= 10
+    ) {
+      this.completionCountdown = { startedAt: now, remainingSeconds: 30 };
+      this.completionUpdatedAt = now;
+    }
+    const countdown = this.completionCountdown;
+    if (!countdown) return;
+    this.updateCountdownTime(now);
+    if (countdown.remainingSeconds === 0 && !this.completionPaused) {
+      this.cancelCompletionCountdown();
+      this.advance(false, now / 1000);
+    }
+  }
   update(fix: LocationFix, now = Date.now()): boolean {
     if (this.phase !== "active" || quality(fix, now) !== "current") {
       this.invalidateLocation();
       return false;
     }
     if (fix.timestamp <= this.lastTimestamp) return false;
+    this.completionFix = fix;
     const elapsed = this.acceptedTimestamp
       ? (fix.timestamp - this.acceptedTimestamp) / 1000
       : 0;
@@ -601,6 +719,7 @@ export class NavigationEngine {
       this.evidence = undefined;
       this.routeState = this.offRoute ? "deviated" : "uncertain";
       this.distanceToNext = undefined;
+      this.completionCountdown = undefined;
       return this.offRoute;
     }
     this.previousMovementFix = fix;
@@ -671,19 +790,23 @@ export class NavigationEngine {
       this.progress.meters = Math.max(this.progress.meters, projection.meters);
       this.acceptedTimestamp = fix.timestamp;
       this.updateManeuver();
-      if (
-        projection.length - this.progress.meters <= 40 &&
-        distance(fix, this.leg.to) <= 40 &&
-        !this.maneuver
-      )
-        this.advance(false, now / 1000);
     }
+    this.updateCompletionCountdown(now);
     return this.offRoute;
   }
   tick(now = Date.now() / 1000) {
     if (this.phase !== "active") return;
     const leg = this.leg;
-    if (leg.kind === "stop" || movement(leg) || now < leg.end) return;
+    if (movement(leg)) {
+      this.updateCompletionCountdown(now * 1000);
+      return;
+    }
+    if (
+      leg.kind === "stop" ||
+      this.completionPaused ||
+      now < (this.timedActivity ? this.activityEnd(now) : leg.end)
+    )
+      return;
     if (
       leg.kind === "transit" &&
       (!freshTransit(leg, now) || !this.transitExitConfirmed)
@@ -699,6 +822,7 @@ export class NavigationEngine {
   }
   advance(manual = false, now = Date.now() / 1000): boolean {
     if (this.phase !== "active") return false;
+    if (!manual && this.completionPaused) return false;
     const next = this.journey.legs[this.progress.legIndex + 1];
     if (!manual && next?.kind === "transit" && !freshTransit(next, now))
       return false;
@@ -706,7 +830,11 @@ export class NavigationEngine {
       !manual &&
       next?.kind === "transit" &&
       next.start < now &&
-      (movement(this.leg) ? now : this.leg.end) > next.start
+      (movement(this.leg)
+        ? now
+        : this.timedActivity
+          ? this.activityEnd(now)
+          : this.leg.end) > next.start
     )
       return false;
     if (
@@ -742,6 +870,7 @@ export class NavigationEngine {
       )
         return false;
       this.phase = "arrived";
+      this.resetCompletionCountdown();
       this.distanceToNext = 0;
       return true;
     }
