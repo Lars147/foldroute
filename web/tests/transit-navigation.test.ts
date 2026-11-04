@@ -375,7 +375,8 @@ it("applies streamed session updates immediately, allows another poll and ignore
   const session = new NavigationSession({
     changed: vi.fn(),
     locate: vi.fn(),
-    storageEnabled: () => false,
+    resumeEnabled: () => false,
+    statisticsEnabled: () => false,
     api: new ApiClient(),
     refresher: { refresh } as unknown as TransitRefresher,
   });

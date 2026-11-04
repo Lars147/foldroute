@@ -230,7 +230,11 @@ for (const failed of [false, true])
       await expect(page.locator("#map")).toBeVisible();
       await expect(page.locator("#map-controls")).toBeVisible();
       expect(
-        await page.locator("#map").evaluate((element) => element.inert),
+        await page
+          .locator("#map")
+          .evaluate(
+            (element) => element instanceof HTMLElement && element.inert,
+          ),
       ).toBe(false);
       await expect(page.locator("#route-more")).toBeFocused();
     }
@@ -883,6 +887,11 @@ test("request map stays open for the first result and preserves explicit choices
     ids: ["improved", "first", "alternative"],
   });
   await expect(page.locator('[data-journey="improved"]')).toBeAttached();
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  await showConnections(page);
   await expect(page.locator("#choices")).toBeVisible();
   await expect(page.locator('[data-journey="alternative"]')).toHaveAttribute(
     "aria-pressed",
@@ -902,7 +911,7 @@ test("request map stays open for the first result and preserves explicit choices
   );
 });
 
-test("refresh opens the map only for current results and respects navigation while waiting", async ({
+test("refresh keeps the map and closes old details when current results arrive", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -920,9 +929,9 @@ test("refresh opens the map only for current results and respects navigation whi
       .toBe(run);
     await expect(page.locator("#map-view")).toHaveAttribute(
       "data-result-screen",
-      "list",
+      "map",
     );
-    await expect(page.locator("#stale-notice")).toBeVisible();
+    await expect(page.locator("#map-preview-status")).toBeVisible();
   };
   await refresh(2);
   await publish(page, { phase: "base", ids: ["fresh"], status: "complete" });
@@ -939,9 +948,9 @@ test("refresh opens the map only for current results and respects navigation whi
   await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
-    "list",
+    "map",
   );
-  await expect(page.locator("#stale-notice")).toBeVisible();
+  await expect(page.locator("#map-preview-status")).toBeVisible();
   await page.locator("#recover-planning").click();
   await expect
     .poll(() => page.evaluate(() => (window as any).searchControlRuns))
@@ -951,8 +960,9 @@ test("refresh opens the map only for current results and respects navigation whi
   await expect(page.locator('[data-journey="latest"]')).toBeAttached();
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
-    "detail",
+    "map",
   );
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
 });
 
 async function expectFeedbackPosition(page: Page, width: number) {
@@ -968,12 +978,19 @@ async function expectFeedbackPosition(page: Page, width: number) {
         .getElementById("map-controls")!
         .getBoundingClientRect();
       const map = document.getElementById("map-view")!;
+      const sheet = document.getElementById(
+        "alternatives-dialog",
+      ) as HTMLDialogElement;
       const content = document.getElementById(
-        map.dataset.resultScreen === "map"
-          ? "map-preview-summary"
-          : map.dataset.resultScreen === "detail"
+        sheet.open
+          ? sheet.dataset.mode === "detail"
             ? "panel-details"
-            : "choices",
+            : "choices"
+          : map.dataset.resultScreen === "map"
+            ? "map-preview-summary"
+            : map.dataset.resultScreen === "detail"
+              ? "panel-details"
+              : "choices",
       )!;
       return {
         left: toast.left,
@@ -991,13 +1008,25 @@ async function expectFeedbackPosition(page: Page, width: number) {
         mapTop: map.getBoundingClientRect().top,
         inline: feedback.parentElement?.id === "planning-feedback-slot",
         inlineParent: feedback.parentElement?.parentElement?.id,
+        sheet: sheet.open,
+        sheetHeaderBottom: sheet
+          .querySelector("header")!
+          .getBoundingClientRect().bottom,
+        feedbackParent: feedback.parentElement?.id,
         position: getComputedStyle(feedback).position,
         contentTop: content.getBoundingClientRect().top,
         screen: map.dataset.resultScreen,
         viewport: innerWidth,
       };
     });
-    if (width >= 900 || geometry.screen === "map") {
+    if (geometry.sheet) {
+      expect(geometry.feedbackParent).toBe("alternatives-feedback-slot");
+      expect(geometry.position).toBe("relative");
+      expect(geometry.left).toBeGreaterThanOrEqual(15);
+      expect(geometry.right).toBeLessThanOrEqual(geometry.viewport - 15);
+      expect(geometry.top).toBeGreaterThanOrEqual(geometry.sheetHeaderBottom);
+      expect(geometry.bottom).toBeLessThanOrEqual(geometry.contentTop + 1);
+    } else if (width >= 900 || geometry.screen === "map") {
       expect(geometry.inline).toBe(false);
       expect(geometry.position).toBe("fixed");
       expect(geometry.left).toBeGreaterThanOrEqual(
@@ -1110,7 +1139,7 @@ async function expectCountdownAt(
         throw new Error("Toast countdown animation missing");
       animation.pause();
       const timing = animation.effect.getTiming();
-      animation.currentTime = duration * elapsed + timing.delay;
+      animation.currentTime = duration * elapsed + (timing.delay ?? 0);
       const track = fill.parentElement!.getBoundingClientRect();
       const bounds = fill.getBoundingClientRect();
       const toast = fill.closest("#toast")!.getBoundingClientRect();
@@ -1196,7 +1225,7 @@ for (const width of [320, 390, 1280])
         });
       });
       const control = page.locator(
-        width >= 900 ? "#route-more" : "#panel-map-toggle",
+        width >= 900 ? "#route-more" : "#alternatives-close",
       );
       await control.focus();
       for (const phase of ["bike-transfers", "walking", "via"]) {
@@ -1223,7 +1252,6 @@ for (const width of [320, 390, 1280])
         ),
       ).toBe(true);
       await page.screenshot({ path: info.outputPath("search-feedback.png") });
-      if (width < 900) await page.locator("#result-back").click();
       await page.locator("#close-route").click();
       await expect(toast).toBeHidden();
       await expect(toast.locator(".toast-countdown")).toHaveCount(0);
@@ -1364,7 +1392,7 @@ for (const [width, colorScheme] of [
         animation.currentTime = 0;
         return {
           progress: animation.effect!.getComputedTiming().progress,
-          elapsed: -animation.effect!.getTiming().delay,
+          elapsed: -(animation.effect!.getTiming().delay ?? 0),
         };
       });
     expect(resumed.elapsed).toBeGreaterThanOrEqual(3000);
@@ -1409,7 +1437,7 @@ for (const status of ["searching", "complete"])
     await expect(toast.locator(".toast-countdown")).toHaveCount(0);
   });
 
-test("mobile search switches directly to optimization without shifting the list header", async ({
+test("mobile search switches directly to optimization without shifting the sheet header", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1424,7 +1452,7 @@ test("mobile search switches directly to optimization without shifting the list 
   );
   await showConnections(page);
   await expectFeedbackPosition(page, 390);
-  const header = await page.locator("#result-header").boundingBox();
+  const header = await page.locator(".alternatives-header").boundingBox();
   await page.clock.fastForward(3100);
   await expect(page.locator("#toast")).toHaveAttribute(
     "data-planning-stage",
@@ -1453,9 +1481,9 @@ test("mobile search switches directly to optimization without shifting the list 
   await expect(page.locator("#planning-announcement")).toHaveText(
     "Routenoptimierung abgeschlossen.",
   );
-  expect((await page.locator("#result-header").boundingBox())!.height).toBe(
-    header!.height,
-  );
+  expect(
+    (await page.locator(".alternatives-header").boundingBox())!.height,
+  ).toBe(header!.height);
   await expect(page.locator("#toast")).toBeHidden();
 });
 
@@ -1683,11 +1711,15 @@ for (const width of [390, 1280])
     await showConnections(page);
     await page.locator('.route-choice[data-journey="chosen"]').click();
     await openSelectedDetails(page);
+    await expectMotionSettled(page.locator("#panel-details"));
+    await expectMotionSettled(page.locator("#alternatives-dialog"));
     const position = await page.evaluate(() => {
       const panel = document.getElementById("journey-panel")!;
-      const container = panel.classList.contains("result-scroll-all")
-        ? panel
-        : document.getElementById("panel-content")!;
+      const container = document.querySelector("#alternatives-dialog[open]")
+        ? document.getElementById("alternatives-body")!
+        : panel.classList.contains("result-scroll-all")
+          ? panel
+          : document.getElementById("panel-content")!;
       container.scrollTop = 100;
       return {
         scrollTop: container.scrollTop,

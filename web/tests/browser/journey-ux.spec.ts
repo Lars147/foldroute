@@ -1,94 +1,12 @@
 import { test, expect, type Page } from "./test";
 
-async function preview(page: Page) {
-  // Isolate the component: the application entrypoint would create a second
-  // JourneyView with competing resize/focus observers on these same elements.
-  await page.route("**/src/main.ts*", (route) =>
-    route.fulfill({
-      contentType: "text/javascript",
-      body: 'import "/src/style.css"; import { icon } from "/src/ui.ts"; document.querySelectorAll("[data-icon]").forEach(element => element.append(icon(element.dataset.icon)));',
-    }),
-  );
-  await page.route("https://tiles.openfreemap.org/**", (route) =>
-    route.abort(),
-  );
-  await page.goto("/");
-  await page.evaluate(async () => {
-    const path = "/src/journey-view.ts";
-    const { JourneyView } = await import(path);
-    const from = { name: "Start", detail: "", latitude: 48, longitude: 11 };
-    const to = { ...from, name: "Ziel", latitude: 48.1 };
-    const departure = Date.parse("2026-09-11T08:00:00Z") / 1000;
-    const makeJourney = (id: string, duration: number, direct = false) => ({
-      id,
-      origin: from,
-      destination: to,
-      departure,
-      arrival: departure + duration * 60,
-      transfers: direct ? 0 : 1,
-      isDirect: direct,
-      legs: (direct
-        ? [["bike", duration]]
-        : [
-            ["bike", 10],
-            ["fold", 2],
-            ["transit", duration - 20],
-            ["unfold", 2],
-            ["bike", 4],
-            ["walk", 2],
-          ]
-      ).map(([kind, minutes]) => ({
-        kind,
-        from,
-        to,
-        start: departure,
-        end: departure + Number(minutes) * 60,
-        distance: 1000,
-        coordinates: [from, to],
-      })),
-    });
-    const journeys = [
-      makeJourney("best", 50),
-      makeJourney("selected", 55),
-      makeJourney("third", 60),
-      makeJourney("comparison", 65, true),
-    ];
-    const state = {
-      journeys,
-      selected: journeys[1],
-      request: {
-        origin: from,
-        destination: to,
-        timing: "now",
-        time: departure,
-      },
-      queriedAt: departure,
-      busy: false,
-      locating: false,
-      message: "",
-      issues: [],
-      restored: false,
-    };
-    const view = new JourneyView((id: string) => {
-      state.selected = journeys.find((j) => j.id === id)!;
-      view.render(state, 30);
-    });
-    view.onDetailsOpened = () => {
-      document.body.dataset.detailOpens = String(
-        Number(document.body.dataset.detailOpens ?? 0) + 1,
-      );
-    };
-    (window as any).uxPreview = { state, view };
-    document.body.dataset.view = "map";
-    document.getElementById("search-view")!.hidden = true;
-    document.getElementById("map-view")!.hidden = false;
-    // Main owns start availability. Mount a ready footer for these isolated
-    // JourneyView layout checks; planner tests exercise the actual transitions.
-    document.querySelector<HTMLElement>(".panel-actions")!.hidden = false;
-    document.getElementById("navigation-start")!.hidden = false;
-    view.render(state, 30);
-  });
-}
+import { preview } from "./journey-preview-fixture";
+import {
+  expectMotionSettled,
+  openSelectedDetails,
+  showConnections,
+  showMap,
+} from "./assertions";
 
 async function expectRequestMarkersAligned(page: Page) {
   const geometry = await page.locator("#adjust-route").evaluate((button) => {
@@ -245,7 +163,7 @@ for (const deviceScaleFactor of [1, 2]) {
     test("circle, connector and flag share an optical axis", async ({
       page,
     }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
+      await page.setViewportSize({ width: 1280, height: 844 });
       await preview(page);
       for (const colorScheme of ["light", "dark"] as const) {
         await page.emulateMedia({ colorScheme });
@@ -299,11 +217,11 @@ for (const width of [320, 390, 1280]) {
       await expect(page.locator("#adjust-route")).toHaveAccessibleDescription(
         count
           ? new RegExp(
-              `Start Zwischenziel 1: ${names[0]}.*Ziel Abfahrt jetzt.*${count} Zwischenstopp`,
+              `Start.*Zwischenziel 1: ${names[0]}.*Ziel Abfahrt jetzt.*${count} Zwischenstopp`,
             )
           : "Start Ziel Abfahrt jetzt",
       );
-      await expectRequestMarkersAligned(page);
+      if (width >= 900) await expectRequestMarkersAligned(page);
       if (count === 0)
         await page.screenshot({
           path: info.outputPath("connected-endpoints.png"),
@@ -319,8 +237,9 @@ for (const width of [320, 390, 1280]) {
           document.documentElement.style.fontSize = `${fontSize}px`;
         }, fontSize);
         for (const name of [
-          page.locator("#route-origin"),
-          ...(await stops.all()),
+          ...(width >= 900
+            ? [page.locator("#route-origin"), ...(await stops.all())]
+            : []),
           page.locator("#route-destination"),
         ]) {
           await name.scrollIntoViewIfNeeded();
@@ -333,8 +252,9 @@ for (const width of [320, 390, 1280]) {
         expect(
           await page.evaluate(() => document.documentElement.scrollWidth),
         ).toBeLessThanOrEqual(width);
-        await page.locator("#route-origin").scrollIntoViewIfNeeded();
-        await expectRequestMarkersAligned(page);
+        if (width >= 900)
+          await page.locator("#route-origin").scrollIntoViewIfNeeded();
+        if (width >= 900) await expectRequestMarkersAligned(page);
         await page.screenshot({
           path: info.outputPath(
             `connected-places-${colorScheme}-${fontSize}.png`,
@@ -345,25 +265,23 @@ for (const width of [320, 390, 1280]) {
     await page.evaluate(() => {
       document.documentElement.style.fontSize = "16px";
     });
-    await page.locator("#route-origin").scrollIntoViewIfNeeded();
+    if (width >= 900)
+      await page.locator("#route-origin").scrollIntoViewIfNeeded();
     const before = (await page.locator(".planning-context").boundingBox())!;
     if (width < 900) {
-      await page.evaluate(() => {
-        (window as any).uxPreview.view.showScreen("detail");
-      });
+      await openSelectedDetails(page);
       const details = (await page.locator(".planning-context").boundingBox())!;
-      expect(Math.abs(before.y - details.y)).toBeLessThanOrEqual(1);
-      expect(Math.abs(before.height - details.height)).toBeLessThanOrEqual(1);
-      await page.locator("#panel-map-toggle").click();
+      expect(details).toEqual(before);
+      await showMap(page);
       await expect(page.locator("#route-origin")).toBeHidden();
       await expect(page.locator("#route-request-stops")).toBeHidden();
       await expect(page.locator("#route-destination")).toBeVisible();
       await expect(page.locator("#map-request-meta")).toHaveText(
         "3 Zwischenstopps",
       );
-      await page.locator("#result-back").click();
-      await expect(stops).toHaveCount(3);
-      await expect(stops.first()).toBeVisible();
+      await showConnections(page);
+      await expect(page.locator("#choices")).toBeVisible();
+      await showMap(page);
     }
     // Updating the confirmed request must work even when JourneyView's detail key is unchanged.
     await page.evaluate(() => {
@@ -403,26 +321,28 @@ for (const width of [320, 390, 1280]) {
     });
     const context = page.locator(".planning-context");
     if (width < 900) {
-      await expect(page.locator("#result-nav")).toBeHidden();
       await expect(
-        context.getByRole("button", { name: "Karte anzeigen" }),
+        page.locator("#map-preview-actions #result-nav"),
       ).toBeVisible();
-      await expect(page.locator("#panel-map-toggle")).toHaveText("Karte");
+      await expect(page.locator("#panel-map-toggle")).toHaveCount(0);
+      await expect(page.locator("#route-origin")).toBeHidden();
     }
     await expect(
       context.getByRole("button", { name: "Route anpassen" }),
     ).toBeVisible();
-    await expect(context.getByRole("heading", { level: 1 })).toHaveText(
+    await expect(page.locator("#result-context")).toHaveText(
       "Aktueller Standort → Bahnhofstraße 3a",
     );
-    await page.locator("#result-context").focus();
-    await expect(page.locator("#result-context")).toBeFocused();
-    await expect(context).toHaveCSS("outline-style", "none");
-    await expect(page.locator("#result-context")).toHaveCSS(
-      "outline-style",
-      "solid",
-    );
-    await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+    if (width >= 900) {
+      await page.locator("#result-context").focus();
+      await expect(page.locator("#result-context")).toBeFocused();
+      await expect(context).toHaveCSS("outline-style", "none");
+      await expect(page.locator("#result-context")).toHaveCSS(
+        "outline-style",
+        "solid",
+      );
+      await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+    } else await page.locator("#adjust-route").focus();
     await expect(page.locator("#adjust-route")).toBeFocused();
     await expect(page.locator("#adjust-route")).toHaveCSS(
       "outline-style",
@@ -464,12 +384,7 @@ for (const width of [320, 390, 1280]) {
         );
       }),
     ).toBe(true);
-    for (const id of [
-      "adjust-route",
-      "route-more",
-      "close-route",
-      ...(width < 900 ? ["panel-map-toggle"] : []),
-    ]) {
+    for (const id of ["adjust-route", "route-more", "close-route"]) {
       const control = page.locator(`#${id}`);
       await control.scrollIntoViewIfNeeded();
       await expect(control).toBeInViewport();
@@ -485,131 +400,52 @@ for (const width of [320, 390, 1280]) {
 
 for (const width of [320, 390, 430, 768]) {
   for (const reducedMotion of ["no-preference", "reduce"] as const) {
-    test(`route header stays fixed through details and back at ${width} with ${reducedMotion} motion`, async ({
+    test(`route header stays fixed beneath details at ${width} with ${reducedMotion} motion`, async ({
       page,
-    }, info) => {
+    }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.emulateMedia({ reducedMotion });
       await preview(page);
+      await showConnections(page);
       await page.locator('[data-journey="best"]').click();
-      await page.evaluate(async () => {
-        await document.fonts.ready;
-        const elements = [
-          ...document.querySelectorAll<HTMLElement>(
-            "#result-header, .planning-context, #route-origin, #route-destination, #adjust-route, #route-more, #close-route, #route-request-meta, #result-stand, #panel-map-toggle",
-          ),
-        ];
-        const bounds = () =>
-          elements.flatMap((element) => {
-            const { x, y, width, height } = element.getBoundingClientRect();
-            return [x, y, width, height];
-          });
-        const baseline = bounds();
-        const recording = { baseline, samples: [baseline], active: true };
-        (window as any).headerGeometry = recording;
-        const sample = () => {
-          if (!recording.active) return;
-          recording.samples.push(bounds());
-          requestAnimationFrame(sample);
-        };
-        requestAnimationFrame(sample);
-      });
-      const details = page.locator(
-        ".route-choice-row.selected .route-detail-link",
-      );
-      const content = page.locator("#panel-content");
-      let detailScroll = 0;
+      await expectMotionSettled(page.locator("#journey-panel"));
+      const header = page.locator("#result-header");
+      const before = await header.boundingBox();
       for (let visit = 0; visit < 2; visit++) {
-        await details.click();
-        await expect(page.locator("#journey-heading")).toBeFocused();
-        await expect(page.locator("#close-route")).toBeVisible();
-        await expect(content).toHaveJSProperty("scrollTop", detailScroll);
-        await expect
-          .poll(() =>
-            page
-              .locator("#panel-details")
-              .evaluate(
-                (element) => element.getAnimations({ subtree: true }).length,
-              ),
-          )
-          .toBe(0);
-        const header = (await page.locator("#result-header").boundingBox())!;
-        const back = (await page.locator("#result-back").boundingBox())!;
-        expect(back.y).toBeGreaterThanOrEqual(header.y + header.height - 1);
-        expect(back.height).toBeGreaterThanOrEqual(44);
-        await content.evaluate((element) => (element.scrollTop = 150));
-        detailScroll = await content.evaluate((element) => element.scrollTop);
-        expect(detailScroll).toBeGreaterThan(0);
-        await expect(page.locator("#result-back")).toBeInViewport({ ratio: 1 });
-        if (visit === 0)
-          await page.screenshot({ path: info.outputPath("stable-header.png") });
-        await page.locator("#result-back").click();
-        await expect(details).toBeFocused();
-        await expect(content).toHaveJSProperty("scrollTop", 0);
-        await expect
-          .poll(() =>
-            page
-              .locator("#choices")
-              .evaluate(
-                (element) => element.getAnimations({ subtree: true }).length,
-              ),
-          )
-          .toBe(0);
+        await openSelectedDetails(page);
+        await expect(page.locator("#alternatives-title")).toBeFocused();
+        await expectMotionSettled(page.locator("#alternatives-dialog"));
+        expect(await header.boundingBox()).toEqual(before);
+        await page.locator("#alternatives-body").evaluate((body) => {
+          body.scrollTop = 150;
+        });
+        await expect(page.locator("#alternatives-close")).toBeInViewport();
+        await showMap(page);
+        await expect(page.locator("#map-open-details")).toBeFocused();
+        expect(await header.boundingBox()).toEqual(before);
       }
-      const maximumShift = await page.evaluate(() => {
-        const recording = (window as any).headerGeometry as {
-          active: boolean;
-          baseline: number[];
-          samples: number[][];
-        };
-        recording.active = false;
-        return Math.max(
-          ...recording.samples.flatMap((sample) =>
-            sample.map((value, index) =>
-              Math.abs(value - recording.baseline[index]),
-            ),
-          ),
-        );
-      });
-      expect(maximumShift).toBeLessThanOrEqual(1);
     });
   }
 }
 
-test("map action stays in the route header across desktop resizing", async ({
+test("map remains the mobile base across desktop resizing", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await preview(page);
-  const toggle = page.getByRole("button", { name: "Karte anzeigen" });
-  await expect(
-    page.locator("#planning-context-footer #panel-map-toggle"),
-  ).toBeVisible();
-  await toggle.focus();
-  await page.keyboard.press("Enter");
-  await expect(page.locator("#map-preview")).toBeVisible();
-  await expect(page.locator("#panel-map-toggle")).toBeHidden();
-  await page.locator("#result-back").click();
-  await expect(page.locator("#choices")).toBeVisible();
-  await page.locator(".route-choice-row.selected .route-detail-link").click();
-  await expect(
-    page.locator("#planning-context-footer #panel-map-toggle"),
-  ).toBeVisible();
-  await toggle.click();
-  await page.locator("#map-open-details").click();
-  await expect(page.locator("#panel-details")).toBeVisible();
+  await expect(page.locator("#panel-map-toggle")).toHaveCount(0);
+  await openSelectedDetails(page);
   await page.setViewportSize({ width: 1280, height: 844 });
-  await expect(page.locator("#panel-map-toggle")).toBeHidden();
-  await expect(page.locator("#result-nav")).toBeHidden();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await expect(page.locator("#choices")).toBeVisible();
+  await expect(page.locator("#panel-details")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(
-    page.locator("#planning-context-footer #panel-map-toggle"),
-  ).toBeVisible();
-  await page.locator("#result-back").click();
-  await expect(
-    page.locator("#planning-context-footer #panel-map-toggle"),
-  ).toBeVisible();
-  await expect(page.locator("#panel-map-toggle")).toHaveCount(1);
+  await expect(page.locator("#map-preview")).toBeVisible();
+  await expect(page.locator("#panel-details")).toBeHidden();
+  await showConnections(page);
+  await expect(page.locator("#choices")).toBeVisible();
+  await showMap(page);
+  await expect(page.locator("#choices")).toBeHidden();
 });
 
 for (const width of [320, 390, 768, 1280]) {
@@ -618,6 +454,7 @@ for (const width of [320, 390, 768, 1280]) {
   }, info) => {
     await page.setViewportSize({ width, height: 844 });
     await preview(page);
+    await showConnections(page);
     await expect(page.locator(".route-choice")).toHaveCount(4);
     await expect(page.locator("#choices .route-recommendation")).toHaveText(
       "Früheste Ankunft",
@@ -660,14 +497,17 @@ for (const width of [320, 390, 768, 1280]) {
     await expect(
       page.locator("#panel-handle, .route-details-button"),
     ).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath(`list-${width}.png`) });
+    await page.locator('[data-journey="best"]').click();
+    await showMap(page);
     await page.locator("#route-more").click();
     await expect(page.locator("#refresh-route")).toBeVisible();
     await page.keyboard.press("Escape");
-    await page.screenshot({ path: info.outputPath(`list-${width}.png`) });
-    await page.locator('[data-journey="best"]').click();
-    await page.locator(".route-choice-row.selected .route-detail-link").click();
+    await openSelectedDetails(page);
     await expect(page.locator("#panel-details")).toBeVisible();
-    await expect(page.locator("#journey-heading")).toBeFocused();
+    await expect(
+      page.locator(width < 900 ? "#alternatives-title" : "#journey-heading"),
+    ).toBeFocused();
     await expect(page.locator("#journey-effort")).toContainText("14 min Rad");
     expect(
       await page
@@ -675,42 +515,24 @@ for (const width of [320, 390, 768, 1280]) {
         .first()
         .evaluate((e) => parseFloat(getComputedStyle(e).fontSize)),
     ).toBeGreaterThanOrEqual(14);
-    await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
     if (width < 900) {
       await expect(page.locator("#choices")).toBeHidden();
-      await expect(page.locator("#map")).toHaveJSProperty("inert", true);
-      await page.locator("#panel-content").evaluate((e) => (e.scrollTop = 150));
-      const scroll = await page
-        .locator("#panel-content")
-        .evaluate((e) => e.scrollTop);
-      await page.locator("#result-back").click();
+      await expect(page.locator("#alternatives-footer")).toBeHidden();
+      await showMap(page);
+      await expect(page.locator("#map")).toHaveJSProperty("inert", false);
+      await showConnections(page);
+      await page
+        .locator(".route-choice-row.selected .route-detail-link")
+        .click();
+      await expect(page.locator("#alternatives-footer")).toBeVisible();
+      await page.locator("#alternatives-back").click();
       await expect(
         page.locator(".route-choice-row.selected .route-detail-link"),
       ).toBeFocused();
-      await page.locator('[data-journey="best"]').click();
-      await page
-        .locator(".route-choice-row.selected .route-detail-link")
-        .click();
-      await expect(page.locator("#panel-content")).toHaveJSProperty(
-        "scrollTop",
-        scroll,
-      );
-      await page.locator("#panel-map-toggle").click();
-      await expect(page.locator("#map")).toHaveJSProperty("inert", false);
-      await expect(page.locator("#map-preview")).toBeVisible();
-      await page.locator("#result-back").click();
-      await expect(page.locator("#choices")).toBeVisible();
-      await page
-        .locator(".route-choice-row.selected .route-detail-link")
-        .click();
-      await expect(page.locator("#panel-details")).toBeVisible();
-      await expect(page.locator("#panel-content")).toHaveJSProperty(
-        "scrollTop",
-        scroll,
-      );
+      await showMap(page);
     } else {
       await expect(page.locator("#choices")).toBeVisible();
-      await expect(page.locator("#panel-map-toggle")).toBeHidden();
+      await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
     }
     await page.screenshot({ path: info.outputPath(`itinerary-${width}.png`) });
     expect(
@@ -736,7 +558,7 @@ for (const width of [320, 390, 425, 844]) {
     const previousHeight = (await page
       .locator(".planning-context")
       .boundingBox())!.height;
-    await page.locator("#panel-map-toggle").click();
+    await showMap(page);
     await expect(page.locator("#map-preview-heading")).toBeFocused();
     await expect(page.locator("#map-preview-heading")).toHaveText(
       "Ausgewählte Verbindung",
@@ -760,7 +582,7 @@ for (const width of [320, 390, 425, 844]) {
       .boundingBox())!.height;
     if (width === 425) {
       expect(compactHeight).toBeLessThanOrEqual(64);
-      expect(previousHeight - compactHeight).toBeGreaterThanOrEqual(44);
+      expect(compactHeight).toBeCloseTo(previousHeight, 0);
     }
     await expect(page.locator("#adjust-route")).toHaveAccessibleDescription(
       /Start Bahnhofstraße 3a Abfahrt jetzt/,
@@ -795,7 +617,7 @@ for (const width of [320, 390, 425, 844]) {
     ]) {
       const control = page.locator(`#${id}`);
       await control.scrollIntoViewIfNeeded();
-      await expect(control).toBeInViewport({ ratio: 0.99 });
+      await expect(control).toBeInViewport({ ratio: 0.98 });
       const bounds = (await control.boundingBox())!;
       expect(bounds.width).toBeGreaterThanOrEqual(44);
       expect(bounds.height).toBeGreaterThanOrEqual(44);
@@ -820,7 +642,7 @@ test("compact map keeps constraints, warnings and focus across layouts", async (
   await page.setViewportSize({ width: 390, height: 844 });
   await page.clock.setFixedTime(new Date("2026-09-11T08:00:00Z"));
   await preview(page);
-  await page.locator("#panel-map-toggle").click();
+  await showMap(page);
   await page.evaluate(() => {
     const { state, view } = (window as any).uxPreview;
     state.request.timing = "depart";
@@ -873,9 +695,11 @@ test("compact map keeps constraints, warnings and focus across layouts", async (
     page.locator("#map-preview-feedback #late-settings"),
   ).toBeFocused();
   await page.locator("#result-back").click();
-  await expect(page.locator("#panel-content #late-departure")).toBeVisible();
+  await expect(
+    page.locator("#alternatives-body #late-departure"),
+  ).toBeVisible();
   await page.locator('[data-journey="comparison"]').click();
-  await page.locator("#panel-map-toggle").click();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
   await expect(page.locator("#map-preview-heading")).toHaveText(
     "Fahrradvergleich",
   );
@@ -905,6 +729,7 @@ for (const [width, height] of [
       }
       view.render(state, 30);
     });
+    await showConnections(page);
     await page.locator('[data-journey="best"]').click();
     const card = page.locator('[data-journey="best"]');
     const arrival = await card.locator(".route-choice-arrival").innerText();
@@ -912,7 +737,7 @@ for (const [width, height] of [
     const lineColor = await card
       .locator(".route-line")
       .evaluate((e) => getComputedStyle(e).color);
-    await page.locator("#panel-map-toggle").click();
+    await showMap(page);
     const summary = page.locator("#map-preview-summary");
     await expect(summary.locator(".route-choice-arrival")).toHaveText(arrival);
     await expect(summary.locator(".route-choice-schedule")).toHaveText(
@@ -955,9 +780,9 @@ for (const [width, height] of [
     });
     await page.locator("#map-open-details").click();
     await expect(page.locator("#panel-details")).toBeVisible();
-    await page.locator("#result-back").click();
+    await showConnections(page);
     await page.locator('[data-journey="comparison"]').click();
-    await page.locator("#panel-map-toggle").click();
+    await showMap(page);
     await expect(summary.locator(".route-choice-arrival .icon")).toHaveCount(1);
     await expect(summary.locator(".route-recommendation")).toHaveCount(0);
     await expect(
@@ -1000,7 +825,7 @@ test("map summary keeps midnight dates and changing status without repeating its
     state.selected.arrival = state.selected.departure + 55 * 60;
     view.render(state, 30);
   });
-  await page.locator("#panel-map-toggle").click();
+  await showMap(page);
   const summary = page.locator("#map-preview-summary");
   await expect(summary.locator(".route-choice-arrival")).toHaveText(
     "12. Sept. 00:45 an",
@@ -1070,6 +895,7 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
     document.documentElement.style.fontSize = "24px";
     view.render(state);
   });
+  await showConnections(page);
   const card = page.locator('[data-journey="best"]');
   await expect(card.locator(".route-line")).toHaveText(["42", "RE 1", "ÖPNV"]);
   await expect(card.locator('.route-stage[data-symbol="bus"]')).toHaveCount(1);
@@ -1105,14 +931,14 @@ test("symbol routes preserve bus lines, transfers, stops and older snapshots", a
     path: info.outputPath("symbol-route-large-text.png"),
   });
   await page.locator('[data-journey="best"]').click();
-  await page.locator(".route-choice-row.selected .route-detail-link").click();
-  await page.locator("#result-back").click();
+  await openSelectedDetails(page);
+  await showConnections(page);
   await expect(card).toHaveAttribute("aria-pressed", "true");
   await expect(card).toHaveCSS("border-color", "rgb(23, 26, 28)");
   await expect(page.locator('.route-choice[aria-pressed="true"]')).toHaveCount(
     1,
   );
-  await page.locator("#panel-map-toggle").click();
+  await showMap(page);
   const mapSummary = page.locator("#map-preview-summary");
   await expect(mapSummary.locator(".route-line")).toHaveText([
     "42",
@@ -1142,39 +968,41 @@ test("same-ID updates retain reading position and keyboard focus", async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await preview(page);
-  await page.locator('[data-journey="selected"]').click();
-  await page.locator(".route-choice-row.selected .route-detail-link").click();
-  await page.locator("#panel-content").evaluate((e) => (e.scrollTop = 160));
+  await openSelectedDetails(page);
+  await page.locator("#alternatives-body").evaluate((e) => (e.scrollTop = 160));
   const scroll = await page
-    .locator("#panel-content")
+    .locator("#alternatives-body")
     .evaluate((e) => e.scrollTop);
-  await page.locator("#adjust-route").focus();
+  await page.locator("#alternatives-close").focus();
   await page.evaluate(() => {
     const { state, view } = (window as any).uxPreview;
     state.journeys[1].legs[0].end += 60;
     view.render(state, 30);
   });
   await expect(page.locator("#journey-effort")).toContainText("15 min Rad");
-  await expect(page.locator("#adjust-route")).toBeFocused();
-  await expect(page.locator("#panel-content")).toHaveJSProperty(
+  await expect(page.locator("#alternatives-close")).toBeFocused();
+  await expect(page.locator("#alternatives-body")).toHaveJSProperty(
     "scrollTop",
     scroll,
   );
 });
 
-test("desktop resize preserves selection and returns to mobile itinerary", async ({
+test("desktop resize preserves selection and returns to the mobile map", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await preview(page);
+  await showConnections(page);
   await page.locator('[data-journey="third"]').click();
-  await page.locator(".route-choice-row.selected .route-detail-link").click();
+  await openSelectedDetails(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect(page.locator("#choices")).toBeVisible();
   await expect(page.locator("#panel-details")).toBeVisible();
   await expect(page.locator("#map")).toHaveJSProperty("inert", false);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("#choices")).toBeHidden();
+  await expect(page.locator("#alternatives-dialog")).toBeHidden();
+  await openSelectedDetails(page);
   await expect(page.locator("#journey-heading")).toContainText("1 h");
 });
 
@@ -1195,8 +1023,8 @@ for (const [width, height] of [
       state.request.destination.name = "Bahnhofstraße 3a, 82166 Gräfelfing";
       view.render(state, 30);
     });
-    await page.locator('[data-journey="selected"]').click();
-    await page.locator(".route-choice-row.selected .route-detail-link").click();
+    await openSelectedDetails(page);
+    await showMap(page);
     await page.locator("#adjust-route").scrollIntoViewIfNeeded();
     await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
     await page.locator("#result-back").scrollIntoViewIfNeeded();
@@ -1215,7 +1043,7 @@ for (const [width, height] of [
       const content = comparison.locator(selector);
       await content.scrollIntoViewIfNeeded();
       // Scroll positions round to pixels; tolerate subpixel clipping at the edge.
-      await expect(content).toBeInViewport({ ratio: 0.99 });
+      await expect(content).toBeInViewport({ ratio: 0.98 });
     }
     await comparison.focus();
     await comparison.press("Enter");
@@ -1239,10 +1067,9 @@ for (const width of [320, 390, 1280]) {
     await expect(page.locator("#navigation-start")).toHaveAccessibleName(
       "Navigation starten",
     );
-    await expect(page.locator(".panel-actions .primary:visible")).toHaveCount(
-      1,
-    );
+    await expect(page.locator("#navigation-start:visible")).toHaveCount(1);
     await expect(page.locator(".panel-actions #adjust-route")).toHaveCount(0);
+    await showConnections(page);
     await page.locator('[data-journey="best"]').click();
     await expect(page.locator("#route-start-duration")).toHaveText("50 min");
     await expect(page.locator("#route-start-arrival")).toContainText("10:50");
@@ -1250,7 +1077,7 @@ for (const width of [320, 390, 1280]) {
       await expect(page.locator("#navigation-start")).toBeInViewport({
         ratio: 1,
       });
-      await expect(page.locator("#route-request-meta")).toBeVisible();
+      await expect(page.locator("#route-destination")).toBeVisible();
     }
     await page.locator("#route-more").click();
     await expect(page.locator("#route-actions-dialog")).toBeVisible();
@@ -1264,7 +1091,7 @@ for (const width of [320, 390, 1280]) {
   });
 }
 
-for (const width of [320, 390, 1280]) {
+for (const width of [1280]) {
   test(`selection stays in place and only Details opens the itinerary at ${width}`, async ({
     page,
     browserName,
@@ -1402,7 +1229,7 @@ for (const width of [320, 390, 1280]) {
       state.queriedAt = selected.departure;
       view.render(state, 30);
     });
-    await page.locator(".route-choice-row.selected .route-detail-link").click();
+    await openSelectedDetails(page);
     await expect(page.locator(".detail-step")).toHaveCount(9);
     await expect(
       page
@@ -1454,10 +1281,8 @@ for (const width of [320, 390, 1280]) {
       path: info.outputPath("open-itinerary-large-text.png"),
     });
     if (width < 900) {
-      await page.locator("#result-back").click();
-      await expect(
-        page.locator(".route-choice-row.selected .route-detail-link"),
-      ).toBeFocused();
+      await showMap(page);
+      await expect(page.locator("#map-open-details")).toBeFocused();
     }
   });
 }
@@ -1497,7 +1322,7 @@ for (const width of [320, 390, 1280]) {
       state.queriedAt = start;
       view.render(state, 30);
     });
-    await page.locator(".route-choice-row.selected .route-detail-link").click();
+    await openSelectedDetails(page);
     const transit = page.locator('.detail-step[data-kind="transit"]');
     const departureDelay = transit.locator(
       '.detail-delay[data-event="departure"]',

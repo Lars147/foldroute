@@ -1,5 +1,5 @@
 import { expect, test } from "./test";
-import { previewNavigation } from "./navigation-preview";
+import { mountNavigationFixture } from "./navigation-layout-fixture";
 
 test("speech is intercepted before document scripts in pages, frames and popups", async ({
   context,
@@ -45,7 +45,7 @@ test("speech is intercepted before document scripts in pages, frames and popups"
 test("prepared navigation records speech while its audio controls remain enabled", async ({
   page,
 }) => {
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   const audio = page.locator("#navigation-audio");
   await expect(audio).toHaveAttribute("aria-pressed", "true");
   expect(await page.evaluate(() => window.testSpeech.spoken)).toContain(

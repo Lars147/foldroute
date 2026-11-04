@@ -5,6 +5,7 @@ import {
   expectPlanningComplete,
   showMap,
   showConnections,
+  expectMotionSettled,
 } from "./assertions";
 
 for (const width of [320, 390, 1280])
@@ -15,13 +16,17 @@ for (const width of [320, 390, 1280])
     await setup(page);
     await plan(page);
     await showConnections(page);
+    await expectMotionSettled(page.locator("#choices"));
+    await expectMotionSettled(page.locator("#panel-content"));
+    await expectMotionSettled(page.locator("#alternatives-dialog"));
     const row = page.locator(".route-choice-row.selected");
     const details = row.locator(".route-detail-link");
     const effort = row.locator(".route-choice-effort");
     const card = (await row.boundingBox())!;
     const button = (await details.boundingBox())!;
     const summary = (await effort.boundingBox())!;
-    expect(button.height).toBeGreaterThanOrEqual(44);
+    // Transformed bounds can differ from CSS pixels by floating-point rounding.
+    expect(Math.round(button.height * 1000) / 1000).toBeGreaterThanOrEqual(44);
     expect(
       card.x + card.width - button.x - button.width,
     ).toBeGreaterThanOrEqual(15);

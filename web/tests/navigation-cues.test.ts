@@ -98,6 +98,8 @@ it("counts down to a real turn across short straight steps and street-name chang
   expect(engine.instruction).toBe("Mit dem Rad nach Ziel");
   expect(engine.distanceToNext).toBeCloseTo(200);
   move(engine, point(1000, 200), 170);
+  expect(engine.phase).toBe("active");
+  engine.tick(now / 1000 + 200);
   expect(engine.phase).toBe("arrived");
   expect(engine.instruction).toBe("Ziel erreicht");
   expect(engine.maneuver).toBeUndefined();
@@ -285,6 +287,8 @@ it("keeps a final turn active even when the destination is inside the arrival ra
   expect(engine.phase).toBe("active");
   expect(engine.instruction).toBe("Links abbiegen auf Straße 1");
   expect(engine.distanceToNext).toBeCloseTo(5);
-  move(engine, point(200, 10), 10);
+  move(engine, point(200, 11), 10);
+  expect(engine.phase).toBe("active");
+  engine.tick(now / 1000 + 40);
   expect(engine.phase).toBe("arrived");
 });

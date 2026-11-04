@@ -1,3 +1,4 @@
+import { DialogController } from "./dialog-controller";
 import type { Timing } from "./model";
 import { el, node } from "./ui";
 import { reveal, stopMotionWithin, motionTime } from "./motion";
@@ -36,6 +37,11 @@ export function timeSummary(mode: Timing, value: string): string {
   return `${day}, ${mode === "arrive" ? "an" : "ab"} ${value.slice(11)}`;
 }
 export class TimePicker {
+  private readonly events = new AbortController();
+  private disposed = false;
+
+  private calendarEvents = new AbortController();
+  private dialog = new DialogController(el<HTMLDialogElement>("time-dialog"));
   private mode: Exclude<Timing, "now"> = "depart";
   private day = "";
   private month = new Date();
@@ -44,53 +50,91 @@ export class TimePicker {
     return el<HTMLDialogElement>("time-dialog").open;
   }
   constructor(private changed: () => void) {
-    el("time-trigger").onclick = () => this.open();
-    el("time-cancel").onclick = () => this.close();
-    el("time-now").onclick = () => {
-      this.setFixedDate(new Date());
-      this.render();
-    };
+    el("time-trigger").addEventListener("click", () => this.open(), {
+      signal: this.events.signal,
+    });
+    el("time-cancel").addEventListener("click", () => this.close(), {
+      signal: this.events.signal,
+    });
+    el("time-now").addEventListener(
+      "click",
+      () => {
+        this.setFixedDate(new Date());
+        this.render();
+      },
+      { signal: this.events.signal },
+    );
     for (const mode of ["depart", "arrive"] as const)
-      el(`time-${mode}`).onclick = () => {
-        this.mode = mode;
-        this.render();
-      };
-    el("time-previous").onclick = () => this.changeMonth(-1);
-    el("time-next").onclick = () => this.changeMonth(1);
+      el(`time-${mode}`).addEventListener(
+        "click",
+        () => {
+          this.mode = mode;
+          this.render();
+        },
+        { signal: this.events.signal },
+      );
+    el("time-previous").addEventListener("click", () => this.changeMonth(-1), {
+      signal: this.events.signal,
+    });
+    el("time-next").addEventListener("click", () => this.changeMonth(1), {
+      signal: this.events.signal,
+    });
     for (const delta of [-5, 5])
-      el(delta < 0 ? "time-minus" : "time-plus").onclick = () => {
-        const date = this.date();
-        if (!date) return;
-        date.setMinutes(date.getMinutes() + delta);
-        this.setFixedDate(date);
-        this.render();
-      };
+      el(delta < 0 ? "time-minus" : "time-plus").addEventListener(
+        "click",
+        () => {
+          const date = this.date();
+          if (!date) return;
+          date.setMinutes(date.getMinutes() + delta);
+          this.setFixedDate(date);
+          this.render();
+        },
+        { signal: this.events.signal },
+      );
     const clock = el<HTMLInputElement>("time-clock");
     const updateClock = () => {
       this.validate();
       this.keepClockVisible();
     };
     for (const event of ["input", "change", "blur"])
-      clock.addEventListener(event, updateClock);
-    clock.addEventListener("focus", this.keepClockVisible);
-    window.visualViewport?.addEventListener("resize", this.keepClockVisible);
-    window.visualViewport?.addEventListener("scroll", this.keepClockVisible);
-    window.addEventListener("resize", this.keepClockVisible);
-    el("time-editor").onsubmit = (event) => {
-      event.preventDefault();
-      if (!this.validate()) return;
-      el<HTMLInputElement>("timing").value = this.mode;
-      el<HTMLInputElement>("when").value = localMinute(this.date()!);
-      this.changed();
-      this.close();
-    };
-    const dialog = el<HTMLDialogElement>("time-dialog");
-    dialog.addEventListener("cancel", (event) => {
-      if (this.active) {
-        event.preventDefault();
-        this.close();
-      }
+      clock.addEventListener(event, updateClock, {
+        signal: this.events.signal,
+      });
+    clock.addEventListener("focus", this.keepClockVisible, {
+      signal: this.events.signal,
     });
+    window.visualViewport?.addEventListener("resize", this.keepClockVisible, {
+      signal: this.events.signal,
+    });
+    window.visualViewport?.addEventListener("scroll", this.keepClockVisible, {
+      signal: this.events.signal,
+    });
+    window.addEventListener("resize", this.keepClockVisible, {
+      signal: this.events.signal,
+    });
+    el("time-editor").addEventListener(
+      "submit",
+      (event) => {
+        event.preventDefault();
+        if (!this.validate()) return;
+        el<HTMLInputElement>("timing").value = this.mode;
+        el<HTMLInputElement>("when").value = localMinute(this.date()!);
+        this.changed();
+        this.close();
+      },
+      { signal: this.events.signal },
+    );
+    const dialog = el<HTMLDialogElement>("time-dialog");
+    dialog.addEventListener(
+      "cancel",
+      (event) => {
+        if (this.active) {
+          event.preventDefault();
+          this.close();
+        }
+      },
+      { signal: this.events.signal },
+    );
   }
   private keepClockVisible = () => {
     if (
@@ -137,6 +181,7 @@ export class TimePicker {
     el<HTMLInputElement>("time-clock").value = localMinute(date).slice(11);
   }
   open() {
+    if (this.disposed) return;
     const timing = el<HTMLInputElement>("timing").value as Timing;
     this.mode = timing === "arrive" ? "arrive" : "depart";
     this.setFixedDate(
@@ -144,8 +189,7 @@ export class TimePicker {
         ? new Date()
         : (parseLocalMinute(el<HTMLInputElement>("when").value) ?? new Date()),
     );
-    const dialog = el<HTMLDialogElement>("time-dialog");
-    dialog.showModal();
+    this.dialog.open(el("time-trigger"));
     this.render();
     this.focusDay(this.day);
     reveal(el("time-editor"), { x: 14, y: 0 });
@@ -157,8 +201,7 @@ export class TimePicker {
       this.clockScrollFrame = undefined;
     }
     stopMotionWithin(el("time-editor"));
-    el<HTMLDialogElement>("time-dialog").close();
-    if (focus) el("time-trigger").focus();
+    this.dialog.close(focus);
   }
   private changeMonth(delta: number) {
     this.month = new Date(
@@ -207,6 +250,9 @@ export class TimePicker {
     return valid;
   }
   private render() {
+    if (this.disposed) return;
+    this.calendarEvents.abort();
+    this.calendarEvents = new AbortController();
     const focused = (document.activeElement as HTMLElement)?.dataset.date;
     this.renderMode();
     this.validate();
@@ -258,45 +304,68 @@ export class TimePicker {
         );
         if (date.getTime() === today.getTime())
           button.setAttribute("aria-current", "date");
-        button.onclick = () => {
-          this.day = day;
-          this.month = new Date(date.getFullYear(), date.getMonth(), 1);
-          this.render();
-          this.focusDay(day);
-        };
-        button.onkeydown = (event) => {
-          const offsets: Record<string, number> = {
-            ArrowLeft: -1,
-            ArrowRight: 1,
-            ArrowUp: -7,
-            ArrowDown: 7,
-            Home: -column,
-            End: 6 - column,
-          };
-          const next = new Date(date);
-          if (event.key in offsets)
-            next.setDate(next.getDate() + offsets[event.key]);
-          else if (event.key === "PageUp" || event.key === "PageDown") {
-            const wanted = next.getDate();
-            next.setDate(1);
-            next.setMonth(next.getMonth() + (event.key === "PageUp" ? -1 : 1));
-            next.setDate(
-              Math.min(
-                wanted,
-                new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate(),
-              ),
-            );
-          } else return;
-          event.preventDefault();
-          this.month = new Date(next.getFullYear(), next.getMonth(), 1);
-          this.render();
-          this.focusDay(localMinute(next).slice(0, 10));
-        };
+        button.addEventListener(
+          "click",
+          () => {
+            this.day = day;
+            this.month = new Date(date.getFullYear(), date.getMonth(), 1);
+            this.render();
+            this.focusDay(day);
+          },
+          { signal: this.calendarEvents.signal },
+        );
+        button.addEventListener(
+          "keydown",
+          (event) => {
+            const offsets: Record<string, number> = {
+              ArrowLeft: -1,
+              ArrowRight: 1,
+              ArrowUp: -7,
+              ArrowDown: 7,
+              Home: -column,
+              End: 6 - column,
+            };
+            const next = new Date(date);
+            if (event.key in offsets)
+              next.setDate(next.getDate() + offsets[event.key]);
+            else if (event.key === "PageUp" || event.key === "PageDown") {
+              const wanted = next.getDate();
+              next.setDate(1);
+              next.setMonth(
+                next.getMonth() + (event.key === "PageUp" ? -1 : 1),
+              );
+              next.setDate(
+                Math.min(
+                  wanted,
+                  new Date(
+                    next.getFullYear(),
+                    next.getMonth() + 1,
+                    0,
+                  ).getDate(),
+                ),
+              );
+            } else return;
+            event.preventDefault();
+            this.month = new Date(next.getFullYear(), next.getMonth(), 1);
+            this.render();
+            this.focusDay(localMinute(next).slice(0, 10));
+          },
+          { signal: this.calendarEvents.signal },
+        );
         cell.append(button);
         row.append(cell);
       }
       grid.append(row);
     }
     if (focused) this.focusDay(focused);
+  }
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.events.abort();
+    this.calendarEvents.abort();
+    this.dialog.dispose();
+    if (this.clockScrollFrame !== undefined)
+      cancelAnimationFrame(this.clockScrollFrame);
   }
 }

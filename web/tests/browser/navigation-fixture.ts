@@ -1,4 +1,5 @@
-import { openCachedJourney } from "./assertions";
+import { installLocationProbe } from "./location-probe";
+import { openCachedJourney, showMap } from "./assertions";
 import { expect, type Page } from "@playwright/test";
 import {
   defaults,
@@ -181,115 +182,8 @@ export async function setup(
   selectedJourney = route(multimodal),
 ) {
   await page.clock.install({ time: new Date(now * 1000) });
-  await page.addInitScript(() => {
-    const watchers = new Map<number, PositionCallback>();
-    const errors = new Map<number, PositionErrorCallback>();
-    let id = 0;
-    let coords = {
-      latitude: 48,
-      longitude: 11,
-      accuracy: 10,
-      heading: 90,
-      speed: 4,
-    };
-    const probe = {
-      started: 0,
-      stopped: 0,
-      quickLookups: 0,
-      refreshLookups: 0,
-      // Unscripted refreshes stay silent; individual tests supply new measurements.
-      refreshSilent: true,
-      cachedAt: undefined as number | undefined,
-      lastWatchOptions: undefined as PositionOptions | undefined,
-      lastQuickOptions: undefined as PositionOptions | undefined,
-      lastRefreshOptions: undefined as PositionOptions | undefined,
-      get active() {
-        return watchers.size;
-      },
-      silent: false,
-      // Getters keep init-script ordering independent of the context mock.
-      get spoken() {
-        return window.testSpeech.spoken;
-      },
-      get cancelled() {
-        return window.testSpeech.cancelled;
-      },
-      fail(code: number) {
-        for (const error of errors.values())
-          error({ code } as GeolocationPositionError);
-      },
-      push(
-        latitude: number,
-        longitude: number,
-        heading = 90,
-        accuracy = 10,
-        age = 0,
-      ) {
-        coords = { ...coords, latitude, longitude, heading, accuracy };
-        for (const success of watchers.values())
-          success({
-            coords,
-            timestamp: Date.now() - age,
-          } as GeolocationPosition);
-      },
-      hide(hidden: boolean) {
-        Object.defineProperty(document, "hidden", {
-          configurable: true,
-          get: () => hidden,
-        });
-        document.dispatchEvent(new Event("visibilitychange"));
-      },
-    };
-    (window as any).navProbe = probe;
-    Object.defineProperty(navigator, "permissions", {
-      configurable: true,
-      value: { query: async () => ({ state: "granted", onchange: null }) },
-    });
-    Object.defineProperty(navigator, "geolocation", {
-      configurable: true,
-      value: {
-        watchPosition(
-          success: PositionCallback,
-          error: PositionErrorCallback,
-          options?: PositionOptions,
-        ) {
-          const key = ++id;
-          watchers.set(key, success);
-          errors.set(key, error);
-          probe.started++;
-          probe.lastWatchOptions = options;
-          setTimeout(() => {
-            if (!probe.silent)
-              success({ coords, timestamp: Date.now() } as GeolocationPosition);
-          }, 0);
-          return key;
-        },
-        clearWatch(key: number) {
-          probe.stopped++;
-          watchers.delete(key);
-          errors.delete(key);
-        },
-        getCurrentPosition(
-          success: PositionCallback,
-          _error?: PositionErrorCallback,
-          options?: PositionOptions,
-        ) {
-          if (options?.enableHighAccuracy) {
-            probe.refreshLookups++;
-            probe.lastRefreshOptions = options;
-            if (probe.refreshSilent) return;
-          } else {
-            probe.quickLookups++;
-            probe.lastQuickOptions = options;
-          }
-          if (probe.cachedAt !== undefined || !probe.silent)
-            success({
-              coords,
-              timestamp: probe.cachedAt ?? Date.now(),
-            } as GeolocationPosition);
-        },
-      },
-    });
+  await page.addInitScript(installLocationProbe, {
+    mode: "navigation" as const,
   });
   await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.route("**/api/v6/trip?*", (r) =>
@@ -346,13 +240,20 @@ export async function setup(
   await page.goto("/");
   await expect(page.locator("#main")).not.toHaveAttribute("inert");
   await openCachedJourney(page, page.locator("#open-saved"));
+  await showMap(page);
   if (!start) return;
   await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
+  // A newly revealed action can occupy the old start button's pointer position.
+  // Automatic-progress tests must not accidentally request a hover pause.
+  await page.mouse.move(0, 0);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
   await expect(page.locator("#navigation-storage-status")).toBeEmpty();
+  await expect
+    .poll(() => page.evaluate(() => history.state?.navigation))
+    .toBe(true);
 }
 
 export function guidanceRoute(singleStep = false): Journey {
@@ -401,12 +302,36 @@ export function guidanceRoute(singleStep = false): Journey {
   return journey;
 }
 
+export async function completionButton(page: Page) {
+  const quick = page.locator("#navigation-complete");
+  if (await quick.isVisible()) return quick;
+  const toggle = page.locator("#navigation-details-toggle");
+  if (
+    (await toggle.isVisible()) &&
+    (await toggle.getAttribute("aria-expanded")) === "false"
+  )
+    await toggle.click();
+  const manual = page.locator("#navigation-complete-manually");
+  if (!(await manual.isVisible()))
+    await page.locator("#navigation-more-actions").click();
+  await expect(manual).toBeVisible();
+  return manual;
+}
+
 export async function complete(page: Page) {
-  if (!(await page.locator("#navigation-complete").isVisible()))
-    await page.locator("#navigation-details-toggle").click();
-  await page.locator("#navigation-complete").click();
-  await page.locator("#navigation-confirm-yes").click();
+  const toggle = page.locator("#navigation-details-toggle");
+  const collapsed =
+    (await toggle.isVisible()) &&
+    (await toggle.getAttribute("aria-expanded")) === "false";
+  await (await completionButton(page)).click();
   await expect(page.locator("#navigation-confirm")).toBeHidden();
+  await page.clock.runFor(400);
+  if (
+    collapsed &&
+    (await toggle.isVisible()) &&
+    (await toggle.getAttribute("aria-expanded")) === "true"
+  )
+    await toggle.click();
 }
 
 export function stationJourney() {
@@ -572,7 +497,7 @@ export async function expectNavigationBasemap(page: Page) {
 
 export async function openNavigationCredit(page: Page, index = 1) {
   await page.evaluate(() => {
-    (window as any).navProbe.silent = true;
+    window.navProbe.silent = true;
     // Model Safari's overlay without navigating the test page away.
     document.addEventListener("click", (event) => {
       if ((event.target as Element).closest(".navigation-credit a"))
@@ -580,9 +505,7 @@ export async function openNavigationCredit(page: Page, index = 1) {
     });
   });
   await page.locator(".navigation-credit a").nth(index).click();
-  await expect
-    .poll(() => page.evaluate(() => (window as any).navProbe.active))
-    .toBe(0);
+  await expect.poll(() => page.evaluate(() => window.navProbe.active)).toBe(0);
   await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
 }
 
@@ -601,7 +524,8 @@ export async function savedProgress(page: Page) {
 }
 
 export async function startSelected(page: Page) {
-  if (!(await page.locator(".panel-actions #navigation-start").isVisible()))
+  await showMap(page);
+  if (!(await page.locator("#navigation-start").isVisible()))
     await page.locator("#route-more").click();
   await page.locator("#navigation-start").click();
 }

@@ -67,6 +67,7 @@ export class PlaceBook {
 
   subscribe(listener: () => void) {
     this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
   private emit() {
     this.listeners.forEach((listener) => listener());

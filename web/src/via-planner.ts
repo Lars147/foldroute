@@ -20,8 +20,11 @@ import {
   planningFailures,
 } from "./model";
 import { distance } from "./geometry";
-import type { RequestBudget, RoutingClient } from "./transitous";
-import { planRoutes } from "./planner";
+import type {
+  RequestBudget,
+  RoutePlanner,
+  RoutingClient,
+} from "./routing-contracts";
 
 export function joinAtStop(
   first: Journey,
@@ -123,6 +126,7 @@ export async function* planViaRoutes(
   settings: RoutingSettings,
   signal: AbortSignal,
   client: RoutingClient,
+  planSection: RoutePlanner,
   run?: RoutingRun,
 ): AsyncGenerator<PlanningUpdate> {
   let stops = request.stops!;
@@ -260,7 +264,7 @@ export async function* planViaRoutes(
           signal.throwIfAborted();
           yield update("searching");
           try {
-            for await (const partUpdate of planRoutes(
+            for await (const partUpdate of planSection(
               part,
               settings,
               combined,

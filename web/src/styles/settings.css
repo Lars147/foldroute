@@ -1,0 +1,415 @@
+/* Settings: important controls first, secondary choices disclosed on demand. */
+.settings-screen {
+  --settings-safe-top: var(--safe-top);
+  --settings-top-offset: calc(
+    var(--header) + var(--mobile-status-height) + var(--settings-safe-top)
+  );
+}
+.settings-heading-row {
+  position: sticky;
+  top: var(--settings-top-offset);
+  z-index: 10;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  padding-block: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.settings-heading-row::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: var(--settings-top-offset);
+  background: var(--paper);
+  pointer-events: none;
+}
+.settings-screen :is(input, button, summary, a) {
+  scroll-margin-top: calc(
+    var(--settings-top-offset) + var(--settings-heading-height, 60px) + 8px
+  );
+  scroll-margin-bottom: calc(var(--tabs) + 8px);
+}
+.settings-heading-row h1 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  margin-bottom: 0;
+}
+.settings-heading-row #save-settings {
+  min-width: 44px;
+  margin-left: auto;
+  padding-inline: 8px;
+  font-size: 1rem;
+}
+.settings-screen .group {
+  overflow-wrap: anywhere;
+  margin-block: 16px;
+  padding: 16px;
+}
+.settings-screen .settings-scope {
+  margin-top: 8px;
+}
+.settings-screen .message,
+.settings-screen .setting-row small,
+.settings-screen .toggle-row small,
+.settings-screen .info p {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.settings-screen .setting-row,
+.settings-screen .toggle-row {
+  gap: 12px;
+  font-size: 1rem;
+  min-height: 56px;
+}
+.settings-screen .setting-row > span:first-child,
+.settings-screen .toggle-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-screen .setting-row > span:first-child {
+  flex: 1 1 0;
+}
+.settings-screen .setting-row {
+  scroll-margin-top: calc(
+    var(--settings-top-offset) + var(--settings-heading-height, 60px) + 8px
+  );
+  scroll-margin-bottom: calc(var(--tabs) + 8px);
+}
+.settings-screen .setting-value {
+  flex: 0 0 80px;
+  text-align: center;
+}
+.settings-screen .setting-value input {
+  width: 100%;
+  font-size: 1rem;
+  padding-inline: 4px;
+}
+.settings-screen .setting-unit {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.settings-screen .setting-unit:empty {
+  display: none;
+}
+.settings-screen #modes {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+#app-settings {
+  container: appearance / inline-size;
+}
+.appearance-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 12px 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+.appearance-picker legend {
+  font-size: 1rem;
+}
+.appearance-segments {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  clear: both;
+  gap: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--panel-line);
+  border-radius: 20px;
+}
+.appearance-segments label {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.appearance-segments input {
+  position: absolute;
+  /* The decorative selection surface never intercepts native radio input. */
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.appearance-segments span {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: 8px 4px;
+  border: 2px solid transparent;
+  border-radius: 19px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+.appearance-segments input:checked + span {
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font-weight: 700;
+}
+.appearance-indicator {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  border-radius: 19px;
+  overflow: hidden;
+  color: var(--color-on-brand);
+  background: var(--color-brand);
+  pointer-events: none;
+}
+.appearance-indicator-labels {
+  position: absolute;
+}
+.appearance-indicator-label {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 8px 4px;
+  border: 2px solid transparent;
+  overflow-wrap: anywhere;
+}
+.appearance-segments[data-motion="ready"] .appearance-indicator {
+  display: block;
+}
+.appearance-segments[data-motion="ready"] input:checked + span {
+  background: transparent;
+  color: var(--muted);
+}
+.appearance-segments input:focus-visible + span,
+.appearance-segments[data-keyboard-focus] input:focus + span,
+.appearance-segments:has(input[value="system"]:focus-visible)
+  [data-value="system"],
+.appearance-segments:has(input[value="light"]:focus-visible)
+  [data-value="light"],
+.appearance-segments:has(input[value="dark"]:focus-visible) [data-value="dark"],
+.appearance-segments[data-keyboard-focus]:has(input[value="system"]:focus)
+  [data-value="system"],
+.appearance-segments[data-keyboard-focus]:has(input[value="light"]:focus)
+  [data-value="light"],
+.appearance-segments[data-keyboard-focus]:has(input[value="dark"]:focus)
+  [data-value="dark"] {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+@container appearance (max-width: 12rem) {
+  .appearance-segments {
+    grid-template-columns: 1fr;
+  }
+}
+.settings-screen .settings-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-disclosure > summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  margin: 0 4px 4px;
+}
+.settings-disclosure[open] > summary::after {
+  transform: rotate(225deg);
+  margin-bottom: 0;
+}
+.settings-disclosure > summary > span {
+  min-width: 0;
+}
+.settings-disclosure > summary small {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.settings-disclosure[open] > summary {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+}
+.settings-screen input[role="switch"] {
+  appearance: none;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border: 1px solid var(--muted);
+  border-radius: 20px;
+  background: var(--paper);
+  margin: 0;
+  cursor: pointer;
+}
+.settings-screen input[role="switch"]::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  top: 3px;
+  left: 3px;
+  background: var(--muted);
+}
+.settings-screen input[role="switch"]:checked {
+  background: var(--yellow);
+  border-color: var(--color-asphalt);
+}
+.settings-screen input[role="switch"]:checked::before {
+  transform: translateX(18px);
+  background: var(--color-asphalt);
+}
+.settings-screen input:disabled {
+  opacity: 0.5;
+}
+.settings-screen .settings-delete {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+.settings-feedback,
+.settings-licenses {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 78px;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-decoration: none;
+}
+.settings-feedback > span:last-child,
+.settings-licenses > span:last-child {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+#settings-help .settings-install {
+  padding-block: 16px;
+}
+#settings-help #install {
+  margin: 0;
+}
+#settings-help .settings-install .message {
+  margin: 12px 0 0;
+}
+.install-steps {
+  margin: 16px 0;
+  padding-left: 1.5rem;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.install-steps > li {
+  margin-block: 16px;
+  padding-left: 4px;
+}
+.install-steps > li::marker {
+  color: var(--color-secondary);
+  font-weight: 700;
+}
+.install-step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.install-step-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.install-guide p {
+  margin: 12px 0 0;
+}
+.installation-help {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 44px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.settings-help-links {
+  border-top: 1px solid var(--line);
+}
+.settings-help-links a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 48px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 4px;
+  text-decoration: none;
+  font-size: 1rem;
+}
+.settings-help-links a:last-child {
+  border-bottom: 0;
+}
+.settings-help-links a > span:first-child {
+  min-width: 0;
+}
+.settings-help-links a > span:last-child {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.settings-help-links a:hover {
+  background: var(--paper);
+}
+.settings-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.settings-version a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-family: ui-monospace, monospace;
+}
+@media (forced-colors: active) {
+  .settings-screen input[role="switch"] {
+    appearance: auto;
+  }
+  .settings-screen input[role="switch"]::before {
+    display: none;
+  }
+}
+@media (max-width: 380px) {
+  .settings-heading-row h1 {
+    font-size: 1.75rem;
+  }
+}

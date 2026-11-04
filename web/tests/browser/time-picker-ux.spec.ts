@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "./test";
+import { expectMotionSettled } from "./assertions";
 
 async function setVisualViewport(
   page: Page,
@@ -216,6 +217,8 @@ test("window resize keeps time and actions visible with safe areas and no Visual
   await expectClockAboveKeyboard(page);
   await expect(page.locator("#time-clock")).toBeFocused();
   await expect(page.locator("#time-clock")).toHaveValue("18:30");
+  // Sample safe-area bounds after the dialog's entrance translation finishes.
+  await expectMotionSettled(page.locator("#time-dialog"));
   const dialog = await page.locator("#time-dialog").boundingBox();
   expect(dialog!.y).toBeGreaterThanOrEqual(24);
   expect(dialog!.y + dialog!.height).toBeLessThanOrEqual(340 - 16);

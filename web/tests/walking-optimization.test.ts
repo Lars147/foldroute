@@ -262,7 +262,12 @@ describe("bounded additional street requests", () => {
     const client = new ApiClient();
     const batch = vi
       .spyOn(client, "batch")
-      .mockResolvedValue({ journeys: [ride()], issues: [] });
+      .mockResolvedValue({
+        journeys: [ride()],
+        issues: [],
+        rejected: false,
+        stop: false,
+      });
     let last: Journey[] = [];
     for await (const update of optimizeWalking(
       [
@@ -296,7 +301,7 @@ describe("bounded additional street requests", () => {
         active--;
         budget!.take();
         requests++; // Simulate one retry, charged to the same budget.
-        return { journeys: [], issues: [] };
+        return { journeys: [], issues: [], rejected: false, stop: false };
       },
     );
     const legs = Array.from({ length: 8 }, (_, i) => [
@@ -370,6 +375,8 @@ it("publishes the original immediately and finishes with its improved version", 
           ? [access()]
           : [],
       issues: [],
+      rejected: false,
+      stop: false,
     };
   });
   const updates = [];

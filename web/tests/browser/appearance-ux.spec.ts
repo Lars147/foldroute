@@ -9,8 +9,8 @@ import fixture from "../fixtures/swift-parity.json" with { type: "json" };
 const key = "foldroute.appearance";
 const root = () => test.info().project.use.baseURL!;
 
-async function open(page: Page) {
-  await page.goto("/");
+async function open(page: Page, url = "/") {
+  await page.goto(url);
   await page.locator("#tab-settings").click();
 }
 
@@ -22,6 +22,22 @@ async function theme(page: Page, value: "light" | "dark") {
     value === "dark" ? "#101314" : "#f5f6f3",
   );
 }
+
+test("theme color retains the startup palette while shared theme tokens are unavailable", async ({
+  page,
+}) => {
+  await open(page);
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--color-canvas", "initial");
+  });
+  for (const [value, label] of [
+    ["dark", "Dunkel"],
+    ["light", "Hell"],
+  ] as const) {
+    await page.getByRole("radio", { name: label, exact: true }).check();
+    await theme(page, value);
+  }
+});
 
 async function expectPanelContrast(page: Page, selector = ".journey-panel") {
   const failures = await page.locator(selector).evaluate((panel) => {
@@ -75,6 +91,13 @@ for (const width of [390, 1280])
         route.abort(),
       );
       await page.goto("/");
+      await expect(page.locator("#app-startup")).toHaveJSProperty(
+        "hidden",
+        true,
+      );
+      await page.evaluate(() => {
+        document.documentElement.dataset.standalone = "";
+      });
       const ink = value === "dark" ? "rgb(245, 246, 243)" : "rgb(23, 26, 28)";
       const canvas =
         value === "dark" ? "rgb(16, 19, 20)" : "rgb(245, 246, 243)";
@@ -88,6 +111,10 @@ for (const width of [390, 1280])
         "background-color",
         surface,
       );
+      await expect(page.locator(".app-tabs")).toHaveCSS(
+        "backdrop-filter",
+        "none",
+      );
       for (const [tab, screen] of [
         ["route", "search"],
         ["history", "history"],
@@ -96,6 +123,12 @@ for (const width of [390, 1280])
         await page.locator(`#tab-${tab}`).click();
         await expect(page.locator(`#${screen}-view`)).toBeVisible();
         await expect(page.locator(`#${screen}-view`)).toHaveCSS("color", ink);
+        expect(
+          await page.locator("body").evaluate((body) => {
+            const style = getComputedStyle(body, "::before");
+            return { content: style.content, image: style.backgroundImage };
+          }),
+        ).toEqual({ content: "none", image: "none" });
         await expectPanelContrast(page, `#${screen}-view`);
         const tabColor = await page
           .locator(`#tab-${tab}`)
@@ -118,6 +151,16 @@ for (const width of [390, 1280])
       await expect(dialog).toBeVisible();
       await expect(dialog).toHaveCSS("background-color", canvas);
       await expect(dialog).toHaveCSS("color", ink);
+      expect(
+        await dialog.evaluate((dialog) => {
+          const style = getComputedStyle(dialog, "::backdrop");
+          return {
+            filter: style.filter,
+            backdrop: style.backdropFilter,
+            image: style.backgroundImage,
+          };
+        }),
+      ).toEqual({ filter: "none", backdrop: "none", image: "none" });
       await expectPanelContrast(page, "#delete-data-dialog");
       await dialog.screenshot({ path: info.outputPath(`dialog-${value}.png`) });
       await page.emulateMedia({ contrast: "more" });
@@ -132,7 +175,9 @@ for (const width of [390, 1280])
       await page.emulateMedia({ contrast: "no-preference" });
       await page.locator("#cancel-delete-data").click();
       await page.goto("/?example=bike-transfer");
-      const card = page.locator(".route-choice");
+      const card = page.locator(
+        width < 900 ? "#map-preview-summary" : ".route-choice",
+      );
       await expect(card).toBeVisible();
       await expect(page.locator(".journey-panel")).toHaveCSS(
         "background-color",
@@ -330,12 +375,15 @@ test("landing stays light while planner and public example share appearance chan
     route.abort(),
   );
   await page.emulateMedia({ colorScheme: "dark" });
-  await open(page);
+  const production =
+    process.env.FOLDROUTE_PRODUCTION_URL ??
+    `http://127.0.0.1:${Number(process.env.FOLDROUTE_TEST_PORT ?? 4173) + 1}/docs/plan/`;
+  await open(page, production);
   await page.getByRole("radio", { name: "Dunkel", exact: true }).check();
   await theme(page, "dark");
   const landing = await context.newPage();
   await landing.emulateMedia({ colorScheme: "dark" });
-  await landing.goto("/landing/");
+  await landing.goto(new URL("../", production).href);
   await theme(landing, "light");
   await expect(
     landing.getByRole("combobox", { name: "Darstellung" }),
@@ -348,7 +396,7 @@ test("landing stays light while planner and public example share appearance chan
     "dark",
   );
   const planner = await context.newPage();
-  await planner.goto("/?example=bike-transfer");
+  await planner.goto(`${production}?example=bike-transfer`);
   await expect(planner.locator(".route-choice")).toBeVisible();
   await theme(planner, "dark");
   await page.getByRole("radio", { name: "Hell", exact: true }).check();

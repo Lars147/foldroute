@@ -72,7 +72,9 @@ for (const layout of layouts)
       expect(card.y).toBeGreaterThanOrEqual(layout.top);
       expect(card.y + card.height).toBeLessThanOrEqual(bar.y - 11);
       const controls = (await page.locator("#map-controls").boundingBox())!;
-      expect(controls.y).toBeGreaterThanOrEqual(layout.top + 14);
+      expect(controls.y).toBe(layout.top + (layout.height > 500 ? 38 : 14));
+      if (layout.width < 600)
+        expect(controls.y + controls.height).toBeLessThanOrEqual(card.y - 7);
       expect(controls.x + controls.width).toBeLessThanOrEqual(
         layout.width - layout.side - 12,
       );
@@ -124,24 +126,27 @@ test("details, search, time dialog and offline banner respect iPhone safe areas"
   await runMapClock(page);
   await showMap(page);
   await page.locator("#map-open-details").click();
-  const detail = (await page.locator("#map-view").boundingBox())!;
-  const bar = (await page.locator(".app-tabs").boundingBox())!;
+  const detail = (await page.locator("#alternatives-dialog").boundingBox())!;
   expect(detail.y).toBeGreaterThanOrEqual(59);
-  expect(detail.y + detail.height).toBeLessThanOrEqual(bar.y + 1);
-  await page
-    .getByRole("button", { name: "Karte anzeigen", exact: true })
-    .click();
+  expect(detail.y + detail.height).toBe(844);
+  expect(
+    await page
+      .locator("#alternatives-body")
+      .evaluate((body) => parseFloat(getComputedStyle(body).paddingBottom)),
+  ).toBeGreaterThanOrEqual(34);
+  await showMap(page);
   await context.setOffline(true);
   await expect(page.locator("#connection")).toBeVisible();
   const banner = (await page.locator("#connection").boundingBox())!;
   expect(banner.y).toBe(59);
   await expect
     .poll(async () => (await page.locator("#map-controls").boundingBox())!.y)
-    .toBeGreaterThanOrEqual(banner.y + banner.height + 14);
+    .toBeGreaterThanOrEqual(banner.y + banner.height + 38);
   await page.locator("#map-route").click();
   await expectRouteFits(page);
   await context.setOffline(false);
   await page.locator("#map-open-details").click();
+  await showMap(page);
   await page.locator("#close-route").click();
   await page.locator("#destination").click();
   expect((await page.locator(".search-focus-back").boundingBox())!.y).toBe(67);

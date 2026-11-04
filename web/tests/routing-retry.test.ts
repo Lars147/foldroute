@@ -15,7 +15,7 @@ import {
 import { planRoutes } from "../src/planner";
 import { PlanningRoutingClient } from "../src/planning-routing";
 import fixture from "./fixtures/swift-parity.json";
-vi.mock("../src/search", () => ({ locate: vi.fn() }));
+vi.mock("../src/search-location", () => ({ locate: vi.fn() }));
 
 const epoch = Date.parse("2026-09-04T08:00:00Z");
 const url = (name = "a") => new URL(`https://example.test/${name}`);
@@ -262,7 +262,10 @@ describe("routing HTTP retries", () => {
     const session = new PlanningSession(api, () => {});
     const task = session.calculate(
       request,
-      { ...defaults, excludedTransitModes: Object.keys(modes) },
+      {
+        ...defaults,
+        excludedTransitModes: Object.keys(modes) as (keyof typeof modes)[],
+      },
       false,
     );
     await vi.runAllTimersAsync();
@@ -299,7 +302,10 @@ describe("routing HTTP retries", () => {
       const task = (async () => {
         for await (const update of planRoutes(
           { ...request, stops: [{ id: "via", place: via, stayMinutes: 0 }] },
-          { ...defaults, excludedTransitModes: Object.keys(modes) },
+          {
+            ...defaults,
+            excludedTransitModes: Object.keys(modes) as (keyof typeof modes)[],
+          },
           new AbortController().signal,
           api,
         ))
@@ -621,7 +627,10 @@ describe("routing HTTP retries", () => {
     const task = (async () => {
       for await (const update of planRoutes(
         request,
-        { ...defaults, excludedTransitModes: Object.keys(modes) },
+        {
+          ...defaults,
+          excludedTransitModes: Object.keys(modes) as (keyof typeof modes)[],
+        },
         new AbortController().signal,
         api,
       ))

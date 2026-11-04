@@ -1,0 +1,34 @@
+/* Stable editor nodes: responsive expansion changes layout, never input ownership. */
+#route-editor-host {
+  display: contents;
+}
+.route-places-frame > #route-editor {
+  padding-bottom: 0;
+}
+.route-editor-frame[data-expanded="true"] {
+  padding-bottom: 8px;
+}
+.route-editor-frame[data-expanded="false"],
+.route-editor-frame[data-expanded="false"] .route-places-frame,
+.route-editor-frame[data-expanded="false"] #route-editor-destination {
+  display: contents;
+}
+.search-form[data-editor-expanded="false"] #destination-home {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper);
+}
+.search-form[data-editor-expanded="false"] #destination-status-home {
+  position: sticky;
+  top: var(--destination-height, 52px);
+  z-index: 1;
+  background: var(--paper);
+}
+
+@media (max-width: 899px) {
+  body.search-focus-mode .route-editor-frame {
+    translate: none !important;
+    opacity: 1 !important;
+  }
+}

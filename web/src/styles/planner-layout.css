@@ -1,0 +1,318 @@
+/* Route preview: edit above, select in the middle, start below. */
+.panel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  gap: 8px;
+  align-items: center;
+}
+.route-request {
+  flex: 1 1 9rem;
+  min-width: 0;
+  padding: 2px 0;
+  min-height: 44px;
+  background: transparent;
+  color: var(--panel-text);
+  border: 0;
+  text-align: left;
+}
+.route-request-places {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  gap: 8px;
+  align-items: center;
+  line-height: 1.4;
+}
+.route-request-chain {
+  --request-marker-size: max(16px, 1rem);
+  --request-point-gap: 10px;
+  --request-line-clearance: 3px;
+  display: grid;
+  min-width: 0;
+  gap: var(--request-point-gap);
+}
+.route-request-stops {
+  display: contents;
+}
+.route-request-point {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: var(--request-marker-size) minmax(0, 1fr);
+  align-items: start;
+  column-gap: 8px;
+  min-width: 0;
+}
+.route-request-point:not(.route-request-destination)::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: calc(var(--request-marker-size) / 2);
+  top: calc(var(--request-marker-size) + var(--request-line-clearance));
+  bottom: calc(var(--request-line-clearance) - var(--request-point-gap));
+  width: 1px;
+  /* Translate after layout so the painted line stays on the circle's axis. */
+  transform: translateX(-50%);
+  background: var(--panel-muted);
+  pointer-events: none;
+}
+.route-request-point.route-request-origin::after {
+  top: calc(
+    (var(--request-marker-size) + 0.5rem) / 2 + var(--request-line-clearance)
+  );
+}
+.route-request-chain:not(:has(.route-request-stop))
+  .route-request-origin::after,
+.route-request-stops > .route-request-stop:last-child::after {
+  /* Rounded flagpole top: y=3 minus half its 1.8-unit stroke, in a 24-unit icon. */
+  bottom: calc(
+    var(--request-line-clearance) - var(--request-point-gap) - 2px -
+      var(--request-marker-size) * 2.1 / 24
+  );
+}
+.route-request-marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: var(--request-marker-size);
+  height: var(--request-marker-size);
+}
+.route-request-marker .route-origin-marker {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0;
+  background: var(--panel);
+}
+.route-request-destination .route-request-marker {
+  margin-top: 2px;
+}
+.route-request-marker .route-destination-marker {
+  display: flex;
+  /* Balance the flagpole's visual weight without changing the shared icon. */
+  translate: calc(var(--request-marker-size) / 24) 0;
+}
+.route-request-stop-marker {
+  border: 1px solid var(--panel-muted);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--panel-muted);
+  font-size: 0.625rem;
+  font-weight: 650;
+  line-height: 1;
+}
+#route-origin,
+#route-destination,
+.example-origin,
+.example-destination,
+.route-request-stop-name {
+  grid-column: 2;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+#route-origin,
+.example-origin,
+.route-request-stop-name {
+  font-size: 0.75rem;
+  color: var(--panel-muted);
+}
+#route-destination,
+.example-destination {
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+.route-origin-marker {
+  width: 8px;
+  height: 8px;
+  margin: 4px;
+  border: 1.5px solid var(--panel-muted);
+  border-radius: 50%;
+}
+.route-edit-icon {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  display: grid;
+  place-items: center;
+}
+.route-request-places .icon {
+  width: 16px;
+  height: 16px;
+}
+.route-request-marker .icon {
+  width: var(--request-marker-size);
+  height: var(--request-marker-size);
+}
+#route-request-meta {
+  display: block;
+}
+.panel-tool-actions {
+  display: flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  gap: 4px;
+}
+.panel-tools .icon-button {
+  width: 44px;
+  height: 44px;
+  background: transparent;
+}
+.route-choice-time {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+.route-choice-arrival {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.route-choice-schedule {
+  font-size: 0.75rem;
+  color: var(--panel-muted);
+}
+.route-details-button {
+  border-left-color: var(--panel-line);
+}
+#route-start-summary {
+  grid-column: 1;
+  min-width: 0;
+  text-align: left;
+}
+#route-start-arrival {
+  display: block;
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+#route-start-duration {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--panel-muted);
+}
+#navigation-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 96px;
+  /* Reserve the normal label's line even while the busy label uses smaller type. */
+  min-height: max(48px, calc(1.45rem + 26px));
+  padding: 12px 20px;
+  font-size: 1rem;
+}
+#navigation-start .icon {
+  width: 20px;
+  height: 20px;
+}
+.panel-actions > #navigation-start {
+  grid-column: 2;
+  align-self: stretch;
+}
+#navigation-start:disabled,
+#navigation-start-recovery button:disabled {
+  opacity: 1;
+  background: var(--panel-disabled);
+  color: var(--panel-muted);
+}
+#route-actions-dialog {
+  width: min(360px, calc(100vw - 24px));
+  padding: 20px;
+}
+#route-actions-dialog h2 {
+  margin: 0 0 16px;
+  font-size: 1.25rem;
+}
+#route-actions-dialog button {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  text-align: left;
+  padding: 12px 16px;
+}
+#route-actions-dialog #route-actions-close {
+  text-align: center;
+}
+#route-action-context {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+#route-action-context dt,
+#route-action-stand {
+  color: var(--panel-muted);
+  font-size: 0.75rem;
+}
+#route-action-context dd {
+  margin: 2px 0 0;
+  font-size: 0.875rem;
+}
+#route-action-stand:empty {
+  display: none;
+}
+
+.settings-mobile-title {
+  display: none;
+}
+@media (max-width: 899px) {
+  .settings-heading-row #settings-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .settings-mobile-title {
+    display: block;
+    font-size: 1rem;
+    font-weight: 650;
+  }
+}
+
+.settings-screen .setting-row:has(.setting-error:not([hidden])) {
+  flex-wrap: wrap;
+}
+.settings-screen .setting-row .setting-error {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--danger);
+}
+.settings-screen input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.planning-recovery {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+}
+.planning-recovery .text-button {
+  min-height: 44px;
+  padding-inline: 0;
+}
+.planning-recovery .message {
+  margin: 0;
+}
+.history-via {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

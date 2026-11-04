@@ -1,8 +1,10 @@
 import type { PlanningState } from "./planning-state";
 import { planningRequestPreview } from "./planning-progress";
-import { el } from "./ui";
 import { rateLimitMessage } from "./model";
-import { RetryCountdown } from "./retry-countdown";
+import type {
+  JourneyWorkspaceApi,
+  WorkspaceTextId,
+} from "./journey-workspace-presentation";
 
 /** The initial search has one persistent status, independent of transient toasts. */
 export class SearchPreview {
@@ -10,7 +12,7 @@ export class SearchPreview {
   private routing = false;
   private longWait = false;
   private timer?: ReturnType<typeof setTimeout>;
-  private countdown = new RetryCountdown();
+  constructor(private view: JourneyWorkspaceApi) {}
 
   render(state: PlanningState) {
     this.state = state;
@@ -37,15 +39,13 @@ export class SearchPreview {
   }
 
   private update() {
-    this.countdown.clear();
+    this.view.setRetryAt("search-preview-detail", 0);
     const state = this.state!;
     const request = planningRequestPreview(state);
-    const card = el("search-preview");
-    card.hidden = !request;
+    this.view.setHidden("search-preview", !request);
     if (!request) return;
-    const setText = (id: string, text: string) => {
-      const element = el(id);
-      if (element.textContent !== text) element.textContent = text;
+    const setText = (id: WorkspaceTextId, text: string) => {
+      this.view.setText(id, text);
     };
     setText(
       "search-preview-title",
@@ -55,7 +55,7 @@ export class SearchPreview {
           : "Verbindungen werden gesucht …"
         : "Keine Verbindung verfügbar",
     );
-    el("search-preview-spinner").hidden = !state.busy;
+    this.view.setHidden("search-preview-spinner", !state.busy);
     const places = [
       request.origin,
       ...(request.stops ?? []).map((stop) => stop.place),
@@ -73,11 +73,11 @@ export class SearchPreview {
     const detail = state.busy ? (state.locating ? "" : section) : state.message;
     setText("search-preview-detail", detail);
     if (!state.busy && rateLimitMessage(state.failures))
-      this.countdown.render(
-        el("search-preview-detail"),
+      this.view.setRetryAt(
+        "search-preview-detail",
         state.recovery?.retryAt ?? 0,
       );
-    el("search-preview-detail").hidden = !detail;
+    this.view.setHidden("search-preview-detail", !detail);
     const hint = this.routing
       ? request.stops?.length
         ? "Mit Zwischenzielen stimmen wir mehrere Teilstrecken und Zeiten aufeinander ab."
@@ -86,7 +86,7 @@ export class SearchPreview {
     setText("search-preview-hint-reserve", hint);
     const hasRoute = this.routing && !!state.routePreview;
     const showHint = hasRoute || (this.longWait && this.routing);
-    el("search-preview-hint").hidden = !showHint;
+    this.view.setHidden("search-preview-hint", !showHint);
     setText(
       "search-preview-hint",
       hasRoute

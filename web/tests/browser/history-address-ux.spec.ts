@@ -48,11 +48,11 @@ async function seed(page: Page) {
         latitude: 48.175,
         longitude: 11.6,
       },
-      timing: "depart",
+      timing: "depart" as const,
       time: 1788508800,
     };
     const snapshot = {
-      version: 3,
+      version: 3 as const,
       savedAt: 1788508800,
       request,
       settings: defaults,

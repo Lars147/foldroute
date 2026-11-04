@@ -9,7 +9,7 @@ Die PWA verwendet **CSS plus Motion Mini/Spring** als gemeinsame Bewegungssprach
 | Ablauf | Umgesetztes Verhalten |
 | --- | --- |
 | Hauptbereiche | Gemeinsamer gelber Tab-Indikator; kurze Einblendung des eingehenden Bereichs. |
-| Verbindungsliste und Reiseablauf | Gerichteter kurzer Übergang; Zurück kehrt die Richtung um. Auswahl, Fokus und History bleiben unabhängig von der Animation. |
+| Mobile Alternativen und Reiseablauf | Ein gemeinsames Bottom Sheet öffnet und schließt von unten über der Karte. Der feste Header und die Kartenübersicht bleiben ruhig; Auswahl, Fokus, Leseposition und History bleiben unabhängig von der Animation. Bei reduzierter Bewegung entfällt der Übergang. |
 | Karte | Zusammenfassung erscheint ruhig innerhalb des Panels; die Kartenfläche selbst wird nicht verschoben oder ausgeblendet. |
 | Routenauswahl und erste Ergebnisse | Bewusste Auswahl bekommt eine dezente Rückmeldung, erste Ergebnisse eine einmalige Einblendung. Hintergrundupdates starten keine Karten-Cascade. |
 | Einstellungen | Aufgeklappte Inhalte blenden kurz ein; Chevron und Schalter reagieren konsistent. Eine volle gelbe Auswahlfläche gleitet zwischen System, Hell und Dunkel. |

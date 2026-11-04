@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "./test";
 import {
   showConnections,
+  showMap,
   expectMotionSettled,
   expectSelectedJourneySaved,
   openCachedJourney,
@@ -59,6 +60,24 @@ for (const width of [390, 1280]) {
     await setup(page);
     await populateHome(page);
     await page.clock.setFixedTime(new Date("2026-09-04T08:00:01Z"));
+    // Database persistence can finish before the home shortcut has rendered.
+    // Keep that interval observable even when this test runs on its own.
+    await page.evaluate(async () => {
+      const { OfflineStore } = await import("/src/offline.ts");
+      const read = OfflineStore.prototype.read;
+      let delayNextPlanningRead = true;
+      OfflineStore.prototype.read = async function () {
+        const result = await read.call(this);
+        if (
+          delayNextPlanningRead &&
+          result.snapshot?.journey.destination.name === "Ziel"
+        ) {
+          delayNextPlanningRead = false;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        return result;
+      };
+    });
     let plans = 0;
     page.on("request", (request) => {
       if (request.url().includes("/api/v6/plan")) plans++;
@@ -69,10 +88,14 @@ for (const width of [390, 1280]) {
       if (source === "fresh") {
         await plan(page);
         await expectSelectedJourneySaved(page);
+        // Saving in IndexedDB precedes reloadHistory updating the home UI.
+        await expect(page.locator("#saved-description")).toHaveText(
+          "Ziel · 4. Sept., 10:00",
+        );
       } else await openCachedJourney(page, page.locator("#open-saved"));
       const beforeClose = plans;
       const summary = await page.locator("#saved-description").textContent();
-      if (source === "fresh") await showConnections(page);
+      await showMap(page);
       await page.locator("#close-route").click();
       await expect(page.locator("#search-view")).toBeVisible();
       await expect(page.locator("#map-view")).toBeHidden();
@@ -118,6 +141,7 @@ for (const width of [390, 1280]) {
       expect(plans).toBe(beforeClose);
 
       await openCachedJourney(page, page.locator("#open-saved"));
+      await showMap(page);
       await page.goBack();
       await expect(page.locator("#search-view")).toBeVisible();
       await expect(list).toBeVisible();
@@ -138,7 +162,9 @@ for (const width of [390, 1280]) {
       const { ApiClient } = await import("/src/transitous.ts");
       ApiClient.prototype.searchPlaces = function (_query, signal) {
         (window as any).searchSignal = signal;
-        return ((window as any).searchRun = new Promise((resolve) => {
+        return ((window as any).searchRun = new Promise<
+          import("../../src/model").Place[]
+        >((resolve) => {
           (window as any).releaseSearch = () =>
             resolve([
               {
