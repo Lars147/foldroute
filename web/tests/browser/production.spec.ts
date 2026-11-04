@@ -200,7 +200,8 @@ test("license page and original notices remain accessible offline", async ({
       await page.setViewportSize({ width, height: 900 });
       await page.screenshot({
         path: info.outputPath(`licenses-overview-${colorScheme}-${width}.png`),
-        fullPage: true,
+        // Linux WebKit cannot capture the entire long notice page (>32767px).
+        fullPage: false,
       });
     }
   }
