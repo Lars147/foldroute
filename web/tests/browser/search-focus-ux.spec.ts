@@ -345,7 +345,10 @@ test("mobile search uses visual viewport and returns to the unchanged adjustment
   const results = await page.locator("#destination-options").boundingBox();
   expect(field!.y).toBe(95);
   expect(results!.y + results!.height).toBeLessThanOrEqual(415);
-  await page.screenshot({ path: "/tmp/foldroute-search-focus.png" });
+  await page.screenshot({
+    path: test.info().outputPath("search-focus.png"),
+    fullPage: true,
+  });
   await page.locator(".search-focus-back").click();
   await expect(page.locator("#destination")).toHaveValue("Test");
   await expect(page.locator("#search-adjust")).toBeVisible();

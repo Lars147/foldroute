@@ -1,0 +1,122 @@
+/* The example uses the usual result layout without personal app controls. */
+body[data-example] {
+  --tabs: var(--safe-bottom);
+}
+body[data-example] .example-route-request {
+  cursor: default;
+}
+body[data-example] #route-start-summary {
+  display: none;
+}
+.example-plan-own {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 650;
+  text-align: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.journey-panel .planning-recovery .text-button {
+  color: var(--panel-text);
+}
+.settings-screen .setting-row {
+  scroll-margin-top: calc(
+    var(--settings-top-offset) + var(--settings-heading-height, 60px) + 8px
+  );
+  scroll-margin-bottom: calc(var(--tabs) + 8px);
+}
+
+#navigation-start-notice,
+#navigation-start-recovery {
+  min-width: 0;
+}
+#navigation-start-notice {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--panel-text);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+#navigation-start-recovery {
+  grid-column: 1;
+  display: grid;
+  align-self: stretch;
+}
+#navigation-start-recovery button {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 10px;
+  font-size: 1rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+#navigation-start[aria-busy="true"] {
+  white-space: normal;
+}
+.panel-actions > #navigation-start[aria-busy="true"],
+#map-preview-actions > #navigation-start[aria-busy="true"] {
+  padding-inline: 8px;
+  font-size: 0.8125rem;
+}
+
+/* Folding is the brand's yellow hinge; labels retain readable neutral text. */
+.detail-step:is([data-kind="fold"], [data-kind="unfold"]) .leg-symbol {
+  color: var(--color-on-brand);
+  background: var(--color-brand);
+  border: 1px solid var(--color-asphalt);
+  border-radius: 8px;
+  padding: 4px;
+  width: 28px;
+  height: 28px;
+  margin-left: -3px;
+  margin-right: -4px;
+}
+.leaflet-container,
+.leaflet-control-zoom a,
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--panel);
+  color: var(--panel-text);
+}
+.leaflet-control-zoom a {
+  border-color: var(--panel-line);
+}
+.leaflet-control-zoom a:hover {
+  background: var(--panel-subtle);
+}
+.leaflet-bar {
+  border: 1px solid var(--panel-line);
+}
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--panel-text);
+}
+.leaflet-gl-layer {
+  pointer-events: none;
+}
+.text-button,
+.map-credit a,
+.navigation-credit a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* These controls load with Leaflet's lazy stylesheet; scope above its defaults. */
+.map-screen .leaflet-control-zoom a,
+.map-screen .leaflet-popup-content-wrapper,
+.map-screen .leaflet-popup-tip {
+  background: var(--panel);
+  color: var(--panel-text);
+}
+.map-screen .leaflet-control-zoom a:hover {
+  background: var(--panel-subtle);
+}
+.map-screen .leaflet-bar {
+  border-color: var(--panel-line);
+}

@@ -1,3 +1,4 @@
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { execFileSync } from "node:child_process";
@@ -18,6 +19,7 @@ const licenseNoticePath = fileURLToPath(
   new URL("./public/licenses.html", import.meta.url),
 );
 const licensesModule = "virtual:foldroute-licenses";
+const buildVersionModule = "virtual:foldroute-build-version";
 export default defineConfig({
   optimizeDeps: {
     include: [
@@ -31,6 +33,7 @@ export default defineConfig({
     : "node_modules/.vite",
   base: "./",
   plugins: [
+    svelte(),
     {
       name: "foldroute-license-notices",
       resolveId(id) {
@@ -44,11 +47,12 @@ export default defineConfig({
     },
     {
       name: "foldroute-build-version",
-      transformIndexHtml(html) {
-        return html.replace(
-          "<!-- build-version -->",
-          `<a id="app-version" href="https://github.com/Lars147/foldroute/commit/${buildCommit}" target="_blank" rel="noopener noreferrer" aria-label="Commit ${shortCommit} auf GitHub öffnen (neuer Tab)">${shortCommit}</a>`,
-        );
+      resolveId(id) {
+        if (id === buildVersionModule) return `\0${buildVersionModule}`;
+      },
+      load(id) {
+        if (id !== `\0${buildVersionModule}`) return;
+        return `export default ${JSON.stringify({ commit: buildCommit, shortCommit })}`;
       },
     },
     {

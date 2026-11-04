@@ -1,21 +1,25 @@
 import { node } from "./ui";
 
+export interface FieldValidation { invalid: boolean; message: string }
+
 export class SettingsValidation {
+  private views = new WeakMap<HTMLInputElement, (state: FieldValidation) => void>();
   constructor(private form: HTMLElement) {}
 
-  bind(input: HTMLInputElement, label: HTMLElement) {
+  bind(input: HTMLInputElement, label: HTMLElement, render?: (state: FieldValidation) => void) {
+    const events = new AbortController();
+    if (render) this.views.set(input, render);
     const error = node("small", "", "setting-error");
     error.id = `${input.id}-error`;
     error.hidden = true;
     input.setAttribute(
       "aria-describedby",
-      [input.getAttribute("aria-describedby"), error.id]
-        .filter(Boolean)
-        .join(" "),
+      [...new Set([...(input.getAttribute("aria-describedby") ?? "").split(/\s+/), error.id].filter(Boolean))].join(" "),
     );
-    label.append(error);
-    input.addEventListener("blur", () => this.update(input, true));
-    input.addEventListener("input", () => this.update(input, false));
+    if (!render) label.append(error);
+    input.addEventListener("blur", () => this.update(input, true), { signal: events.signal });
+    input.addEventListener("input", () => this.update(input, false), { signal: events.signal });
+    return () => { events.abort(); this.views.delete(input); };
   }
 
   private update(input: HTMLInputElement, reveal: boolean) {
@@ -23,14 +27,23 @@ export class SettingsValidation {
     const error = document.getElementById(`${input.id}-error`)!;
     const invalid =
       !input.validity.valid && input.dataset.validationTouched === "true";
+    const render = this.views.get(input);
+    if (render) {
+      render({ invalid, message: invalid ? this.message(input) : "" });
+      return;
+    }
     input.setAttribute("aria-invalid", String(invalid));
     error.hidden = !invalid;
     if (!invalid) {
       error.textContent = "";
       return;
     }
+    error.textContent = this.message(input);
+  }
+
+  private message(input: HTMLInputElement) {
     const number = (value: string) => Number(value).toLocaleString("de-DE");
-    error.textContent = input.validity.badInput
+    return input.validity.badInput
       ? "Bitte eine Zahl eingeben."
       : input.validity.valueMissing
         ? "Bitte einen Wert eingeben."

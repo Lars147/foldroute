@@ -1,5 +1,11 @@
-import type { Journey, RouteRequest, RoutingSettings } from "./model";
-import { validSnapshot } from "./offline";
+import {
+  validStoredSettings,
+  type Journey,
+  type RouteRequest,
+  type RoutingSettings,
+} from "./model";
+import { validSnapshotPayload } from "./snapshot-codec";
+import { resetNavigationStatistics } from "./navigation-statistics-store";
 import { localDatabase } from "./storage";
 import { readStoragePreferences } from "./storage-preferences";
 import type { NavigationProgress } from "./navigation-engine";
@@ -7,7 +13,6 @@ import { validateGeometry } from "./geometry";
 import {
   emptyNavigationStatistics,
   recordNavigation,
-  resetNavigationStatistics,
   validNavigationStatistics,
   validNavigationTrip,
   type NavigationStatistics,
@@ -43,7 +48,8 @@ export function validNavigationSnapshot(
     (s.sessionId !== undefined &&
       (typeof s.sessionId !== "string" || !s.sessionId.length)) ||
     (s.trip !== undefined && !validNavigationTrip(s.trip)) ||
-    !validSnapshot({ ...s, version: s.request?.stops?.length ? 4 : 3 })
+    !validStoredSettings(s.settings) ||
+    !validSnapshotPayload(s, !!s.request?.stops?.length)
   )
     return false;
   const p = s.progress;

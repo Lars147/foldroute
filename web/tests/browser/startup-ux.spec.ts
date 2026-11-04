@@ -1,5 +1,20 @@
 import { test, expect, type Page } from "./test";
 
+test.describe("startup without JavaScript", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("static document explains why route planning is unavailable", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const fallback = page.locator("noscript p");
+    await expect(fallback).toBeVisible();
+    await expect(fallback).toHaveText(
+      "Für die Routenplanung wird JavaScript benötigt.",
+    );
+  });
+});
+
 const production =
   process.env.FOLDROUTE_PRODUCTION_URL ??
   `http://127.0.0.1:${Number(process.env.FOLDROUTE_TEST_PORT ?? 4173) + 1}/docs/plan/`;
@@ -8,6 +23,13 @@ async function standalone(page: Page) {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "standalone", { value: true });
   });
+}
+
+async function expectUnbootstrappedShell(page: Page) {
+  await expect(page.locator("#app-root")).toBeEmpty();
+  await expect(
+    page.locator("#main, .app-tabs, .app-header, #destination"),
+  ).toHaveCount(0);
 }
 
 async function controlledStartup(
@@ -31,7 +53,7 @@ async function controlledStartup(
   await page.route("**/src/main.ts", (route) =>
     route.fulfill({
       contentType: "text/javascript",
-      body: "export const startupReady = new Promise(resolve => { window.releaseTestStartup = resolve; });",
+      body: "export function startApplication() { return new Promise(resolve => { window.releaseTestStartup = resolve; }); }",
     }),
   );
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -221,7 +243,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       expect(
         await page
           .locator("#app-startup")
-          .evaluate((element) => element.hidden),
+          .evaluate(
+            (element) => element instanceof HTMLElement && element.hidden,
+          ),
       ).toBe(true);
       await expect(page.locator("#app-startup")).not.toHaveAttribute(
         "data-exiting",
@@ -351,7 +375,7 @@ for (const theme of ["light", "dark"] as const) {
         "content",
         theme === "dark" ? "#101314" : "#f5f6f3",
       );
-      await expect(page.locator("#main")).toHaveAttribute("inert", "");
+      await expectUnbootstrappedShell(page);
       const logo = await page.locator(".startup-mark").boundingBox();
       expect(logo).toEqual({ x: 131, y: 358, width: 128, height: 128 });
       // A paused brand animation must never hold the app's readiness guard.
@@ -401,8 +425,8 @@ test("startup waits for local restoration, then releases controls without locati
     route.abort(),
   );
   await page.addInitScript(() => {
-    const original = indexedDB.open;
-    indexedDB.open = function (...args) {
+    const original = IDBFactory.prototype.open;
+    IDBFactory.prototype.open = function (...args) {
       const request = original.apply(this, args);
       const hold = (event: Event) => {
         event.stopImmediatePropagation();
@@ -475,7 +499,8 @@ for (const module of ["bootstrap", "main"]) {
     await page.route(path, (route) => route.abort());
     await page.goto("/");
     await expect(page.locator("#startup-error")).toBeVisible();
-    await expect(page.locator("#main")).toHaveAttribute("inert", "");
+    if (module === "bootstrap") await expectUnbootstrappedShell(page);
+    else await expect(page.locator("#main")).toHaveAttribute("inert", "");
     // macOS WebKit's default Tab traversal skips buttons; still verify focus and keyboard activation.
     const reload = page.getByRole("button", { name: "Neu laden" });
     await reload.focus();
@@ -491,7 +516,6 @@ for (const module of ["bootstrap", "main"]) {
 test("production startup shell stays inline and offline without generated splash images", async ({
   page,
   context,
-  browserName,
 }) => {
   await standalone(page);
   await page.goto(production);
@@ -534,17 +558,6 @@ test("production startup shell stays inline and offline without generated splash
   expect(
     cached.requests.filter((url) => new URL(url).pathname.includes("/splash/")),
   ).toEqual([]);
-  // Playwright 1.63 WebKit rejects even cache-only SW navigation in offline emulation.
-  // Cached inline HTML was verified offline above; Chromium also exercises the restart.
-  // https://github.com/microsoft/playwright/issues/42775
-  if (browserName === "webkit") {
-    test.info().annotations.push({
-      type: "limitation",
-      description:
-        "Offline navigation emulation blocked by Playwright #42775; cached inline HTML verified directly.",
-    });
-    await context.setOffline(false);
-  }
   await page.goto(production);
   await expect(page.locator("#destination")).toBeVisible();
   await expect(page.locator("#app-startup svg [data-fold]")).toHaveCount(2);

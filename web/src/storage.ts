@@ -1,4 +1,4 @@
-import { resetNavigationStatistics } from "./navigation-summary";
+import { resetNavigationStatistics } from "./navigation-statistics-store";
 
 export class LocalDatabase {
   generation = 0;

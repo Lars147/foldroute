@@ -68,9 +68,11 @@ for (const width of [320, 390])
     expect(
       await page.getByRole("tablist").evaluate((strip) => strip.scrollLeft),
     ).toBeCloseTo(stripLeft, 0);
-    await expect(page.locator("#navigation-section-preview")).toHaveText(
-      "Falten2 minBahnhof",
-    );
+    await expect(page.locator("#navigation-section-preview > *")).toHaveText([
+      "Falten",
+      "2 min",
+      "Bahnhof",
+    ]);
     await expect(toggle).toHaveAccessibleDescription("Falten 2 min Bahnhof");
     await expect(page.locator("#navigation-stations-preview")).toBeHidden();
     await expect(complete).toBeHidden();

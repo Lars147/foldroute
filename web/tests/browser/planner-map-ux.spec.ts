@@ -748,7 +748,9 @@ test("request preview stays hidden across breakpoints until location resolves", 
     );
     await expect(page.locator("#map")).toBeHidden();
     expect(
-      await page.locator("#map").evaluate((element) => element.inert),
+      await page
+        .locator("#map")
+        .evaluate((element) => element instanceof HTMLElement && element.inert),
     ).toBe(true);
     await expect(page.locator("#search-preview-title")).toBeVisible();
   }

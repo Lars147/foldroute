@@ -43,7 +43,7 @@ function fix(meters = 100, side = 0, accuracy = 10, seconds = 0) {
 function update(
   tracker: NavigationPositionTracker,
   engine: NavigationEngine,
-  sample = fix(),
+  sample: import("../src/live-location").LocationFix = fix(),
 ) {
   return tracker.update(engine, sample, "current", sample.timestamp);
 }

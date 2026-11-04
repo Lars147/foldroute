@@ -546,7 +546,6 @@ test("choice labels keep arrival times for both search modes and update dates wi
         isDirect: true,
         legs: [
           {
-            id,
             kind: "bike",
             from: origin,
             to: destination,
@@ -583,7 +582,7 @@ test("choice labels keep arrival times for both search modes and update dates wi
     const texts = () =>
       Array.from(
         document.querySelectorAll("#choices .route-choice-time"),
-        (b) => b.textContent!.trim(),
+        (b) => b.textContent!.replace(/\s+/g, " ").trim(),
       );
     view.render(state, 60);
     const departure = texts();

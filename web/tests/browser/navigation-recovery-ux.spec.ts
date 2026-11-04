@@ -400,7 +400,7 @@ test("completes a multimodal journey with live platform, stop confirmation and w
     "Nach Ziel",
   );
   expect(
-    await page.evaluate(() => (window as any).navProbe.spoken as string[]),
+    await page.evaluate(() => window.navProbe.spoken as string[]),
   ).toContain("Mit dem Rad nach Ziel");
   await complete(page);
   await expect(page.locator("#navigation-instruction")).toHaveText(
@@ -533,7 +533,9 @@ for (const width of [390, 1280])
                 if (performance.now() - started < 500)
                   requestAnimationFrame(sample);
               };
-              queueMicrotask(sample);
+              // The native target listener runs before Svelte's delegated click
+              // handler. Measure the first rendered frame after the full event.
+              requestAnimationFrame(sample);
             },
             { once: true },
           );

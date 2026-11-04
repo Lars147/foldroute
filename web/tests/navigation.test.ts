@@ -36,6 +36,10 @@ import {
   assessConnection,
   blocksNavigation,
 } from "../src/connection-assessment";
+const stopTransition = (place: Place, start: number, end: number): Leg => ({
+  ...transition("wait", place, start, end),
+  kind: "stop",
+});
 const now = Date.parse("2026-10-06T10:00:00Z") / 1000;
 const place = (longitude: number, latitude = 48): Place => ({
   name: `Ort ${longitude}`,
@@ -404,7 +408,7 @@ function connection(departure = now + 400) {
 }
 
 it("rejects an alternative that becomes unreachable while the planner is responding", async () => {
-  const plan = vi.fn(async () => {
+  const plan = vi.fn(async (_request: RouteRequest) => {
     vi.setSystemTime((now + 50) * 1000);
     return connection();
   });
@@ -990,7 +994,12 @@ it("retains a cancelled selection after a delayed transit check without silently
   const api = new ApiClient();
   const batch = vi.spyOn(api, "batch").mockImplementation(async (input) => {
     const leg = { ...bike(), start: input.time, end: input.time + 180 };
-    return { journeys: [journey([leg])], issues: [], rejected: 0, stop: false };
+    return {
+      journeys: [journey([leg])],
+      issues: [],
+      rejected: false,
+      stop: false,
+    };
   });
   const session = new NavigationSession({
     changed: vi.fn(),
@@ -1134,7 +1143,7 @@ it.each(["startup", "reroute"])(
         action === "stop"
           ? journey([
               {
-                ...transition("stop", a, now - 10, now),
+                ...stopTransition(a, now - 10, now),
                 stop: { id: "stop", place: a, stayMinutes: 0 },
               },
               {
@@ -1188,7 +1197,7 @@ it("requires confirmation when a saved section expires during transit refresh", 
 it("clears resume confirmation when continuing an expired stop", async () => {
   const route = journey([
     {
-      ...transition("stop", a, now - 10, now - 1),
+      ...stopTransition(a, now - 10, now - 1),
       stop: { id: "stop", place: a, stayMinutes: 0 },
     },
     transition("unfold", a, now, now + 1),
@@ -1415,7 +1424,7 @@ it("offers rerouted multimodal journeys without replacing the active selection",
 
 it("confirms a stop only when its newly planned continuation is accepted", async () => {
   const stop = {
-    ...transition("stop", a, now, now),
+    ...stopTransition(a, now, now),
     stop: { id: "pause", place: a, stayMinutes: 0 },
   };
   const { session } = sessionHarness(vi.fn().mockResolvedValue(journey()));
@@ -1498,7 +1507,7 @@ it("retains the reason for a reroute after asking for location again", async () 
 
 it("starts the waiting prefix of a proposed stop continuation at the current stop", async () => {
   const stop = {
-    ...transition("stop", a, now, now + 60),
+    ...stopTransition(a, now, now + 60),
     stop: { id: "pause", place: a, stayMinutes: 1 },
   };
   const route = journey([
@@ -1836,12 +1845,15 @@ it("undo restores progress, adjusted times and distance without reverting live d
   const legId = session.engine!.leg.navigationId!;
   expect(session.completeLeg(legId)).toBe(true);
   expect(session.engine!.leg.start).toBe(now);
-  session.engine!.journey.legs[2].departurePlatform = "9";
+  Object.assign(session.engine!.journey.legs[2], { departurePlatform: "9" });
   expect(session.undoLastCompletion()).toBe(true);
   expect(session.engine!.progress).toEqual(before.progress);
   expect(session.engine!.journey.legs[1].start).toBe(now + 180);
   expect(session.engine!.journey.legs[1].end).toBe(now + 300);
-  expect(session.engine!.journey.legs[2].departurePlatform).toBe("9");
+  expect(session.engine!.journey.legs[2]).toHaveProperty(
+    "departurePlatform",
+    "9",
+  );
   expect(store.save.mock.calls.at(-1)![0].trip).toEqual(before.trip);
   expect(session.undoLastCompletion()).toBe(false);
   session.completeLeg(legId);
@@ -2337,7 +2349,7 @@ it("preserves accumulated distance when a long street is replaced by a shorter o
 it("still repairs the way to an outstanding stop when a later train is cancelled", async () => {
   const { session, api, plan } = sessionHarness();
   const stop = {
-    ...transition("stop", c, now + 180, now + 240),
+    ...stopTransition(c, now + 180, now + 240),
     stop: { id: "coffee", place: c, stayMinutes: 1 },
   };
   await session.start(journey([bike(), stop, train()]), request, defaults);
@@ -2426,3 +2438,39 @@ it("keeps the elevator as a manual activity after repairing the approach to its 
   expect(session.engine!.phase).toBe("arrived");
   await session.stop();
 });
+
+it.each(["fold", "wait"] as const)(
+  "keeps a session pause after manually entering a timed %s section",
+  async (kind) => {
+    const { session } = sessionHarness();
+    const timed = transition(kind, c, now + 180, now + 360);
+    const last = {
+      ...bike(),
+      from: c,
+      to: a,
+      coordinates: [c, b, a],
+      maneuvers: undefined,
+      start: now + 360,
+      end: now + 540,
+    };
+    await session.start(journey([bike(), timed, last]), request, defaults);
+    session.setCompletionPaused(true);
+    expect(session.completeLeg(session.engine!.leg.navigationId!)).toBe(true);
+    expect(session.engine!.leg.kind).toBe(kind);
+    expect(session.engine!.completionPaused).toBe(true);
+    const remaining = session.engine!.remainingSeconds;
+    await vi.advanceTimersByTimeAsync(200_000);
+    expect(session.engine!.progress.legIndex).toBe(1);
+    expect(session.engine!.remainingSeconds).toBe(remaining);
+    session.updateLocation({ ...fix(c), timestamp: Date.now() }, "current");
+    session.setCompletionPaused(false);
+    expect(session.engine!.completionPaused).toBe(false);
+    await vi.advanceTimersByTimeAsync((remaining - 1) * 1000);
+    expect(session.engine!.progress.legIndex).toBe(1);
+    // Timer-driven completion also requires current GPS after the long activity.
+    session.updateLocation({ ...fix(c), timestamp: Date.now() }, "current");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(session.engine!.progress.legIndex).toBe(2);
+    await session.stop();
+  },
+);

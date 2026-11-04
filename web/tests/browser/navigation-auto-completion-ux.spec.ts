@@ -5,7 +5,7 @@ import { mountNavigationFixture } from "./navigation-layout-fixture";
 async function arriveNearTarget(page: Page) {
   await page.clock.runFor(20000);
   await page.evaluate(() =>
-    (window as any).navProbe.push(48.002 - 9 / 111195, 11.002, 0),
+    window.navProbe.push(48.002 - 9 / 111195, 11.002, 0),
   );
 }
 
@@ -30,7 +30,7 @@ for (const width of [390, 1280]) {
       .evaluate((element) => getComputedStyle(element).transform);
     await page.clock.fastForward(40000);
     await page.evaluate(() =>
-      (window as any).navProbe.push(48.002 - 9 / 111195, 11.002, 0),
+      window.navProbe.push(48.002 - 9 / 111195, 11.002, 0),
     );
     await expect(complete).toHaveAttribute("data-countdown", seconds!);
     await expect(complete.locator(".countdown-bar-fill")).toHaveCSS(
@@ -41,7 +41,7 @@ for (const width of [390, 1280]) {
     await page.mouse.move(0, 0);
     await page.clock.fastForward(40000);
     await page.evaluate(() =>
-      (window as any).navProbe.push(48.002 - 9 / 111195, 11.002, 0),
+      window.navProbe.push(48.002 - 9 / 111195, 11.002, 0),
     );
     await expect(complete).toHaveAttribute("data-countdown", seconds!);
     await expect(notice).toContainText("pausiert");
@@ -183,7 +183,7 @@ for (const width of [390, 1280]) {
     await expect(page.locator("#navigation-instruction")).toBeFocused();
     await page.clock.fastForward(35000);
     await page.evaluate(() =>
-      (window as any).navProbe.push(48.002 - 9 / 111195, 11.002, 0),
+      window.navProbe.push(48.002 - 9 / 111195, 11.002, 0),
     );
     await expect(page.locator("#navigation-auto-complete")).toBeHidden();
     await page.locator("#navigation-complete").click();
@@ -194,7 +194,7 @@ for (const width of [390, 1280]) {
     await expect(page.locator("#navigation-auto-complete")).toBeHidden();
     await page.clock.fastForward(1000);
     await page.evaluate(() =>
-      (window as any).navProbe.push(48.002 - 9 / 111195, 11.002, 0),
+      window.navProbe.push(48.002 - 9 / 111195, 11.002, 0),
     );
     await expect(page.locator("#navigation-auto-complete")).toBeHidden();
     await expect(page.locator("#navigation-complete")).toBeVisible();
@@ -208,17 +208,17 @@ for (const width of [390, 1280]) {
     await arriveNearTarget(page);
     const notice = page.locator("#navigation-auto-complete");
     await page.clock.fastForward(20000);
-    await page.evaluate(() => (window as any).navProbe.fail(2));
+    await page.evaluate(() => window.navProbe.fail(2));
     await expect(notice).toBeHidden();
     await page.clock.fastForward(35000);
     await page.evaluate(() =>
-      (window as any).navProbe.push(48.002 - 9 / 111195, 11.002, 0),
+      window.navProbe.push(48.002 - 9 / 111195, 11.002, 0),
     );
     await expect(notice).toContainText("Nächster Abschnitt in 30 s");
-    await page.evaluate(() => (window as any).navProbe.hide(true));
+    await page.evaluate(() => window.navProbe.hide(true));
     await expect(notice).toBeHidden();
     await page.clock.fastForward(35000);
-    await page.evaluate(() => (window as any).navProbe.hide(false));
+    await page.evaluate(() => window.navProbe.hide(false));
     // Restarting the foreground watch supplies a new, valid GPS measurement.
     await expect(notice).toContainText("Nächster Abschnitt in 30 s");
     await expect(page.locator("#navigation-instruction")).not.toHaveText(

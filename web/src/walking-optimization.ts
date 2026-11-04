@@ -14,7 +14,7 @@ import {
   stationTransferWalks,
 } from "./model";
 import { distance } from "./geometry";
-import type { RequestBudget, RoutingClient } from "./transitous";
+import type { RequestBudget, RoutingClient } from "./routing-contracts";
 import { pool } from "./routing-pool";
 import { workDeadline } from "./routing-retry";
 

@@ -1,3 +1,9 @@
+import {
+  projectPath,
+  projectMovementPath,
+  selectProjection,
+  type Projection,
+} from "./navigation-projection";
 import type { Leg } from "./model";
 import {
   quality,
@@ -5,13 +11,9 @@ import {
   type LocationQuality,
 } from "./live-location";
 import {
-  headingDelta,
   movementCoordinates,
-  projectMovementPath,
   movement,
-  projectPath,
   type NavigationEngine,
-  type Projection,
 } from "./navigation-engine";
 import { NavigationPath, type MarkerPosition } from "./navigation-estimate";
 
@@ -239,27 +241,10 @@ export class NavigationPositionTracker {
       )
         candidates.push(candidate);
     }
-    candidates.sort((a, b) => a.distance - b.distance);
-    const best = candidates[0];
-    if (!best) return;
-    const nearby = candidates.filter(
-      (candidate) =>
-        candidate.distance <= best.distance + Math.max(10, fix.accuracy),
+    return selectProjection(
+      candidates,
+      fix,
+      transit ? 200 : Math.max(30, 2 * fix.accuracy),
     );
-    const separated = (a: Projection, b: Projection) =>
-      Math.abs(a.meters - b.meters) >
-      (transit ? 200 : Math.max(30, 2 * fix.accuracy));
-    if (!nearby.some((candidate) => separated(best, candidate))) return best;
-    if (fix.heading !== undefined && (fix.speed ?? 0) >= 1) {
-      const aligned = nearby.filter(
-        (candidate) =>
-          Math.abs(headingDelta(fix.heading!, candidate.bearing)) <= 60,
-      );
-      if (
-        aligned[0] &&
-        !aligned.some((candidate) => separated(aligned[0], candidate))
-      )
-        return aligned[0];
-    }
   }
 }

@@ -31,7 +31,20 @@ export async function openRecordedRouteEditor(page: Page) {
 // Measure final geometry after an entrance without disabling the animation.
 export async function expectMotionSettled(element: Locator) {
   await expect
-    .poll(() => element.evaluate((node) => node.getAnimations().length))
+    .poll(() =>
+      element.evaluate((node) => {
+        // A parent transform changes this element's geometry too. Do not include
+        // descendants: unrelated status spinners must not block layout assertions.
+        let count = 0;
+        for (
+          let current: Element | null = node;
+          current;
+          current = current.parentElement
+        )
+          count += current.getAnimations().length;
+        return count;
+      }),
+    )
     .toBe(0);
 }
 

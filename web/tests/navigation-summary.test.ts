@@ -70,16 +70,27 @@ it("rejects damaged counters and trip metadata", () => {
 it("credits completed mode distances, including transit, without counting beyond the final leg", () => {
   const a = { name: "A", detail: "", latitude: 48, longitude: 11 };
   const b = { ...a, name: "B", longitude: 11.01 };
-  const legs = ["bike", "transit", "walk"].map((kind, i) => ({
-    kind,
-    from: a,
-    to: b,
-    coordinates: [a, b],
-    distance: [500, 5000, 100][i],
-    start: 0,
-    end: 60,
-  }));
-  const journey = { legs } as Journey;
+  const legs: Journey["legs"] = (["bike", "transit", "walk"] as const).map(
+    (kind, i) => ({
+      kind,
+      from: a,
+      to: b,
+      coordinates: [a, b],
+      distance: [500, 5000, 100][i],
+      start: 0,
+      end: 60,
+    }),
+  );
+  const journey: Journey = {
+    id: "summary",
+    origin: a,
+    destination: b,
+    departure: 0,
+    arrival: 60,
+    transfers: 0,
+    isDirect: true,
+    legs,
+  };
   const progress = {
     legIndex: 2,
     maneuverIndex: 0,

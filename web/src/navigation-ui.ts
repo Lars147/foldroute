@@ -1,3 +1,12 @@
+import { appPresentation } from "./app-presentation";
+import type { AppPresentation } from "./app-presentation";
+import { flushSync } from "svelte";
+import type {
+  NavigationCompletionModel,
+  NavigationFinishSummary,
+  NavigationScreenApi,
+} from "./navigation-presentation";
+import { supportProviders } from "./project-support";
 import { UndoNotice } from "./undo-notice";
 import { CountdownBar } from "./countdown-bar";
 import { CountdownInteraction } from "./countdown-interaction";
@@ -28,10 +37,8 @@ import {
   type TransitEstimate,
   type TransitEstimateSource,
 } from "./navigation-estimate";
-import { detailTime, renderJourneyDetails } from "./journey-detail";
-import { closeMapStylePickers, mountMapStylePicker } from "./map-style-picker";
-import { supportProviders } from "./project-support";
-import { mapAttribution } from "./map-theme";
+import { detailTime } from "./journey-detail";
+import { closeMapStylePickers } from "./map-style-picker";
 import {
   navigationSections,
   sectionLabel,
@@ -54,6 +61,11 @@ interface NavigationNotice {
 
 export class NavigationView {
   readonly root: HTMLElement;
+  private screen: NavigationScreenApi;
+  private summaryProviders: NavigationFinishSummary["providers"] = [];
+  private destroyScreen: () => Promise<void>;
+  private events = new AbortController();
+  private undoPositionObserver?: ResizeObserver;
   private map?: NavigationMap;
   private positionTracker = new NavigationPositionTracker();
   private completion = new NavigationCompletion();
@@ -86,13 +98,12 @@ export class NavigationView {
   private confirmationTrigger?: HTMLElement;
   private undoNotice: UndoNotice;
   private automaticCountdownBar = new CountdownBar(1000);
-  private completionCountdownBar = new CountdownBar(1000);
   private countdownInteraction: CountdownInteraction;
   private shownUndo?: object;
   private lastCompletionAt = -Infinity;
   private guidance = new NavigationGuidance((message) => {
     this.voiceMessage = message;
-    el("navigation-audio-status").textContent = message;
+    this.screen.setText("navigation-audio-status", message);
   });
   constructor(
     private exit: () => void,
@@ -100,111 +111,44 @@ export class NavigationView {
     private options: {
       audioEnabled?: boolean;
       locationAutoRefresh?: () => boolean;
+      presentation?: Pick<
+        AppPresentation,
+        "navigation" | "configureNavigation"
+      >;
     } = {},
   ) {
     if (options.audioEnabled !== undefined)
       this.guidance.enabled = options.audioEnabled;
-    this.root = node("section", "", "navigation-screen");
-    this.root.id = "navigation-view";
-    this.root.hidden = true;
-    this.root.setAttribute("aria-label", "Aktive Navigation");
-    this.root.innerHTML = `
-      <div id="navigation-map" tabindex="0" aria-label="Navigationskarte in Fahrtrichtung"></div>
-      <div class="navigation-top" id="navigation-top"><div id="navigation-phases" role="tablist" aria-label="Reiseabschnitte"></div></div>
-        <span id="navigation-undo-announcement" class="sr-only" role="status" aria-live="polite"></span>
-        <div id="navigation-undo" class="toast" hidden><button id="navigation-undo-button" type="button">Rückgängig</button></div>
-        <span id="navigation-auto-announcement" class="sr-only" role="status" aria-live="polite"></span>
-        <div id="navigation-auto-complete" class="toast" hidden><span id="navigation-auto-label" aria-hidden="true"></span><button id="navigation-auto-cancel" type="button">Abbrechen</button></div>
-      <div id="navigation-gps-status" role="status" aria-live="polite" aria-atomic="true" hidden><strong id="navigation-gps-primary"></strong> <span id="navigation-gps-estimate" hidden></span></div>
-      <div class="navigation-map-controls" role="group" aria-label="Kartensteuerung">
-        <button id="navigation-audio" class="navigation-icon-button secondary" type="button" aria-label="Ton ausschalten" title="Ton ausschalten"></button>
-        <button id="navigation-center" class="navigation-center navigation-icon-button secondary" type="button" aria-label="Navigation zentrieren" title="Navigation zentrieren" aria-pressed="true"></button>
-        <div id="navigation-style-control"></div>
-      </div>
-      <div class="navigation-credit">${mapAttribution}</div>
-      <article class="navigation-panel" id="navigation-panel" aria-label="Navigationshinweise">
-        <div class="navigation-instruction" id="navigation-guidance"><span id="navigation-arrow" aria-hidden="true">↑</span><div><strong id="navigation-distance"></strong><h1 id="navigation-instruction" tabindex="-1">Navigation wird vorbereitet …</h1><p id="navigation-detail"></p></div></div>
-        <div id="navigation-summary">
-          <button id="navigation-details-toggle" type="button" aria-expanded="false" aria-controls="navigation-details" aria-describedby="navigation-context-title navigation-context-detail navigation-context-status navigation-remaining"><span class="navigation-grip" aria-hidden="true"></span><strong id="navigation-remaining"></strong><span id="navigation-summary-label">Reisedetails</span></button>
-          <div id="navigation-end-slot"></div>
-        </div>
-        <div id="navigation-alert" hidden><p id="navigation-alert-summary" role="status" aria-atomic="true"></p><button id="navigation-alert-open" class="secondary" type="button">Details</button></div>
-        <div id="navigation-context-slot"><span id="navigation-context" hidden><strong id="navigation-context-title"></strong><span id="navigation-context-detail"></span><span id="navigation-context-status"></span></span></div>
-        <div id="navigation-section-preview" role="region" hidden><strong id="navigation-section-preview-title"></strong><p id="navigation-section-preview-meta"></p><p id="navigation-section-preview-place"></p></div>
-        <ol id="navigation-stations-preview" class="navigation-stations" aria-label="Kommende Halte" hidden></ol>
-        <span id="navigation-stations-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
-        <div id="navigation-details">
-        <div id="navigation-section-detail" role="tabpanel" tabindex="0">
-          <span id="navigation-stage" class="sr-only"></span>
-          <div id="navigation-section-content"></div>
-          <ol id="navigation-stations-detail" class="navigation-stations" aria-label="Stationen bis zum Ausstieg" hidden></ol>
-          <p id="navigation-station-status"></p>
-          <p id="navigation-transit-status"></p>
-        </div>
-        <p id="navigation-current-transit-status"></p>
-        <p id="navigation-arrival-warning" role="status"></p>
-        <div id="navigation-location" hidden><p id="navigation-location-status" role="status"></p><div class="navigation-actions"><button id="navigation-locate" class="secondary" hidden>Standort erneut anfragen</button></div></div>
-        <p id="navigation-network-status"></p>
-        <p id="navigation-status" role="status"></p><p id="navigation-disruption" role="status"></p>
-        <div id="navigation-alternative" hidden><p id="navigation-alternative-text"></p><button id="navigation-accept" class="primary">Verbindung übernehmen</button><button id="navigation-dismiss" class="secondary">Bisherige behalten</button></div>
-        <p id="navigation-storage-status"></p><p id="navigation-audio-status"></p>
-        <details id="navigation-manual-actions" hidden><summary id="navigation-more-actions">Weitere Aktionen</summary><div class="navigation-actions"><button id="navigation-complete-manually" class="secondary" type="button">Abschnitt manuell abschließen</button></div></details>
-        <div class="navigation-actions" id="navigation-detail-actions"><button id="navigation-complete" class="primary" hidden><span id="navigation-complete-label">Abschnitt fertig</span></button><button id="navigation-retry" class="primary" hidden>Erneut versuchen</button><button id="navigation-replan" class="primary" hidden>Route ab hier planen</button><button id="navigation-end" class="secondary">Navigation beenden</button></div>
-        </div>
-        <span id="navigation-complete-countdown-description" class="sr-only"></span>
-        <div id="navigation-phases-slot"></div>
-        <div id="navigation-quick-actions" class="navigation-actions"></div>
-        <div id="navigation-finish" hidden>
-          <div class="navigation-finish-content" id="navigation-finish-content">
-            <div class="navigation-finish-trip">
-              <header class="navigation-finish-header">
-                <span class="navigation-finish-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="m5 12 4 4L19 6"/></svg></span>
-                <div><h1 id="navigation-finish-heading" tabindex="-1">Ziel erreicht</h1><p id="navigation-finish-route"><span id="navigation-finish-origin"></span><span aria-hidden="true"> → </span><span class="sr-only"> nach </span><span id="navigation-finish-destination"></span></p></div>
-              </header>
-              <dl class="navigation-finish-metrics" aria-label="Diese Fahrt">
-                <div><dt>Unterwegs</dt><dd id="navigation-finish-time"></dd></div>
-                <div><dt>Routenlänge</dt><dd id="navigation-finish-distance"></dd></div>
-              </dl>
-              <p id="navigation-finish-resumed" hidden>Zeit und Strecke seit Wiederaufnahme erfasst.</p>
-            </div>
-            <section id="navigation-finish-totals" aria-labelledby="navigation-finish-totals-heading" hidden>
-              <h2 id="navigation-finish-totals-heading">Deine Wege mit FoldRoute</h2>
-              <dl class="navigation-finish-metrics navigation-finish-overall">
-                <div><dt>Fahrten</dt><dd id="navigation-finish-count"></dd></div>
-                <div><dt>Strecke</dt><dd id="navigation-finish-total-distance"></dd></div>
-                <div><dt>Zeit</dt><dd id="navigation-finish-total-time"></dd></div>
-              </dl>
-            </section>
-            <p id="navigation-finish-storage" role="status"></p>
-            <nav id="navigation-support" aria-label="FoldRoute unterstützen" hidden>
-              <div id="navigation-support-links"></div>
-            </nav>
-          </div>
-          <div class="navigation-finish-actions">
-            <button id="navigation-finish-close" class="primary" type="button">Fahrt abschließen</button>
-          </div>
-        </div>
-      </article>
-      <dialog id="navigation-confirm" aria-labelledby="navigation-confirm-title" aria-describedby="navigation-confirm-message"><h2 id="navigation-confirm-title"></h2><p id="navigation-confirm-message"></p><div class="navigation-actions"><button id="navigation-confirm-yes" class="primary" type="button">Bestätigen</button><button id="navigation-confirm-no" class="secondary" type="button">Abbrechen</button></div></dialog>`;
-    el("main").append(this.root);
-    el("navigation-auto-complete").append(this.automaticCountdownBar.element);
-    el("navigation-complete").append(this.completionCountdownBar.element);
+    const presentation = options.presentation ?? appPresentation();
+    this.screen = presentation.navigation;
+    presentation.configureNavigation({
+      selectSection: (id) => this.selectSection(id),
+      phaseKeydown: (event) => this.phaseKeydown(event),
+      endNavigation: () => this.confirmEnd(),
+    });
+    this.destroyScreen = async () => {};
+    flushSync();
+    this.root = this.screen.element();
+    el("navigation-auto-countdown-host").append(
+      this.automaticCountdownBar.element,
+    );
     this.countdownInteraction = new CountdownInteraction(
       [el("navigation-auto-complete"), el("navigation-complete")],
       (paused) => {
-        this.session?.engine?.setCompletionPaused(paused);
+        this.session?.setCompletionPaused(paused);
         this.render();
       },
     );
-    el("navigation-undo-button").prepend(icon("undo"));
     this.undoNotice = new UndoNotice(
       el("navigation-undo"),
       el<HTMLButtonElement>("navigation-undo-button"),
     );
     el("navigation-auto-cancel").onclick = () => {
-      this.session?.engine?.cancelCompletionCountdown();
-      el("navigation-auto-announcement").textContent =
-        "Automatischer Wechsel abgebrochen. Abschnitt manuell abschließen.";
+      this.session?.cancelCompletionCountdown();
+      this.screen.setText(
+        "navigation-auto-announcement",
+        "Automatischer Wechsel abgebrochen. Abschnitt manuell abschließen.",
+      );
       this.render();
     };
     const positionUndo = () => {
@@ -215,7 +159,8 @@ export class NavigationView {
       el("navigation-auto-complete").style.bottom =
         `${this.root.clientHeight - panel.offsetTop + 12 + (el("navigation-undo").hidden ? 0 : el("navigation-undo").offsetHeight + 8)}px`;
     };
-    const undoPositionObserver = new ResizeObserver(positionUndo);
+    const undoPositionObserver = (this.undoPositionObserver =
+      new ResizeObserver(positionUndo));
     undoPositionObserver.observe(el("navigation-panel"));
     undoPositionObserver.observe(this.root);
     undoPositionObserver.observe(el("navigation-undo"));
@@ -224,25 +169,28 @@ export class NavigationView {
       new NavigationStations(el("navigation-stations-preview"), true),
       new NavigationStations(el("navigation-stations-detail")),
     ];
-    document.addEventListener("visibilitychange", () => {
-      this.stopStationAnimation();
-      if (document.hidden) this.positionTracker.interrupt();
-      if (!document.hidden && this.visible) {
-        this.stationMotion.reset();
-        this.stationPresentationKey = "";
-        this.render();
-      }
-    });
-    this.reducedMotion.addEventListener("change", () => {
-      this.stopStationAnimation();
-      if (this.visible) this.render();
-    });
-    mountMapStylePicker(el("navigation-style-control"), "navigation");
-    el("navigation-center").append(icon("crosshair"));
+    document.addEventListener(
+      "visibilitychange",
+      () => {
+        this.stopStationAnimation();
+        if (document.hidden) this.positionTracker.interrupt();
+        if (!document.hidden && this.visible) {
+          this.stationMotion.reset();
+          this.stationPresentationKey = "";
+          this.render();
+        }
+      },
+      { signal: this.events.signal },
+    );
+    this.reducedMotion.addEventListener(
+      "change",
+      () => {
+        this.stopStationAnimation();
+        if (this.visible) this.render();
+      },
+      { signal: this.events.signal },
+    );
     const toggle = el("navigation-details-toggle");
-    const expand = icon("chevron");
-    expand.classList.add("navigation-expand");
-    toggle.append(expand);
     toggle.onclick = () => this.setDetails(!this.detailsOpen);
     toggle.onpointerdown = (event) => {
       this.dragY = event.clientY;
@@ -279,33 +227,30 @@ export class NavigationView {
         this.setDetails(false);
       }
     };
-    el("navigation-phases").onkeydown = (event) => {
-      if (event.key === "Escape" && this.mobile.matches) {
-        event.preventDefault();
-        this.setDetails(false);
-        return;
-      }
-      const tab = (event.target as Element).closest('[role="tab"]');
-      const index = Array.from(el("navigation-phases").children).indexOf(tab!);
-      const next =
-        event.key === "ArrowRight"
-          ? (index + 1) % this.sections.length
-          : event.key === "ArrowLeft"
-            ? (index + this.sections.length - 1) % this.sections.length
-            : event.key === "Home"
-              ? 0
-              : event.key === "End"
-                ? this.sections.length - 1
-                : undefined;
-      if (next === undefined || !this.sections[next]) return;
-      event.preventDefault();
-      this.selectSection(this.sections[next].id, true);
-    };
+
     el("navigation-alert-open").onclick = () => this.openNotice();
-    this.mobile.addEventListener("change", () => {
-      stopMotion(el("navigation-panel"));
-      this.render();
-    });
+    this.mobile.addEventListener(
+      "change",
+      () => {
+        const focused = this.root.contains(document.activeElement)
+          ? (document.activeElement as HTMLElement).id
+          : undefined;
+        const scrollLeft = el("navigation-phases").scrollLeft;
+        stopMotion(el("navigation-panel"));
+        this.render();
+        el("navigation-phases").scrollLeft = scrollLeft;
+        if (focused) {
+          const target = document.getElementById(focused);
+          if (
+            target &&
+            target.getClientRects().length &&
+            !target.closest("[hidden], [inert]")
+          )
+            target.focus({ preventScroll: true });
+        }
+      },
+      { signal: this.events.signal },
+    );
     el("navigation-audio").onclick = () => {
       this.guidance.toggle();
       this.voiceMessage = "";
@@ -321,10 +266,8 @@ export class NavigationView {
       this.render();
     };
     el("navigation-center").onclick = () => this.map?.center();
-    el("navigation-end").onclick = () => this.confirmEnd();
     el("navigation-finish-close").onclick = () => this.exit();
-    el("navigation-replan").onclick = () => this.restart(true);
-    el("navigation-retry").onclick = () => {
+    const retry = () => {
       if (!this.session?.engine) this.restart(false);
       else if (this.session.disruption)
         void this.session.proposeAlternative(
@@ -359,15 +302,11 @@ export class NavigationView {
       if (this.session!.completeLeg(engine.leg.navigationId!))
         this.lastCompletionAt = performance.now();
     };
-    for (const id of ["navigation-complete", "navigation-complete-manually"])
-      el(id).onkeydown = (event) => {
-        if (event.repeat && (event.key === "Enter" || event.key === " "))
-          event.preventDefault();
-      };
-    el("navigation-complete").onclick = (event) =>
-      completeSection(event, false);
-    el("navigation-complete-manually").onclick = (event) =>
-      completeSection(event, true);
+    this.screen.setCompletionCommands({
+      complete: completeSection,
+      retry,
+      replan: () => this.restart(true),
+    });
     el("navigation-accept").onclick = async () => {
       const previous = this.session?.engine;
       await this.session?.acceptAlternative();
@@ -378,6 +317,28 @@ export class NavigationView {
       }
     };
     el("navigation-dismiss").onclick = () => this.session?.dismissAlternative();
+  }
+  private phaseKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape" && this.mobile.matches) {
+      event.preventDefault();
+      this.setDetails(false);
+      return;
+    }
+    const tab = (event.target as Element).closest('[role="tab"]');
+    const index = Array.from(el("navigation-phases").children).indexOf(tab!);
+    const next =
+      event.key === "ArrowRight"
+        ? (index + 1) % this.sections.length
+        : event.key === "ArrowLeft"
+          ? (index + this.sections.length - 1) % this.sections.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? this.sections.length - 1
+              : undefined;
+    if (next === undefined || !this.sections[next]) return;
+    event.preventDefault();
+    this.selectSection(this.sections[next].id, true);
   }
   private setDetails(open: boolean) {
     if (open === this.detailsOpen) return;
@@ -515,65 +476,46 @@ export class NavigationView {
     const key = JSON.stringify(this.sections.map((s) => s.id));
     const scrollLeft = phases.scrollLeft;
     const tabsChanged = key !== this.tabsKey;
-    if (tabsChanged) {
-      this.tabsKey = key;
-      const focused = phases.contains(document.activeElement);
-      phases.replaceChildren(
-        ...this.sections.map((section, index) => {
-          const tab = node("button", "", "navigation-phase");
-          tab.type = "button";
-          tab.id = `navigation-tab-${index}`;
-          tab.setAttribute("role", "tab");
-          tab.setAttribute("aria-controls", "navigation-section-detail");
-          const symbol = node("span", "", "navigation-phase-symbol");
-          symbol.setAttribute("aria-hidden", "true");
-          tab.append(symbol, node("span", "", "navigation-phase-label"));
-          tab.onclick = () => this.selectSection(section.id);
-          return tab;
-        }),
-      );
-      // A replan may remove the focused section. Keep focus in the tab strip.
-      if (focused)
-        (
-          phases.children[this.sections.findIndex((s) => s === selected)] as
-            HTMLElement | undefined
-        )?.focus({ preventScroll: true });
-    }
-    this.sections.forEach((section, index) => {
-      const tab = phases.children[index] as HTMLButtonElement;
-      const isCurrent = section === current,
-        isSelected = section === selected;
-      tab.classList.toggle("current", isCurrent);
-      tab.setAttribute("aria-selected", String(isSelected));
-      tab.tabIndex = isSelected ? 0 : -1;
-      if (isCurrent) tab.setAttribute("aria-current", "step");
-      else tab.removeAttribute("aria-current");
-      const symbol = tab.querySelector<HTMLElement>(
-        ".navigation-phase-symbol",
-      )!;
-      const symbolName =
-        section.main.kind === "transit" &&
-        ["BUS", "COACH"].includes(section.main.mode ?? "")
-          ? "bus"
-          : section.main.kind;
-      if (symbol.dataset.icon !== symbolName) {
-        symbol.dataset.icon = symbolName;
-        symbol.replaceChildren(icon(symbolName));
-      }
-      tab.querySelector(".navigation-phase-label")!.textContent =
-        sectionLabel(section);
-      tab.setAttribute(
-        "aria-label",
-        `${sectionLabel(section)} nach ${section.main.to.name} · Abschnitt ${index + 1} von ${this.sections.length}`,
-      );
-    });
+    const focused = phases.contains(document.activeElement);
+    this.tabsKey = key;
+    flushSync(() =>
+      this.screen.updateTabs(
+        this.sections.map((section, index) => ({
+          id: section.id,
+          label: sectionLabel(section),
+          accessibleLabel: `${sectionLabel(section)} nach ${section.main.to.name} · Abschnitt ${index + 1} von ${this.sections.length}`,
+          symbol:
+            section.main.kind === "transit" &&
+            ["BUS", "COACH"].includes(section.main.mode ?? "")
+              ? "bus"
+              : section.main.kind,
+          selected: section === selected,
+          current: section === current,
+        })),
+      ),
+    );
+    if (tabsChanged && focused)
+      this.selectedTab()?.focus({ preventScroll: true });
     if (tabsChanged) phases.scrollLeft = scrollLeft;
-    el("navigation-stage").textContent = selected
-      ? `${sectionLabel(selected)} · Abschnitt ${this.sections.indexOf(selected) + 1} von ${this.sections.length}`
-      : "";
+    this.screen.setText(
+      "navigation-stage",
+      selected
+        ? `${sectionLabel(selected)} · Abschnitt ${this.sections.indexOf(selected) + 1} von ${this.sections.length}`
+        : "",
+    );
     const panel = el("navigation-section-detail");
-    if (selected) panel.setAttribute("aria-labelledby", this.selectedTab()!.id);
-    else panel.removeAttribute("aria-labelledby");
+    if (selected)
+      this.screen.setAttribute(
+        "navigation-section-detail",
+        "aria-labelledby",
+        this.selectedTab()!.id,
+      );
+    else
+      this.screen.setAttribute(
+        "navigation-section-detail",
+        "aria-labelledby",
+        undefined,
+      );
     const compactMovement =
       engine?.phase === "active" &&
       selected === current &&
@@ -596,53 +538,29 @@ export class NavigationView {
       const selectionChanged =
         el("navigation-section-content").dataset.section !== selected?.id;
       this.sectionDetailKey = detailKey;
-      const content = el("navigation-section-content");
-      content.replaceChildren();
-      content.dataset.section = selected?.id ?? "";
-      if (engine && selected) {
-        const list = renderJourneyDetails(
-          { ...engine.journey, legs: selected.legs },
-          false,
-        );
-        if (["fold", "unfold"].includes(selected.main.kind))
-          list
-            .querySelector(`[data-kind="${selected.main.kind}"]`)!
-            .classList.remove("detail-preparation");
-        if (movement(selected.main)) {
-          const meters = selected.main.distance;
-          const distance =
-            meters >= 1000
-              ? `${(meters / 1000).toFixed(1)} km`
-              : `${Math.round(meters)} m`;
-          const step = list.querySelector<HTMLElement>(
-            `[data-kind="${selected.main.kind}"]`,
-          )!;
-          if (compactMovement) {
-            step.classList.add("navigation-current-movement");
-            step.replaceChildren(
-              node(
-                "small",
-                `Geplant: ${duration(selected.main.end - selected.main.start)} · ${distance}`,
-                "navigation-section-summary",
-              ),
-            );
-          } else step.querySelector(".detail-meta")!.append(` · ${distance}`);
-        }
-        // Routine data-source labels are omitted; transit warnings remain separate.
-        for (const source of list.querySelectorAll(".detail-source"))
-          source.remove();
-        if (!currentTransit) content.append(list);
-      }
+      this.screen.setAttribute(
+        "navigation-section-content",
+        "data-section",
+        selected?.id ?? "",
+      );
+      this.screen.updateSectionDetail(
+        engine && selected && !currentTransit
+          ? structuredClone({
+              journey: { ...engine.journey, legs: selected.legs },
+              options: {
+                presentation: "navigation",
+                main: selected.main,
+                compactMovement,
+              },
+            })
+          : undefined,
+      );
       el("navigation-details").scrollTop = selectionChanged ? 0 : scrollTop;
     }
     // Progress changes independently of the section structure. Keep its DOM stable.
     if (compactMovement && selected) {
-      const summary = el("navigation-section-content").querySelector(
-        ".navigation-section-summary",
-      );
       const text = this.remainingMovementText(selected.main);
-      if (summary && text !== undefined && summary.textContent !== text)
-        summary.textContent = text;
+      if (text !== undefined) this.screen.updateMovementSummary(text);
     }
     return { current, selected, revealCurrent: currentChanged || tabsChanged };
   }
@@ -666,13 +584,15 @@ export class NavigationView {
   private renderSectionPreview(selected?: NavigationSection) {
     const preview = el("navigation-section-preview");
     const engine = this.session?.engine;
-    preview.hidden =
+    this.screen.setHidden(
+      "navigation-section-preview",
       !this.mobile.matches ||
-      this.detailsOpen ||
-      !selected ||
-      engine?.phase !== "active" ||
-      (selected.id === this.currentSectionId &&
-        selected.main.kind === "transit");
+        this.detailsOpen ||
+        !selected ||
+        engine?.phase !== "active" ||
+        (selected.id === this.currentSectionId &&
+          selected.main.kind === "transit"),
+    );
     const description = !preview.hidden
       ? "navigation-section-preview-title navigation-section-preview-meta navigation-section-preview-place"
       : !el("navigation-context").hidden
@@ -680,12 +600,28 @@ export class NavigationView {
         : "navigation-stage navigation-remaining";
     const toggle = el("navigation-details-toggle");
     if (toggle.getAttribute("aria-describedby") !== description)
-      toggle.setAttribute("aria-describedby", description);
+      this.screen.setAttribute(
+        "navigation-details-toggle",
+        "aria-describedby",
+        description,
+      );
     if (preview.hidden || !selected || !engine) return;
     const leg = selected.main;
-    preview.dataset.section = selected.id;
-    preview.dataset.kind = leg.kind;
-    preview.setAttribute("aria-labelledby", this.selectedTab()!.id);
+    this.screen.setAttribute(
+      "navigation-section-preview",
+      "data-section",
+      selected.id,
+    );
+    this.screen.setAttribute(
+      "navigation-section-preview",
+      "data-kind",
+      leg.kind,
+    );
+    this.screen.setAttribute(
+      "navigation-section-preview",
+      "aria-labelledby",
+      this.selectedTab()!.id,
+    );
     const distance =
       leg.distance >= 1000
         ? `${(leg.distance / 1000).toFixed(1)} km`
@@ -710,7 +646,7 @@ export class NavigationView {
     ].entries()) {
       const text = el(id);
       if (text.textContent !== messages[index])
-        text.textContent = messages[index];
+        this.screen.setText(id, messages[index]);
     }
   }
   private renderTransitContext(
@@ -727,8 +663,16 @@ export class NavigationView {
       !!viewed && this.selectedSectionId === this.currentSectionId;
     const leg = active ? transit : undefined;
     const context = el("navigation-context");
-    this.root.dataset.transitContext = String(!!leg);
-    this.root.dataset.onboard = String(onboard);
+    this.screen.setAttribute(
+      "navigation-view",
+      "data-transit-context",
+      String(!!leg),
+    );
+    this.screen.setAttribute(
+      "navigation-view",
+      "data-onboard",
+      String(onboard),
+    );
     let title = "",
       detail = "",
       status = "";
@@ -818,13 +762,15 @@ export class NavigationView {
       !!leg &&
       (!hasStations || (!!compactStatus && !expanded)) &&
       (!this.mobile.matches || currentSelected);
-    context.hidden = !showContext;
-    el("navigation-context-slot").hidden = !showContext;
-    el("navigation-context-title").hidden = hasStations;
-    el("navigation-context-detail").hidden = hasStations;
+    this.screen.setHidden("navigation-context", !showContext);
+    this.screen.setHidden("navigation-context-slot", !showContext);
+    this.screen.setHidden("navigation-context-title", hasStations);
+    this.screen.setHidden("navigation-context-detail", hasStations);
     const stationStatus = el("navigation-station-status");
-    stationStatus.textContent =
-      onboard && viewed?.navigationId === engine.leg.navigationId ? status : "";
+    this.screen.setText(
+      "navigation-station-status",
+      onboard && viewed?.navigationId === engine.leg.navigationId ? status : "",
+    );
     for (const [id, text] of [
       [
         "navigation-context-title",
@@ -844,7 +790,7 @@ export class NavigationView {
       ],
     ]) {
       const element = el(id);
-      if (element.textContent !== text) element.textContent = text;
+      if (element.textContent !== text) this.screen.setText(id, text);
     }
     this.stationLists[0].update(
       onboard && currentSelected ? engine.leg : undefined,
@@ -883,7 +829,7 @@ export class NavigationView {
             .join(". ")
         : "";
     if (announcement.textContent !== message)
-      announcement.textContent = message;
+      this.screen.setText("navigation-stations-announcement", message);
   }
   private stopStationAnimation() {
     if (this.stationFrame !== undefined)
@@ -942,65 +888,25 @@ export class NavigationView {
   }
   private layout() {
     const mobile = this.mobile.matches;
-    const move = (id: string, parent: string, first = false) => {
-      const element = el(id),
-        container = el(parent);
-      if (element.parentElement === container) return;
-      const focused = element.contains(document.activeElement)
-        ? (document.activeElement as HTMLElement)
-        : undefined;
-      if (first) container.prepend(element);
-      else container.append(element);
-      focused?.focus({ preventScroll: true });
-    };
-    move(
-      "navigation-context",
-      mobile ? "navigation-details-toggle" : "navigation-context-slot",
-      mobile,
-    );
-    move(
-      "navigation-guidance",
-      mobile ? "navigation-top" : "navigation-panel",
-      true,
-    );
-    move(
-      "navigation-phases",
-      mobile ? "navigation-phases-slot" : "navigation-top",
-    );
-    move(
-      "navigation-end",
-      mobile ? "navigation-end-slot" : "navigation-detail-actions",
-    );
-    move(
-      "navigation-complete",
-      mobile ? "navigation-quick-actions" : "navigation-detail-actions",
-      true,
-    );
-    for (const id of ["navigation-retry", "navigation-replan"])
-      move(
-        id,
-        mobile ? "navigation-quick-actions" : "navigation-detail-actions",
-      );
     const details = el("navigation-details");
     if (mobile && !this.detailsOpen && details.contains(document.activeElement))
       el("navigation-details-toggle").focus({ preventScroll: true });
-    details.hidden = mobile && !this.detailsOpen;
-    this.root.dataset.details = String(this.detailsOpen);
-    el("navigation-details-toggle").setAttribute(
+    this.screen.setHidden("navigation-details", mobile && !this.detailsOpen);
+    this.screen.setAttribute(
+      "navigation-view",
+      "data-details",
+      String(this.detailsOpen),
+    );
+    this.screen.setAttribute(
+      "navigation-details-toggle",
       "aria-expanded",
       String(this.detailsOpen),
     );
-    el("navigation-details-toggle").setAttribute(
+    this.screen.setAttribute(
+      "navigation-details-toggle",
       "aria-label",
       this.detailsOpen ? "Reisedetails schließen" : "Reisedetails öffnen",
     );
-    const end = el("navigation-end");
-    const arrived = this.session?.engine?.phase === "arrived";
-    const label = arrived ? "Fahrt abschließen" : "Navigation beenden";
-    end.setAttribute("aria-label", label);
-    end.title = label;
-    if (mobile && !arrived) end.replaceChildren(icon("close"));
-    else end.textContent = label;
   }
   get visible() {
     return !this.root.hidden;
@@ -1013,11 +919,12 @@ export class NavigationView {
       this.currentSectionId = undefined;
     }
     this.session = session;
+    session.setCompletionPaused(this.countdownInteraction.paused);
     this.completion.reset();
-    el("navigation-auto-complete").hidden = true;
-    el("navigation-auto-announcement").textContent = "";
+    this.screen.setHidden("navigation-auto-complete", true);
+    this.screen.setText("navigation-auto-announcement", "");
     el<HTMLDetailsElement>("navigation-manual-actions").open = false;
-    this.root.hidden = false;
+    this.screen.setHidden("navigation-view", false);
     this.phaseKey = "";
     this.guidance.reset();
     this.guidance.speak("start", "Navigation wird vorbereitet");
@@ -1027,8 +934,13 @@ export class NavigationView {
       this.loading = import("./navigation-map")
         .then(({ NavigationMap }) => {
           if (!this.visible) return;
-          delete el("navigation-map").dataset.loadError;
-          el("navigation-map").setAttribute(
+          this.screen.setAttribute(
+            "navigation-map",
+            "data-load-error",
+            undefined,
+          );
+          this.screen.setAttribute(
+            "navigation-map",
             "aria-label",
             "Navigationskarte in Fahrtrichtung",
           );
@@ -1041,15 +953,24 @@ export class NavigationView {
               const label = following
                 ? "Navigation zentrieren"
                 : "Standort folgen";
-              button.setAttribute("aria-label", label);
-              button.setAttribute("title", label);
-              button.setAttribute("aria-pressed", String(following));
+              this.screen.setAttribute(
+                "navigation-center",
+                "aria-label",
+                label,
+              );
+              this.screen.setAttribute("navigation-center", "title", label);
+              this.screen.setAttribute(
+                "navigation-center",
+                "aria-pressed",
+                String(following),
+              );
             },
           );
         })
         .catch(() => {
-          el("navigation-map").dataset.loadError = "true";
-          el("navigation-map").setAttribute(
+          this.screen.setAttribute("navigation-map", "data-load-error", "true");
+          this.screen.setAttribute(
+            "navigation-map",
             "aria-label",
             "Karte nicht verfügbar",
           );
@@ -1065,6 +986,8 @@ export class NavigationView {
     }
   }
   hide() {
+    this.screen.updateSectionDetail(undefined);
+    this.sectionDetailKey = "";
     this.undoNotice.clear();
     this.shownUndo = undefined;
     this.positionTracker.reset();
@@ -1076,7 +999,7 @@ export class NavigationView {
     this.stationPresentationKey = "";
     stopMotionWithin(this.root);
     closeMapStylePickers();
-    this.root.hidden = true;
+    this.screen.setHidden("navigation-view", true);
     this.guidance.reset();
     this.phaseKey = "";
     this.confirmationTrigger = undefined;
@@ -1085,6 +1008,13 @@ export class NavigationView {
     this.map = undefined;
     this.finishedMap = undefined;
     for (const list of this.stationLists) list.update(undefined, -1);
+  }
+  async dispose() {
+    this.hide();
+    this.events.abort();
+    this.undoPositionObserver?.disconnect();
+    for (const list of this.stationLists) list.dispose();
+    await this.destroyScreen();
   }
   pause() {
     this.guidance.cancel();
@@ -1138,16 +1068,23 @@ export class NavigationView {
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : undefined;
-    dialog.dataset.kind = options.endNavigation ? "end" : "section";
-    el("navigation-confirm-title").textContent = title;
-    el("navigation-confirm-message").textContent = message;
+    this.screen.setAttribute(
+      "navigation-confirm",
+      "data-kind",
+      options.endNavigation ? "end" : "section",
+    );
+    this.screen.setText("navigation-confirm-title", title);
+    this.screen.setText("navigation-confirm-message", message);
     const yes = el<HTMLButtonElement>("navigation-confirm-yes");
     const no = el<HTMLButtonElement>("navigation-confirm-no");
-    yes.textContent = options.confirmLabel ?? "Bestätigen";
-    no.textContent = options.cancelLabel ?? "Abbrechen";
-    if (options.endNavigation) yes.before(no);
-    else no.before(yes);
-    no.autofocus = !!options.endNavigation;
+    this.screen.setText(
+      "navigation-confirm-yes",
+      options.confirmLabel ?? "Bestätigen",
+    );
+    this.screen.setText(
+      "navigation-confirm-no",
+      options.cancelLabel ?? "Abbrechen",
+    );
     yes.onclick = () => {
       this.confirmationTrigger = undefined;
       dialog.close();
@@ -1159,17 +1096,38 @@ export class NavigationView {
       this.dismissConfirmation();
     };
     dialog.showModal();
+    if (options.endNavigation) no.focus({ preventScroll: true });
   }
   render() {
     const session = this.session;
     if (!session || !this.visible) return;
-    session.engine?.setCompletionPaused(this.countdownInteraction.paused);
+    const previousFocus = this.root.contains(document.activeElement)
+      ? (document.activeElement as HTMLElement)
+      : undefined;
+    const previousStripScroll = el("navigation-phases").scrollLeft;
+    flushSync(() =>
+      this.screen.updateLayout(
+        this.mobile.matches,
+        session.engine?.phase === "arrived",
+      ),
+    );
+    if (previousFocus && !previousFocus.isConnected && previousFocus.id) {
+      const target = document.getElementById(previousFocus.id);
+      if (
+        target &&
+        target.getClientRects().length &&
+        !target.closest("[hidden], [inert]")
+      )
+        target.focus({ preventScroll: true });
+      el("navigation-phases").scrollLeft = previousStripScroll;
+    }
     const undo = session.completionUndo;
     if (undo !== this.shownUndo) {
       this.shownUndo = undo;
-      el("navigation-undo-announcement").textContent = undo
-        ? "Abschnitt abgeschlossen. Rückgängig verfügbar."
-        : "";
+      this.screen.setText(
+        "navigation-undo-announcement",
+        undo ? "Abschnitt abgeschlossen. Rückgängig verfügbar." : "",
+      );
       if (undo)
         this.undoNotice.show(
           async () => {
@@ -1178,8 +1136,10 @@ export class NavigationView {
             this.guidance.reset();
             this.phaseKey = "";
             if (session.undoLastCompletion()) {
-              el("navigation-undo-announcement").textContent =
-                "Abschnitt wiederhergestellt.";
+              this.screen.setText(
+                "navigation-undo-announcement",
+                "Abschnitt wiederhergestellt.",
+              );
               const complete = el("navigation-complete");
               (complete.getClientRects().length
                 ? complete
@@ -1201,28 +1161,37 @@ export class NavigationView {
     if (showCountdown) {
       const last =
         engine!.progress.legIndex === engine!.journey.legs.length - 1;
-      el("navigation-auto-label").textContent =
-        `${last ? "Ziel erreicht" : "Nächster Abschnitt"} in ${Math.ceil(countdown.remainingSeconds)} s${engine!.completionPaused ? " · pausiert" : ""}`;
+      this.screen.setText(
+        "navigation-auto-label",
+        `${last ? "Ziel erreicht" : "Nächster Abschnitt"} in ${Math.ceil(countdown.remainingSeconds)} s${engine!.completionPaused ? " · pausiert" : ""}`,
+      );
       this.automaticCountdownBar.set(
         countdown.remainingSeconds * 1000,
         30000,
         engine!.completionPaused,
       );
       if (autoNotice.hidden) {
-        el("navigation-auto-announcement").textContent = last
-          ? "Ziel erreicht in 30 Sekunden. Automatischen Abschluss abbrechen möglich."
-          : "Nächster Abschnitt startet in 30 Sekunden. Automatischen Wechsel abbrechen möglich.";
-        autoNotice.hidden = false;
+        this.screen.setText(
+          "navigation-auto-announcement",
+          last
+            ? "Ziel erreicht in 30 Sekunden. Automatischen Abschluss abbrechen möglich."
+            : "Nächster Abschnitt startet in 30 Sekunden. Automatischen Wechsel abbrechen möglich.",
+        );
+        this.screen.setHidden("navigation-auto-complete", false);
         reveal(autoNotice, { y: 8 });
       }
     } else {
       this.automaticCountdownBar.hide();
       if (autoNotice.contains(document.activeElement))
         el("navigation-instruction").focus({ preventScroll: true });
-      autoNotice.hidden = true;
+      this.screen.setHidden("navigation-auto-complete", true);
     }
     const enteringSummary = this.root.dataset.arrived !== "true";
-    this.root.dataset.arrived = String(!!arrived);
+    this.screen.setAttribute(
+      "navigation-view",
+      "data-arrived",
+      String(!!arrived),
+    );
     if (arrived) {
       this.stopStationAnimation();
       this.stationSample = undefined;
@@ -1230,61 +1199,66 @@ export class NavigationView {
       this.stationMotion.reset();
       this.stationPresentationKey = "";
     }
-    el("navigation-finish").hidden = !arrived;
-    el("navigation-panel").setAttribute(
+    if (!arrived)
+      flushSync(() =>
+        this.screen.updateFinish({
+          visible: false,
+          providers: [],
+          origin: "",
+          destination: "",
+          time: "",
+          distance: "",
+          sinceResume: false,
+          status: "",
+        }),
+      );
+    this.screen.setAttribute(
+      "navigation-panel",
       "aria-label",
       arrived ? "Fahrtzusammenfassung" : "Navigationshinweise",
     );
     if (arrived && session.summary) {
+      if (enteringSummary) {
+        this.summaryProviders = supportProviders.flatMap((provider) =>
+          provider.url
+            ? [
+                {
+                  name: provider.name,
+                  label: provider.label,
+                  url: provider.url,
+                },
+              ]
+            : [],
+        );
+      }
       const summary = session.summary;
       const kilometers = (meters: number) =>
         `${(meters / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km`;
-      el("navigation-instruction").textContent = "Ziel erreicht";
-      el("navigation-finish-origin").textContent = summary.originName;
-      el("navigation-finish-destination").textContent = summary.destinationName;
-      el("navigation-finish-time").textContent = duration(
-        summary.elapsedSeconds,
+      this.screen.setText("navigation-instruction", "Ziel erreicht");
+      flushSync(() =>
+        this.screen.updateFinish({
+          visible: true,
+          providers: this.summaryProviders,
+          origin: summary.originName,
+          destination: summary.destinationName,
+          time: duration(summary.elapsedSeconds),
+          distance: kilometers(summary.distanceMeters),
+          sinceResume: summary.sinceResume,
+          status: session.statisticsMessage,
+          totals: session.statistics
+            ? {
+                count:
+                  session.statistics.completedIds.length.toLocaleString(
+                    "de-DE",
+                  ),
+                distance: kilometers(session.statistics.distanceMeters),
+                time: duration(session.statistics.elapsedSeconds),
+              }
+            : undefined,
+        }),
       );
-      el("navigation-finish-distance").textContent = kilometers(
-        summary.distanceMeters,
-      );
-      el("navigation-finish-resumed").hidden = !summary.sinceResume;
-      el("navigation-finish-totals").hidden = !session.statistics;
-      if (session.statistics) {
-        el("navigation-finish-count").textContent =
-          session.statistics.completedIds.length.toLocaleString("de-DE");
-        el("navigation-finish-total-distance").textContent = kilometers(
-          session.statistics.distanceMeters,
-        );
-        el("navigation-finish-total-time").textContent = duration(
-          session.statistics.elapsedSeconds,
-        );
-      }
-      const storage = el("navigation-finish-storage");
-      if (storage.textContent !== session.statisticsMessage)
-        storage.textContent = session.statisticsMessage;
       if (enteringSummary) {
         this.dismissConfirmation();
-        const support = el("navigation-support-links");
-        support.replaceChildren();
-        for (const provider of supportProviders) {
-          if (!provider.url) continue;
-          const link = node("a", provider.label);
-          link.setAttribute(
-            "aria-label",
-            provider.label === provider.name
-              ? `Über ${provider.name} unterstützen`
-              : `${provider.label} (über ${provider.name})`,
-          );
-          link.href = provider.url;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          const external = node("span", "↗");
-          external.setAttribute("aria-hidden", "true");
-          link.append(external);
-          support.append(link);
-        }
-        el("navigation-support").hidden = !support.childElementCount;
         el("navigation-finish-content").scrollTop = 0;
         this.guidance.cancel();
         this.guidance.speak(`arrived-${summary.id}`, "Ziel erreicht");
@@ -1396,19 +1370,22 @@ export class NavigationView {
     this.stationCursor = cursor;
     const estimate = cursor?.source === "estimated" ? cursor : undefined;
     const streetPaused = !!engine && movement(leg) && !engine.guidanceUsable;
-    el("navigation-instruction").textContent = streetPaused
-      ? session.busy
-        ? "Route wird angepasst …"
-        : engine.offRoute
-          ? (session.disruption?.message ?? session.message) ||
-            "Route verlassen · Weg wird neu berechnet"
-          : "Standort wird geprüft"
-      : engine && !arrived && leg?.kind === "bike" && !engine.maneuver
-        ? `Nach ${leg.to.name}`
-        : (engine?.instruction ??
-          (session.busy || !session.message
-            ? "Navigation wird vorbereitet …"
-            : "Navigation konnte nicht starten"));
+    this.screen.setText(
+      "navigation-instruction",
+      streetPaused
+        ? session.busy
+          ? "Route wird angepasst …"
+          : engine.offRoute
+            ? (session.disruption?.message ?? session.message) ||
+              "Route verlassen · Weg wird neu berechnet"
+            : "Standort wird geprüft"
+        : engine && !arrived && leg?.kind === "bike" && !engine.maneuver
+          ? `Nach ${leg.to.name}`
+          : (engine?.instruction ??
+            (session.busy || !session.message
+              ? "Navigation wird vorbereitet …"
+              : "Navigation konnte nicht starten")),
+    );
     const arrows: Record<string, string> = {
       LEFT: "↰",
       HARD_LEFT: "↰",
@@ -1424,30 +1401,36 @@ export class NavigationView {
       ELEVATOR: "↕",
     };
     const arrow = el("navigation-arrow");
-    arrow.replaceChildren();
     if (engine?.phase === "active" && leg?.kind === "transit") {
-      arrow.append(
-        icon(["BUS", "COACH"].includes(leg.mode ?? "") ? "bus" : "transit"),
+      this.screen.setIcon(
+        "navigation-arrow",
+        ["BUS", "COACH"].includes(leg.mode ?? "") ? "bus" : "transit",
       );
     } else
-      arrow.textContent = arrived
-        ? "✓"
-        : engine?.maneuver
-          ? (arrows[engine.maneuver.direction] ?? "↑")
-          : leg?.kind === "transit"
-            ? "⇥"
-            : leg?.kind === "stop"
-              ? "●"
-              : "↑";
-    if (streetPaused) arrow.textContent = "";
+      this.screen.setText(
+        "navigation-arrow",
+        arrived
+          ? "✓"
+          : engine?.maneuver
+            ? (arrows[engine.maneuver.direction] ?? "↑")
+            : leg?.kind === "transit"
+              ? "⇥"
+              : leg?.kind === "stop"
+                ? "●"
+                : "↑",
+      );
+    if (streetPaused) this.screen.setText("navigation-arrow", "");
     const meters = streetPaused ? undefined : engine?.distanceToNext;
-    el("navigation-distance").textContent =
+    this.screen.setText(
+      "navigation-distance",
       arrived || leg?.kind === "transit" || meters === undefined
         ? ""
         : meters >= 1000
           ? `${(meters / 1000).toFixed(1)} km`
-          : `${Math.round(meters / 5) * 5} m`;
-    el("navigation-detail").textContent =
+          : `${Math.round(meters / 5) * 5} m`,
+    );
+    this.screen.setText(
+      "navigation-detail",
       leg?.kind === "transit"
         ? ""
         : leg?.kind === "stop"
@@ -1456,20 +1439,25 @@ export class NavigationView {
               !leg?.maneuvers?.length &&
               !engine?.hasManeuverGuidance
             ? ""
-            : (leg?.to.name ?? "");
+            : (leg?.to.name ?? ""),
+    );
     const { current, selected, revealCurrent } = this.renderSections();
-    el("navigation-status").textContent = session.resumeNeedsConfirmation
-      ? "Zeitpunkt dieses Abschnitts liegt zurück. Prüfe und bestätige deinen aktuellen Abschnitt."
-      : session.message;
-    el("navigation-storage-status").textContent = session.storageMessage;
-    el("navigation-disruption").textContent =
-      session.disruption?.message ?? session.assessment?.message ?? "";
+    this.screen.setText(
+      "navigation-status",
+      session.resumeNeedsConfirmation
+        ? "Zeitpunkt dieses Abschnitts liegt zurück. Prüfe und bestätige deinen aktuellen Abschnitt."
+        : session.message,
+    );
+    this.screen.setText("navigation-storage-status", session.storageMessage);
+    this.screen.setText(
+      "navigation-disruption",
+      session.disruption?.message ?? session.assessment?.message ?? "",
+    );
     const invalidLocation = !session.hasCurrentLocation;
     const automaticLocationRefresh =
       session.foreground &&
       !!this.options.locationAutoRefresh?.() &&
       session.locationError?.reason !== "permission-denied";
-    const gpsStatus = el("navigation-gps-status");
     const mapEstimateLabel = estimateSource
       ? estimateSource.path.schematic
         ? "Kartenposition grob geschätzt"
@@ -1488,17 +1476,12 @@ export class NavigationView {
             ? "Standort wird geprüft"
             : "";
     const gpsEstimate = invalidLocation ? mapEstimateLabel : "";
-    for (const [id, message] of [
-      ["navigation-gps-primary", gpsMessage],
-      ["navigation-gps-estimate", gpsEstimate],
-    ]) {
-      const text = el(id);
-      if (text.textContent !== message) text.textContent = message;
-    }
-    const gpsEstimateText = el("navigation-gps-estimate");
-    if (gpsEstimateText.hidden !== !gpsEstimate)
-      gpsEstimateText.hidden = !gpsEstimate;
-    if (gpsStatus.hidden !== !gpsMessage) gpsStatus.hidden = !gpsMessage;
+    flushSync(() =>
+      this.screen.updateLocation({
+        primary: gpsMessage,
+        estimate: gpsEstimate,
+      }),
+    );
     let locationMessage =
       !engine || arrived
         ? ""
@@ -1521,10 +1504,13 @@ export class NavigationView {
     )
       locationMessage += " Standort wird automatisch erneut angefragt.";
     const locationStatus = el("navigation-location-status");
-    setLocationFeedback(locationStatus, locationMessage, !session.locating);
-    el("navigation-network-status").textContent = navigator.onLine
-      ? ""
-      : "Offline · Streckenverlauf verfügbar. Neue Routen und Fahrtdaten benötigen Internet.";
+    this.screen.updateLocationFeedback(locationMessage, !session.locating);
+    this.screen.setText(
+      "navigation-network-status",
+      navigator.onLine
+        ? ""
+        : "Offline · Streckenverlauf verfügbar. Neue Routen und Fahrtdaten benötigen Internet.",
+    );
     const transit = engine?.journey.legs
       .slice(engine.progress.legIndex)
       .find((l) => l.kind === "transit");
@@ -1539,10 +1525,12 @@ export class NavigationView {
     this.startStationAnimation();
     const viewedTransit = selected?.legs.find((l) => l.kind === "transit");
     const viewedTransitWarning = transitWarning(viewedTransit);
-    el("navigation-transit-status").textContent = viewedTransitWarning;
+    this.screen.setText("navigation-transit-status", viewedTransitWarning);
     const currentTransitWarning = transitWarning(transit);
-    el("navigation-current-transit-status").textContent =
-      transit !== viewedTransit ? currentTransitWarning : "";
+    this.screen.setText(
+      "navigation-current-transit-status",
+      transit !== viewedTransit ? currentTransitWarning : "",
+    );
     const complete = el<HTMLButtonElement>("navigation-complete");
     const nearTarget = this.completion.update(
       engine,
@@ -1555,29 +1543,7 @@ export class NavigationView {
     const manualAvailable =
       this.completionAvailable && movement(leg) && !nearTarget;
     const focused = document.activeElement;
-    if (!manualAvailable) manualActions.open = false;
-    else if (this.mobile.matches) manualActions.open = true;
-    else if (moreActions.hidden) manualActions.open = false;
-    moreActions.hidden = this.mobile.matches;
-    manualActions.hidden = !manualAvailable;
-    el<HTMLButtonElement>("navigation-complete-manually").disabled =
-      session.busy;
-    complete.hidden = !this.quickCompletionAvailable;
-    complete.disabled = session.busy;
-    if (
-      (focused === complete && complete.hidden) ||
-      (focused === moreActions && moreActions.hidden) ||
-      (focused instanceof HTMLElement &&
-        manualActions.contains(focused) &&
-        (!manualAvailable || (!manualActions.open && focused !== moreActions)))
-    )
-      (this.quickCompletionAvailable
-        ? complete
-        : manualAvailable && !this.mobile.matches
-          ? moreActions
-          : el("navigation-instruction")
-      ).focus({ preventScroll: true });
-    el("navigation-complete-label").textContent =
+    const completeLabel =
       leg?.kind === "stop"
         ? "Weiterfahren"
         : leg?.kind === "transit"
@@ -1600,9 +1566,7 @@ export class NavigationView {
       : timedActivity
         ? Math.min(countdownDuration, engine!.remainingSeconds)
         : 0;
-    const countdownDescription = el(
-      "navigation-complete-countdown-description",
-    );
+    let countdownPresentation: NavigationCompletionModel["countdown"];
     if (this.quickCompletionAvailable && countdownDuration > 0) {
       const seconds = Math.ceil(countdownRemaining);
       const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -1613,88 +1577,115 @@ export class NavigationView {
           : leg?.kind === "unfold"
             ? "Entfaltzeit"
             : "Wartezeit";
-      complete.dataset.countdown = String(seconds);
-      this.completionCountdownBar.set(
-        countdownRemaining * 1000,
-        countdownDuration * 1000,
-        engine!.completionPaused,
-      );
-      complete.title = `${label} · ${time} verbleibend${engine!.completionPaused ? " · pausiert" : ""}`;
-      countdownDescription.textContent =
-        (seconds > 0
-          ? `${label}: noch ${seconds} Sekunden.`
-          : `${label} abgelaufen. Abschnitt kann manuell bestätigt werden.`) +
-        (engine!.completionPaused ? " Countdown pausiert." : "");
-      complete.setAttribute("aria-describedby", countdownDescription.id);
-    } else {
-      delete complete.dataset.countdown;
-      this.completionCountdownBar.hide();
-      complete.removeAttribute("title");
-      complete.removeAttribute("aria-describedby");
-      countdownDescription.textContent = "";
+      countdownPresentation = {
+        remaining: countdownRemaining,
+        duration: countdownDuration,
+        paused: !!engine!.completionPaused,
+        title: `${label} · ${time} verbleibend${engine!.completionPaused ? " · pausiert" : ""}`,
+        description:
+          (seconds > 0
+            ? `${label}: noch ${seconds} Sekunden.`
+            : `${label} abgelaufen. Abschnitt kann manuell bestätigt werden.`) +
+          (engine!.completionPaused ? " Countdown pausiert." : ""),
+      };
     }
-    engine?.setCompletionPaused(this.countdownInteraction.paused);
     const locationRetry = !engine && session.needsLocation;
-    el("navigation-retry").hidden =
-      (!session.retryAvailable && !session.disruption) ||
-      locationRetry ||
-      (invalidLocation && !!session.locationError);
-    el("navigation-retry").textContent = session.disruption
-      ? "Andere Verbindung suchen"
-      : "Erneut versuchen";
-    el("navigation-replan").hidden = !session.distantStart;
-    el("navigation-locate").hidden =
-      arrived === true ||
-      (engine
-        ? (!invalidLocation || automaticLocationRefresh) &&
-          !session.alternativeNeedsLocation &&
-          !session.locating
-        : !locationRetry || !session.retryAvailable);
-    el<HTMLButtonElement>("navigation-locate").disabled =
-      session.busy || session.locating;
-    el("navigation-locate").textContent = session.locating
-      ? "Standort wird gesucht …"
-      : "Standort erneut anfragen";
-    el("navigation-location").hidden =
-      !locationMessage && el("navigation-locate").hidden;
-    el("navigation-end").textContent = arrived
-      ? "Fahrt abschließen"
-      : "Navigation beenden";
-    el("navigation-audio").replaceChildren(
-      icon(this.guidance.enabled ? "volume" : "muted"),
+    flushSync(() =>
+      this.screen.updateCompletion({
+        available: this.quickCompletionAvailable,
+        manualAvailable: !!manualAvailable,
+        busy: session.busy,
+        mobile: this.mobile.matches,
+        label: completeLabel,
+        retryVisible: !(
+          (!session.retryAvailable && !session.disruption) ||
+          locationRetry ||
+          (invalidLocation && !!session.locationError)
+        ),
+        retryLabel: session.disruption
+          ? "Andere Verbindung suchen"
+          : "Erneut versuchen",
+        replanVisible: session.distantStart,
+        countdown: countdownPresentation,
+      }),
     );
-    el("navigation-audio").setAttribute(
+    if (
+      (focused === complete && complete.hidden) ||
+      (focused === moreActions && moreActions.hidden) ||
+      (focused instanceof HTMLElement &&
+        manualActions.contains(focused) &&
+        (!manualAvailable || (!manualActions.open && focused !== moreActions)))
+    )
+      (this.quickCompletionAvailable
+        ? complete
+        : manualAvailable && !this.mobile.matches
+          ? moreActions
+          : el("navigation-instruction")
+      ).focus({ preventScroll: true });
+    this.screen.setHidden(
+      "navigation-locate",
+      arrived === true ||
+        (engine
+          ? (!invalidLocation || automaticLocationRefresh) &&
+            !session.alternativeNeedsLocation &&
+            !session.locating
+          : !locationRetry || !session.retryAvailable),
+    );
+    this.screen.setDisabled(
+      "navigation-locate",
+      session.busy || session.locating,
+    );
+    this.screen.setText(
+      "navigation-locate",
+      session.locating ? "Standort wird gesucht …" : "Standort erneut anfragen",
+    );
+    this.screen.setHidden(
+      "navigation-location",
+      !locationMessage && !!el("navigation-locate").hidden,
+    );
+    this.screen.setIcon(
+      "navigation-audio",
+      this.guidance.enabled ? "volume" : "muted",
+    );
+    this.screen.setAttribute(
+      "navigation-audio",
       "title",
       this.guidance.enabled ? "Ton ausschalten" : "Ton einschalten",
     );
-    el("navigation-audio").setAttribute(
+    this.screen.setAttribute(
+      "navigation-audio",
       "aria-label",
       this.guidance.enabled ? "Ton ausschalten" : "Ton einschalten",
     );
-    el("navigation-audio").setAttribute(
+    this.screen.setAttribute(
+      "navigation-audio",
       "aria-pressed",
       String(this.guidance.enabled),
     );
-    el("navigation-audio-status").textContent = this.voiceMessage;
-    el("navigation-alternative").hidden = !session.alternative;
+    this.screen.setText("navigation-audio-status", this.voiceMessage);
+    this.screen.setHidden("navigation-alternative", !session.alternative);
     const accept = el<HTMLButtonElement>("navigation-accept");
-    accept.disabled = session.busy;
-    accept.textContent = session.busy
-      ? "Verbindung wird geprüft …"
-      : "Verbindung übernehmen";
+    this.screen.setDisabled("navigation-accept", session.busy);
+    this.screen.setText(
+      "navigation-accept",
+      session.busy ? "Verbindung wird geprüft …" : "Verbindung übernehmen",
+    );
     if (session.alternative) {
       const j = session.alternative.journey;
-      el("navigation-alternative-text").textContent =
-        `Neue Verbindung: Ankunft ${clock(j.arrival)} · ${duration(j.arrival - j.departure)}`;
+      this.screen.setText(
+        "navigation-alternative-text",
+        `Neue Verbindung: Ankunft ${clock(j.arrival)} · ${duration(j.arrival - j.departure)}`,
+      );
     }
-    el("navigation-remaining").textContent = engine
-      ? arrived
-        ? "Ziel erreicht"
-        : ""
-      : "Navigation";
-    el("navigation-remaining").hidden = !!engine && !arrived;
-    el("navigation-summary-label").hidden =
-      !engine || !!arrived || !el("navigation-context").hidden;
+    this.screen.setText(
+      "navigation-remaining",
+      engine ? (arrived ? "Ziel erreicht" : "") : "Navigation",
+    );
+    this.screen.setHidden("navigation-remaining", !!engine && !arrived);
+    this.screen.setHidden(
+      "navigation-summary-label",
+      !engine || !!arrived || !el("navigation-context").hidden,
+    );
     const requestedArrival =
       session.request?.timing === "arrive" ? session.request.time : undefined;
     const arrivalWarning =
@@ -1704,7 +1695,7 @@ export class NavigationView {
       engine.journey.arrival > requestedArrival
         ? `Gewünschte Ankunft ${clock(requestedArrival)} wird nicht erreicht.`
         : "";
-    el("navigation-arrival-warning").textContent = arrivalWarning;
+    this.screen.setText("navigation-arrival-warning", arrivalWarning);
     const candidates: NavigationNotice[] = [
       {
         message:
@@ -1755,14 +1746,18 @@ export class NavigationView {
       return true;
     });
     const alert = el("navigation-alert");
-    alert.hidden = !notices.length && !session.alternative;
+    this.screen.setHidden(
+      "navigation-alert",
+      !notices.length && !session.alternative,
+    );
     const summary = notices[0]?.message ?? "Neue Verbindung verfügbar";
     const summaryText = el("navigation-alert-summary");
-    if (summaryText.textContent !== summary) summaryText.textContent = summary;
+    if (summaryText.textContent !== summary)
+      this.screen.setText("navigation-alert-summary", summary);
     const clearNotice = (target: string, replacement: HTMLElement) => {
       const element = el(target);
       const focused = element === document.activeElement;
-      element.textContent = "";
+      this.screen.setText(target, "");
       if (focused) {
         replacement.tabIndex = -1;
         replacement.focus({ preventScroll: true });
@@ -1788,12 +1783,18 @@ export class NavigationView {
       ? "navigation-alternative"
       : notices.find((notice) => el(notice.target).textContent)?.target;
     const alertOpen = el("navigation-alert-open");
-    alertOpen.hidden = !engine || !this.noticeTarget;
-    alertOpen.textContent = session.alternative
-      ? `Verbindung ansehen${notices.length > 1 ? ` · ${notices.length} Hinweise` : ""}`
-      : notices.length > 1
-        ? `${notices.length} Hinweise ansehen`
-        : "Details ansehen";
+    this.screen.setHidden(
+      "navigation-alert-open",
+      !engine || !this.noticeTarget,
+    );
+    this.screen.setText(
+      "navigation-alert-open",
+      session.alternative
+        ? `Verbindung ansehen${notices.length > 1 ? ` · ${notices.length} Hinweise` : ""}`
+        : notices.length > 1
+          ? `${notices.length} Hinweise ansehen`
+          : "Details ansehen",
+    );
     this.layout();
     // Reveal progress after placing the strip, even while previewing another step.
     if (revealCurrent) this.alignCurrentTab();

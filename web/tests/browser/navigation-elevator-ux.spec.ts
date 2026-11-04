@@ -46,7 +46,7 @@ for (const repeated of [false, true]) {
     for (const accuracy of [10, 10, 10, 70, 500]) {
       await page.clock.runFor(3000);
       await page.evaluate(
-        (accuracy) => (window as any).navProbe.push(48, 11, 90, accuracy),
+        (accuracy) => window.navProbe.push(48, 11, 90, accuracy),
         accuracy,
       );
       await expect(instruction).toHaveText("Aufzug nehmen");
@@ -55,22 +55,22 @@ for (const repeated of [false, true]) {
     await expect(page.locator("#navigation-gps-status")).toHaveText(
       "GPS ungenau",
     );
-    await page.evaluate(() => (window as any).navProbe.fail(2));
+    await page.evaluate(() => window.navProbe.fail(2));
     await expect(instruction).toHaveText("Aufzug nehmen");
     await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
     await page.clock.runFor(70000);
     await expect(instruction).toHaveText("Aufzug nehmen");
-    expect((await savedProgress(page)).legIndex).toBe(0);
+    expect((await savedProgress(page))!.legIndex).toBe(0);
     await page.locator("#navigation-audio").click();
     await page.locator("#navigation-audio").click();
     expect(await page.evaluate(() => window.testSpeech.spoken.at(-1))).toBe(
       "Aufzug nehmen",
     );
     expect(replans).toBe(0);
-    await page.evaluate(() => (window as any).navProbe.push(48, 11));
+    await page.evaluate(() => window.navProbe.push(48, 11));
     await complete(page);
     await expect(instruction).toHaveText("Links abbiegen auf Zweite Straße");
-    expect((await savedProgress(page)).legIndex).toBe(1);
+    expect((await savedProgress(page))!.legIndex).toBe(1);
     expect(replans).toBe(0);
   });
 }

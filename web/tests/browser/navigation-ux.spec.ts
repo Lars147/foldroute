@@ -70,7 +70,7 @@ for (const width of [390, 1280]) {
     ]) {
       await page.clock.runFor(20000);
       await page.evaluate(
-        (longitude) => (window as any).navProbe.push(48, longitude),
+        (longitude) => window.navProbe.push(48, longitude),
         longitude,
       );
       await expect(instruction).toHaveText("Links abbiegen auf Am Isarufer");
@@ -84,7 +84,7 @@ for (const width of [390, 1280]) {
       await expect(meters).toHaveText(`${expected} m`);
     }
     const spoken = await page.evaluate(
-      () => (window as any).navProbe.spoken as string[],
+      () => window.navProbe.spoken as string[],
     );
     expect(
       spoken.filter((text) => text.includes("Links abbiegen")),
@@ -92,7 +92,7 @@ for (const width of [390, 1280]) {
     expect(spoken.some((text) => text.includes("Geradeaus"))).toBe(false);
     await page.screenshot({ path: info.outputPath("next-turn-countdown.png") });
     await page.clock.runFor(1000);
-    await page.evaluate(() => (window as any).navProbe.push(48, 11.0108));
+    await page.evaluate(() => window.navProbe.push(48, 11.0108));
     await expect(instruction).toHaveText("Rechts abbiegen auf Zum Bahnhof");
     await expect(page.locator("#navigation-arrow")).toHaveText("↱");
     await expect(meters).toHaveText("220 m");
@@ -110,42 +110,38 @@ for (const width of [390, 1280]) {
     await expect(instruction).toHaveText("Links abbiegen");
     await expect(meters).toHaveText("60 m");
     await page.clock.runFor(5000);
-    await page.evaluate(() => (window as any).navProbe.push(48, 11.0008));
+    await page.evaluate(() => window.navProbe.push(48, 11.0008));
     await expect(instruction).toHaveText("Rechts abbiegen");
     await expect(meters).toHaveText("65 m");
-    let spoken = await page.evaluate(
-      () => (window as any).navProbe.spoken as string[],
-    );
+    let spoken = await page.evaluate(() => window.navProbe.spoken as string[]);
     expect(
       spoken.filter((text) => text.includes("Links abbiegen")),
     ).toHaveLength(1);
     expect(
       spoken.filter((text) => text.includes("Rechts abbiegen")),
     ).toHaveLength(1);
-    await page.evaluate(() => (window as any).navProbe.fail(2));
+    await page.evaluate(() => window.navProbe.fail(2));
     await expect(meters).toBeEmpty();
     await page.clock.runFor(1000);
-    await page.evaluate(() => (window as any).navProbe.push(48.0003, 11.0008));
+    await page.evaluate(() => window.navProbe.push(48.0003, 11.0008));
     await expect(meters).toHaveText("35 m");
-    await page.evaluate(() => (window as any).navProbe.hide(true));
+    await page.evaluate(() => window.navProbe.hide(true));
     await page.reload();
     await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
-    await page.evaluate(() => (window as any).navProbe.push(48.0003, 11.0008));
+    await page.evaluate(() => window.navProbe.push(48.0003, 11.0008));
     await page.locator("#navigation-resume").click();
     await expect(instruction).toHaveText("Rechts abbiegen");
     await expect(meters).toHaveText("35 m");
     await page.clock.runFor(1000);
-    await page.evaluate(() => (window as any).navProbe.push(48.0006, 11.0008));
+    await page.evaluate(() => window.navProbe.push(48.0006, 11.0008));
     await expect(instruction).toHaveText("Nach Ziel");
     await expect(meters).toHaveText("165 m");
     await page.clock.runFor(10000);
-    await page.evaluate(() => (window as any).navProbe.push(48.0006, 11.003));
+    await page.evaluate(() => window.navProbe.push(48.0006, 11.003));
     await expect(page.locator("#navigation-auto-complete")).toBeVisible();
     await page.clock.runFor(30000);
     await expect(instruction).toHaveText("Ziel erreicht");
-    spoken = await page.evaluate(
-      () => (window as any).navProbe.spoken as string[],
-    );
+    spoken = await page.evaluate(() => window.navProbe.spoken as string[]);
     expect(spoken).toContain("Ziel erreicht");
     expect(spoken.some((text) => /In .*Metern Ziel erreicht/.test(text))).toBe(
       false,
@@ -413,7 +409,7 @@ for (const [width, height] of [
     await expect(page.locator("#navigation-details")).toBeVisible();
     await page.locator("#navigation-details-toggle").click();
     await expect(page.locator("#navigation-details")).toBeHidden();
-    await page.evaluate(() => (window as any).navProbe.push(48, 11, 90, 500));
+    await page.evaluate(() => window.navProbe.push(48, 11, 90, 500));
     await expect(page.locator("#navigation-gps-status")).toHaveText(
       "GPS ungenau",
     );
@@ -689,7 +685,7 @@ test("mobile touch drag moves the unfocused map and following restores its cente
   await expect(map).toHaveAttribute("data-following", "false");
   await expect(map).not.toHaveAttribute("data-center", initial!);
   const moved = await map.getAttribute("data-center");
-  await page.evaluate(() => (window as any).navProbe.push(48, 11));
+  await page.evaluate(() => window.navProbe.push(48, 11));
   await expect(map).toHaveAttribute("data-center", moved!);
   await page.locator("#navigation-center").click();
   await expect(map).toHaveAttribute("data-center", initial!);
@@ -847,7 +843,7 @@ for (const width of [320, 390, 1280])
       await expect(page.locator("#navigation-top")).toBeHidden();
       await expect(page.locator("#navigation-details-toggle")).toBeHidden();
       await expect
-        .poll(() => page.evaluate(() => (window as any).navProbe.active))
+        .poll(() => page.evaluate(() => window.navProbe.active))
         .toBe(0);
       await expect.poll(() => savedActive(page)).toBe(false);
       const bounds = (await panel.boundingBox())!;

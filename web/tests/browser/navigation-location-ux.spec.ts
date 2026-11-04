@@ -15,12 +15,12 @@ for (const width of [390, 1280])
     await page.setViewportSize({ width, height: 900 });
     await setup(page);
     await page.evaluate(() => {
-      (window as any).navProbe.refreshSilent = false;
+      window.navProbe.refreshSilent = false;
     });
     const instruction = await page
       .locator("#navigation-instruction")
       .innerText();
-    const watches = await page.evaluate(() => (window as any).navProbe.started);
+    const watches = await page.evaluate(() => window.navProbe.started);
     for (let i = 0; i < 4; i++) {
       await page.clock.runFor(35000);
       await expect(page.locator("#navigation-gps-status")).toBeHidden();
@@ -31,16 +31,14 @@ for (const width of [390, 1280])
       );
     }
     expect(
-      await page.evaluate(() => (window as any).navProbe.refreshLookups),
+      await page.evaluate(() => window.navProbe.refreshLookups),
     ).toBeGreaterThanOrEqual(4);
-    expect(await page.evaluate(() => (window as any).navProbe.started)).toBe(
-      watches,
-    );
+    expect(await page.evaluate(() => window.navProbe.started)).toBe(watches);
     await expect(page.locator("#navigation-instruction")).toHaveText(
       instruction,
     );
     expect(
-      await page.evaluate(() => (window as any).navProbe.lastRefreshOptions),
+      await page.evaluate(() => window.navProbe.lastRefreshOptions),
     ).toEqual({ enableHighAccuracy: true, maximumAge: 0, timeout: 12000 });
   });
 
@@ -49,18 +47,16 @@ test("frequent inaccurate GPS samples do not suppress automatic navigation recov
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
-  const before = await page.evaluate(
-    () => (window as any).navProbe.refreshLookups,
-  );
+  const before = await page.evaluate(() => window.navProbe.refreshLookups);
   for (let i = 0; i < 12; i++) {
-    await page.evaluate(() => (window as any).navProbe.push(48, 11, 90, 500));
+    await page.evaluate(() => window.navProbe.push(48, 11, 90, 500));
     await page.clock.fastForward(10000);
   }
   await expect(page.locator("#navigation-gps-status")).toHaveText(
     "GPS ungenau",
   );
   expect(
-    await page.evaluate(() => (window as any).navProbe.refreshLookups),
+    await page.evaluate(() => window.navProbe.refreshLookups),
   ).toBeGreaterThanOrEqual(before + 4);
   await expect(page.locator("#navigation-locate")).toBeHidden();
 });
@@ -71,8 +67,8 @@ test("silent single lookups retain the stale warning and recover on a fresh meas
   await page.setViewportSize({ width: 1280, height: 900 });
   await setup(page);
   await page.evaluate(() => {
-    (window as any).navProbe.cachedAt = Date.now();
-    (window as any).navProbe.refreshSilent = false;
+    window.navProbe.cachedAt = Date.now();
+    window.navProbe.refreshSilent = false;
   });
   await page.clock.runFor(70000);
   await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
@@ -83,11 +79,9 @@ test("silent single lookups retain the stale warning and recover on a fresh meas
   await expect(page.locator("#navigation-location-status")).toContainText(
     "Standort wird automatisch erneut angefragt.",
   );
-  expect(
-    await page.evaluate(() => (window as any).navProbe.refreshLookups),
-  ).toBe(2);
+  expect(await page.evaluate(() => window.navProbe.refreshLookups)).toBe(2);
   await page.evaluate(() => {
-    (window as any).navProbe.cachedAt = undefined;
+    window.navProbe.cachedAt = undefined;
   });
   await page.clock.runFor(30000);
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
@@ -100,22 +94,20 @@ test("automatic navigation lookups pause in the background and resume after a fr
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await page.evaluate(() => {
-    (window as any).navProbe.refreshSilent = false;
+    window.navProbe.refreshSilent = false;
   });
   await page.clock.runFor(35000);
-  const lookups = await page.evaluate(
-    () => (window as any).navProbe.refreshLookups,
-  );
-  await page.evaluate(() => (window as any).navProbe.hide(true));
+  const lookups = await page.evaluate(() => window.navProbe.refreshLookups);
+  await page.evaluate(() => window.navProbe.hide(true));
   await page.clock.runFor(70000);
-  expect(
-    await page.evaluate(() => (window as any).navProbe.refreshLookups),
-  ).toBe(lookups);
-  await page.evaluate(() => (window as any).navProbe.hide(false));
+  expect(await page.evaluate(() => window.navProbe.refreshLookups)).toBe(
+    lookups,
+  );
+  await page.evaluate(() => window.navProbe.hide(false));
   await page.clock.runFor(35000);
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
   expect(
-    await page.evaluate(() => (window as any).navProbe.refreshLookups),
+    await page.evaluate(() => window.navProbe.refreshLookups),
   ).toBeGreaterThan(lookups);
 });
 
@@ -132,8 +124,8 @@ test("GPS loss freezes the display without a usable timeline", async ({
   await complete(page);
   await complete(page);
   await page.evaluate(() => {
-    (window as any).navProbe.silent = true;
-    (window as any).navProbe.fail(2);
+    window.navProbe.silent = true;
+    window.navProbe.fail(2);
   });
   // A bad intermediate timestamp makes this interval unclear. Later consistent
   // anchors can resume the timetable without waiting for GPS or new trip data.
@@ -177,7 +169,7 @@ for (const colorScheme of ["light", "dark"] as const)
       await setup(page);
       const status = page.locator("#navigation-gps-status");
       await expect(status).toBeHidden();
-      await page.evaluate(() => (window as any).navProbe.push(48, 11, 90, 500));
+      await page.evaluate(() => window.navProbe.push(48, 11, 90, 500));
       await expect(status).toHaveText("GPS ungenau");
       await expect(status).toBeVisible();
       await expect(status).toHaveAttribute("aria-live", "polite");
@@ -240,7 +232,7 @@ for (const colorScheme of ["light", "dark"] as const)
         await page.screenshot({
           path: test.info().outputPath(`gps-status-${colorScheme}.png`),
         });
-      await page.evaluate(() => (window as any).navProbe.fail(2));
+      await page.evaluate(() => window.navProbe.fail(2));
       await expect(status).toHaveText("Kein GPS");
       if (width < 900) await page.locator("#navigation-details-toggle").click();
       await expect(page.locator("#navigation-location-status")).toContainText(
@@ -250,7 +242,7 @@ for (const colorScheme of ["light", "dark"] as const)
       await expect(page.locator("#navigation-location-status")).toContainText(
         "Standort wird automatisch erneut angefragt.",
       );
-      await page.evaluate(() => (window as any).navProbe.push(48, 11));
+      await page.evaluate(() => window.navProbe.push(48, 11));
       await expect(status).toBeHidden();
       await expect(page.locator("#navigation-location-status")).toBeEmpty();
       await expect(page.locator("#navigation-location")).toBeHidden();
@@ -267,8 +259,8 @@ test("manual recovery stays available when automatic fresh lookups are unavailab
       configurable: true,
       value: undefined,
     });
-    (window as any).navProbe.silent = true;
-    (window as any).navProbe.fail(2);
+    window.navProbe.silent = true;
+    window.navProbe.fail(2);
   });
   await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
   await page.locator("#navigation-details-toggle").click();
@@ -283,7 +275,7 @@ test("manual recovery stays available when automatic fresh lookups are unavailab
   await page.locator("#navigation-details-toggle").click();
   await expect(page.locator("#navigation-gps-status")).toBeVisible();
   await expect(page.locator("#navigation-locate")).toBeHidden();
-  await page.evaluate(() => (window as any).navProbe.push(48, 11));
+  await page.evaluate(() => window.navProbe.push(48, 11));
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
   await page.locator("#navigation-details-toggle").click();
   await expect(page.locator("#navigation-location-status")).toBeEmpty();
@@ -294,7 +286,7 @@ test("denied permission explains recovery only in location details", async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
-  await page.evaluate(() => (window as any).navProbe.fail(1));
+  await page.evaluate(() => window.navProbe.fail(1));
   await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
   await expect(page.locator("#navigation-alert")).toBeHidden();
   await page.locator("#navigation-details-toggle").click();
@@ -308,7 +300,7 @@ test("denied permission explains recovery only in location details", async ({
   ).toHaveAttribute("href", "hilfe.html#standort");
   const help = page.locator("#navigation-location-status .location-help");
   await help.focus();
-  await page.evaluate(() => (window as any).navProbe.fail(1));
+  await page.evaluate(() => window.navProbe.fail(1));
   await expect(help).toBeFocused();
   await page.locator("#navigation-locate").click();
   await page.clock.runFor(10);
@@ -330,7 +322,7 @@ for (const [creditIndex, returned] of [
       .locator("#navigation-instruction")
       .innerText();
     const phase = await page.locator(".navigation-phase.current").innerText();
-    const started = await page.evaluate(() => (window as any).navProbe.started);
+    const started = await page.evaluate(() => window.navProbe.started);
     let planned = 0;
     await page.route("**/api/v6/plan?*", (route) => {
       planned++;
@@ -344,10 +336,10 @@ for (const [creditIndex, returned] of [
         ),
       );
     if (returned === "visibility")
-      await page.evaluate(() => (window as any).navProbe.hide(true));
+      await page.evaluate(() => window.navProbe.hide(true));
     await page.clock.runFor(1000);
     await page.evaluate((event) => {
-      if (event === "visibility") (window as any).navProbe.hide(false);
+      if (event === "visibility") window.navProbe.hide(false);
       else if (event === "pageshow")
         window.dispatchEvent(
           new PageTransitionEvent("pageshow", { persisted: true }),
@@ -355,30 +347,26 @@ for (const [creditIndex, returned] of [
       else window.dispatchEvent(new Event("focus"));
     }, returned);
     await expect
-      .poll(() => page.evaluate(() => (window as any).navProbe.active))
+      .poll(() => page.evaluate(() => window.navProbe.active))
       .toBe(1);
     await page.evaluate(() => {
       window.dispatchEvent(new Event("focus"));
       window.dispatchEvent(
         new PageTransitionEvent("pageshow", { persisted: true }),
       );
-      (window as any).navProbe.hide(false);
+      window.navProbe.hide(false);
     });
     await page.clock.runFor(10);
-    expect(await page.evaluate(() => (window as any).navProbe.started)).toBe(
+    expect(await page.evaluate(() => window.navProbe.started)).toBe(
       started + 1,
     );
     expect(
-      await page.evaluate(
-        () => (window as any).navProbe.lastWatchOptions.maximumAge,
-      ),
+      await page.evaluate(() => window.navProbe.lastWatchOptions!.maximumAge),
     ).toBe(0);
     await expect(page.locator("#navigation-gps-status")).toBeVisible();
-    await page.evaluate(() =>
-      (window as any).navProbe.push(48, 11, 90, 10, 1000),
-    );
+    await page.evaluate(() => window.navProbe.push(48, 11, 90, 10, 1000));
     await expect(page.locator("#navigation-gps-status")).toBeVisible();
-    await page.evaluate(() => (window as any).navProbe.push(48, 11));
+    await page.evaluate(() => window.navProbe.push(48, 11));
     await expect(page.locator("#navigation-gps-status")).toBeHidden();
     await expect(page.locator("#navigation-instruction")).toHaveText(
       instruction,
@@ -393,7 +381,7 @@ test("location retry recovers a credit overlay and then restores automatic refre
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await page.evaluate(() => {
-    (window as any).navProbe.cachedAt = Date.now();
+    window.navProbe.cachedAt = Date.now();
   });
   await openNavigationCredit(page);
   await page.clock.runFor(1000);
@@ -404,9 +392,7 @@ test("location retry recovers a credit overlay and then restores automatic refre
   await expect(retry).toBeDisabled();
   await expect(retry).toHaveText("Standort wird gesucht …");
   expect(
-    await page.evaluate(
-      () => (window as any).navProbe.lastQuickOptions.maximumAge,
-    ),
+    await page.evaluate(() => window.navProbe.lastQuickOptions!.maximumAge),
   ).toBe(0);
   await expect(page.locator("#navigation-gps-status")).toBeVisible();
   await page.clock.runFor(12100);
@@ -417,17 +403,15 @@ test("location retry recovers a credit overlay and then restores automatic refre
   await expect(page.locator("#navigation-location-status")).toContainText(
     "Standort wird automatisch erneut angefragt.",
   );
-  const started = await page.evaluate(() => (window as any).navProbe.started);
+  const started = await page.evaluate(() => window.navProbe.started);
   await page.evaluate(() => {
-    (window as any).navProbe.cachedAt = undefined;
-    (window as any).navProbe.refreshSilent = false;
-    (window as any).navProbe.silent = false;
+    window.navProbe.cachedAt = undefined;
+    window.navProbe.refreshSilent = false;
+    window.navProbe.silent = false;
   });
   await page.clock.runFor(30000);
-  expect(await page.evaluate(() => (window as any).navProbe.started)).toBe(
-    started,
-  );
-  expect(await page.evaluate(() => (window as any).navProbe.active)).toBe(1);
+  expect(await page.evaluate(() => window.navProbe.started)).toBe(started);
+  expect(await page.evaluate(() => window.navProbe.active)).toBe(1);
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
   await expect(page.locator("#navigation-location-status")).toBeEmpty();
   await expect(page.locator("#navigation-location")).toBeHidden();
@@ -452,12 +436,12 @@ test("overlay return without permission queries waits for an explicit fresh retr
   await page.clock.runFor(1000);
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await page.clock.runFor(10);
-  expect(await page.evaluate(() => (window as any).navProbe.active)).toBe(0);
+  expect(await page.evaluate(() => window.navProbe.active)).toBe(0);
   await page.locator("#navigation-details-toggle").click();
   await page.locator("#navigation-locate").click();
   await expect(page.locator("#navigation-locate")).toBeDisabled();
-  expect(await page.evaluate(() => (window as any).navProbe.active)).toBe(1);
-  await page.evaluate(() => (window as any).navProbe.push(48, 11));
+  expect(await page.evaluate(() => window.navProbe.active)).toBe(1);
+  await page.evaluate(() => window.navProbe.push(48, 11));
   await expect(page.locator("#navigation-gps-status")).toBeHidden();
 });
 
@@ -570,13 +554,13 @@ test("interrupted startup can retry location after returning from the background
   await expect(page.locator("#navigation-start-notice")).toHaveText(
     "Standort wird geprüft …",
   );
-  await page.evaluate(() => (window as any).navProbe.hide(true));
+  await page.evaluate(() => window.navProbe.hide(true));
   await page.evaluate(() => {
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: (window as any).savedGeo,
     });
-    (window as any).navProbe.hide(false);
+    window.navProbe.hide(false);
   });
   await page.clock.runFor(10);
   await expect(page.locator("#navigation-start-retry")).toBeVisible();

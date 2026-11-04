@@ -12,11 +12,11 @@ import {
   stoppedSearchMessage,
 } from "../src/planning-progress";
 import { planRoutes } from "../src/planner";
-import { locate } from "../src/search";
+import { locate } from "../src/search-location";
 import { ApiClient } from "../src/transitous";
 
 vi.mock("../src/planner", () => ({ planRoutes: vi.fn() }));
-vi.mock("../src/search", () => ({ locate: vi.fn() }));
+vi.mock("../src/search-location", () => ({ locate: vi.fn() }));
 
 const origin = { name: "Start", detail: "", latitude: 48.13, longitude: 11.57 };
 const destination = { ...origin, name: "Ziel", latitude: 48.17 };
@@ -1183,4 +1183,35 @@ describe("continuing optimization", () => {
     await resume;
     expect(session.state).toEqual(current);
   });
+});
+
+it("resolves current-origin planning through injected browser-independent dependencies", async () => {
+  vi.stubGlobal("navigator", undefined);
+  const current = { ...origin, name: "Injected location", latitude: 48.14 };
+  const locateCurrent = vi.fn(async () => current);
+  const resolved = vi.fn();
+  const plan = vi.fn(async function* (input: RouteRequest) {
+    yield {
+      journeys: [{ ...journey("injected"), origin: input.origin }],
+      status: "complete" as const,
+      phase: "walking" as const,
+      incompletePhases: [],
+      issues: [],
+    };
+  });
+  const session = new PlanningSession(new ApiClient(), vi.fn(), resolved, {
+    locate: locateCurrent,
+    now: () => 1234.9,
+    online: () => true,
+    plan,
+  });
+  const input = { ...request, timing: "now" as const, time: 0 };
+  await session.calculate(input, defaults, true);
+  const expected = { ...input, origin: current, time: 1234 };
+  expect(locateCurrent).toHaveBeenCalledWith(expect.any(AbortSignal));
+  expect(plan.mock.calls[0][0]).toEqual(expected);
+  expect(resolved).toHaveBeenCalledWith(expected, defaults);
+  expect(session.state.queriedAt).toBe(1234.9);
+  expect(session.state.selected?.id).toBe("injected");
+  expect(locate).not.toHaveBeenCalled();
 });

@@ -1,3 +1,17 @@
+import type {
+  Batch,
+  PlanningClient,
+  RequestBudget,
+  StreetMode,
+  Variant,
+} from "./routing-contracts";
+export type {
+  Batch,
+  RequestBudget,
+  RoutingClient,
+  StreetMode,
+  Variant,
+} from "./routing-contracts";
 import { reverseAddress } from "./history-names";
 import { parseTransitStops } from "./transit-stops";
 import { transitCancellationReason } from "./transit-cancellation";
@@ -31,19 +45,6 @@ export const service = {
   api: "https://api.transitous.org/api",
   tiles: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
 };
-export type StreetMode = "BIKE" | "WALK";
-export interface Variant {
-  /** Native via validation uses unmodified provider times and legs. */
-  native?: boolean;
-  via?: { id: string; stayMinutes: number };
-  directMode?: StreetMode;
-  street?: boolean;
-  direct?: boolean;
-  pre: StreetMode;
-  post: StreetMode;
-  preLimit?: number;
-  postLimit?: number;
-}
 export const baseVariants: Variant[] = [
   { direct: true, pre: "BIKE", post: "BIKE" },
   { pre: "WALK", post: "WALK" },
@@ -331,18 +332,6 @@ function mapLeg(raw: RawLeg, request: RouteRequest): Leg {
     scheduledEnd: raw.scheduledEndTime ? date(raw.scheduledEndTime) : undefined,
   };
 }
-export interface Batch {
-  journeys: Journey[];
-  rejected: boolean;
-  recovery?: number;
-  issues: string[];
-  failures?: PlanningFailure[];
-  stop: boolean;
-}
-export type RoutingClient = Pick<ApiClient, "batch" | "retryAt"> & {
-  createRun?(signal: AbortSignal): RoutingRun | undefined;
-  resolveStation?: ApiClient["resolveStation"];
-};
 export function mapResponse(
   value: unknown,
   request: RouteRequest,
@@ -476,11 +465,6 @@ export function retryAfter(
   const date = Date.parse(raw) / 1000;
   return Number.isFinite(date) ? Math.max(now, date) : undefined;
 }
-export interface RequestBudget {
-  take(): void;
-  stopped?: boolean;
-  run?: RoutingRun;
-}
 /** Browser transports can settle late after abort; cancellation must release routing permits immediately. */
 function abortable<T>(
   signal: AbortSignal,
@@ -531,7 +515,7 @@ function geocodeDetail(place: {
     })
     .join(", ");
 }
-export class ApiClient {
+export class ApiClient implements PlanningClient {
   async resolveStation(
     input: Place,
     signal: AbortSignal,

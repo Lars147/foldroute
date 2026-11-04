@@ -21,7 +21,7 @@ function route(
     to: coordinates.at(-1)!,
     start: now / 1000,
     end: now / 1000 + 1000,
-    distance: new NavigationPath(coordinates).length,
+    distance: new NavigationPath(coordinates).offsets.at(-1)!,
     coordinates,
   };
   return navigationJourney({
@@ -126,6 +126,7 @@ describe("navigation completion visibility", () => {
     updated.legs[0].maneuvers = [
       {
         direction: "CONTINUE",
+        streetName: "",
         distance: 1200,
         coordinates: [point(0), point(800), point(400)],
       },
@@ -320,11 +321,13 @@ describe("automatic section completion countdown", () => {
     turning.legs[0].maneuvers = [
       {
         direction: "DEPART",
+        streetName: "",
         distance: 400,
         coordinates: [point(0), point(400)],
       },
       {
         direction: "RIGHT",
+        streetName: "",
         distance: 4,
         coordinates: [point(400), turning.legs[0].to],
       },

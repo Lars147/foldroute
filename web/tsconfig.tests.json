@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"],
+    "allowJs": true,
+    "paths": { "/src/*": ["./src/*"], "/tests/*": ["./tests/*"] }
+  },
+  "include": ["src", "tests", "playwright.config.ts", "vitest.config.ts"]
+}

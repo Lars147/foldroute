@@ -31,7 +31,7 @@ export async function mountNavigationFixture(
   await page.route("**/src/main.ts", (route) =>
     route.fulfill({
       contentType: "text/javascript",
-      body: 'import "/src/style.css";',
+      body: "export async function startApplication() {}",
     }),
   );
   await page.route("https://tiles.openfreemap.org/**", (route) =>
@@ -46,10 +46,12 @@ export async function mountNavigationFixture(
         await import("/src/navigation-engine.ts");
       const { ApiClient } = await import("/src/transitous.ts");
       const { defaults } = await import("/src/model.ts");
+      const { appPresentation } = await import("/src/app-presentation.ts");
       const view = new NavigationView(
         () => {},
         () => {},
         {
+          presentation: appPresentation(),
           audioEnabled: options.audioEnabled,
           locationAutoRefresh: () => !!options.automaticLocation,
         },

@@ -52,8 +52,7 @@ for (const multimodal of [false, true]) {
         seconds === 1 ? 1000 : seconds === 3 ? 2000 : 3000,
       );
       await page.evaluate(
-        (seconds) =>
-          (window as any).navProbe.push(48.0004, 11 + seconds * 0.0001),
+        (seconds) => window.navProbe.push(48.0004, 11 + seconds * 0.0001),
         seconds,
       );
     }

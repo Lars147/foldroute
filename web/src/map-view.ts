@@ -18,9 +18,10 @@ import type {
   RouteRequest,
 } from "./model";
 import { el, node, icon } from "./ui";
-import { appearanceEvent, mapAttribution, mapTheme } from "./map-theme";
+import { appearanceEvent, mapTheme } from "./map-theme";
 import { mapStyleEvent } from "./map-style";
-import { mountMapStylePicker } from "./map-style-picker";
+import { appPresentation } from "./app-presentation";
+import type { JourneyWorkspaceApi } from "./journey-workspace-presentation";
 import { routeHitTest } from "./route-hit-test";
 setWorkerUrl(workerUrl);
 
@@ -92,8 +93,8 @@ export class RouteMap {
   constructor(
     private onSelect: (id: string) => void,
     private onBackground: () => void,
+    private workspace: JourneyWorkspaceApi = appPresentation().workspace,
   ) {
-    mountMapStylePicker(el("map-style-control"), "overview");
     const observer = new ResizeObserver(() => this.scheduleResize());
     observer.observe(el("journey-panel"));
     observer.observe(el("map-controls"));
@@ -139,7 +140,7 @@ export class RouteMap {
     const finished = complete && !this.resultsComplete;
     this.resultsComplete = complete;
     const theme = mapTheme();
-    if (online && !this.online) el("map-error").hidden = true;
+    if (online && !this.online) this.workspace.setHidden("map-error", true);
     this.online = online;
     if (!this.map) {
       this.map = L.map("map", {
@@ -231,10 +232,13 @@ export class RouteMap {
     if (online && (!this.tiles || !this.map.hasLayer(this.tiles))) {
       const unavailable = () => {
         if (!this.online) return;
-        el("map-error").hidden = false;
-        el("map-error").textContent = this.previewRequest
-          ? "Straßenkarte nicht verfügbar. Die eingegebenen Orte bleiben sichtbar."
-          : "Straßenkarte nicht verfügbar. Deine Reise bleibt nutzbar.";
+        this.workspace.setHidden("map-error", false);
+        this.workspace.setText(
+          "map-error",
+          this.previewRequest
+            ? "Straßenkarte nicht verfügbar. Die eingegebenen Orte bleiben sichtbar."
+            : "Straßenkarte nicht verfügbar. Deine Reise bleibt nutzbar.",
+        );
       };
       this.tiles = new BasemapLayer({
         style: theme.style,
@@ -245,7 +249,7 @@ export class RouteMap {
       this.basemapTheme = theme.name;
       basemap?.on("error", unavailable);
       basemap?.on("idle", () => {
-        if (this.online) el("map-error").hidden = true;
+        if (this.online) this.workspace.setHidden("map-error", true);
       });
     }
     if (online && this.basemapTheme !== theme.name) {
@@ -253,14 +257,15 @@ export class RouteMap {
       this.basemapTheme = theme.name;
     }
     this.updateLocation(this.liveFix, this.liveQuality);
-    el("map-route").hidden = !selected && !this.previewRequest;
+    this.workspace.setHidden("map-route", !selected && !this.previewRequest);
     if (!selected && !this.previewRequest) this.pendingRouteFit = false;
     el("map").classList.toggle("offline-map", !online);
-    el("map-label").innerHTML = mapAttribution;
     if (!online) {
-      el("map-error").hidden = false;
-      el("map-error").textContent =
-        "Offline · Geladene Kartenbereiche bleiben sichtbar. Neue Bereiche benötigen Internet.";
+      this.workspace.setHidden("map-error", false);
+      this.workspace.setText(
+        "map-error",
+        "Offline · Geladene Kartenbereiche bleiben sichtbar. Neue Bereiche benötigen Internet.",
+      );
     }
     const routes =
       selected && !journeys.some((j) => j.id === selected.id)
@@ -290,8 +295,8 @@ export class RouteMap {
       : routes.length > 1
         ? "Alle Routen anzeigen"
         : "Gesamte Route anzeigen";
-    el("map-route").setAttribute("aria-label", label);
-    el("map-route").title = label;
+    this.workspace.setAttribute("map-route", "aria-label", label);
+    this.workspace.setAttribute("map-route", "title", label);
     // Streaming geometry must not move the request overview. Explicit fit
     // includes the provisional path, even when it leaves the request bounds.
     const coordinates = this.previewRequest

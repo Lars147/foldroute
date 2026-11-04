@@ -11,7 +11,7 @@ const position = () =>
     timestamp: Date.now(),
   }) as GeolocationPosition;
 let requested: PositionCallback[];
-let announced: ReturnType<typeof vi.fn>;
+let announced: ReturnType<typeof vi.fn<(event: Event) => void>>;
 
 beforeEach(() => {
   requested = [];
@@ -48,7 +48,9 @@ it("publishes an explicitly requested location", async () => {
   requested[0](fix);
   expect(await pending).toMatchObject({ latitude: 48.13, longitude: 11.57 });
   expect(announced).toHaveBeenCalledOnce();
-  expect(announced.mock.calls[0][0].detail).toBe(fix);
+  expect(
+    (announced.mock.calls[0][0] as CustomEvent<GeolocationPosition>).detail,
+  ).toBe(fix);
 });
 
 it("discards a late search location after clearing local data", async () => {

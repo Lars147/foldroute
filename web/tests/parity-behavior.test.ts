@@ -13,7 +13,7 @@ import { PlanningSession } from "../src/planning-state";
 import { planRoutes } from "../src/planner";
 import { ApiClient } from "../src/transitous";
 vi.mock("../src/planner", () => ({ planRoutes: vi.fn() }));
-vi.mock("../src/search", () => ({ locate: vi.fn() }));
+vi.mock("../src/search-location", () => ({ locate: vi.fn() }));
 
 const origin = {
   name: "Start",

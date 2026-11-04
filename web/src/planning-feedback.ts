@@ -1,15 +1,15 @@
+import { appPresentation } from "./app-presentation";
+import type { JourneyWorkspaceApi } from "./journey-workspace-presentation";
 import type { PlanningState } from "./planning-state";
 import { planningProgress, planningRequestPreview } from "./planning-progress";
 import { el } from "./ui";
 import { rateLimitMessage } from "./model";
-import { RetryCountdown } from "./retry-countdown";
 
 export const planningReadyMessage = "Verbindungen gefunden";
 export type PlanningToastStage = "searching" | "ready" | "optimizing" | "error";
 
 /** Live status shares the toast channel and keeps the mobile map panel clear. */
 export class PlanningFeedback {
-  private readonly toastHome = el("toast").parentElement!;
   private announced = new Set<string>();
   private previousCalculation?: string;
   private wasOptimizing = false;
@@ -19,7 +19,6 @@ export class PlanningFeedback {
   private readyId?: string;
   private state?: PlanningState;
   private frame?: number;
-  private countdown = new RetryCountdown();
 
   constructor(
     private notify: (
@@ -29,6 +28,7 @@ export class PlanningFeedback {
     ) => boolean,
     private dismiss: () => void,
     private visible: () => boolean,
+    private workspace: JourneyWorkspaceApi = appPresentation().workspace,
   ) {
     const schedule = () => {
       if (!this.visible()) {
@@ -49,10 +49,19 @@ export class PlanningFeedback {
       el("map-controls"),
       el("result-header"),
       el("map-open-details"),
-      el("toast"),
       document.querySelector<HTMLElement>(".panel-actions")!,
     ])
       observer.observe(element);
+    let observedToast = el("toast");
+    observer.observe(observedToast);
+    this.workspace.subscribeStructure(() => {
+      const current = el("toast");
+      if (current === observedToast) return;
+      observer.unobserve(observedToast);
+      observedToast = current;
+      observer.observe(current);
+      schedule();
+    });
     document.addEventListener("scroll", schedule, true);
     const visibilityChanged = () => {
       if (this.visible()) this.render();
@@ -113,73 +122,58 @@ export class PlanningFeedback {
   }
 
   restoreToast() {
-    this.moveToast(this.toastHome);
+    this.workspace.setToastPlacement("root");
   }
-
-  private moveToast(parent: HTMLElement) {
-    const toast = el("toast");
-    if (toast.parentElement === parent) return;
-    const focused = toast.contains(document.activeElement)
-      ? (document.activeElement as HTMLElement)
-      : undefined;
-    parent.prepend(toast);
-    focused?.focus({ preventScroll: true });
-  }
-
   releaseRecovery() {
-    const recovery = el("planning-recovery");
-    if (!recovery.dataset.planningToast) return;
-    const focused = recovery.contains(document.activeElement)
-      ? (document.activeElement as HTMLElement)
-      : undefined;
-    delete recovery.dataset.planningToast;
+    if (!el("planning-recovery").dataset.planningToast) return;
+    const focused = document.activeElement?.id;
+    this.workspace.setRecoveryToast(false);
+    this.workspace.setAttribute(
+      "planning-recovery",
+      "data-planning-toast",
+      undefined,
+    );
     this.showRecoveryIcon(false);
-    // Hide completed actions before moving them into the scrollable results.
-    // Otherwise scroll anchoring can capture their temporary inline height.
-    recovery.hidden = !this.state?.recovery || !!this.state?.busy;
-    const map =
-      !matchMedia("(min-width: 900px)").matches &&
-      el("map-view").dataset.resultScreen === "map";
-    if (el<HTMLDialogElement>("alternatives-dialog").open)
-      el("alternatives-body").prepend(recovery);
-    else if (this.state && planningRequestPreview(this.state))
-      el("search-preview-feedback").prepend(recovery);
-    else el(map ? "map-preview-status" : "stale-notice").after(recovery);
+    this.workspace.setHidden(
+      "planning-recovery",
+      !this.state?.recovery || !!this.state?.busy,
+    );
     const message = this.state ? planningProgress(this.state).message : "";
-    el("status").textContent = message;
-    el("map-preview-status").textContent = message;
-    el("map-preview-status").hidden = !message;
-    focused?.focus({ preventScroll: true });
+    this.workspace.setText("status", message);
+    this.workspace.setText("map-preview-status", message);
+    this.workspace.setHidden("map-preview-status", !message);
+    if (focused === "recover-planning")
+      el(focused).focus({ preventScroll: true });
   }
-
   private attachRecovery() {
-    const recovery = el("planning-recovery");
-    if (recovery.parentElement === el("toast")) return;
-    const focused = recovery.contains(document.activeElement)
-      ? (document.activeElement as HTMLElement)
-      : undefined;
-    recovery.dataset.planningToast = "true";
+    const focused = document.activeElement?.id;
+    this.workspace.setRecoveryToast(true);
+    this.workspace.setAttribute(
+      "planning-recovery",
+      "data-planning-toast",
+      "true",
+    );
     this.showRecoveryIcon(true);
-    el("toast").append(recovery);
-    el("status").textContent = "";
-    el("map-preview-status").textContent = "";
-    el("map-preview-status").hidden = true;
-    focused?.focus({ preventScroll: true });
+    this.workspace.setText("status", "");
+    this.workspace.setText("map-preview-status", "");
+    this.workspace.setHidden("map-preview-status", true);
+    if (focused === "recover-planning")
+      el(focused).focus({ preventScroll: true });
   }
-
   private showRecoveryIcon(show: boolean) {
-    const button = el<HTMLButtonElement>("recover-planning");
-    button.classList.toggle("icon-button", show);
-    el("recovery-label").classList.toggle("sr-only", show);
-    if (show) {
-      button.setAttribute("aria-label", "Erneut versuchen");
-      button.title = "Erneut versuchen";
-    } else {
-      button.removeAttribute("aria-label");
-      button.removeAttribute("title");
-    }
+    this.workspace.toggleClass("recover-planning", "icon-button", show);
+    this.workspace.toggleClass("recovery-label", "sr-only", show);
+    this.workspace.setAttribute(
+      "recover-planning",
+      "aria-label",
+      show ? "Erneut versuchen" : undefined,
+    );
+    this.workspace.setAttribute(
+      "recover-planning",
+      "title",
+      show ? "Erneut versuchen" : undefined,
+    );
   }
-
   private render() {
     const slot = el("planning-feedback-slot");
     const panel = el("journey-panel");
@@ -207,7 +201,7 @@ export class PlanningFeedback {
   }
 
   private renderStatus() {
-    this.countdown.clear();
+    this.workspace.setToastRetryAt(0);
     if (!this.state) return;
     const state = this.state;
     const progress = planningProgress(state);
@@ -234,11 +228,8 @@ export class PlanningFeedback {
       this.readyId = undefined;
       if (this.notify(id!, progress.message, "error")) {
         this.attachRecovery();
-        const label = el("toast").querySelector<HTMLElement>(
-          ".planning-toast-message",
-        );
-        if (label && rateLimitMessage(state.failures))
-          this.countdown.render(label, state.recovery?.retryAt ?? 0);
+        if (rateLimitMessage(state.failures))
+          this.workspace.setToastRetryAt(state.recovery?.retryAt ?? 0);
       }
     } else {
       if (
@@ -265,18 +256,18 @@ export class PlanningFeedback {
   }
 
   position(): boolean {
-    const toast = el("toast");
+    let toast = el("toast");
     const desktop = matchMedia("(min-width: 900px)").matches;
     const mapElement = el("map-view");
     const mapScreen =
       !desktop &&
       !mapElement.hidden &&
       mapElement.dataset.resultScreen === "map";
-    toast.toggleAttribute("data-map-toast", mapScreen);
+    this.workspace.setToastMap(mapScreen);
     const planning = !!toast.dataset.planningId;
     if (el<HTMLDialogElement>("alternatives-dialog").open) {
-      toast.removeAttribute("data-map-toast");
-      this.moveToast(el("alternatives-feedback-slot"));
+      this.workspace.setToastMap(false);
+      this.workspace.setToastPlacement("sheet");
       return true;
     }
     if (toast.parentElement === el("alternatives-feedback-slot"))
@@ -294,17 +285,11 @@ export class PlanningFeedback {
     ) {
       const slot = el("planning-feedback-slot");
       const parent = el("panel-content");
-      if (slot.parentElement !== parent) {
-        const focused = slot.contains(document.activeElement)
-          ? (document.activeElement as HTMLElement)
-          : undefined;
-        el("status").before(slot);
-        focused?.focus({ preventScroll: true });
-      }
-      this.moveToast(slot);
+      this.workspace.setToastPlacement("inline");
       return true;
     }
     this.restoreToast();
+    toast = el("toast");
     const viewport = window.visualViewport;
     const viewLeft = viewport?.offsetLeft ?? 0;
     const viewTop = viewport?.offsetTop ?? 0;
@@ -334,7 +319,7 @@ export class PlanningFeedback {
       : (left + right) / 2;
     // Reserve equal space on both sides so the controls limit width, not alignment.
     const width = Math.max(0, 2 * Math.min(center - left, right - center));
-    toast.style.setProperty("--planning-toast-width", `${width}px`);
+    this.workspace.setToastStyle("--planning-toast-width", `${width}px`);
     if (mapScreen) {
       const top = Math.max(viewTop + 12, controls.top);
       const tabs = document
@@ -344,8 +329,8 @@ export class PlanningFeedback {
         viewBottom - 8,
         (sidePanel ? tabs.top : panel.top) - 12,
       );
-      toast.style.setProperty("--planning-toast-top", `${top}px`);
-      toast.style.setProperty(
+      this.workspace.setToastStyle("--planning-toast-top", `${top}px`);
+      this.workspace.setToastStyle(
         "--map-toast-height",
         `${Math.max(0, bottom - top)}px`,
       );
@@ -372,11 +357,11 @@ export class PlanningFeedback {
       return false;
     }
     const toastWidth = toast.getBoundingClientRect().width;
-    toast.style.setProperty(
+    this.workspace.setToastStyle(
       "--planning-toast-left",
       `${center - toastWidth / 2}px`,
     );
-    toast.style.setProperty("--planning-toast-top", `${top}px`);
+    this.workspace.setToastStyle("--planning-toast-top", `${top}px`);
     return true;
   }
 }

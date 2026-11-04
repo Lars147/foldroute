@@ -177,9 +177,12 @@ test("section tabs preserve compact and expanded states in the long S8 journey",
   await expect(details).toBeHidden();
   await expect(train).toHaveAttribute("aria-selected", "false");
   await expect(fold).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#navigation-section-preview")).toHaveText(
-    "Falten3 minOstbahnhof",
-  );
+  await expect(page.locator("#navigation-section-preview > *")).toHaveText([
+    "Falten",
+    "3 min",
+    "Ostbahnhof",
+  ]);
+  await expect(toggle).toHaveAccessibleDescription("Falten 3 min Ostbahnhof");
   await expect(page.locator("#navigation-stations-preview")).toBeHidden();
   await expect(page.locator("#navigation-alert")).toBeInViewport({ ratio: 1 });
   await expect(page.locator("#navigation-complete")).toBeHidden();

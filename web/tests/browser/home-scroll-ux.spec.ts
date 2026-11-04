@@ -162,7 +162,9 @@ for (const width of [390, 1280]) {
       const { ApiClient } = await import("/src/transitous.ts");
       ApiClient.prototype.searchPlaces = function (_query, signal) {
         (window as any).searchSignal = signal;
-        return ((window as any).searchRun = new Promise((resolve) => {
+        return ((window as any).searchRun = new Promise<
+          import("../../src/model").Place[]
+        >((resolve) => {
           (window as any).releaseSearch = () =>
             resolve([
               {

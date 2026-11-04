@@ -24,7 +24,7 @@ async function push(
   await page.clock.runFor(1000);
   await page.evaluate(
     ({ latitude, longitude, accuracy }) => {
-      (window as any).navProbe.push(latitude, longitude, 90, accuracy);
+      window.navProbe.push(latitude, longitude, 90, accuracy);
     },
     { latitude, longitude, accuracy },
   );
@@ -157,17 +157,17 @@ test("foreground recovery waits for a fresh fix and can reacquire farther along 
   await setup(page);
   await push(page, 48.00045, 11.001);
   await page.evaluate(() => {
-    (window as any).navProbe.silent = true;
-    (window as any).navProbe.hide(true);
+    window.navProbe.silent = true;
+    window.navProbe.hide(true);
   });
   await page.clock.fastForward(70000);
-  await page.evaluate(() => (window as any).navProbe.hide(false));
+  await page.evaluate(() => window.navProbe.hide(false));
   await expect(page.locator("#navigation-map")).toHaveAttribute(
     "data-position-source",
     "last-known",
   );
   await page.evaluate(() =>
-    (window as any).navProbe.push(48.0017, 11.0024, 0, 70, 70000),
+    window.navProbe.push(48.0017, 11.0024, 0, 70, 70000),
   );
   await expect(page.locator("#navigation-map")).toHaveAttribute(
     "data-position-source",

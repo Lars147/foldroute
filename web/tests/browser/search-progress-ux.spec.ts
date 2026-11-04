@@ -230,7 +230,11 @@ for (const failed of [false, true])
       await expect(page.locator("#map")).toBeVisible();
       await expect(page.locator("#map-controls")).toBeVisible();
       expect(
-        await page.locator("#map").evaluate((element) => element.inert),
+        await page
+          .locator("#map")
+          .evaluate(
+            (element) => element instanceof HTMLElement && element.inert,
+          ),
       ).toBe(false);
       await expect(page.locator("#route-more")).toBeFocused();
     }
@@ -1135,7 +1139,7 @@ async function expectCountdownAt(
         throw new Error("Toast countdown animation missing");
       animation.pause();
       const timing = animation.effect.getTiming();
-      animation.currentTime = duration * elapsed + timing.delay;
+      animation.currentTime = duration * elapsed + (timing.delay ?? 0);
       const track = fill.parentElement!.getBoundingClientRect();
       const bounds = fill.getBoundingClientRect();
       const toast = fill.closest("#toast")!.getBoundingClientRect();
@@ -1388,7 +1392,7 @@ for (const [width, colorScheme] of [
         animation.currentTime = 0;
         return {
           progress: animation.effect!.getComputedTiming().progress,
-          elapsed: -animation.effect!.getTiming().delay,
+          elapsed: -(animation.effect!.getTiming().delay ?? 0),
         };
       });
     expect(resumed.elapsed).toBeGreaterThanOrEqual(3000);

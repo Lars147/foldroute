@@ -1,3 +1,17 @@
+import { systemClock, type Clock } from "./clock";
+import {
+  projectPath,
+  projectMovementPath,
+  projectTransitPath,
+  type Projection,
+} from "./navigation-projection";
+export {
+  headingDelta,
+  projectPath,
+  projectMovementPath,
+  projectTransitPath,
+  type Projection,
+} from "./navigation-projection";
 import { legStops } from "./model";
 import type { Coordinate, Journey, Leg, Maneuver } from "./model";
 import { distance } from "./geometry";
@@ -23,12 +37,6 @@ export interface NavigationProgress {
   transitStop?: string;
   transitDepartedStop?: string;
 }
-export interface Projection {
-  meters: number;
-  distance: number;
-  length: number;
-  bearing: number;
-}
 export const movement = (leg?: Leg) =>
   leg?.kind === "bike" || leg?.kind === "walk";
 export const freshTransit = (leg: Leg, now: number) =>
@@ -37,88 +45,6 @@ export const freshTransit = (leg: Leg, now: number) =>
   !leg.transitStatus?.failure &&
   leg.transitStatus?.updatedAt !== undefined &&
   Math.abs(now - leg.transitStatus.updatedAt) <= 120;
-export const headingDelta = (from: number, to: number) =>
-  ((((to - from + 180) % 360) + 360) % 360) - 180;
-
-/** Project onto segments, restricting candidates to the current part of the path. */
-export function projectPath(
-  point: Coordinate,
-  path: Coordinate[],
-  min = 0,
-  max = Infinity,
-): Projection {
-  let length = 0;
-  let best = { meters: 0, distance: Infinity, length: 0, bearing: 0 };
-  const scale = Math.cos((point.latitude * Math.PI) / 180);
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1],
-      b = path[i];
-    const segment = distance(a, b);
-    const ax = (a.longitude - point.longitude) * scale,
-      ay = a.latitude - point.latitude;
-    const dx = (b.longitude - a.longitude) * scale,
-      dy = b.latitude - a.latitude;
-    const t =
-      dx || dy
-        ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy)))
-        : 0;
-    const meters = length + segment * t;
-    const d = distance(point, {
-      latitude: a.latitude + (b.latitude - a.latitude) * t,
-      longitude: a.longitude + (b.longitude - a.longitude) * t,
-    });
-    if (meters >= min && meters <= max && d < best.distance - 0.01)
-      best = {
-        meters,
-        distance: d,
-        length: 0,
-        bearing: ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360,
-      };
-    length += segment;
-  }
-  return { ...best, length };
-}
-
-/** Street matching must agree for guidance and presentation, including route loops. */
-export function projectMovementPath(
-  fix: LocationFix,
-  path: Coordinate[],
-  min = 0,
-  max = Infinity,
-): Projection | undefined {
-  const candidates: Projection[] = [];
-  let offset = 0;
-  for (let i = 1; i < path.length; i++) {
-    const candidate = projectPath(fix, [path[i - 1], path[i]]);
-    candidate.meters += offset;
-    offset += candidate.length;
-    if (
-      candidate.meters >= min &&
-      candidate.meters <= max &&
-      candidate.distance <= Math.max(40, fix.accuracy)
-    )
-      candidates.push(candidate);
-  }
-  candidates.sort((a, b) => a.distance - b.distance);
-  const best = candidates[0];
-  if (!best) return;
-  const nearby = candidates.filter(
-    (c) => c.distance <= best.distance + Math.max(10, fix.accuracy),
-  );
-  const separated = (a: Projection, b: Projection) =>
-    Math.abs(a.meters - b.meters) > Math.max(30, 2 * fix.accuracy);
-  let selected = best;
-  if (nearby.some((c) => separated(best, c))) {
-    if (fix.heading === undefined || (fix.speed ?? 0) < 1) return;
-    const aligned = nearby.filter(
-      (c) => Math.abs(headingDelta(fix.heading!, c.bearing)) <= 60,
-    );
-    if (!aligned[0] || aligned.some((c) => separated(aligned[0], c))) return;
-    selected = aligned[0];
-  }
-  return { ...selected, length: offset };
-}
-
 export function movementCoordinates(leg: Leg): Coordinate[] {
   return leg.maneuvers?.length
     ? leg.maneuvers.flatMap((step) => step.coordinates)
@@ -127,28 +53,6 @@ export function movementCoordinates(leg: Leg): Coordinate[] {
       : [leg.from, leg.to];
 }
 
-/** Reject off-route and ambiguous projections, including overlapping route loops. */
-export function projectTransitPath(
-  fix: LocationFix,
-  path: Coordinate[],
-  min: number,
-): Projection | undefined {
-  const projection = projectPath(fix, path, min);
-  if (projection.distance > 100) return;
-  let offset = 0;
-  for (let i = 1; i < path.length; i++) {
-    const alternative = projectPath(fix, [path[i - 1], path[i]]);
-    const position = offset + alternative.meters;
-    if (
-      position >= min &&
-      Math.abs(position - projection.meters) > 200 &&
-      alternative.distance <= projection.distance + Math.max(10, fix.accuracy)
-    )
-      return;
-    offset += alternative.length;
-  }
-  return projection;
-}
 export function maneuverText(maneuver: Maneuver): string {
   const text: Record<string, string> = {
     DEPART: "Losfahren",
@@ -247,6 +151,7 @@ export class NavigationEngine {
   constructor(
     public journey: Journey,
     progress?: NavigationProgress,
+    private readonly clock: Clock = systemClock,
   ) {
     this.progress = structuredClone(
       progress ?? {
@@ -323,21 +228,22 @@ export class NavigationEngine {
       (this.leg.to.stopId
         ? stops.at(-1)!.stopId === this.leg.to.stopId
         : distance(stops.at(-1)!, this.leg.to) <= maxStationShapeDistance) &&
-      quality(evidence.first) === "current" &&
-      quality(evidence.last) === "current"
+      quality(evidence.first, this.clock.now()) === "current" &&
+      quality(evidence.last, this.clock.now()) === "current"
     );
   }
   get hasCurrentTransitPosition(): boolean {
     return !!(
       this.transitPositionConfirmed &&
       this.transitEvidence &&
-      quality(this.transitEvidence.first) === "current" &&
-      quality(this.transitEvidence.last) === "current"
+      quality(this.transitEvidence.first, this.clock.now()) === "current" &&
+      quality(this.transitEvidence.last, this.clock.now()) === "current"
     );
   }
   get hasTransitLocation(): boolean {
     return !!(
-      this.transitSample && quality(this.transitSample.fix) === "current"
+      this.transitSample &&
+      quality(this.transitSample.fix, this.clock.now()) === "current"
     );
   }
   get maneuver(): Maneuver | undefined {
@@ -384,13 +290,13 @@ export class NavigationEngine {
     if (this.timedActivity)
       return Math.max(
         0,
-        this.activityEnd(Date.now() / 1000) - Date.now() / 1000,
+        this.activityEnd(this.clock.now() / 1000) - this.clock.now() / 1000,
       );
     const leg = this.leg;
     const length = projectPath(leg.from, this.path).length;
     return length
       ? ((leg.end - leg.start) * this.remainingMeters) / length
-      : Math.max(0, leg.end - Date.now() / 1000);
+      : Math.max(0, leg.end - this.clock.now() / 1000);
   }
   private preparePath() {
     this.resetCompletionCountdown();
@@ -620,11 +526,11 @@ export class NavigationEngine {
     const legs = this.journey.legs.slice();
     legs[this.progress.legIndex] = {
       ...this.leg,
-      end: this.activityEnd(Date.now() / 1000),
+      end: this.activityEnd(this.clock.now() / 1000),
     };
     return { ...this.journey, legs };
   }
-  setCompletionPaused(paused: boolean, now = Date.now()) {
+  setCompletionPaused(paused: boolean, now = this.clock.now()) {
     paused &&=
       this.phase === "active" && (movement(this.leg) || this.timedActivity);
     if (paused === this.completionPaused) return;
@@ -691,7 +597,7 @@ export class NavigationEngine {
       this.advance(false, now / 1000);
     }
   }
-  update(fix: LocationFix, now = Date.now()): boolean {
+  update(fix: LocationFix, now = this.clock.now()): boolean {
     if (this.phase !== "active" || quality(fix, now) !== "current") {
       this.invalidateLocation();
       return false;
@@ -794,7 +700,7 @@ export class NavigationEngine {
     this.updateCompletionCountdown(now);
     return this.offRoute;
   }
-  tick(now = Date.now() / 1000) {
+  tick(now = this.clock.now() / 1000) {
     if (this.phase !== "active") return;
     const leg = this.leg;
     if (movement(leg)) {
@@ -820,7 +726,7 @@ export class NavigationEngine {
     }
     this.advance(false, now);
   }
-  advance(manual = false, now = Date.now() / 1000): boolean {
+  advance(manual = false, now = this.clock.now() / 1000): boolean {
     if (this.phase !== "active") return false;
     if (!manual && this.completionPaused) return false;
     const next = this.journey.legs[this.progress.legIndex + 1];

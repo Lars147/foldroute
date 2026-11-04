@@ -57,14 +57,14 @@ for (const width of [390, 1280]) {
     ).toHaveCount(0);
     const details = page.locator("#navigation-section-content");
     await expect(details).toHaveText("Noch 1 min · 371 m");
-    await expect(page.locator("#navigation-stage")).toHaveClass("sr-only");
+    await expect(page.locator("#navigation-stage")).toHaveClass(
+      /(^|\s)sr-only(\s|$)/,
+    );
     await expect(page.locator("#navigation-complete")).toBeHidden();
     await expect(await completionButton(page)).toBeVisible();
     const walk = page.getByRole("tab", { name: /^Zu Fuß nach Ausstieg/ });
     const progress = await savedProgress(page);
-    const spoken = await page.evaluate(() => [
-      ...(window as any).navProbe.spoken,
-    ]);
+    const spoken = await page.evaluate(() => [...window.navProbe.spoken]);
     await walk.click();
     await expect(details).toContainText("Zu Fuß bis Ausstieg");
     await expect(details).toContainText("Von Bahnhof");
@@ -72,14 +72,12 @@ for (const width of [390, 1280]) {
     await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     await expect(page.locator("#navigation-complete")).toBeHidden();
     expect(await savedProgress(page)).toEqual(progress);
-    expect(await page.evaluate(() => (window as any).navProbe.spoken)).toEqual(
-      spoken,
-    );
+    expect(await page.evaluate(() => window.navProbe.spoken)).toEqual(spoken);
     // The selected preview becomes current through real position updates.
     await page.clock.runFor(10000);
-    await page.evaluate(() => (window as any).navProbe.push(48, 11.002));
+    await page.evaluate(() => window.navProbe.push(48, 11.002));
     await page.clock.runFor(12000);
-    await page.evaluate(() => (window as any).navProbe.push(48.002, 11.002, 0));
+    await page.evaluate(() => window.navProbe.push(48.002, 11.002, 0));
     await expect(page.locator("#navigation-auto-complete")).toBeVisible();
     await page.clock.runFor(30000);
     await expect(walk).toHaveAttribute("aria-selected", "true");
@@ -178,9 +176,7 @@ for (const width of [320, 390, 1280])
     const instruction = await page
       .locator("#navigation-instruction")
       .innerText();
-    const spoken = await page.evaluate(() => [
-      ...(window as any).navProbe.spoken,
-    ]);
+    const spoken = await page.evaluate(() => [...window.navProbe.spoken]);
     const progress = await savedProgress(page);
     await train.click();
     if (width < 900) {
@@ -204,7 +200,9 @@ for (const width of [320, 390, 1280])
     const detail = page.locator("#navigation-section-content");
     await expect(page.locator("#navigation-transit-status")).toBeEmpty();
     await expect(detail.locator(".detail-source")).toHaveCount(0);
-    await expect(page.locator("#navigation-stage")).toHaveClass("sr-only");
+    await expect(page.locator("#navigation-stage")).toHaveClass(
+      /(^|\s)sr-only(\s|$)/,
+    );
     await expect(
       detail.locator('[data-kind="fold"], [data-kind="unfold"]'),
     ).toHaveCount(0);
@@ -221,17 +219,15 @@ for (const width of [320, 390, 1280])
       instruction,
     );
     expect(await savedProgress(page)).toEqual(progress);
-    expect(await page.evaluate(() => (window as any).navProbe.spoken)).toEqual(
-      spoken,
-    );
+    expect(await page.evaluate(() => window.navProbe.spoken)).toEqual(spoken);
     await train.click();
     await expect(page.getByRole("tabpanel")).toBeVisible();
 
     // Actual folding gets its own current marker while the train preview stays open.
     await page.clock.runFor(10000);
-    await page.evaluate(() => (window as any).navProbe.push(48, 11.002));
+    await page.evaluate(() => window.navProbe.push(48, 11.002));
     await page.clock.runFor(12000);
-    await page.evaluate(() => (window as any).navProbe.push(48.002, 11.002, 0));
+    await page.evaluate(() => window.navProbe.push(48.002, 11.002, 0));
     await expect(page.locator("#navigation-auto-complete")).toBeVisible();
     await page.clock.runFor(30000);
     await expect(page.locator("#navigation-instruction")).toHaveText(
@@ -269,7 +265,7 @@ for (const width of [320, 390, 1280])
     await expect(detail).toContainText("169 m");
     await expect(page.locator("#navigation-complete")).toBeHidden();
     await page.evaluate(() =>
-      setInterval(() => (window as any).navProbe.push(48.003, 11.004), 10000),
+      setInterval(() => window.navProbe.push(48.003, 11.004), 10000),
     );
     // Exercise each periodic GPS sample without rendering ten minutes of frames.
     for (let i = 0; i < 60; i++) await page.clock.fastForward(10000);

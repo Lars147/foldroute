@@ -1,0 +1,461 @@
+@media (max-width: 599px) {
+  .app-tabs {
+    gap: 0;
+  }
+  .app-tabs button {
+    flex: 1;
+    padding-inline: 8px;
+  }
+}
+
+.route-preview {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+.route-preview.is-hovered {
+  opacity: 1;
+  transition-duration: 160ms;
+}
+.route-preview.route-preview-reset {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-preview {
+    transition: none;
+  }
+}
+
+.route-marker {
+  background: transparent;
+  border: 0;
+  border-radius: 22px;
+}
+.route-marker-symbols {
+  display: flex;
+  height: 44px;
+  background: var(--color-map-surface);
+  border-radius: 22px;
+}
+.route-marker-symbols:has(.route-marker-slot:only-child) {
+  background: transparent;
+}
+.route-marker-slot {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+.route-marker-symbol {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--color-map-text);
+  box-shadow: 0 1px 5px var(--color-shadow);
+}
+.route-marker-start {
+  width: 18px;
+  height: 18px;
+  border-width: 3px;
+  background: var(--color-map-surface);
+}
+.route-marker-destination {
+  background: var(--color-map-text);
+  color: var(--color-map-surface);
+  border-color: var(--color-map-surface);
+}
+.route-marker-destination .icon {
+  width: 18px;
+  height: 18px;
+}
+.route-marker-stop {
+  background: var(--color-map-surface);
+  color: var(--color-map-text);
+  border-color: var(--color-map-text);
+  font:
+    750 14px/1 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+.route-marker-info p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.route-outline {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+@media (max-width: 899px) {
+  body.search-focus-mode {
+    overflow: hidden;
+  }
+  body.search-focus-mode * {
+    visibility: hidden;
+  }
+  body.search-focus-mode .search-focus-input,
+  body.search-focus-mode .search-focus-results,
+  body.search-focus-mode .search-focus-results *,
+  body.search-focus-mode .search-focus-status,
+  body.search-focus-mode .search-focus-status a,
+  body.search-focus-mode .search-focus-back {
+    visibility: visible;
+  }
+  body.search-focus-mode::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: var(--paper);
+    z-index: 999;
+  }
+  /* Fixed search controls must stay relative to the viewport during expansion. */
+  body.search-focus-mode .route-editor {
+    translate: none !important;
+    opacity: 1 !important;
+  }
+  /* Modal dialogs sit above the body overlay in the browser's top layer. */
+  body.search-focus-mode dialog[open]:has(.search-focus-input) {
+    position: fixed;
+    inset: calc(var(--visual-top, 0px) + var(--safe-top)) 0 var(--safe-bottom);
+    width: 100%;
+    max-width: none;
+    height: calc(
+      var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom)
+    );
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+    background: var(--paper);
+    visibility: visible;
+  }
+  body.search-focus-mode dialog[open]:has(.search-focus-input)::backdrop {
+    background: var(--paper);
+  }
+  body.search-focus-mode .search-focus-back {
+    position: fixed;
+    z-index: 1000;
+    left: calc(var(--visual-left, 0px) + var(--safe-left) + 12px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top) + 8px);
+    min-height: 44px;
+    background: var(--paper);
+  }
+  body.search-focus-mode .search-focus-input {
+    position: fixed;
+    z-index: 1000;
+    left: calc(var(--visual-left, 0px) + var(--safe-left) + 12px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top) + 60px);
+    width: calc(
+      var(--visual-width, 100vw) - var(--safe-left) - var(--safe-right) - 24px
+    );
+    height: 52px;
+    margin: 0;
+    padding: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--panel-line);
+    border-radius: 12px;
+    font-size: 16px;
+  }
+  body.search-focus-mode .search-focus-input:focus {
+    outline: 2px solid var(--color-selection-indicator);
+    outline-offset: 2px;
+  }
+  body.search-focus-mode .search-focus-status {
+    position: fixed;
+    z-index: 1000;
+    left: calc(var(--visual-left, 0px) + var(--safe-left) + 12px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top) + 116px);
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    max-width: calc(
+      var(--visual-width, 100vw) - var(--safe-left) - var(--safe-right) - 24px
+    );
+  }
+  body.search-focus-mode .search-focus-results {
+    position: fixed;
+    z-index: 1000;
+    left: calc(var(--visual-left, 0px) + var(--safe-left) + 12px);
+    top: calc(var(--visual-top, 0px) + var(--safe-top) + 150px);
+    width: calc(
+      var(--visual-width, 100vw) - var(--safe-left) - var(--safe-right) - 24px
+    );
+    height: max(
+      44px,
+      calc(
+        var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom) -
+          158px
+      )
+    );
+    max-height: none;
+    margin: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--surface);
+    color: var(--ink);
+  }
+}
+
+@media (forced-colors: active) {
+  .search-box:focus-within,
+  body.search-focus-mode .search-focus-input:focus {
+    outline-color: Highlight;
+  }
+}
+@media (forced-colors: active) and (min-width: 900px) {
+  .route-editor-places input[type="search"]::-webkit-search-cancel-button {
+    background-color: ButtonText;
+  }
+  .route-editor-places input[type="search"]:focus,
+  .route-editor-places input[type="search"][data-keyboard-focus]:focus {
+    border-radius: 10px;
+    box-shadow: none;
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+
+.time-trigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 16px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-size: 1rem;
+  text-align: left;
+}
+.time-trigger > :last-child {
+  margin-left: auto;
+  font-size: 24px;
+}
+dialog.editing-time {
+  height: min(
+    760px,
+    calc(
+      var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom) - 24px
+    )
+  );
+  overflow: hidden;
+}
+#time-editor {
+  height: 100%;
+  max-height: 100%;
+}
+#time-editor .dialog-heading {
+  align-items: center;
+  justify-content: space-between;
+}
+.time-editor-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  flex: 1;
+  padding: 16px 20px;
+}
+.time-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 4px;
+}
+.time-modes button,
+.time-clock-controls button,
+#time-calendar button {
+  font-size: 1rem;
+  min-height: 44px;
+}
+.time-modes [aria-pressed="true"],
+#time-calendar [aria-selected="true"] button {
+  background: var(--yellow);
+  color: var(--color-asphalt);
+  outline: 1px solid var(--color-asphalt);
+}
+.time-month-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+.time-month-navigation h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.time-weekdays,
+#time-calendar [role="row"] {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  text-align: center;
+}
+.time-weekdays {
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+#time-calendar button {
+  width: 100%;
+  padding: 4px 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+#time-calendar [aria-current="date"] {
+  border-color: var(--ink);
+}
+#time-calendar .outside-month {
+  color: var(--muted);
+}
+#time-calendar button:disabled {
+  opacity: 0.35;
+}
+.time-editor-body > label {
+  display: block;
+  margin: 20px 0 8px;
+  font-weight: 650;
+}
+.time-clock-controls {
+  display: grid;
+  grid-template-columns: 44px minmax(74px, 1fr) 44px auto;
+  gap: 6px;
+  align-items: center;
+}
+#time-clock {
+  min-width: 0;
+  width: 100%;
+  font-size: 1.25rem;
+  text-align: center;
+  padding: 8px;
+}
+#time-error {
+  color: var(--ink);
+}
+@media (max-width: 599px) {
+  dialog.editing-time {
+    width: 100%;
+    max-width: none;
+    height: calc(
+      var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom)
+    );
+    max-height: calc(
+      var(--visual-height, 100dvh) - var(--safe-top) - var(--safe-bottom)
+    );
+    margin: 0;
+    top: calc(var(--visual-top, 0px) + var(--safe-top));
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 359px) {
+  .time-clock-controls {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+  #time-now {
+    grid-column: 1 / -1;
+  }
+  .time-weekdays,
+  #time-calendar {
+    margin-inline: -14px;
+  }
+}
+
+@media (max-width: 899px) {
+  :root {
+    --header: 0px;
+    --mobile-status-height: var(--connection-height, 0px);
+    --tab-height: max(56px, 3.5rem);
+    --tab-bottom: max(12px, calc(var(--safe-bottom) + 4px));
+    --tabs: calc(var(--tab-height) + var(--tab-bottom));
+  }
+  .app-tabs {
+    --tab-indicator-inset: 0px;
+    --tab-indicator-radius: 19px;
+    bottom: var(--tab-bottom);
+    left: max(12px, calc(var(--safe-left) + 12px));
+    right: max(12px, calc(var(--safe-right) + 12px));
+    height: var(--tab-height);
+    padding: 0;
+    gap: 0;
+    border: 1px solid var(--panel-line);
+    border-radius: 20px;
+    background: var(--surface);
+    box-shadow: 0 5px 20px var(--color-shadow);
+  }
+  .app-tabs button {
+    flex: 1;
+    padding: 4px 6px;
+    min-height: 44px;
+  }
+  .app-tabs .app-tab-content {
+    gap: 1px;
+    line-height: 1.1;
+  }
+  .app-tabs .app-tab-content > [data-icon] {
+    display: flex;
+  }
+  .app-tabs .icon {
+    width: 22px;
+    height: 22px;
+  }
+  .map-screen[data-result-screen="map"] {
+    inset: 0;
+    /* Map pixels fill the screen; padding describes the camera's usable frame. */
+    padding-top: calc(var(--safe-top) + var(--mobile-status-height));
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--tabs);
+  }
+  [data-result-screen="map"] .map-controls {
+    top: calc(
+      var(--safe-top) + var(--mobile-status-height) +
+        var(--map-controls-top-gap)
+    );
+    right: max(16px, calc(var(--safe-right) + 12px));
+  }
+  .app-header {
+    display: none;
+  }
+  #connection {
+    top: var(--safe-top);
+    right: 0;
+    left: 0;
+    transform: none;
+    border-radius: 0;
+    text-align: center;
+  }
+}
+
+.journey-distance {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  color: var(--panel-muted);
+}
+
+.live-location-marker {
+  background: none;
+  border: 0;
+}
+.live-location-dot {
+  display: block;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 3px solid white;
+  border-radius: 50%;
+  background: var(--location-color, var(--color-location));
+  box-shadow: 0 1px 5px var(--color-shadow);
+}
+.live-location-marker[data-quality="inaccurate"] .live-location-dot {
+  border-style: dashed;
+}

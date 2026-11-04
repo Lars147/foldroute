@@ -1,3 +1,4 @@
+import { installLocationProbe } from "./location-probe";
 import { test, expect, type Page } from "./test";
 import { defaults } from "../../src/model";
 import { routeURL } from "../../src/route-url";
@@ -8,75 +9,12 @@ import {
   showMap,
 } from "./assertions";
 
-async function setup(page: Page, permission = "granted") {
+async function setup(page: Page, permission: PermissionState = "granted") {
   await page.clock.install({ time: new Date("2026-09-04T08:00:00Z") });
-  await page.addInitScript((state) => {
-    let next = 0;
-    const watches = new Map<number, PositionCallback>();
-    const errors = new Map<number, PositionErrorCallback>();
-    const status = { state, onchange: null as (() => void) | null };
-    let lastPosition: GeolocationPosition | undefined;
-    const probe = {
-      started: 0,
-      stopped: 0,
-      refreshLookups: 0,
-      refreshSilent: true,
-      permission(value: string) {
-        status.state = value;
-        status.onchange?.();
-      },
-      push(latitude: number, accuracy: number, age = 0) {
-        lastPosition = {
-          coords: { latitude, longitude: 11.5756, accuracy },
-          timestamp: Date.now() - age,
-        } as GeolocationPosition;
-        for (const callback of watches.values()) callback(lastPosition);
-      },
-      fail() {
-        for (const callback of errors.values())
-          callback({ code: 2 } as GeolocationPositionError);
-      },
-      hide(hidden: boolean) {
-        Object.defineProperty(document, "hidden", {
-          configurable: true,
-          get: () => hidden,
-        });
-        document.dispatchEvent(new Event("visibilitychange"));
-      },
-    };
-    (window as any).liveProbe = probe;
-    Object.defineProperty(navigator, "permissions", {
-      configurable: true,
-      value: { query: async () => status },
-    });
-    Object.defineProperty(navigator, "geolocation", {
-      configurable: true,
-      value: {
-        watchPosition(success: PositionCallback, error: PositionErrorCallback) {
-          probe.started++;
-          watches.set(++next, success);
-          errors.set(next, error);
-          return next;
-        },
-        clearWatch(id: number) {
-          probe.stopped++;
-          watches.delete(id);
-          errors.delete(id);
-        },
-        getCurrentPosition(
-          success: PositionCallback,
-          _error: PositionErrorCallback,
-          options?: PositionOptions,
-        ) {
-          if (!options?.enableHighAccuracy)
-            throw new Error("This fixed-origin plan must not query its origin");
-          probe.refreshLookups++;
-          if (!probe.refreshSilent && lastPosition)
-            success({ ...lastPosition, timestamp: Date.now() });
-        },
-      },
-    });
-  }, permission);
+  await page.addInitScript(installLocationProbe, {
+    mode: "live" as const,
+    permission,
+  });
   await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.route("**/api/v6/plan?*", (r) =>
     r.fulfill({
@@ -104,17 +42,17 @@ async function setup(page: Page, permission = "granted") {
       timing: "now",
       time: Date.parse("2026-09-04T08:00:00Z") / 1000,
     },
-    settings: { ...defaults, maxCyclingMinutes: 60, maxBikeTransfers: 0 },
   });
   await page.goto("/" + link.search);
   await expectPlanningComplete(page);
   await showMap(page);
 }
 const push = (page: Page, latitude: number, accuracy: number, age = 0) =>
-  page.evaluate(
-    (args) => (window as any).liveProbe.push(...args),
-    [latitude, accuracy, age],
-  );
+  page.evaluate((args) => window.liveProbe.push(...args), [
+    latitude,
+    accuracy,
+    age,
+  ] as const);
 const marker = (page: Page) => page.locator(".live-location-marker");
 
 for (const width of [390, 1280]) {
@@ -125,7 +63,7 @@ for (const width of [390, 1280]) {
     await setup(page);
     await push(page, 48.132, 10);
     await page.evaluate(() => {
-      (window as any).liveProbe.refreshSilent = false;
+      window.liveProbe.refreshSilent = false;
     });
     const url = page.url();
     const start = await page.locator(".route-marker-start").boundingBox();
@@ -139,11 +77,9 @@ for (const width of [390, 1280]) {
       await expect(marker(page)).toHaveAttribute("data-quality", "current");
     }
     expect(
-      await page.evaluate(() => (window as any).liveProbe.refreshLookups),
+      await page.evaluate(() => window.liveProbe.refreshLookups),
     ).toBeGreaterThanOrEqual(4);
-    expect(await page.evaluate(() => (window as any).liveProbe.started)).toBe(
-      1,
-    );
+    expect(await page.evaluate(() => window.liveProbe.started)).toBe(1);
     expect(await page.locator(".route-marker-start").boundingBox()).toEqual(
       start,
     );
@@ -196,25 +132,25 @@ test("location pauses for hidden page, settings and editing, and resumes once", 
   await setup(page);
   await push(page, 48.132, 10);
   await expect
-    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .poll(() => page.evaluate(() => window.liveProbe.started))
     .toBe(1);
-  await page.evaluate(() => (window as any).liveProbe.hide(true));
-  expect(await page.evaluate(() => (window as any).liveProbe.stopped)).toBe(1);
-  await page.evaluate(() => (window as any).liveProbe.hide(false));
+  await page.evaluate(() => window.liveProbe.hide(true));
+  expect(await page.evaluate(() => window.liveProbe.stopped)).toBe(1);
+  await page.evaluate(() => window.liveProbe.hide(false));
   await expect
-    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .poll(() => page.evaluate(() => window.liveProbe.started))
     .toBe(2);
   await page.locator("#tab-settings").click();
-  expect(await page.evaluate(() => (window as any).liveProbe.stopped)).toBe(2);
+  expect(await page.evaluate(() => window.liveProbe.stopped)).toBe(2);
   await page.locator("#tab-route").click();
   await expect
-    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .poll(() => page.evaluate(() => window.liveProbe.started))
     .toBe(3);
   await page.locator("#adjust-route").click();
-  expect(await page.evaluate(() => (window as any).liveProbe.stopped)).toBe(3);
+  expect(await page.evaluate(() => window.liveProbe.stopped)).toBe(3);
   await page.keyboard.press("Escape");
   await expect
-    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .poll(() => page.evaluate(() => window.liveProbe.started))
     .toBe(4);
 });
 
@@ -222,14 +158,14 @@ test("unknown permission does not prompt; explicit centering enables tracking", 
   page,
 }) => {
   await setup(page, "prompt");
-  expect(await page.evaluate(() => (window as any).liveProbe.started)).toBe(0);
+  expect(await page.evaluate(() => window.liveProbe.started)).toBe(0);
   await expect(marker(page)).toHaveCount(0);
   await page.locator("#map-location").click();
   await expect(page.locator("#map-location")).toBeDisabled();
   await push(page, 48.132, 10);
   await expect(marker(page)).toHaveCount(1);
   await expect(page.locator("#map-location")).toBeEnabled();
-  await page.evaluate(() => (window as any).liveProbe.permission("denied"));
+  await page.evaluate(() => window.liveProbe.permission("denied"));
   await expect(marker(page)).toHaveCount(0);
 });
 
@@ -287,11 +223,11 @@ test("screen stays awake only on visible route and preference persists", async (
   await expect
     .poll(() => wakeCounts(page))
     .toEqual({ requested: 1, released: 0 });
-  await page.evaluate(() => (window as any).liveProbe.hide(true));
+  await page.evaluate(() => window.liveProbe.hide(true));
   await expect
     .poll(() => wakeCounts(page))
     .toEqual({ requested: 1, released: 1 });
-  await page.evaluate(() => (window as any).liveProbe.hide(false));
+  await page.evaluate(() => window.liveProbe.hide(false));
   await expect
     .poll(() => wakeCounts(page))
     .toEqual({ requested: 2, released: 1 });
@@ -352,24 +288,24 @@ test("mobile alternatives and itinerary keep GPS and screen lock active", async 
   await wakeProbe(page);
   await setup(page);
   await expect
-    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .poll(() => page.evaluate(() => window.liveProbe.started))
     .toBe(1);
   await page.locator("#result-back").click();
   await expect(page.locator("#alternatives-dialog")).toBeVisible();
-  expect(await page.evaluate(() => (window as any).liveProbe.stopped)).toBe(0);
+  expect(await page.evaluate(() => window.liveProbe.stopped)).toBe(0);
   await page.locator(".route-choice-row.selected .route-detail-link").click();
   await expect(page.locator("#alternatives-title")).toHaveText("Reiseablauf");
-  expect(await page.evaluate(() => (window as any).liveProbe.stopped)).toBe(0);
+  expect(await page.evaluate(() => window.liveProbe.stopped)).toBe(0);
   await openSelectedDetails(page);
   await expect
-    .poll(() => page.evaluate(() => (window as any).liveProbe.stopped))
+    .poll(() => page.evaluate(() => window.liveProbe.stopped))
     .toBe(0);
   await expect
-    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .poll(() => page.evaluate(() => window.liveProbe.started))
     .toBe(1);
   expect((await wakeCounts(page)).released).toBe(0);
   await showMap(page);
   await expect
-    .poll(() => page.evaluate(() => (window as any).liveProbe.started))
+    .poll(() => page.evaluate(() => window.liveProbe.started))
     .toBe(1);
 });

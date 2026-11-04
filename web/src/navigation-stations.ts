@@ -9,6 +9,7 @@ interface StationGuidance {
 
 /** Paint the rail from logical station progress without rebuilding it each frame. */
 export class NavigationStations {
+  private events = new AbortController();
   private leg?: Leg;
   private index = -1;
   private confirmedIndex = -1;
@@ -35,12 +36,23 @@ export class NavigationStations {
     matchMedia("(prefers-reduced-motion: reduce)").addEventListener(
       "change",
       finish,
+      { signal: this.events.signal },
     );
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) finish();
-    });
+    document.addEventListener(
+      "visibilitychange",
+      () => {
+        if (document.hidden) finish();
+      },
+      { signal: this.events.signal },
+    );
     if (compact)
       list.setAttribute("aria-label", "Halte der aktuellen Bahnfahrt");
+  }
+
+  dispose() {
+    this.events.abort();
+    this.resize.disconnect();
+    this.clearTransition();
   }
 
   update(

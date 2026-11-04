@@ -2,6 +2,9 @@ import { el } from "./ui";
 
 /** A small action popover; it never owns or submits the planning draft. */
 export class PlannerActions {
+  private readonly events = new AbortController();
+  private disposed = false;
+
   private panel = el("planner-actions");
   private trigger = el<HTMLButtonElement>("planner-more");
   private add = el<HTMLButtonElement>("add-stop");
@@ -9,18 +12,30 @@ export class PlannerActions {
     return this.panel.matches(":popover-open");
   }
   constructor(onOpen: () => void, onAdd: () => void) {
-    this.add.onclick = () => {
-      if (this.add.disabled) return;
-      this.close();
-      onAdd();
-    };
-    this.panel.addEventListener("beforetoggle", (event) => {
-      if ((event as ToggleEvent).newState === "open") onOpen();
-    });
-    this.panel.addEventListener("toggle", () => {
-      this.trigger.setAttribute("aria-expanded", String(this.open));
-      if (this.open) this.position();
-    });
+    this.add.addEventListener(
+      "click",
+      () => {
+        if (this.add.disabled) return;
+        this.close();
+        onAdd();
+      },
+      { signal: this.events.signal },
+    );
+    this.panel.addEventListener(
+      "beforetoggle",
+      (event) => {
+        if ((event as ToggleEvent).newState === "open") onOpen();
+      },
+      { signal: this.events.signal },
+    );
+    this.panel.addEventListener(
+      "toggle",
+      () => {
+        this.trigger.setAttribute("aria-expanded", String(this.open));
+        if (this.open) this.position();
+      },
+      { signal: this.events.signal },
+    );
     // Consume Escape before it can collapse or cancel the enclosing route editor.
     window.addEventListener(
       "keydown",
@@ -30,7 +45,7 @@ export class PlannerActions {
         event.stopPropagation();
         this.close(true);
       },
-      { capture: true },
+      { ...{ capture: true }, signal: this.events.signal },
     );
     document.addEventListener(
       "scroll",
@@ -42,11 +57,17 @@ export class PlannerActions {
         )
           this.position();
       },
-      { capture: true },
+      { ...{ capture: true }, signal: this.events.signal },
     );
-    window.addEventListener("resize", () => this.position());
-    window.visualViewport?.addEventListener("resize", () => this.position());
-    window.visualViewport?.addEventListener("scroll", () => this.position());
+    window.addEventListener("resize", () => this.position(), {
+      signal: this.events.signal,
+    });
+    window.visualViewport?.addEventListener("resize", () => this.position(), {
+      signal: this.events.signal,
+    });
+    window.visualViewport?.addEventListener("scroll", () => this.position(), {
+      signal: this.events.signal,
+    });
   }
   close(focus = false) {
     if (!this.open) return;
@@ -71,5 +92,11 @@ export class PlannerActions {
         ? bounds.bottom + 8
         : bounds.top - height - 8;
     this.panel.style.top = `${Math.max(top, Math.min(y, bottom - height))}px`;
+  }
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.close();
+    this.events.abort();
   }
 }

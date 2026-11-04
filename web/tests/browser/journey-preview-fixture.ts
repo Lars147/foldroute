@@ -6,7 +6,7 @@ export async function preview(page: Page) {
   await page.route("**/src/main.ts*", (route) =>
     route.fulfill({
       contentType: "text/javascript",
-      body: 'import "/src/style.css"; import { icon } from "/src/ui.ts"; document.querySelectorAll("[data-icon]").forEach(element => element.append(icon(element.dataset.icon)));',
+      body: 'import { icon } from "/src/ui.ts"; export async function startApplication() { document.querySelectorAll("[data-icon]").forEach(element => { if (!element.querySelector("svg")) element.append(icon(element.dataset.icon)); }); }',
     }),
   );
   await page.route("https://tiles.openfreemap.org/**", (route) =>
