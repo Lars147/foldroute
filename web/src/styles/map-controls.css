@@ -1,0 +1,291 @@
+.map-zoom-control {
+  display: flex;
+}
+.map-screen .map-controls .leaflet-control-zoom {
+  width: 48px;
+  margin: 0;
+  float: none;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 3px 15px var(--color-shadow);
+  display: flex;
+  flex-direction: column;
+}
+.map-screen .map-controls .leaflet-control-zoom a {
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  line-height: 46px;
+  border: 1px solid var(--panel-line);
+  color: var(--panel-text);
+  background: var(--panel);
+}
+.map-screen .map-controls .leaflet-control-zoom a:first-child {
+  border-radius: 12px 12px 0 0;
+}
+.map-screen .map-controls .leaflet-control-zoom a:last-child {
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+}
+.map-screen .map-controls .leaflet-control-zoom a:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+.map-screen .map-controls .leaflet-control-zoom a.leaflet-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.map-credit,
+.navigation-credit {
+  padding: 1px 3px;
+  background: transparent;
+  font-size: 0.5rem;
+  color: var(--color-map-secondary);
+}
+.map-credit {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 78px;
+  z-index: 1;
+  width: fit-content;
+  max-width: calc(100% - 90px);
+}
+.map-credit a {
+  margin-left: 5px;
+}
+.map-screen .offline-map {
+  background-color: var(--color-map);
+  background-image:
+    linear-gradient(var(--color-map-street) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-map-street) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.journey-panel {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 8px;
+  height: auto;
+  max-height: calc(100% - 16px);
+  min-height: 0;
+  background: var(--panel);
+  color: var(--panel-text);
+  border-radius: 24px;
+  padding: 0 20px 16px;
+  box-shadow:
+    0 0 0 1px var(--panel-line),
+    0 8px 32px var(--color-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 3;
+}
+.panel-content {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--panel-line) transparent;
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+.route-choices {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  flex-shrink: 0;
+  margin: 10px 0 0;
+}
+.route-choice {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  font-size: 0.8125rem;
+  padding: 7px 12px;
+  min-height: 44px;
+  color: var(--panel-muted);
+}
+.route-choice-time {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.route-choice-effort {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.route-choice .icon {
+  width: 1rem;
+  height: 1rem;
+}
+.panel-status,
+.map-error {
+  color: var(--panel-muted);
+  font-size: 0.6875rem;
+  margin: 8px 0 0;
+  flex-shrink: 0;
+}
+.panel-status:empty {
+  display: none;
+}
+.notice {
+  font-size: 0.75rem;
+  background: var(--color-warning-surface);
+  color: var(--color-warning);
+  border-left: 2px solid var(--color-warning);
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  flex-shrink: 0;
+  margin: 10px 0 0;
+}
+.panel-details {
+  margin-top: 12px;
+}
+.panel-actions {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  flex-shrink: 0;
+}
+.panel-actions > button {
+  flex: 1;
+  font-size: 0.8125rem;
+  padding: 10px 6px;
+}
+.primary {
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  border: 1px solid var(--color-asphalt);
+  min-height: 48px;
+}
+.primary:hover:not(:disabled) {
+  background: var(--color-action-hover);
+}
+.primary:active:not(:disabled) {
+  background: var(--color-action-pressed);
+}
+.secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  min-height: 48px;
+}
+.journey-panel .secondary {
+  background: var(--panel-subtle);
+  color: var(--panel-text);
+  border-color: var(--panel-line);
+}
+.journey-panel.is-loading #status {
+  /* Rotated bounds must not enlarge the scroll area in WebKit. */
+  contain: paint;
+}
+.journey-panel.is-loading #status::before {
+  content: "";
+  display: inline-block;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--panel-text);
+  border-right-color: transparent;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: -2px;
+  animation: route-loading 0.8s linear infinite;
+}
+@keyframes route-loading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .journey-panel.is-loading #status::before {
+    animation: none;
+  }
+}
+.group {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 20px;
+  margin: 24px 0;
+}
+.group h2,
+legend {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+.setting-row,
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 0;
+  font-size: 0.875rem;
+  border-bottom: 1px solid var(--line);
+}
+.setting-row:last-child,
+.toggle-row:last-child {
+  border: 0;
+}
+.setting-row small,
+.toggle-row small {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.setting-row input {
+  width: 82px;
+  flex-shrink: 0;
+  text-align: center;
+  min-height: 44px;
+  padding: 9px;
+}
+.toggle-row input {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: var(--color-text);
+}
+fieldset legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 8px;
+}
+#modes > .toggle-row {
+  clear: both;
+}
+fieldset:after {
+  content: "";
+  display: block;
+  clear: both;
+}
+.text-button {
+  color: var(--ink);
+  font-size: 0.8125rem;
+  padding: 10px 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+.form-actions > * {
+  flex: 1;
+}
+.settings-screen #install {
+  width: 100%;
+  margin-top: 12px;
+}

@@ -9,7 +9,7 @@ import {
   type RoutingSettings,
 } from "./model";
 import { distance } from "./geometry";
-import type { Batch, RequestBudget, RoutingClient } from "./transitous";
+import type { Batch, RequestBudget, RoutingClient } from "./routing-contracts";
 
 const exactStation = (place: Place): Place => ({
   ...place,

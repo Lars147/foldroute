@@ -1,4 +1,9 @@
-import { announceLocation, geolocationError } from "./live-location";
+import { locate, prepareSearchLocation, searchCenter } from "./search-location";
+export {
+  clearSearchLocation,
+  prepareSearchLocation,
+  locate,
+} from "./search-location";
 import type { Place, Coordinate } from "./model";
 import { errorText, planningFailures, rateLimitMessage } from "./model";
 import { RetryCountdown } from "./retry-countdown";
@@ -7,46 +12,13 @@ import { PlaceBook, samePlace } from "./places";
 import { el, node, icon, setLocationFeedback } from "./ui";
 import { reveal, stopMotion } from "./motion";
 
-let lastLocation: { coordinate: Coordinate; timestamp: number } | undefined;
-let searchLocationRequest:
-  { controller: AbortController; promise: Promise<boolean> } | undefined;
-export function clearSearchLocation() {
-  searchLocationRequest?.controller.abort();
-  searchLocationRequest = undefined;
-  lastLocation = undefined;
-}
-function searchCenter(): Coordinate | undefined {
-  return lastLocation && Date.now() - lastLocation.timestamp <= 60000
-    ? lastLocation.coordinate
-    : undefined;
-}
-export function prepareSearchLocation(): Promise<boolean> {
-  if (searchCenter()) return Promise.resolve(false);
-  if (searchLocationRequest) return searchLocationRequest.promise;
-  if (!window.isSecureContext || !navigator.permissions?.query)
-    return Promise.resolve(false);
-  const controller = new AbortController();
-  const promise = (async () => {
-    try {
-      const permission = await navigator.permissions.query({
-        name: "geolocation",
-      });
-      if (permission.state !== "granted" || controller.signal.aborted)
-        return false;
-      await requestLocation(controller.signal);
-      return true;
-    } catch {
-      // Optional search bias must not block suggestions or request permission.
-      return false;
-    }
-  })().finally(() => {
-    if (searchLocationRequest?.controller === controller)
-      searchLocationRequest = undefined;
-  });
-  searchLocationRequest = { controller, promise };
-  return promise;
-}
 export class PlaceSearch {
+  private readonly events = new AbortController();
+  private disposed = false;
+
+  private resultEvents = new AbortController();
+  private unsubscribeBook?: () => void;
+  private unsubscribePause?: () => void;
   private static focusedSearch?: PlaceSearch;
   private static dialogSearch?: PlaceSearch;
   private static messages = new WeakMap<
@@ -70,9 +42,10 @@ export class PlaceSearch {
   private focusBack?: HTMLButtonElement;
   private openingFocus = false;
   private readonly resizeFocus = () => {
-    if (!matchMedia("(max-width: 899px)").matches) this.exitFocusMode();
+    if (!matchMedia("(max-width: 899px)").matches) this.exitFocusMode(true);
   };
   private enterFocusMode() {
+    if (this.disposed) return;
     if (
       this.focusBack ||
       this.openingFocus ||
@@ -85,16 +58,19 @@ export class PlaceSearch {
     back.type = "button";
     back.onclick = () => this.dismiss();
     this.focusBack = back;
-    window.addEventListener("resize", this.resizeFocus);
+    window.addEventListener("resize", this.resizeFocus, {
+      signal: this.events.signal,
+    });
     (this.input.closest("dialog") ?? document.body).append(back);
     document.body.classList.add("search-focus-mode");
     this.input.classList.add("search-focus-input");
     this.list.classList.add("search-focus-results");
     this.message.classList.add("search-focus-status");
   }
-  private exitFocusMode() {
+  private exitFocusMode(preserveFocus = false) {
     if (!this.focusBack) return;
     window.removeEventListener("resize", this.resizeFocus);
+    this.focusBack.onclick = null;
     this.focusBack.remove();
     this.focusBack = undefined;
     PlaceSearch.focusedSearch = undefined;
@@ -102,7 +78,7 @@ export class PlaceSearch {
     this.input.classList.remove("search-focus-input");
     this.list.classList.remove("search-focus-results");
     this.message.classList.remove("search-focus-status");
-    this.input.blur();
+    if (!preserveFocus) this.input.blur();
   }
   constructor(
     public id: string,
@@ -120,7 +96,7 @@ export class PlaceSearch {
   ) {
     this.input = el(id);
     this.list = el(`${id}-options`);
-    api.onPause((pause) => {
+    this.unsubscribePause = api.onPause((pause) => {
       const owned = PlaceSearch.messages.get(this.message);
       if (
         !this.visible ||
@@ -136,39 +112,51 @@ export class PlaceSearch {
     });
     this.input.setAttribute("aria-haspopup", "grid");
     this.list.setAttribute("role", "grid");
-    this.book.subscribe(() => {
+    this.unsubscribeBook = this.book.subscribe(() => {
       if (this.visible) this.render();
     });
-    this.input.addEventListener("focus", () => {
-      this.enterFocusMode();
-      if (!this.settings.getSearchCenter?.())
-        void prepareSearchLocation().then((updated) => {
-          if (
-            updated &&
-            this.visible &&
-            !this.value &&
-            document.activeElement === this.input &&
-            this.input.value.trim().length >= 2
-          )
-            this.search(this.autoSelectSingle);
-        });
-      if (
-        !this.openingFocus &&
-        !this.prefilling &&
-        (this.settings.focusDriven || !this.value)
-      )
-        this.activate();
-    });
+    this.input.addEventListener(
+      "focus",
+      () => {
+        this.enterFocusMode();
+        if (!this.settings.getSearchCenter?.())
+          void prepareSearchLocation().then((updated) => {
+            if (
+              updated &&
+              this.visible &&
+              !this.value &&
+              document.activeElement === this.input &&
+              this.input.value.trim().length >= 2
+            )
+              this.search(this.autoSelectSingle);
+          });
+        if (
+          !this.openingFocus &&
+          !this.prefilling &&
+          (this.settings.focusDriven || !this.value)
+        )
+          this.activate();
+      },
+      { signal: this.events.signal },
+    );
     {
       let pointing = false;
       let pointerTarget: EventTarget | null = null;
       // Safari does not focus clicked buttons. Keep the input focused until selection.
-      this.list.addEventListener("mousedown", (event) => {
-        if (this.settings.focusDriven) event.preventDefault();
-      });
-      this.input.addEventListener("click", () => {
-        if (this.settings.focusDriven && !this.visible) this.activate();
-      });
+      this.list.addEventListener(
+        "mousedown",
+        (event) => {
+          if (this.settings.focusDriven) event.preventDefault();
+        },
+        { signal: this.events.signal },
+      );
+      this.input.addEventListener(
+        "click",
+        () => {
+          if (this.settings.focusDriven && !this.visible) this.activate();
+        },
+        { signal: this.events.signal },
+      );
       const leave = (event?: FocusEvent) => {
         if (this.contains(event?.relatedTarget ?? null)) return;
         // Re-rendered result buttons can regain focus in the same turn.
@@ -182,112 +170,137 @@ export class PlaceSearch {
             this.cancel();
         });
       };
-      this.input.addEventListener("focusout", leave);
-      this.list.addEventListener("focusout", leave);
+      this.input.addEventListener("focusout", leave, {
+        signal: this.events.signal,
+      });
+      this.list.addEventListener("focusout", leave, {
+        signal: this.events.signal,
+      });
       document.addEventListener(
         "pointerdown",
         (event) => {
           pointing = true;
           pointerTarget = event.target;
         },
-        true,
+        { capture: true, signal: this.events.signal },
       );
-      document.addEventListener("pointerup", () => (pointing = false), true);
-      document.addEventListener("pointercancel", () => {
-        pointing = false;
-        pointerTarget = null;
-        leave();
+      document.addEventListener("pointerup", () => (pointing = false), {
+        capture: true,
+        signal: this.events.signal,
       });
+      document.addEventListener(
+        "pointercancel",
+        () => {
+          pointing = false;
+          pointerTarget = null;
+          leave();
+        },
+        { signal: this.events.signal },
+      );
       // Do not collapse an inline list under a button between pointerdown and click.
-      document.addEventListener("click", (event) => {
-        const target = event.detail
-          ? (pointerTarget ?? event.target)
-          : event.target;
-        pointerTarget = null;
-        if (
-          !this.focusBack &&
-          PlaceSearch.dialogSearch === this &&
-          !this.contains(target)
-        )
-          this.cancel();
-      });
+      document.addEventListener(
+        "click",
+        (event) => {
+          const target = event.detail
+            ? (pointerTarget ?? event.target)
+            : event.target;
+          pointerTarget = null;
+          if (
+            !this.focusBack &&
+            PlaceSearch.dialogSearch === this &&
+            !this.contains(target)
+          )
+            this.cancel();
+        },
+        { signal: this.events.signal },
+      );
     }
-    this.input.addEventListener("input", () => this.search());
-    this.input.addEventListener("keydown", (event) => {
-      if (
-        event.key === "Tab" &&
-        !event.shiftKey &&
-        this.settings.focusDriven &&
-        this.visible &&
-        this.buttons.length
-      ) {
-        event.preventDefault();
-        this.buttons[0].focus();
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        this.dismiss();
-        return;
-      }
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        if (!this.visible) this.activate();
-        if (!this.buttons.length) return;
-        event.preventDefault();
-        this.active =
-          (this.active +
-            (event.key === "ArrowDown" ? 1 : -1) +
-            this.buttons.length) %
-          this.buttons.length;
-        this.buttons.forEach((button, i) =>
-          button.closest("li")!.classList.toggle("active", i === this.active),
-        );
-        this.input.setAttribute(
-          "aria-activedescendant",
-          this.buttons[this.active].parentElement!.id,
-        );
-        this.buttons[this.active].scrollIntoView({ block: "nearest" });
-      } else if (event.key === "Enter") {
-        event.preventDefault();
-        if (this.active >= 0 && this.visible)
-          this.buttons[this.active]?.click();
-        else this.search();
-      }
+    this.input.addEventListener("input", () => this.search(), {
+      signal: this.events.signal,
     });
-    this.list.addEventListener("keydown", (event) => {
-      if (
-        event.key === "Tab" &&
-        event.shiftKey &&
-        event.target === this.buttons[0] &&
-        this.settings.focusDriven
-      ) {
-        event.preventDefault();
-        this.openingFocus = true;
-        this.input.focus({ preventScroll: true });
-        this.openingFocus = false;
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        this.dismiss();
-      }
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        const index = this.buttons.findIndex((b) =>
-          b.closest("li")!.contains(document.activeElement),
-        );
-        if (index >= 0) {
+    this.input.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.key === "Tab" &&
+          !event.shiftKey &&
+          this.settings.focusDriven &&
+          this.visible &&
+          this.buttons.length
+        ) {
           event.preventDefault();
-          this.buttons[
-            (index +
+          this.buttons[0].focus();
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          this.dismiss();
+          return;
+        }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          if (!this.visible) this.activate();
+          if (!this.buttons.length) return;
+          event.preventDefault();
+          this.active =
+            (this.active +
               (event.key === "ArrowDown" ? 1 : -1) +
               this.buttons.length) %
-              this.buttons.length
-          ].focus();
+            this.buttons.length;
+          this.buttons.forEach((button, i) =>
+            button.closest("li")!.classList.toggle("active", i === this.active),
+          );
+          this.input.setAttribute(
+            "aria-activedescendant",
+            this.buttons[this.active].parentElement!.id,
+          );
+          this.buttons[this.active].scrollIntoView({ block: "nearest" });
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          if (this.active >= 0 && this.visible)
+            this.buttons[this.active]?.click();
+          else this.search();
         }
-      }
-    });
+      },
+      { signal: this.events.signal },
+    );
+    this.list.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.key === "Tab" &&
+          event.shiftKey &&
+          event.target === this.buttons[0] &&
+          this.settings.focusDriven
+        ) {
+          event.preventDefault();
+          this.openingFocus = true;
+          this.input.focus({ preventScroll: true });
+          this.openingFocus = false;
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          this.dismiss();
+        }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          const index = this.buttons.findIndex((b) =>
+            b.closest("li")!.contains(document.activeElement),
+          );
+          if (index >= 0) {
+            event.preventDefault();
+            this.buttons[
+              (index +
+                (event.key === "ArrowDown" ? 1 : -1) +
+                this.buttons.length) %
+                this.buttons.length
+            ].focus();
+          }
+        }
+      },
+      { signal: this.events.signal },
+    );
   }
   private contains(target: EventTarget | null) {
     return (
@@ -320,6 +333,7 @@ export class PlaceSearch {
     PlaceSearch.messages.delete(this.message);
   }
   activate() {
+    if (this.disposed) return;
     this.claim();
     this.browsing = !!this.settings.focusDriven;
     this.clearMessage();
@@ -331,10 +345,12 @@ export class PlaceSearch {
     this.settings.focusDriven = enabled;
   }
   searchShared(query: string) {
+    if (this.disposed) return;
     this.input.value = query;
     this.search(true);
   }
   private search(autoSelectSingle = false) {
+    if (this.disposed) return;
     this.value = undefined;
     this.cancel(true);
     this.autoSelectSingle = autoSelectSingle;
@@ -384,6 +400,7 @@ export class PlaceSearch {
     }, 280);
   }
   private dismiss() {
+    if (this.disposed) return;
     this.cancel();
     this.settings.onDismiss?.();
   }
@@ -405,11 +422,13 @@ export class PlaceSearch {
     this.input.removeAttribute("aria-activedescendant");
   }
   set(place?: Place) {
+    if (this.disposed) return;
     this.cancel();
     this.value = place;
     this.input.value = place?.name ?? "";
   }
   choose(place: Place) {
+    if (this.disposed) return;
     const wasFocused = !!this.focusBack;
     this.set(place);
     this.exitFocusMode();
@@ -417,16 +436,16 @@ export class PlaceSearch {
     if (!wasFocused) this.input.focus({ preventScroll: true });
     this.openingFocus = false;
     this.setMessage("");
-    void this.book
-      .change(place, "use")
-      .catch(() =>
+    void this.book.change(place, "use").catch(() => {
+      if (!this.disposed)
         this.onError(
           "Ort konnte nicht gespeichert werden. Die Planung bleibt möglich.",
-        ),
-      );
+        );
+    });
     this.onSelect(place);
   }
   private prefill(place: Place) {
+    if (this.disposed) return;
     this.cancel(true);
     this.claim();
     this.value = undefined;
@@ -441,6 +460,7 @@ export class PlaceSearch {
     this.setMessage("Namen ergänzen oder Suchen drücken.");
   }
   private async chooseLocation() {
+    if (this.disposed) return;
     this.cancel(true);
     this.claim();
     this.openingFocus = true;
@@ -492,8 +512,11 @@ export class PlaceSearch {
       "aria-label",
       `Ort auswählen: ${name}${place?.detail ? `, ${place.detail}` : ""}`,
     );
-    select.onclick = () =>
-      place ? this.choose(place) : void this.chooseLocation();
+    select.addEventListener(
+      "click",
+      () => (place ? this.choose(place) : void this.chooseLocation()),
+      { signal: this.resultEvents.signal },
+    );
     const cell = node("span");
     cell.setAttribute("role", "gridcell");
     cell.id = `${this.id}-option-${this.buttons.length}`;
@@ -512,20 +535,25 @@ export class PlaceSearch {
         "aria-pressed",
         String(this.book.isFavorite(place)),
       );
-      favorite.onclick = async () => {
-        if (favorite.getAttribute("aria-disabled") === "true") return;
-        // Keep focus inside the list while IndexedDB updates and re-renders it.
-        favorite.setAttribute("aria-disabled", "true");
-        try {
-          await this.book.change(place, "favorite");
-        } catch {
-          this.onError(
-            "Favorit konnte nicht gespeichert werden. Bitte erneut versuchen.",
-          );
-        } finally {
-          favorite.removeAttribute("aria-disabled");
-        }
-      };
+      favorite.addEventListener(
+        "click",
+        async () => {
+          if (favorite.getAttribute("aria-disabled") === "true") return;
+          // Keep focus inside the list while IndexedDB updates and re-renders it.
+          favorite.setAttribute("aria-disabled", "true");
+          try {
+            await this.book.change(place, "favorite");
+          } catch {
+            if (!this.disposed)
+              this.onError(
+                "Favorit konnte nicht gespeichert werden. Bitte erneut versuchen.",
+              );
+          } finally {
+            if (!this.disposed) favorite.removeAttribute("aria-disabled");
+          }
+        },
+        { signal: this.resultEvents.signal },
+      );
       const favoriteCell = node("span");
       favoriteCell.setAttribute("role", "gridcell");
       favoriteCell.append(favorite);
@@ -534,7 +562,9 @@ export class PlaceSearch {
         const prefill = node("button", "↖", "place-prefill");
         prefill.type = "button";
         prefill.setAttribute("aria-label", `${name} ins Suchfeld übernehmen`);
-        prefill.onclick = () => this.prefill(place);
+        prefill.addEventListener("click", () => this.prefill(place), {
+          signal: this.resultEvents.signal,
+        });
         const prefillCell = node("span");
         prefillCell.setAttribute("role", "gridcell");
         prefillCell.append(prefill);
@@ -544,6 +574,9 @@ export class PlaceSearch {
     this.list.append(li);
   }
   private render() {
+    if (this.disposed) return;
+    this.resultEvents.abort();
+    this.resultEvents = new AbortController();
     const opening = this.list.hidden;
     const focused = this.list.contains(document.activeElement)
       ? {
@@ -612,52 +645,16 @@ export class PlaceSearch {
       }
     }
   }
-}
-function requestLocation(signal?: AbortSignal): Promise<GeolocationPosition> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason);
-      return;
-    }
-    if (!window.isSecureContext) {
-      reject(geolocationError(2));
-      return;
-    }
-    if (!navigator.geolocation) {
-      reject(geolocationError(2));
-      return;
-    }
-    const abort = () => reject(signal!.reason);
-    signal?.addEventListener("abort", abort, { once: true });
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        signal?.removeEventListener("abort", abort);
-        if (signal?.aborted) return;
-        lastLocation = {
-          coordinate: {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          },
-          timestamp: position.timestamp,
-        };
-        resolve(position);
-      },
-      (error) => {
-        signal?.removeEventListener("abort", abort);
-        reject(geolocationError(error.code));
-      },
-      { timeout: 12000, maximumAge: 60000 },
-    );
-  });
-}
-export async function locate(signal?: AbortSignal): Promise<Place> {
-  const position = await requestLocation(signal);
-  signal?.throwIfAborted();
-  announceLocation(position);
-  return {
-    name: "Aktueller Standort",
-    detail: "Standort dieser Abfrage",
-    latitude: position.coords.latitude,
-    longitude: position.coords.longitude,
-  };
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.cancel();
+    this.events.abort();
+    this.resultEvents.abort();
+    this.unsubscribeBook?.();
+    this.unsubscribePause?.();
+    this.countdown.clear();
+    if (PlaceSearch.messages.get(this.message)?.owner === this)
+      PlaceSearch.messages.delete(this.message);
+  }
 }

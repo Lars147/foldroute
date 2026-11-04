@@ -1,3 +1,5 @@
+import { systemClock, type Clock } from "./clock";
+import { NavigationPersistence } from "./navigation-persistence";
 import {
   type Journey,
   type RouteRequest,
@@ -46,7 +48,13 @@ import {
   type TransitRefreshOptions,
 } from "./transit-refresh";
 import { ApiClient } from "./transitous";
-import { planRoutes } from "./planner";
+import {
+  NavigationRoutePlanner,
+  composeStreetRepair,
+  composeAlternative,
+  reachableAlternative,
+  unavailableBoarding,
+} from "./navigation-route-planner";
 import {
   navigatedRouteMeters,
   routeLegMeters,
@@ -56,24 +64,6 @@ import {
 } from "./navigation-summary";
 
 const alternativeDecisionSeconds = 30;
-const progressCheckpointMeters = 50;
-function reachableAlternative(
-  journey: Journey,
-  index: number,
-  now: number,
-  onboard = false,
-) {
-  const leg = journey.legs[index];
-  return (
-    !transitDisruption(
-      journey,
-      index,
-      now,
-      movement(leg) ? leg.end - leg.start : undefined,
-    ) && !(!onboard && index === 0 && leg.kind === "transit" && leg.start < now)
-  );
-}
-
 export interface NavigationAlternative {
   journey: Journey;
   legIndex: number;
@@ -99,6 +89,7 @@ export interface PreparedNavigation {
   tripId?: string;
 }
 export interface NavigationDependencies {
+  clock?: Clock;
   routingSettings?: () => RoutingSettings;
   changed: () => void;
   locate: (options?: LocationRequestOptions) => Promise<LocationFix>;
@@ -114,6 +105,7 @@ export interface NavigationDependencies {
   ) => Promise<Journey>;
 }
 export class NavigationSession {
+  private readonly clock: Clock;
   engine?: NavigationEngine;
   summary?: TripSummary;
   statistics?: NavigationStatistics;
@@ -145,9 +137,13 @@ export class NavigationSession {
   private controller?: AbortController;
   private transitController?: AbortController;
   private timer?: ReturnType<typeof setInterval>;
-  private readonly store: NavigationStore;
+  private readonly persistence: NavigationPersistence;
   private refresher: TransitRefresher;
+  private readonly routePlanner: NavigationRoutePlanner;
   private lastReroute = -Infinity;
+  private streetRetryAt = 0;
+  private streetFailures = 0;
+  private streetEngine?: NavigationEngine;
   private lastIssue?: string;
   private pendingAlternativeLocation?: {
     engine: NavigationEngine;
@@ -155,65 +151,129 @@ export class NavigationSession {
     issueId: string;
     reason?: "reroute" | "stop";
   };
+  private completionPaused = false;
+
+  setCompletionPaused(paused: boolean) {
+    this.completionPaused = paused;
+    this.engine?.setCompletionPaused(paused);
+  }
+
+  cancelCompletionCountdown() {
+    this.engine?.cancelCompletionCountdown();
+  }
+
   get alternativeNeedsLocation() {
     return !!this.pendingAlternativeLocation;
   }
-  private savedKey = "";
   private arrivalCleared = false;
+  private pendingCompletionUndo?: {
+    engine: NavigationEngine;
+    nextId: string;
+    progress: NavigationProgress;
+    trip?: NavigationTrip;
+    resumeNeedsConfirmation: boolean;
+    timing?: {
+      id: string;
+      start: number;
+      end: number;
+      appliedStart: number;
+      appliedEnd: number;
+    };
+  };
+  get completionUndo() {
+    const undo = this.pendingCompletionUndo;
+    if (
+      undo &&
+      (this.engine !== undo.engine ||
+        this.engine.phase !== "active" ||
+        this.engine.leg.navigationId !== undo.nextId)
+    )
+      this.pendingCompletionUndo = undefined;
+    return this.pendingCompletionUndo;
+  }
+  discardCompletionUndo(expected = this.pendingCompletionUndo) {
+    if (this.pendingCompletionUndo === expected)
+      this.pendingCompletionUndo = undefined;
+  }
+  undoLastCompletion() {
+    const undo = this.completionUndo;
+    if (!undo) return false;
+    this.discardCompletionUndo();
+    this.controller?.abort();
+    this.controller = undefined;
+    this.transitController?.abort();
+    this.transitController = undefined;
+    this.locationGeneration++;
+    this.locating = false;
+    this.busy = false;
+    const journey = structuredClone(undo.engine.journey);
+    const timing = undo.timing;
+    const leg =
+      timing && journey.legs.find((leg) => leg.navigationId === timing.id);
+    if (leg && timing) {
+      if (leg.start === timing.appliedStart) leg.start = timing.start;
+      if (leg.end === timing.appliedEnd) leg.end = timing.end;
+    }
+    this.engine = new NavigationEngine(journey, undo.progress, this.clock);
+    this.engine.setCompletionPaused(this.completionPaused);
+    this.engine.cancelCompletionCountdown();
+    this.trip = undo.trip;
+    this.resumeNeedsConfirmation = undo.resumeNeedsConfirmation;
+    this.alternative = undefined;
+    this.pendingAlternativeLocation = undefined;
+    this.lastIssue = undefined;
+    this.message = "";
+    this.retryAvailable = false;
+    this.disruption = transitDisruption(
+      journey,
+      this.engine.progress.legIndex,
+      this.clock.now() / 1000,
+    );
+    this.assessment = assessConnection(
+      journey,
+      this.engine.progress.legIndex,
+      this.clock.now() / 1000,
+      { onboard: this.engine.leg.kind === "transit" },
+    );
+    this.persistence.resetCheckpoint();
+    this.persist(true);
+    this.emit();
+    void this.refresh();
+    return true;
+  }
   constructor(private deps: NavigationDependencies) {
-    this.store = deps.store ?? new NavigationStore();
+    this.clock = deps.clock ?? systemClock;
+    this.routePlanner = new NavigationRoutePlanner({
+      api: deps.api,
+      plan: deps.plan,
+      now: () => this.clock.now() / 1000,
+    });
+    this.persistence = new NavigationPersistence(
+      deps.store ?? new NavigationStore(),
+    );
     this.refresher = deps.refresher ?? new TransitRefresher();
   }
   private emit() {
+    // Section preparation resets engine-local timing; retain the UI pause intent.
+    this.engine?.setCompletionPaused(this.completionPaused);
+    void this.completionUndo;
     this.deps.changed();
   }
-  private async plan(
+  private plan(
     request: RouteRequest,
     signal: AbortSignal,
-    acceptable: (journey: Journey) => boolean = (journey) =>
-      reachableAlternative(
-        journey,
-        0,
-        Math.max(request.time, Date.now() / 1000),
-      ),
+    acceptable?: (journey: Journey) => boolean,
   ): Promise<{ journey: Journey; settings: RoutingSettings }> {
     const settings = structuredClone(
       this.deps.routingSettings?.() ?? this.settings!,
     );
-    if (!navigator.onLine)
-      throw new Error(
-        "Neue Routen benötigen Internet. Die bisherige Route bleibt verfügbar.",
-      );
-    // These are navigation-generated departures, not fixed dates entered by
-    // the user. A preceding location/trip request may have outlived the time.
-    const now = Date.now() / 1000;
-    if (
-      request.timing === "now" ||
-      (request.timing === "depart" && request.time <= now)
-    )
-      request = { ...request, timing: "now", time: now };
-    let candidates: Journey[] = [];
-    if (this.deps.plan)
-      candidates = [await this.deps.plan(request, settings, signal)];
-    else
-      for await (const update of planRoutes(
-        request,
-        settings,
-        signal,
-        this.deps.api,
-      ))
-        if (update.journeys.length) candidates = update.journeys;
-    signal.throwIfAborted();
-    const selected = candidates.find(acceptable);
-    if (!selected)
-      throw new Error(
-        "Keine aktuell erreichbare Verbindung gefunden. Bitte erneut suchen.",
-      );
-    return { journey: selected, settings };
+    return this.routePlanner.plan(request, settings, signal, acceptable);
   }
   get locationQuality() {
     if (!this.fix) return;
-    return this.fixQuality === "current" ? quality(this.fix) : this.fixQuality;
+    return this.fixQuality === "current"
+      ? quality(this.fix, this.clock.now())
+      : this.fixQuality;
   }
   get hasCurrentLocation() {
     return this.locationQuality === "current";
@@ -252,7 +312,7 @@ export class NavigationSession {
       origin,
       destination:
         this.engine?.journey.destination ?? this.request!.destination,
-      timing: time <= Date.now() / 1000 ? "now" : "depart",
+      timing: time <= this.clock.now() / 1000 ? "now" : "depart",
       time,
       stops: this.engine
         ? this.remainingStops(afterCurrent)
@@ -339,7 +399,7 @@ export class NavigationSession {
         clearTimeout(locationHint);
       }
       signal.throwIfAborted();
-      if (quality(fix) !== "current")
+      if (quality(fix, this.clock.now()) !== "current")
         throw new LocationError(
           "unusable",
           "Standort ist zu ungenau oder veraltet. Bitte erneut versuchen.",
@@ -348,7 +408,7 @@ export class NavigationSession {
       this.needsLocation = false;
       this.fixQuality = "current";
       this.requiredFixAfter = 0;
-      const now = Date.now() / 1000;
+      const now = this.clock.now() / 1000;
       let candidate = navigationJourney(journey);
       let candidateSettings = this.settings;
       const actualStart = journeyStart(journey);
@@ -455,7 +515,7 @@ export class NavigationSession {
       }
       signal.throwIfAborted();
       // Restoration never silently skips a saved section based on elapsed time.
-      const checkedAt = Date.now() / 1000;
+      const checkedAt = this.clock.now() / 1000;
       this.assessment = assessConnection(candidate, index, checkedAt, {
         fix: restored ? undefined : fix,
         onboard: !!restored && candidate.legs[index].kind === "transit",
@@ -464,14 +524,12 @@ export class NavigationSession {
       let storageEpoch = 0;
       let resumeEpoch = 0;
       if (this.deps.resumeEnabled() || this.deps.statisticsEnabled()) {
-        try {
-          const stored = await this.store.readStatistics();
-          storageEpoch = stored.epoch;
-          resumeEpoch = stored.resumeEpoch ?? 0;
-        } catch {
+        const stored = await this.persistence.readEpochs();
+        storageEpoch = stored.storageEpoch;
+        resumeEpoch = stored.resumeEpoch;
+        if (stored.failed)
           this.storageMessage =
             "Navigation läuft. Gesamtstatistik konnte nicht gelesen werden.";
-        }
         signal.throwIfAborted();
       }
       return {
@@ -497,7 +555,7 @@ export class NavigationSession {
   }
   activateStart(prepared: PreparedNavigation) {
     if (prepared.generation !== this.generation) return false;
-    if (!this.fix || quality(this.fix) !== "current") {
+    if (!this.fix || quality(this.fix, this.clock.now()) !== "current") {
       this.needsLocation = true;
       throw new LocationError(
         "unusable",
@@ -507,7 +565,7 @@ export class NavigationSession {
     prepared.assessment = assessConnection(
       prepared.journey,
       prepared.progress?.legIndex ?? 0,
-      Date.now() / 1000,
+      this.clock.now() / 1000,
       {
         fix: prepared.restored ? undefined : this.fix,
         onboard:
@@ -525,7 +583,7 @@ export class NavigationSession {
       ? structuredClone(prepared.trip)
       : {
           id: prepared.tripId ?? crypto.randomUUID(),
-          startedAt: Date.now() / 1000,
+          startedAt: this.clock.now() / 1000,
           originName: prepared.journey.origin.name,
           distanceMeters: 0,
           routeMeters:
@@ -541,7 +599,7 @@ export class NavigationSession {
     this.resumeNeedsConfirmation =
       prepared.restored &&
       !movement(this.engine!.leg) &&
-      this.engine!.leg.end <= Date.now() / 1000;
+      this.engine!.leg.end <= this.clock.now() / 1000;
     this.message = prepared.restored
       ? "Navigation fortgesetzt. Prüfe deinen aktuellen Abschnitt."
       : "";
@@ -564,7 +622,12 @@ export class NavigationSession {
       this.routeChanged = true;
     }
     this.settings = structuredClone(settings);
-    this.engine = new NavigationEngine(navigationJourney(journey), progress);
+    this.engine = new NavigationEngine(
+      navigationJourney(journey),
+      progress,
+      this.clock,
+    );
+    this.engine.setCompletionPaused(this.completionPaused);
     if (replacing && this.trip) {
       const retainedMeters =
         previous!.leg.navigationId === this.engine.leg.navigationId
@@ -596,7 +659,9 @@ export class NavigationSession {
     this.pendingAlternativeLocation = undefined;
     this.disruption = undefined;
     this.lastIssue = undefined;
-    this.savedKey = "";
+    this.streetRetryAt = 0;
+    this.streetFailures = 0;
+    this.persistence.resetCheckpoint();
     this.arrivalCleared = false;
     this.retryAvailable = false;
     this.resumeNeedsConfirmation = false;
@@ -610,24 +675,24 @@ export class NavigationSession {
     error?: LocationError,
   ) {
     if (fix && fix.timestamp < this.requiredFixAfter) state = "stale";
-    if (fix && state === "current") state = quality(fix);
+    if (fix && state === "current") state = quality(fix, this.clock.now());
     this.fix = fix;
     this.fixQuality = state;
     if (this.hasCurrentLocation) this.locationError = undefined;
     else if (error) this.locationError = error;
     if (!this.engine || !this.foreground) return;
-    if (this.busy) {
+    // Only street repair can safely follow progress on its original engine.
+    // User-requested itinerary changes retain their existing section boundary.
+    if (this.busy && this.streetEngine !== this.engine) {
+      this.engine.resetCompletionCountdown();
       this.emit();
       return;
     }
     if (!fix || state !== "current") this.engine.invalidateLocation();
-    else if (
-      this.engine.update(fix) &&
-      !this.busy &&
-      !this.retryAvailable &&
-      Date.now() / 1000 - this.lastReroute >= 30
-    )
-      void this.reroute();
+    else this.engine.update(fix);
+    if (this.streetEngine === this.engine && !this.engine.offRoute)
+      this.controller?.abort();
+    void this.repairStreet();
     this.discardChangedAlternative();
     this.persist();
     this.emit();
@@ -651,7 +716,7 @@ export class NavigationSession {
       this.foreground;
     this.locating = true;
     this.locationError = undefined;
-    this.requiredFixAfter = Date.now();
+    this.requiredFixAfter = this.clock.now();
     this.fixQuality = "stale";
     engine.invalidateLocation();
     this.emit();
@@ -703,7 +768,7 @@ export class NavigationSession {
       this.locationGeneration++;
       this.locating = false;
       this.persist(true);
-      this.requiredFixAfter = Date.now();
+      this.requiredFixAfter = this.clock.now();
       this.fixQuality = "stale";
       this.engine?.invalidateLocation();
       this.transitController?.abort();
@@ -713,6 +778,7 @@ export class NavigationSession {
     this.emit();
   }
   private tick() {
+    if (this.busy) this.engine?.resetCompletionCountdown();
     if (
       !this.engine ||
       !this.foreground ||
@@ -720,21 +786,21 @@ export class NavigationSession {
       this.engine.phase === "arrived"
     )
       return;
-    if (!this.fix || quality(this.fix) !== "current")
+    if (!this.fix || quality(this.fix, this.clock.now()) !== "current")
       this.engine.invalidateLocation();
     // After restoration/backgrounding, require a fresh fix before timer-driven progress.
     if (
       !this.resumeNeedsConfirmation &&
       this.fix &&
-      quality(this.fix) === "current" &&
+      quality(this.fix, this.clock.now()) === "current" &&
       this.fixQuality === "current"
     )
       this.engine.tick();
     this.discardChangedAlternative();
     this.assessment = assessConnection(
-      this.engine.journey,
+      this.engine.connectionJourney,
       this.engine.progress.legIndex,
-      Date.now() / 1000,
+      this.clock.now() / 1000,
       {
         remainingMovement: movement(this.engine.leg)
           ? this.engine.remainingSeconds
@@ -744,6 +810,7 @@ export class NavigationSession {
     );
     this.persist();
     this.emit();
+    void this.repairStreet();
     void this.refresh();
   }
   private applyTransitResults(
@@ -755,9 +822,9 @@ export class NavigationSession {
       applyTransit(engine.journey, engine.progress.legIndex, result),
     );
     this.assessment = assessConnection(
-      engine.journey,
+      engine.connectionJourney,
       engine.progress.legIndex,
-      Date.now() / 1000,
+      this.clock.now() / 1000,
       {
         remainingMovement: movement(engine.leg)
           ? engine.remainingSeconds
@@ -766,9 +833,9 @@ export class NavigationSession {
       },
     );
     const detected = transitDisruption(
-      engine.journey,
+      engine.connectionJourney,
       engine.progress.legIndex,
-      Date.now() / 1000,
+      this.clock.now() / 1000,
       movement(engine.leg) ? engine.remainingSeconds : undefined,
     );
     if (!this.alternative?.reason) this.disruption = detected;
@@ -779,16 +846,7 @@ export class NavigationSession {
     }
     if (this.alternative && this.alternative.issueId !== this.disruption?.id)
       this.alternative = undefined;
-    if (
-      this.disruption &&
-      !this.alternative &&
-      this.assessment.status !== "risk" &&
-      this.lastIssue !== this.disruption.id &&
-      engine.leg.kind !== "stop"
-    ) {
-      this.lastIssue = this.disruption.id;
-      void this.proposeAlternative();
-    }
+    if (this.disruption) this.retryAvailable = true;
     this.persist(result.size > 0);
     this.emit();
   }
@@ -820,7 +878,7 @@ export class NavigationSession {
       const result = await this.refresher.refresh(
         engine.journey.legs.slice(engine.progress.legIndex),
         controller.signal,
-        Date.now() / 1000,
+        this.clock.now() / 1000,
         {
           reason,
           activeTripId: engine.leg.transitReference?.tripId,
@@ -850,6 +908,7 @@ export class NavigationSession {
     this.controller = new AbortController();
     const controller = this.controller;
     this.busy = true;
+    engine.resetCompletionCountdown();
     this.message = label;
     this.retryAvailable = false;
     this.emit();
@@ -858,8 +917,11 @@ export class NavigationSession {
       if (!controller.signal.aborted) this.message = message ?? "";
     } catch (error) {
       if (controller.signal.aborted && this.engine === engine) {
-        this.message = "Berechnung unterbrochen. Erneut versuchen.";
-        this.retryAvailable = true;
+        const returned = this.streetEngine === engine && !engine.offRoute;
+        this.message = returned
+          ? ""
+          : "Berechnung unterbrochen. Erneut versuchen.";
+        this.retryAvailable = !returned;
       }
       if (!controller.signal.aborted && this.engine === engine) {
         if (error instanceof LocationError) {
@@ -878,8 +940,131 @@ export class NavigationSession {
       }
     }
   }
+  /** Automatic repairs replace streets only. Transit changes require a user request. */
+  private async repairStreet() {
+    const engine = this.engine,
+      now = this.clock.now() / 1000;
+    if (
+      !engine ||
+      !movement(engine.leg) ||
+      !engine.offRoute ||
+      this.busy ||
+      !this.foreground ||
+      !navigator.onLine ||
+      !this.hasCurrentLocation ||
+      this.fix!.accuracy > 50 ||
+      engine.plausibleMovementTimestamp !== this.fix!.timestamp ||
+      now <
+        Math.max(
+          this.streetRetryAt,
+          this.lastReroute + 10,
+          this.deps.api.retryAt || 0,
+        )
+    )
+      return;
+    if (unavailableBoarding(engine.journey, engine.progress.legIndex, now)) {
+      const assessment = assessConnection(
+        engine.journey,
+        engine.progress.legIndex,
+        now,
+      );
+      this.disruption = { id: assessment.id, message: assessment.message };
+      this.retryAvailable = true;
+      return;
+    }
+    this.lastReroute = now;
+    this.streetEngine = engine;
+    await this.changeRoute(async (signal, active) => {
+      const leg = active.leg;
+      const settings = structuredClone(
+        this.deps.routingSettings?.() ?? this.settings!,
+      );
+      const result = await this.deps.api.batch(
+        {
+          origin: fixPlace(this.usableFix()),
+          destination: active.requiresElevatorConfirmation ? leg.from : leg.to,
+          timing: "now",
+          time: this.clock.now() / 1000,
+        },
+        settings,
+        {
+          direct: true,
+          directMode: leg.kind === "walk" ? "WALK" : "BIKE",
+          pre: "BIKE",
+          post: "BIKE",
+        },
+        signal,
+      );
+      signal.throwIfAborted();
+      if (this.engine !== active || !active.offRoute) return;
+      const replacement = result.journeys[0];
+      if (!replacement) throw new Error("Kein neuer Weg gefunden.");
+      const latest = this.usableFix();
+      if (
+        latest.accuracy > 50 ||
+        active.plausibleMovementTimestamp !== latest.timestamp ||
+        !movement(replacement.legs[0]) ||
+        projectPath(latest, replacement.legs[0].coordinates).distance >
+          Math.max(20, latest.accuracy)
+      ) {
+        this.streetRetryAt = this.clock.now() / 1000 + 10;
+        return "Standort hat sich geändert. Weg wird erneut berechnet …";
+      }
+      const index = active.progress.legIndex;
+      const route = composeStreetRepair(
+        active.journey,
+        index,
+        replacement,
+        active.requiresElevatorConfirmation,
+      );
+      const assessment = assessConnection(
+        route,
+        index,
+        this.clock.now() / 1000,
+      );
+      if (
+        unavailableBoarding(
+          route,
+          index + replacement.legs.length - 1,
+          this.clock.now() / 1000,
+        )
+      ) {
+        this.disruption = { id: assessment.id, message: assessment.message };
+        this.retryAvailable = true;
+        this.streetRetryAt = this.clock.now() / 1000 + 60;
+        return assessment.message;
+      }
+      const progress = { ...active.progress, maneuverIndex: 0, meters: 0 };
+      this.activate(route, progress, settings);
+      this.engine!.update(latest);
+      this.assessment = assessment;
+      this.disruption =
+        assessment.status === "ready"
+          ? undefined
+          : { id: assessment.id, message: assessment.message };
+      this.retryAvailable = !!this.disruption;
+      this.streetFailures = 0;
+      this.streetRetryAt = 0;
+      return assessment.message;
+    }, "Route wird angepasst …");
+    if (this.engine === engine && engine.offRoute && this.retryAvailable) {
+      this.streetFailures++;
+      this.streetRetryAt = Math.max(
+        this.streetRetryAt,
+        this.clock.now() / 1000 +
+          [10, 30, 60][Math.min(2, this.streetFailures - 1)],
+        this.deps.api.retryAt || 0,
+      );
+    }
+    if (this.streetEngine === engine) this.streetEngine = undefined;
+  }
+  async retryStreet() {
+    this.streetRetryAt = 0;
+    this.lastReroute = -Infinity;
+    await this.repairStreet();
+  }
   async reroute() {
-    this.lastReroute = Date.now() / 1000;
+    this.lastReroute = this.clock.now() / 1000;
     if (
       this.engine?.journey.legs
         .slice(this.engine.progress.legIndex)
@@ -895,7 +1080,7 @@ export class NavigationSession {
       if (engine.leg.kind === "transit")
         throw new Error("Zunächst den Ausstieg bestätigen.");
       const { journey: route, settings: routeSettings } = await this.plan(
-        this.requestFrom(fixPlace(this.usableFix()), Date.now() / 1000),
+        this.requestFrom(fixPlace(this.usableFix()), this.clock.now() / 1000),
         signal,
       );
       signal.throwIfAborted();
@@ -917,7 +1102,7 @@ export class NavigationSession {
     const engine = this.engine;
     if (!engine || engine.leg.kind !== "stop") return;
     const stop = engine.leg,
-      now = Date.now() / 1000;
+      now = this.clock.now() / 1000;
     const candidate = structuredClone(engine.journey);
     candidate.legs[engine.progress.legIndex].end = Math.max(now, stop.end);
     const updated = applyTransit(
@@ -949,22 +1134,54 @@ export class NavigationSession {
       id: `stop-${stop.navigationId}`,
       message: "Weiterfahrt prüfen. Die bisherige Verbindung bleibt aktiv.",
     };
-    return this.proposeAlternative("stop");
+    this.retryAvailable = true;
+    this.emit();
   }
   completeLeg(expectedId: string) {
+    const engine = this.engine;
     if (
-      !this.engine ||
+      !engine ||
+      engine.phase !== "active" ||
       this.busy ||
-      this.engine.leg.navigationId !== expectedId ||
-      this.engine.leg.kind === "stop"
+      engine.leg.navigationId !== expectedId ||
+      engine.leg.kind === "stop"
     )
-      return;
+      return false;
+    this.updateTrip();
+    const progress = structuredClone(engine.progress);
+    const trip = this.trip && structuredClone(this.trip);
+    const resumeNeedsConfirmation = this.resumeNeedsConfirmation;
+    const next = engine.journey.legs[engine.progress.legIndex + 1];
+    const timing = next && {
+      id: next.navigationId!,
+      start: next.start,
+      end: next.end,
+    };
+    if (!engine.advance(true)) {
+      engine.progress = progress;
+      return false;
+    }
+    this.pendingCompletionUndo =
+      engine.phase === "active"
+        ? {
+            engine,
+            nextId: engine.leg.navigationId!,
+            progress,
+            trip,
+            resumeNeedsConfirmation,
+            timing: timing && {
+              ...timing,
+              appliedStart: engine.leg.start,
+              appliedEnd: engine.leg.end,
+            },
+          }
+        : undefined;
     this.resumeNeedsConfirmation = false;
-    this.engine.advance(true);
     this.alternative = undefined;
     this.pendingAlternativeLocation = undefined;
     this.persist(true);
     this.emit();
+    return true;
   }
   async proposeAlternative(reason?: "reroute" | "stop") {
     const engine = this.engine,
@@ -987,7 +1204,7 @@ export class NavigationSession {
       const leg = active.leg,
         sourceId = leg.navigationId!;
       const onboard = leg.kind === "transit",
-        now = Date.now() / 1000;
+        now = this.clock.now() / 1000;
       if (!onboard) {
         this.pendingAlternativeLocation = {
           engine: active,
@@ -1014,8 +1231,8 @@ export class NavigationSession {
             candidate,
             0,
             onboard
-              ? Math.max(departure, Date.now() / 1000)
-              : Date.now() / 1000 + alternativeDecisionSeconds,
+              ? Math.max(departure, this.clock.now() / 1000)
+              : this.clock.now() / 1000 + alternativeDecisionSeconds,
           ),
       );
       signal.throwIfAborted();
@@ -1025,58 +1242,24 @@ export class NavigationSession {
         this.disruption?.id !== issue.id
       )
         return;
-      const prefix = onboard
-        ? [
-            ...active.journey.legs.slice(0, active.progress.legIndex + 1),
-            transition(
-              "unfold",
-              origin,
-              departure - foldingDuration,
-              departure,
-            ),
-          ]
-        : reason === "stop" && leg.end > now
-          ? [transition("wait", leg.to, now, leg.end)]
-          : [];
-      // Outstanding visits belong to the replacement itinerary, not to both
-      // the failed train prefix and the new route.
-      const reassigned = new Set(journeyStops(route).map((stop) => stop.id));
-      for (let i = 0; i < prefix.length; i++) {
-        const part = prefix[i];
-        if (!part.viaStops?.some((visit) => reassigned.has(visit.stop.id)))
-          continue;
-        const viaStops = part.viaStops.filter(
-          (visit) => !reassigned.has(visit.stop.id),
-        );
-        prefix[i] = {
-          ...part,
-          viaStops: viaStops.length ? viaStops : undefined,
-          transitStatus: {
-            ...part.transitStatus,
-            missingViaStops: part.transitStatus?.missingViaStops?.filter(
-              (id) => !reassigned.has(id),
-            ),
-          },
-        };
-      }
-      const proposed = navigationJourney(
-        prefix.length
-          ? {
-              ...route,
-              origin: onboard ? active.journey.origin : prefix[0].from,
-              departure: onboard ? active.journey.departure : prefix[0].start,
-              legs: [...prefix, ...route.legs],
-            }
-          : route,
-      );
-      validateNavigationGeometry(proposed);
+      const proposed = composeAlternative({
+        current: active.journey,
+        legIndex: active.progress.legIndex,
+        route,
+        onboard,
+        reason,
+        origin,
+        departure,
+        foldingDuration,
+        now,
+      });
       this.alternative = {
         settings: routeSettings,
         journey: proposed,
         legIndex: onboard ? active.progress.legIndex : 0,
         sourceId,
         issueId: issue.id,
-        createdAt: Date.now() / 1000,
+        createdAt: this.clock.now() / 1000,
         sourceArrival: onboard ? leg.end : undefined,
         reason,
         confirmedStops:
@@ -1105,12 +1288,12 @@ export class NavigationSession {
     if (
       candidate.sourceId !== engine.leg.navigationId ||
       candidate.issueId !== this.disruption?.id ||
-      Date.now() / 1000 - candidate.createdAt > 120 ||
+      this.clock.now() / 1000 - candidate.createdAt > 120 ||
       blocksNavigation(
         assessConnection(
           candidate.journey,
           candidate.legIndex,
-          Date.now() / 1000,
+          this.clock.now() / 1000,
           { onboard: candidate.sourceArrival !== undefined },
         ),
       ) ||
@@ -1160,7 +1343,7 @@ export class NavigationSession {
         this.alternative = undefined;
         this.disruption = undefined;
         const trip = this.trip!;
-        const arrivedAt = Date.now() / 1000;
+        const arrivedAt = this.clock.now() / 1000;
         this.summary = Object.freeze({
           id: trip.id,
           originName: trip.originName,
@@ -1176,36 +1359,25 @@ export class NavigationSession {
       return;
     }
     if (!this.deps.resumeEnabled()) return;
-    const key = JSON.stringify([
-      engine.journey.id,
-      engine.progress.legIndex,
-      engine.progress.maneuverIndex,
-      Math.floor(engine.progress.meters / progressCheckpointMeters),
-      engine.progress.confirmedStops,
-      engine.progress.transitStop,
-      engine.progress.transitDepartedStop,
-    ]);
-    if (!force && key === this.savedKey) return;
-    this.savedKey = key;
-    const snapshot: NavigationSnapshot = structuredClone({
-      version: 1,
-      savedAt: Date.now() / 1000,
-      journey: engine.journey,
-      request: {
-        ...this.request!,
-        stops: journeyStops(engine.journey),
+    const pending = this.persistence.saveCheckpoint(
+      {
+        savedAt: this.clock.now() / 1000,
+        journey: engine.journey,
+        request: this.request!,
+        settings: this.settings!,
+        progress: engine.progress,
+        trip: this.trip,
+        resumeEpoch: this.resumeEpoch,
       },
-      settings: this.settings!,
-      progress: engine.progress,
-      trip: this.trip,
-      resumeEpoch: this.resumeEpoch,
-    });
-    void this.store.save(snapshot).catch(() => {
+      force,
+    );
+    void pending?.catch(() => {
       this.storageMessage =
         "Navigation läuft. Wiederaufnahme konnte nicht gespeichert werden.";
       this.emit();
     });
   }
+
   private updateTrip() {
     if (!this.engine || !this.trip || this.summary) return;
     const meters = navigatedRouteMeters(
@@ -1217,33 +1389,32 @@ export class NavigationSession {
     this.trip.routeMeters = Math.max(this.trip.routeMeters, meters);
   }
   private async finishTrip(summary: TripSummary) {
-    if (!this.deps.statisticsEnabled()) {
-      this.statisticsMessage = "Gesamtstatistik ist ausgeschaltet.";
-      try {
-        await this.store.clear(summary.id);
-      } catch {
+    const enabled = this.deps.statisticsEnabled();
+    this.statisticsMessage = enabled
+      ? "Gesamtstatistik wird gespeichert …"
+      : "Gesamtstatistik ist ausgeschaltet.";
+    const result = await this.persistence.complete(summary, enabled);
+    if (result.kind === "disabled") {
+      if (result.clearingFailed) {
         this.storageMessage =
           "Gespeicherter Navigationsstand konnte nicht gelöscht werden.";
         this.emit();
       }
       return;
     }
-    this.statisticsMessage = "Gesamtstatistik wird gespeichert …";
-    try {
-      const statistics = await this.store.completeTrip(summary);
-      if (this.summary !== summary) return;
-      this.statistics = statistics;
-      this.statisticsMessage = statistics
+    if (this.summary !== summary) return;
+    if (result.kind === "stored") {
+      this.statistics = result.statistics;
+      this.statisticsMessage = result.statistics
         ? ""
         : "Gesamtstatistik wurde gelöscht oder Speicherung ausgeschaltet.";
-    } catch {
-      if (this.summary !== summary) return;
+    } else
       this.statisticsMessage =
         "Gesamtstatistik konnte nicht gespeichert werden.";
-    }
     this.emit();
   }
   async stop() {
+    this.discardCompletionUndo();
     const tripId = this.trip?.id;
     const completion = this.completion;
     this.abortTasks();
@@ -1253,9 +1424,9 @@ export class NavigationSession {
     this.disruption = undefined;
     this.assessment = undefined;
     this.message = "";
-    this.savedKey = "";
+    this.persistence.resetCheckpoint();
     this.emit();
     await completion;
-    await this.store.clear(tripId);
+    await this.persistence.clear(tripId);
   }
 }

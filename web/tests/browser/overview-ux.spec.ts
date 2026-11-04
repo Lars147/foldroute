@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "./test";
 import { expectMapSettled, expectRouteFitUnchanged } from "./planner-fixture";
+import { waitForAppReady } from "./app-fixture";
 
 async function setup(
   page: Page,
@@ -12,7 +13,7 @@ async function setup(
     route.abort(),
   );
   await page.goto("/");
-  await expect(page.locator("#main")).not.toHaveAttribute("inert");
+  await waitForAppReady(page);
   await page.evaluate(async (shape) => {
     const path = "/src/map-view.ts";
     const { RouteMap } = await import(path);

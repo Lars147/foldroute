@@ -1,5 +1,6 @@
 import {
   type Journey,
+  type Place,
   type RouteRequest,
   type RoutingSettings,
   type PlanningPhase,
@@ -15,8 +16,8 @@ import {
 } from "./model";
 import { searchMessage, stoppedSearchMessage } from "./planning-progress";
 import { planRoutes } from "./planner";
-import { ApiClient } from "./transitous";
-import { locate } from "./search";
+import type { PlanningClient, RoutePlanner } from "./routing-contracts";
+import { locate } from "./search-location";
 import { PlanningRoutingClient } from "./planning-routing";
 export interface PlanningRecovery {
   action: "retry" | "adjust";
@@ -70,7 +71,16 @@ function routingContext(request: RouteRequest, settings: RoutingSettings) {
       ]),
   ]);
 }
+export interface PlanningDependencies {
+  locate: (signal?: AbortSignal) => Promise<Place>;
+  /** Current time in seconds, matching routing request timestamps. */
+  now: () => number;
+  online: () => boolean;
+  plan: RoutePlanner;
+}
+
 export class PlanningSession {
+  private dependencies: PlanningDependencies;
   state: PlanningState = {
     journeys: [],
     queriedAt: 0,
@@ -91,13 +101,21 @@ export class PlanningSession {
     client: PlanningRoutingClient;
   };
   constructor(
-    private client: ApiClient,
+    private client: PlanningClient,
     private change: (s: PlanningState) => void,
     private resolved?: (
       request: RouteRequest,
       settings: RoutingSettings,
     ) => void,
+    dependencies: Partial<PlanningDependencies> = {},
   ) {
+    this.dependencies = {
+      locate,
+      now: () => Date.now() / 1000,
+      online: () => navigator.onLine,
+      plan: planRoutes,
+      ...dependencies,
+    };
     client.onPause((pause) => {
       if (
         !this.state.recovery ||
@@ -358,13 +376,13 @@ export class PlanningSession {
       received = false,
       resolved = false;
     try {
-      if (!navigator.onLine)
+      if (!this.dependencies.online())
         throw new Error(
           "Keine Internetverbindung. Vorhandene Verbindungen bleiben verfügbar. Sobald du online bist, kannst du über „Route anpassen“ erneut suchen.",
         );
       if (needsLocation) {
         locating = true;
-        const current = await locate(signal);
+        const current = await this.dependencies.locate(signal);
         request = {
           ...request,
           origin: refreshLocation ? current : request.origin,
@@ -376,7 +394,7 @@ export class PlanningSession {
       }
       if (generation !== this.generation) return;
       locating = false;
-      const queriedAt = Date.now() / 1000;
+      const queriedAt = this.dependencies.now();
       const calculationId = crypto.randomUUID();
       if (request.timing === "now")
         request = {
@@ -400,7 +418,7 @@ export class PlanningSession {
         message: "Verbindungen werden gesucht …",
       };
       this.emit();
-      for await (const update of planRoutes(
+      for await (const update of this.dependencies.plan(
         request,
         calculationSettings,
         signal,
@@ -502,7 +520,7 @@ export class PlanningSession {
             : error instanceof PlannerError &&
                 error.code === "empty" &&
                 request.timing !== "now" &&
-                request.time < Date.now() / 1000
+                request.time < this.dependencies.now()
               ? "Für diesen Zeitpunkt wurden keine passenden Verbindungen gefunden."
               : errorText(error)),
         recovery: {
@@ -552,9 +570,9 @@ export class PlanningSession {
       !this.state.resultSettings ||
       routingContext(this.state.request, this.state.resultSettings) !==
         routingContext(continuation.request, continuation.settings) ||
-      !navigator.onLine ||
+      !this.dependencies.online() ||
       Math.max(this.state.recovery.retryAt ?? 0, this.client.retryAt) >
-        Date.now() / 1000
+        this.dependencies.now()
     )
       return;
 
@@ -576,7 +594,7 @@ export class PlanningSession {
     };
     this.emit();
     try {
-      for await (const update of planRoutes(
+      for await (const update of this.dependencies.plan(
         structuredClone(request),
         structuredClone(settings),
         signal,

@@ -129,6 +129,8 @@ describe("Shared Swift fixtures", () => {
       return {
         journeys: phase === "base" && !variant.direct ? mapped() : [],
         issues: [],
+        rejected: false,
+        stop: false,
       };
     });
     for await (const update of planRoutes(
@@ -225,7 +227,7 @@ describe("Shared Swift fixtures", () => {
   });
   it("flags invalid street geometry", () => {
     const f = structuredClone(fixture.multimodal);
-    f.itineraries[0].legs[0].legGeometry.points = "!";
+    f.itineraries[0].legs[0].legGeometry!.points = "!";
     expect(mapResponse(f, request, settings, baseVariants[2]).rejected).toBe(
       true,
     );

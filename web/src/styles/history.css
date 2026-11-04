@@ -1,0 +1,182 @@
+.history-list {
+  list-style: none;
+  margin: 8px 0 24px;
+  padding: 0;
+}
+.history-row {
+  --delete-width: 6rem;
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  touch-action: pan-y pinch-zoom;
+}
+.history-open {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 18px 36px 18px 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+  background: var(--paper);
+  border-radius: 0;
+  transform: translateX(var(--swipe-offset, 0px));
+  transition: transform 250ms ease;
+}
+.history-remove {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: var(--delete-width);
+  min-height: 44px;
+  background: var(--color-danger-action);
+  color: var(--color-on-danger);
+  border-radius: 0;
+}
+.history-row.swipe-open,
+.history-row:has(.history-remove:focus-visible) {
+  --swipe-offset: calc(-1 * var(--delete-width));
+}
+.history-row.swipe-dragging .history-open {
+  transition: none;
+}
+.history-remove > .icon {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .history-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 12px;
+    align-items: center;
+  }
+  .history-row .history-open {
+    transform: none;
+    transition: none;
+  }
+  .history-remove {
+    position: static;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 10px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .history-remove > .icon {
+    display: block;
+    width: 20px;
+    height: 20px;
+  }
+  .history-remove-label {
+    display: none;
+  }
+  .history-row:hover .history-remove,
+  .history-row:focus-within .history-remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .history-remove:hover {
+    background: var(--color-danger-action);
+    color: var(--color-on-danger);
+  }
+}
+@media (hover: hover) and (pointer: fine) and (any-pointer: coarse) {
+  .history-remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .history-open {
+    transition: none;
+  }
+}
+.history-feedback {
+  position: fixed;
+  z-index: 100;
+  bottom: calc(var(--tabs) + 14px);
+  left: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.history-feedback .toast {
+  position: static;
+  max-width: 100%;
+  margin: 0;
+  pointer-events: auto;
+}
+.history-undo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+}
+.history-undo button {
+  min-height: 44px;
+  color: var(--panel-text);
+}
+.history-origin,
+.history-destination {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+.history-origin {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.history-origin .route-origin-marker {
+  margin: 4px auto 0;
+}
+.history-destination .icon {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+}
+.history-open small,
+.history-timestamp {
+  margin-left: 24px;
+}
+.history-chevron {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+@media (max-width: 899px) {
+  #history-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+.history-open small {
+  color: var(--muted);
+}
+.history-timestamp {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.history-row > .icon-button {
+  flex-shrink: 0;
+}

@@ -3794,7 +3794,9 @@ extension FoldRouteTests {
         var final: JourneyOptionsUpdate?
         for try await update in client.alternativeUpdates(makeRequest(), settings: settings) { final = update }
         XCTAssertEqual(final?.status, .complete)
-        XCTAssertEqual(recorder.requests.count, 5)
+        // Five base variants plus the optional bike comparison for the walking block.
+        XCTAssertEqual(recorder.requests.count, 6)
+        XCTAssertEqual(recorder.requests.filter { queryValue("directModes", in: $0) == "BIKE" }.count, 2)
         XCTAssertFalse(recorder.requests.contains { $0.cachePolicy == .reloadIgnoringLocalCacheData })
         let journey = try XCTUnwrap(final?.journeys.first)
         guard case .walk(let leg) = journey.legs.first else { return XCTFail("Expected station walk") }

@@ -101,7 +101,8 @@ pass before measuring keyboard-driven scrolling; all breakpoint assertions remai
 
 Run `npm test`, `npm run build`, and `npm run test:browser` from `web/`.
 All split suite names retain `ux` so the existing WebKit project and CI sharding
-continue to discover them. No project, retry, timeout, or deployment settings change.
+continue to discover them. Retry, timeout, and deployment settings remain unchanged;
+production checks are additionally included in the WebKit project.
 
 For a focused performance comparison, run the three station scenarios plus
 `navigation-layout-ux.spec.ts`, with two workers and no retries. Compare with
@@ -112,3 +113,44 @@ For the second optimization comparison, include GPS badge and stop-duration
 tests plus the changed cancellation, delayed-response and map-gesture checks.
 Include their replacement layout cases in the after measurement. Repeat the
 new response/map synchronization five times per browser before the complete run.
+
+## Component ownership and test types
+
+`npm run check` includes the strict test TypeScript project. Browser `/src/`
+imports resolve to the same source modules Vite serves; Node helpers have an
+explicit Node type context. Fixture corrections must preserve runtime assertions.
+
+`location-probe.ts` supplies isolated typed navigation and live-location probes.
+The navigation mode automatically publishes the initial watch fix and supports
+quick lookups; live-location mode waits for explicit measurements and rejects
+unexpected low-accuracy origin lookups. Refresh silence and cached timestamps
+remain explicit controls. Both modes share watch cleanup and visibility events.
+
+`responsive-ownership-ux.spec.ts` covers 899/900-pixel transitions with both motion
+preferences: input identity and selection, sheet history and unaccepted previews,
+and countdown/trip continuity. `component-lifecycle-ux.spec.ts` mounts the real
+Svelte map-style picker in a dedicated component document, without replacing the
+application entrypoint. It verifies repeated mount/dispose and native popover
+focus behavior. `production.spec.ts` is explicitly discovered by both Chromium
+and WebKit so production-path and offline contracts are not Chromium-only.
+
+Production provider responses are mocked at the application's fetch boundary:
+WebKit can bypass both page and context routing after a service worker takes
+control. Only Transitous responses use recorded fixtures; an offline provider
+request fails. Service-worker downloads, shell assets, cache reads, activation,
+and offline reloads remain native. Tests that need different routing responses
+pass their recording explicitly to the production fixture instead of depending
+on a page route that a worker can bypass.
+
+`search-lifecycle-ux.spec.ts` mounts native input, suggestions and status elements
+with the real `PlaceSearch`, `PlaceBook` and `ApiClient`. A gated HTTP response
+checks that disposal prevents late UI changes. Repeated mounting counts actual
+public subscription deliveries during IndexedDB favorite writes and HTTP 429
+pauses: exactly one active subscriber and none after disposal. No application
+startup or dataset flags stand in for the component's behavior.
+
+Prepared JourneyView/NavigationView fixtures keep the real Bootstrap-mounted
+AppRoot and replace only `startApplication` with a no-op initializer. Their views
+reuse the installed presentation; they must not create a second navigation root.
+Startup-gate fixtures return their pending promise from `startApplication`, so
+they continue to test actual Bootstrap readiness rather than bypassing it.

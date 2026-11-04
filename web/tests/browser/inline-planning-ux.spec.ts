@@ -293,9 +293,11 @@ for (const width of [320, 390, 1280])
     await expect(
       page.getByRole("combobox", { name: "Ziel", exact: true }),
     ).toHaveAttribute("placeholder", "Ziel wählen");
-    await expect(page.locator('label[for="origin"]')).toHaveClass("sr-only");
+    await expect(page.locator('label[for="origin"]')).toHaveClass(
+      /(^|\s)sr-only(\s|$)/,
+    );
     await expect(page.locator('label[for="destination"]')).toHaveClass(
-      "sr-only",
+      /(^|\s)sr-only(\s|$)/,
     );
     await expect(
       page.locator("#route-editor-destination #destination"),

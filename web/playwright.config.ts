@@ -34,6 +34,7 @@ export default defineConfig({
       name: "webkit",
       testMatch: [
         "**/planner.spec.ts",
+        "**/production.spec.ts",
         "**/*ux*.spec.ts",
         "**/ux-planning.spec.ts",
       ],

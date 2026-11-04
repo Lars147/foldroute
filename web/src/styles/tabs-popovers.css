@@ -1,0 +1,198 @@
+/* One persistent selection marker; moving it never changes tab geometry. */
+.tab-indicator {
+  display: none;
+  position: absolute;
+  border-radius: var(--tab-indicator-radius);
+  overflow: hidden;
+  contain: layout;
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  pointer-events: none;
+  z-index: 2;
+}
+.tab-indicator-contents,
+.tab-indicator-copy {
+  position: absolute;
+}
+.app-tabs {
+  isolation: isolate;
+}
+.app-tabs[data-motion="ready"] .tab-indicator {
+  display: block;
+}
+.app-tabs[data-motion="ready"] button[aria-current] {
+  color: var(--muted);
+}
+.app-tabs[data-motion="ready"] button[aria-current]::before {
+  display: none;
+}
+.navigation-screen {
+  overflow: clip;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button > .icon {
+    transition: scale var(--motion-feedback) var(--motion-ease);
+  }
+  button:active:not(:disabled) > .icon {
+    scale: 0.94;
+  }
+  /* Keep palette changes atomic so intermediate text contrast never drops. */
+  .map-style-preview {
+    transition: border-color var(--motion-selection);
+  }
+  .settings-disclosure > summary::after,
+  .navigation-expand,
+  .stop-stay-toggle .icon:last-child {
+    transition: transform var(--motion-selection) var(--motion-ease);
+  }
+  .stop-stay-toggle[aria-expanded="true"] .icon:last-child {
+    transform: rotate(90deg);
+  }
+  .settings-screen input[role="switch"] {
+    transition:
+      background-color var(--motion-selection),
+      border-color var(--motion-selection);
+  }
+  .settings-screen input[role="switch"]::before {
+    transition:
+      transform var(--motion-selection) var(--motion-ease),
+      background-color var(--motion-selection);
+  }
+
+  /* Native close/popover semantics stay immediate; only their painted exit persists. */
+  dialog,
+  .map-style-panel,
+  dialog::backdrop {
+    --motion-overlay-time: var(--motion-exit);
+    --motion-overlay-ease: var(--motion-ease-exit);
+  }
+  dialog[open],
+  .map-style-panel:popover-open,
+  dialog[open]::backdrop {
+    --motion-overlay-time: var(--motion-page);
+    --motion-overlay-ease: var(--motion-ease-enter);
+  }
+  dialog,
+  .map-style-panel {
+    opacity: 0;
+    translate: 0 14px;
+    transition:
+      opacity var(--motion-overlay-time) var(--motion-overlay-ease),
+      translate var(--motion-overlay-time) var(--motion-overlay-ease),
+      display var(--motion-overlay-time) allow-discrete,
+      overlay var(--motion-overlay-time) allow-discrete;
+  }
+  dialog[open],
+  .map-style-panel:popover-open {
+    opacity: 1;
+    translate: 0 0;
+  }
+  dialog::backdrop {
+    opacity: 0;
+    transition:
+      opacity var(--motion-overlay-time) var(--motion-overlay-ease),
+      display var(--motion-overlay-time) allow-discrete,
+      overlay var(--motion-overlay-time) allow-discrete;
+  }
+  dialog[open]::backdrop {
+    opacity: 1;
+  }
+  dialog:not([open]),
+  dialog:not([open])::backdrop,
+  .map-style-panel:not(:popover-open) {
+    pointer-events: none;
+  }
+
+  @starting-style {
+    dialog[open],
+    .map-style-panel:popover-open {
+      opacity: 0;
+      translate: 0 14px;
+    }
+    dialog[open]::backdrop {
+      opacity: 0;
+    }
+  }
+  /* Focused search fields use fixed viewport positioning, including inside dialogs. */
+  body.search-focus-mode dialog[open]:has(.search-focus-input) {
+    translate: none;
+    opacity: 1;
+    transition: none;
+  }
+}
+@media (max-width: 899px) and (prefers-reduced-motion: no-preference) {
+  .map-style-panel {
+    translate: 0 calc(100% + 24px);
+  }
+  .map-style-panel:popover-open {
+    --motion-overlay-time: var(--motion-panel);
+    translate: 0 0;
+  }
+  @starting-style {
+    .map-style-panel:popover-open {
+      translate: 0 calc(100% + 24px);
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+#navigation-undo,
+#navigation-auto-complete {
+  position: absolute;
+  z-index: 3;
+  top: auto;
+  left: 16px;
+  right: 16px;
+  bottom: calc(100% - var(--navigation-panel-top, 100%) + 12px);
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  margin: 0 auto;
+  padding: 0;
+}
+#navigation-auto-complete {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px 0 16px;
+}
+#navigation-auto-label {
+  padding: 12px 0;
+}
+#navigation-auto-cancel {
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--panel-text);
+  font-size: inherit;
+  font-weight: 700;
+}
+#navigation-undo-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 44px;
+  min-height: 48px;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--panel-text);
+  font-size: inherit;
+  text-decoration: none;
+}
+
+#navigation-undo-button .icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}

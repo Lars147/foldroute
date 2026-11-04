@@ -1,6 +1,7 @@
 import { openStorageSeed } from "./app-fixture";
 import { expect, test, type Page } from "./test";
 import { defaults } from "../../src/model";
+import { trackPlanning } from "./planner-fixture";
 import {
   expectPlanningComplete,
   expectSelectedJourneySaved,
@@ -271,6 +272,7 @@ test("offline routes expose the cached itinerary and keep replanning explicit on
   await expect(page.locator("#saved-notice")).toContainText(
     "Zeiten wurden nicht aktualisiert",
   );
+  await showMap(page);
   await expect(page.locator("#replan-saved")).toBeVisible();
   await expect(page.locator("#replan-saved")).toBeDisabled();
   await page.locator("#route-more").click();
@@ -360,7 +362,7 @@ test("retry stays next to an update error in the map and is disabled offline", a
   await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expect(page.locator("#recover-planning")).toBeVisible();
-  await expect(page.locator("#stale-notice")).toBeVisible();
+  await expect(page.locator("#map-preview-status")).toBeVisible();
   await showMap(page);
   await expect(page.locator("#map-preview #recover-planning")).toBeVisible();
   await expect(page.locator("#map-preview-status")).toContainText(
@@ -433,7 +435,9 @@ test("invalid settings preserve an active calculation and do not create history 
 test("a service pause disables inline retry until its deadline without automatic requests", async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date(now * 1000) });
   await setup(page);
+  const planning = await trackPlanning(page);
   let paused = true,
     calls = 0;
   await page.route("**/api/v6/plan?*", (route) => {
@@ -453,8 +457,10 @@ test("a service pause disables inline retry until its deadline without automatic
   await expect(page.locator("#recover-planning")).toBeVisible();
   await expect(page.locator("#recover-planning")).toBeDisabled();
   await expect(page.locator("#recovery-wait")).toBeVisible();
+  await planning.finished();
   const initialCalls = calls;
   await page.clock.setFixedTime(new Date((now + 5) * 1000));
+  await page.clock.fastForward(5000);
   await expect(page.locator("#recover-planning")).toBeEnabled();
   expect(calls).toBe(initialCalls);
   paused = false;

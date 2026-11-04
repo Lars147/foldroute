@@ -1,7 +1,10 @@
-import {
-  renderJourneyDetails,
-  type JourneyPresentation,
-} from "./journey-detail";
+import { DialogController } from "./dialog-controller";
+import { flushSync } from "svelte";
+import { appPresentation } from "./app-presentation";
+import type { JourneyWorkspaceApi } from "./journey-workspace-presentation";
+import { journeyTimeRange, journeyEndpointTime } from "./journey-time";
+export { journeyTimeRange, journeyEndpointTime } from "./journey-time";
+import { type JourneyPresentation } from "./journey-detail-view";
 import { closeMapStylePickers } from "./map-style-picker";
 import { reveal, stopMotionWithin, motionTime } from "./motion";
 import {
@@ -12,53 +15,74 @@ import {
   cyclingExcess,
   cyclingComparisonLabel,
   journeyEffort,
-  journeyOutline,
   rateLimitMessage,
 } from "./model";
 import { type PlanningState } from "./planning-state";
 import { planningProgress } from "./planning-progress";
-import { renderRequestStops } from "./route-request";
 import { SearchPreview } from "./search-preview";
-import { RetryCountdown } from "./retry-countdown";
-import {
-  el,
-  node,
-  clock,
-  duration,
-  dateLabel,
-  icon,
-  routeSymbolColor,
-} from "./ui";
-export type JourneyScreen = "list" | "detail" | "map";
-
-function movePreservingFocus(
-  element: HTMLElement,
-  parent: Node,
-  before: Node | null = null,
-) {
-  if (
-    before === element ||
-    (element.parentNode === parent &&
-      (!before || element.nextSibling === before))
-  )
-    return;
-  const focused = element.contains(document.activeElement)
-    ? (document.activeElement as HTMLElement)
-    : undefined;
-  parent.insertBefore(element, before);
-  focused?.focus({ preventScroll: true });
+import { el, clock, duration, dateLabel } from "./ui";
+export interface JourneySheet {
+  mode: "alternatives" | "preview" | "detail";
+  journeyId?: string;
+  scrollTop: number;
+  listScrollTop?: number;
 }
 
 export interface JourneyNavigation {
-  screen: JourneyScreen;
-  mapReturn: "list" | "detail";
+  screen: "map";
   savedOrigin?: "search" | "history";
   positions: Record<string, number>;
+  sheet?: JourneySheet;
 }
+
+interface LegacyJourneyNavigation {
+  screen: "list" | "detail" | "map";
+  savedOrigin?: "search" | "history";
+  positions: Record<string, number>;
+  alternatives?: { previewId?: string; scrollTop: number };
+}
+
+/** History entries from an older tab can still contain full-screen results. */
+export function normalizeJourneyNavigation(
+  value?: JourneyNavigation | LegacyJourneyNavigation,
+  selectedId?: string,
+  hasJourneys = false,
+): JourneyNavigation {
+  const navigation: JourneyNavigation = {
+    screen: "map",
+    savedOrigin: value?.savedOrigin,
+    positions: { ...value?.positions },
+  };
+  if (value && "sheet" in value && value.sheet)
+    navigation.sheet = structuredClone(value.sheet);
+  else if (value && "alternatives" in value && value.alternatives) {
+    const { previewId, scrollTop } = value.alternatives;
+    navigation.sheet = previewId
+      ? {
+          mode: "preview",
+          journeyId: previewId,
+          scrollTop: 0,
+          listScrollTop: scrollTop,
+        }
+      : { mode: "alternatives", scrollTop };
+  } else if (value?.screen === "detail" && selectedId)
+    navigation.sheet = {
+      mode: "detail",
+      journeyId: selectedId,
+      scrollTop: value.positions[`detail:${selectedId}`] ?? 0,
+    };
+  else if (value?.screen === "list" && hasJourneys)
+    navigation.sheet = {
+      mode: "alternatives",
+      scrollTop: value.positions.list ?? 0,
+    };
+  return navigation;
+}
+
 export class JourneyView {
   onDetailsOpened?: () => void;
-  onNavigate?: (screen: JourneyScreen, replace: boolean) => void;
   onBack?: () => void;
+  onSheetChange?: (action: "open" | "update" | "close") => void;
   onLayoutChange?: () => void;
   onPositionChange?: () => void;
   private key = "";
@@ -67,45 +91,112 @@ export class JourneyView {
   private hadChoices = false;
   private requestPreview = false;
   private requestMapReady = false;
-  private readonly searchPreview = new SearchPreview();
+  private readonly searchPreview: SearchPreview;
   private recoveryTimer?: ReturnType<typeof setTimeout>;
-  private statusCountdown = new RetryCountdown();
-  private mapCountdown = new RetryCountdown();
   private navigation: JourneyNavigation = {
-    screen: "list",
-    mapReturn: "list",
+    screen: "map",
     positions: {},
   };
   private readonly desktop = matchMedia("(min-width: 900px)");
-  private readonly detailPanel = el("panel-details");
-  private readonly feedbackHomes = new Map<HTMLElement, Comment>();
+  private get detailPanel() {
+    return el("panel-details");
+  }
+  private readonly alternativesDialog = el<HTMLDialogElement>(
+    "alternatives-dialog",
+  );
+  private lastState?: PlanningState;
+  private lastCyclingLimit = 30;
+  private sheetCalculationId?: string;
+  private sheetDetailKey = "";
+  private renderedDetailKey = "";
+  private sheetAnchor?: { id: string; top: number };
+  private sheetReturnTrigger = "result-back";
+
   constructor(
     private select: (id: string) => void,
     private readonly presentation: JourneyPresentation = "live",
+    private readonly workspace: JourneyWorkspaceApi = appPresentation()
+      .workspace,
   ) {
-    for (const id of [
-      "issues",
-      "late-departure",
-      "cycling-comparison",
-      "map-error",
-      "navigation-start-notice",
-      "navigation-start-recovery",
-    ]) {
-      const element = el(id);
-      const home = document.createComment(`${id} home`);
-      element.before(home);
-      this.feedbackHomes.set(element, home);
-    }
-    el("panel-map-toggle").onclick = () => this.requestScreen("map");
-    el("result-back").onclick = () => {
+    this.searchPreview = new SearchPreview(this.workspace);
+    this.workspace.setCommand("alternatives-close", () => this.closeSheet());
+    this.alternativesDialog.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab") return;
+      const controls = [
+        ...this.alternativesDialog.querySelectorAll<HTMLElement>(
+          "button, a[href], input, select, textarea, [tabindex]",
+        ),
+      ].filter(
+        (element) =>
+          element.tabIndex >= 0 &&
+          !element.matches(":disabled") &&
+          !element.closest("[hidden], [inert]") &&
+          element.getClientRects().length,
+      );
+      const first = controls[0],
+        last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    });
+    this.alternativesDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      this.closeSheet();
+    });
+    this.workspace.setCommand("alternatives-back", () => {
+      const sheet = this.navigation.sheet;
+      if (sheet?.mode !== "preview") return;
+      this.navigation.sheet = {
+        mode: "alternatives",
+        scrollTop: sheet.listScrollTop ?? 0,
+      };
+      this.refreshSheet();
+      this.onSheetChange?.("update");
+      el("choices")
+        .querySelector<HTMLElement>(
+          `.route-detail-link[data-detail-journey="${CSS.escape(sheet.journeyId ?? "")}"]`,
+        )
+        ?.focus({ preventScroll: true });
+    });
+    this.workspace.setCommand("alternatives-select", () => {
+      const sheet = this.navigation.sheet;
+      const id = sheet?.mode === "preview" ? sheet.journeyId : undefined;
+      if (!id || !this.lastState?.journeys.some((journey) => journey.id === id))
+        return;
+      this.select(id);
+      this.closeSheet();
+    });
+    el("alternatives-body").addEventListener(
+      "scroll",
+      () => {
+        if (this.navigation.sheet) {
+          this.saveSheetPosition();
+          this.onPositionChange?.();
+        }
+      },
+      { passive: true },
+    );
+    this.workspace.setCommand("result-back", () => {
+      if (!this.desktop.matches && !this.savedOrigin && !this.example) {
+        this.openAlternatives();
+        return;
+      }
       if (this.onBack) this.onBack();
-      else this.showScreen("list");
-    };
-    el("map-open-details").onclick = () => {
-      this.onDetailsOpened?.();
-      this.requestScreen("detail", true);
-    };
-    el("choices").onkeydown = (event) => {
+      else this.openAlternatives();
+    });
+    this.workspace.setCommand("map-open-details", () => {
+      this.openDetails();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (
+        !(event.target instanceof Element) ||
+        !event.target.closest("#choices")
+      )
+        return;
       if (
         !(event.target instanceof HTMLElement) ||
         !event.target.matches(".route-choice")
@@ -121,32 +212,39 @@ export class JourneyView {
         (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) %
           buttons.length
       ]?.focus();
-    };
+    });
     const actionsDialog = el<HTMLDialogElement>("route-actions-dialog");
+    const actionsController = new DialogController(actionsDialog);
     const closeActions = () => {
       if (!actionsDialog.open) return;
-      actionsDialog.close();
-      el("route-more").focus({ preventScroll: true });
+      actionsController.close();
     };
-    el("route-more").onclick = () => actionsDialog.showModal();
-    el("route-actions-close").onclick = closeActions;
+    this.workspace.setCommand("route-more", () =>
+      actionsController.open(el("route-more")),
+    );
+    this.workspace.setCommand("route-actions-close", closeActions);
     actionsDialog.addEventListener("cancel", (event) => {
       event.preventDefault();
       closeActions();
     });
-    for (const id of [
-      "share-plan",
-      "refresh-route",
-      "replan-saved",
-      "navigation-start",
-    ]) {
-      el(id).addEventListener("click", closeActions, { capture: true });
-    }
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest(
+            "#share-plan, #refresh-route, #replan-saved, #navigation-start",
+          )
+        )
+          closeActions();
+      },
+      { capture: true },
+    );
     this.desktop.addEventListener("change", () => {
-      const active = document.activeElement as HTMLElement;
-      this.selectPreviewScreen();
+      if (this.desktop.matches) this.closeSheet(true, false);
       this.applyLayout();
       this.restorePosition();
+      const active = document.activeElement as HTMLElement;
       if (
         !actionsDialog.open &&
         !document.querySelector(".map-style-panel:popover-open") &&
@@ -169,7 +267,12 @@ export class JourneyView {
         const scrollTop = panel.scrollTop;
         // Always measure the same layout: switching scroll containers changes
         // available width and can otherwise alternate the result every frame.
-        if (wasScrolling) panel.classList.remove("result-scroll-all");
+        if (wasScrolling)
+          this.workspace.toggleClass(
+            "journey-panel",
+            "result-scroll-all",
+            false,
+          );
         const fixed =
           el("result-header").offsetHeight +
           (el("result-nav").parentElement === panel
@@ -177,23 +280,21 @@ export class JourneyView {
             : 0) +
           panel.querySelector<HTMLElement>(".panel-actions")!.offsetHeight +
           48;
-        const row =
-          this.screen === "list"
-            ? Math.max(
-                100,
-                ...[...el("choices").children].map(
-                  (e) => e.getBoundingClientRect().height,
-                ),
-              )
-            : 180;
+        const row = Math.max(
+          100,
+          ...[...el("choices").children].map(
+            (e) => e.getBoundingClientRect().height,
+          ),
+        );
         // Wrapping changes between scroll modes. Leave spare room before
         // returning to the fixed header and footer to avoid resize oscillation.
         const spare = wasScrolling
           ? 2 * parseFloat(getComputedStyle(panel).fontSize)
           : 0;
-        panel.classList.toggle(
+        this.workspace.toggleClass(
+          "journey-panel",
           "result-scroll-all",
-          (this.desktop.matches || this.screen !== "map") &&
+          this.desktop.matches &&
             el("map-view").clientHeight < fixed + row + spare,
         );
         if (wasScrolling && panel.classList.contains("result-scroll-all"))
@@ -203,11 +304,16 @@ export class JourneyView {
     for (const element of [
       el("map-view"),
       el("result-header"),
-      el("result-nav"),
-      el("choices"),
       el("journey-panel").querySelector<HTMLElement>(".panel-actions")!,
     ])
       observer.observe(element);
+    let dynamicObserved = [el("result-nav"), el("choices")];
+    dynamicObserved.forEach((element) => observer.observe(element));
+    this.workspace.subscribeStructure(() => {
+      dynamicObserved.forEach((element) => observer.unobserve(element));
+      dynamicObserved = [el("result-nav"), el("choices")];
+      dynamicObserved.forEach((element) => observer.observe(element));
+    });
     for (const element of [el("panel-content"), el("journey-panel")]) {
       element.addEventListener(
         "scroll",
@@ -220,97 +326,243 @@ export class JourneyView {
     }
     this.applyLayout();
   }
-  get screen() {
-    return this.navigation.screen;
+  get sheetOpen() {
+    return this.alternativesDialog.open;
+  }
+  openAlternatives() {
+    if (
+      this.desktop.matches ||
+      !this.lastState?.journeys.length ||
+      this.requestPreview ||
+      this.sheetOpen
+    )
+      return;
+    this.openSheet({ mode: "alternatives", scrollTop: 0 });
+    const selected = el("choices").querySelector<HTMLElement>(
+      '.route-choice[aria-pressed="true"]',
+    );
+    selected?.scrollIntoView({ block: "nearest" });
+    selected?.focus({ preventScroll: true });
+  }
+  openDetails() {
+    if (
+      this.desktop.matches ||
+      !this.lastState?.selected ||
+      this.requestPreview ||
+      this.sheetOpen
+    )
+      return;
+    this.onDetailsOpened?.();
+    this.openSheet({
+      mode: "detail",
+      journeyId: this.lastState.selected.id,
+      scrollTop: 0,
+    });
+    el("alternatives-title").focus({ preventScroll: true });
+  }
+  private openSheet(sheet: JourneySheet) {
+    closeMapStylePickers();
+    this.navigation.sheet = sheet;
+    this.sheetReturnTrigger =
+      sheet.mode === "detail" ? "map-open-details" : "result-back";
+    this.workspace.setText("alternatives-announcement", "");
+    this.sheetCalculationId = this.lastState?.calculationId;
+    this.refreshSheet();
+    this.onSheetChange?.("open");
+  }
+  closeSheet(notify = true, focus = true) {
+    if (!this.navigation.sheet && !this.sheetOpen) return;
+    delete this.navigation.sheet;
+    this.refreshSheet();
+    if (focus) this.focusSheetTrigger();
+    if (notify) this.onSheetChange?.("close");
+  }
+  focusSheetTrigger() {
+    if (this.desktop.matches) this.focusSelection();
+    else {
+      const trigger = el(this.sheetReturnTrigger);
+      (trigger.getClientRects().length
+        ? trigger
+        : el("map-preview-heading")
+      ).focus({ preventScroll: true });
+    }
+  }
+  dismissSheet() {
+    if (!this.navigation.sheet && !this.sheetOpen) return;
+    this.closeSheet(false, false);
+    this.onSheetChange?.("update");
+  }
+  private refreshSheet() {
+    this.key = "";
+    if (this.lastState) this.render(this.lastState, this.lastCyclingLimit);
+    else this.applyLayout();
+  }
+  private previewAlternative(id: string) {
+    const sheet = this.navigation.sheet;
+    if (sheet?.mode !== "alternatives") return;
+    this.saveSheetPosition();
+    this.navigation.sheet = {
+      mode: "preview",
+      journeyId: id,
+      listScrollTop: sheet.scrollTop,
+      scrollTop: 0,
+    };
+    this.onDetailsOpened?.();
+    this.refreshSheet();
+    el("alternatives-title").focus({ preventScroll: true });
+    this.onSheetChange?.("update");
+  }
+  private sheetKey(sheet: JourneySheet) {
+    return `${sheet.mode}:${sheet.journeyId ?? ""}`;
+  }
+  private saveSheetPosition() {
+    const sheet = this.navigation.sheet;
+    if (sheet && this.sheetOpen && this.sheetKey(sheet) === this.sheetDetailKey)
+      sheet.scrollTop = el("alternatives-body").scrollTop;
+  }
+  private renderSheet() {
+    let sheet = this.navigation.sheet;
+    if (!sheet) {
+      if (this.alternativesDialog.open) this.alternativesDialog.close();
+      this.sheetDetailKey = "";
+      return;
+    }
+    const journeyId = sheet.journeyId;
+    const journey = this.lastState?.journeys.find(
+      (journey) => journey.id === journeyId,
+    );
+    const unavailable = sheet.mode === "preview" && !journey;
+    if (unavailable) {
+      sheet = this.navigation.sheet = {
+        mode: "alternatives",
+        scrollTop: sheet.listScrollTop ?? 0,
+      };
+      this.workspace.setText(
+        "alternatives-announcement",
+        "Diese Verbindung ist nicht mehr verfügbar. Bitte wähle eine Alternative.",
+      );
+    }
+    const detail = sheet.mode !== "alternatives";
+    this.workspace.setAttribute("alternatives-dialog", "data-mode", sheet.mode);
+    this.workspace.setText(
+      "alternatives-title",
+      detail ? "Reiseablauf" : "Alternativen",
+    );
+    this.workspace.setAttribute(
+      "alternatives-close",
+      "aria-label",
+      detail ? "Reiseablauf schließen" : "Alternativen schließen",
+    );
+    this.workspace.setAttribute(
+      "alternatives-body",
+      "aria-label",
+      detail ? "Reiseablauf" : "Verbindungen",
+    );
+    this.workspace.setHidden("alternatives-back", sheet.mode !== "preview");
+    this.workspace.setHidden("alternatives-footer", sheet.mode !== "preview");
+    const body = el("alternatives-body");
+    this.workspace.setHidden("choices", detail);
+    this.workspace.setHidden("panel-details", !detail);
+    this.workspace.setInert("panel-details", !detail);
+    for (const id of [
+      "status",
+      "saved-notice",
+      "stale-notice",
+      "issues",
+      "planning-recovery",
+      "map-error",
+      "late-departure",
+      "cycling-comparison",
+    ] as const)
+      this.workspace.setAttribute(
+        id,
+        "data-sheet-detail-hidden",
+        detail &&
+          !(
+            sheet.mode === "detail" &&
+            ["saved-notice", "stale-notice"].includes(id)
+          ) &&
+          !(id === "planning-recovery" && el(id).dataset.planningToast)
+          ? ""
+          : undefined,
+      );
+    if (detail && journey) this.renderDetailContent(journey, this.restored);
+    if (!this.alternativesDialog.open) this.alternativesDialog.showModal();
+    body.scrollTop = sheet.scrollTop;
+    if (!detail && this.sheetAnchor) {
+      const row = el("choices")
+        .querySelector<HTMLElement>(
+          `.route-choice[data-journey="${CSS.escape(this.sheetAnchor.id)}"]`,
+        )
+        ?.closest<HTMLElement>(".route-choice-row");
+      if (row)
+        body.scrollTop +=
+          row.getBoundingClientRect().top - this.sheetAnchor.top;
+    }
+    this.sheetAnchor = undefined;
+    this.sheetDetailKey = this.sheetKey(sheet);
+    sheet.scrollTop = body.scrollTop;
+    if (unavailable) {
+      el("alternatives-title").focus({ preventScroll: true });
+      this.onSheetChange?.("update");
+    }
   }
   private get example() {
     return this.presentation === "example";
   }
   get mapVisible() {
-    return (
-      (this.desktop.matches || this.screen === "map") &&
-      (!this.requestPreview || this.requestMapReady)
-    );
+    return !this.requestPreview || this.requestMapReady;
   }
   get savedOrigin() {
     return this.navigation.savedOrigin;
-  }
-  get backScreen() {
-    return this.screen === "map" ? this.navigation.mapReturn : "list";
   }
   snapshot(): JourneyNavigation {
     this.savePosition();
     return structuredClone(this.navigation);
   }
-  restoreNavigation(value?: JourneyNavigation, focus = false) {
-    const previous = this.screen;
-    stopMotionWithin(el("journey-panel"));
-    const fromDetail = this.screen === "detail";
-    this.navigation =
-      value && ["list", "detail", "map"].includes(value.screen)
-        ? structuredClone(value)
-        : { screen: "list", mapReturn: "list", positions: {} };
-    this.applyLayout();
+  restoreNavigation(
+    value?: JourneyNavigation | LegacyJourneyNavigation,
+    focus = false,
+  ) {
+    if (this.navigation.sheet)
+      this.sheetReturnTrigger =
+        this.navigation.sheet.mode === "detail"
+          ? "map-open-details"
+          : "result-back";
+    this.navigation = normalizeJourneyNavigation(
+      value,
+      this.lastState?.selected?.id,
+      !!this.lastState?.journeys.length,
+    );
+    if (this.desktop.matches) delete this.navigation.sheet;
+    if (this.navigation.sheet) {
+      this.sheetCalculationId = this.lastState?.calculationId;
+      if (this.navigation.sheet.mode !== "alternatives")
+        this.onDetailsOpened?.();
+      this.sheetReturnTrigger =
+        this.navigation.sheet.mode === "detail"
+          ? "map-open-details"
+          : "result-back";
+    }
+    this.sheetDetailKey = "";
+    this.refreshSheet();
     this.restorePosition();
-    if (focus) this.focusSelection(fromDetail);
-    if (focus) this.animateScreen(previous);
+    if (focus) this.focusSelection();
   }
-  reset(screen: JourneyScreen = "list", savedOrigin?: "search" | "history") {
-    this.restoreNavigation({
-      screen,
-      mapReturn: "list",
-      savedOrigin,
-      positions: {},
-    });
-  }
-  showScreen(screen: JourneyScreen, focus = true) {
-    const previous = this.screen;
-    stopMotionWithin(el("journey-panel"));
-    const fromDetail = this.screen === "detail";
-    this.savePosition();
-    if (screen === "map" && this.screen !== "map")
-      this.navigation.mapReturn = this.screen;
-    this.navigation.screen = screen;
-    this.applyLayout();
-    this.restorePosition();
-    if (focus) this.focusSelection(fromDetail);
-    this.animateScreen(previous);
-  }
-  private animateScreen(previous: JourneyScreen) {
-    if (previous === this.screen || this.desktop.matches) return;
-    const target =
-      this.screen === "map"
-        ? el("map-preview-summary")
-        : this.screen === "detail"
-          ? this.detailPanel
-          : el("choices");
-    const mapChange = previous === "map" || this.screen === "map";
-    reveal(target, {
-      x: mapChange ? 0 : this.screen === "detail" ? 18 : -18,
-      y: mapChange ? 12 : 0,
-    });
-  }
-  private requestScreen(screen: JourneyScreen, replace = false) {
-    if (this.onNavigate) this.onNavigate(screen, replace);
-    else this.showScreen(screen);
-  }
-  private selectPreviewScreen() {
-    if (this.requestPreview && !this.desktop.matches)
-      this.navigation.screen = "map";
+  reset(savedOrigin?: "search" | "history") {
+    this.restoreNavigation({ screen: "map", savedOrigin, positions: {} });
   }
   private scrollContainer() {
-    return el("journey-panel").classList.contains("result-scroll-all")
+    return !this.desktop.matches ||
+      el("journey-panel").classList.contains("result-scroll-all")
       ? el("journey-panel")
       : el("panel-content");
   }
   private positionKey() {
-    return this.desktop.matches
-      ? "desktop"
-      : this.screen === "detail"
-        ? `detail:${this.displayedID}`
-        : this.screen;
+    return this.desktop.matches ? "desktop" : "map";
   }
   private savePosition() {
+    this.saveSheetPosition();
     this.navigation.positions[this.positionKey()] =
       this.scrollContainer().scrollTop;
   }
@@ -320,118 +572,98 @@ export class JourneyView {
   }
   private applyLayout() {
     const active = document.activeElement as HTMLElement;
+    const focusID = active?.id;
+    const focusJourney = active?.dataset.journey;
+    const focusDetail = active?.dataset.detailJourney;
     const mobile = !this.desktop.matches;
-    const map = mobile && this.screen === "map";
-    const detail = mobile && this.screen === "detail";
-    el("map-view").dataset.resultScreen = mobile ? this.screen : "desktop";
-    el("journey-panel").toggleAttribute(
+    const map = mobile;
+    this.workspace.updateLayout({
+      desktop: !mobile,
+      requestPreview: this.requestPreview,
+      restored: this.restored,
+      savedOrigin: this.savedOrigin,
+      example: this.example,
+      sheetMode: this.navigation.sheet?.mode,
+    });
+    this.workspace.setAttribute(
+      "map-view",
+      "data-result-screen",
+      mobile ? "map" : "desktop",
+    );
+    this.workspace.setAttribute(
+      "journey-panel",
       "data-request-preview",
-      this.requestPreview,
+      this.requestPreview ? "" : undefined,
     );
-    el("choices").hidden = map || detail || this.requestPreview;
-    this.detailPanel.hidden =
-      this.requestPreview || !this.displayedID || (mobile && !detail);
-    this.detailPanel.inert = this.detailPanel.hidden;
-    el("result-back").hidden =
-      this.requestPreview || !mobile || this.screen === "list";
-    el("result-back").className = map ? "secondary" : "text-button";
-    el("result-back").textContent = this.example
-      ? map
-        ? "Beispielroute"
-        : "‹ Beispielroute"
-      : map
-        ? this.savedOrigin
-          ? "Verlauf"
-          : "Alternativen"
-        : this.savedOrigin === "history"
-          ? "‹ Verlauf"
-          : this.savedOrigin === "search"
-            ? "‹ Zur Suche"
-            : "‹ Alle Verbindungen";
-    const resultNav = el("result-nav");
-    const resultHeader = el("result-header");
-    const mapActions = el("map-preview-actions");
-    if (map) {
-      if (resultNav.parentElement !== mapActions)
-        movePreservingFocus(resultNav, mapActions, mapActions.firstChild);
-    } else if (resultNav.previousElementSibling !== resultHeader) {
-      movePreservingFocus(
-        resultNav,
-        resultHeader.parentElement!,
-        resultHeader.nextSibling,
-      );
-    }
-    const mapToggle = el<HTMLButtonElement>("panel-map-toggle");
-    const mapToggleParent = el(
-      mobile && !map ? "planning-context-footer" : "result-nav",
+    this.workspace.setHidden("choices", mobile || this.requestPreview);
+    this.workspace.setHidden(
+      "panel-details",
+      this.requestPreview || !this.displayedID || mobile,
     );
-    if (mapToggle.parentElement !== mapToggleParent)
-      mapToggleParent.append(mapToggle);
-    mapToggle.hidden = this.requestPreview || !mobile || map;
-    mapToggle.disabled = !this.displayedID;
-    el("map-preview").hidden = !map || this.requestPreview;
-    const recovery = el("planning-recovery");
-    const recoveryAnchor = el(
-      this.requestPreview
-        ? "search-preview-detail"
-        : map
-          ? "map-preview-status"
-          : "stale-notice",
+    this.workspace.setInert("panel-details", !!this.detailPanel.hidden);
+    this.workspace.setHidden(
+      "result-back",
+      this.requestPreview ||
+        !mobile ||
+        this.example ||
+        (!this.savedOrigin && !this.lastState?.journeys.length),
     );
-    if (
-      !recovery.dataset.planningToast &&
-      (this.requestPreview
-        ? recovery.parentElement !== el("search-preview-feedback")
-        : recovery.previousElementSibling !== recoveryAnchor)
-    )
-      movePreservingFocus(
-        recovery,
-        this.requestPreview
-          ? el("search-preview-feedback")
-          : recoveryAnchor.parentElement!,
-        this.requestPreview
-          ? el("search-preview-feedback").firstChild
-          : recoveryAnchor.nextSibling,
-      );
-    for (const [element, home] of this.feedbackHomes) {
-      if (this.requestPreview && element.id === "map-error")
-        movePreservingFocus(element, el("search-preview-feedback"));
-      else if (map) movePreservingFocus(element, el("map-preview-feedback"));
-      else if (element.previousSibling !== home)
-        movePreservingFocus(element, home.parentNode!, home.nextSibling);
-    }
-    const start = el("navigation-start");
-    const startParent = this.restored
-      ? el("route-actions-dialog")
-      : map
-        ? mapActions
-        : document.querySelector<HTMLElement>(".panel-actions")!;
-    movePreservingFocus(start, startParent);
-    const replan = el("replan-saved");
-    const replanParent =
-      this.restored && map
-        ? mapActions
-        : document.querySelector<HTMLElement>(".panel-actions")!;
-    movePreservingFocus(replan, replanParent);
+    this.workspace.setClass("result-back", "secondary");
+    this.workspace.setText(
+      "result-back",
+      this.savedOrigin === "history"
+        ? "Verlauf"
+        : this.savedOrigin === "search"
+          ? "Zur Suche"
+          : "Alternativen",
+    );
+    const alternativesTrigger =
+      mobile && !this.savedOrigin && !this.example && !this.requestPreview;
+    this.workspace.setAttribute(
+      "result-back",
+      "aria-haspopup",
+      alternativesTrigger ? "dialog" : "false",
+    );
+    this.workspace.setAttribute(
+      "result-back",
+      "aria-controls",
+      alternativesTrigger ? "alternatives-dialog" : undefined,
+    );
+    this.workspace.setAttribute(
+      "result-back",
+      "aria-expanded",
+      alternativesTrigger
+        ? String(
+            this.navigation.sheet?.mode === "alternatives" ||
+              this.navigation.sheet?.mode === "preview",
+          )
+        : undefined,
+    );
+    this.workspace.setHidden("map-preview", !map || this.requestPreview);
+    this.workspace.setHidden(
+      "map-open-details",
+      !this.displayedID || this.requestPreview,
+    );
+    this.workspace.setAttribute(
+      "map-open-details",
+      "aria-expanded",
+      String(this.navigation.sheet?.mode === "detail"),
+    );
     if (this.example) {
-      const ownRoute = el("example-plan-own");
-      const actions = document.querySelector<HTMLElement>(".panel-actions")!;
-      actions.hidden = map;
-      const parent = map ? mapActions : actions;
-      movePreservingFocus(ownRoute, parent);
-      ownRoute.hidden = false;
+      this.workspace.setHidden("panel-actions", map);
+      this.workspace.setHidden("example-plan-own", false);
       for (const id of [
         "adjust-route",
         "route-more",
         "map-location",
         "navigation-start",
         "route-start-summary",
-      ])
-        el(id).hidden = true;
-      el<HTMLButtonElement>("navigation-start").disabled = true;
+      ] as const)
+        this.workspace.setHidden(id, true);
+      this.workspace.setDisabled("navigation-start", true);
     }
-    el("result-context").hidden = detail || map;
-    el("result-freshness").hidden = this.example;
+    this.workspace.setHidden("result-context", map);
+    this.workspace.setHidden("result-freshness", this.example);
     for (const element of [
       el("map"),
       el("map-controls"),
@@ -457,32 +689,89 @@ export class JourneyView {
       active === el("result-context")
     )
       el("search-preview-heading").focus({ preventScroll: true });
+    this.renderSheet();
+    if (active !== document.body && !active.isConnected) {
+      const replacement = focusID
+        ? document.getElementById(focusID)
+        : focusJourney
+          ? el("choices").querySelector<HTMLElement>(
+              `.route-choice[data-journey="${CSS.escape(focusJourney)}"]`,
+            )
+          : focusDetail
+            ? el("choices").querySelector<HTMLElement>(
+                `.route-detail-link[data-detail-journey="${CSS.escape(focusDetail)}"]`,
+              )
+            : undefined;
+      if (
+        replacement?.getClientRects().length &&
+        !replacement.closest("[hidden], [inert]")
+      )
+        replacement.focus({ preventScroll: true });
+    }
     this.onLayoutChange?.();
   }
-  focusSelection(fromDetail = false) {
+  focusSelection() {
+    if (this.sheetOpen) {
+      (this.navigation.sheet?.mode === "alternatives"
+        ? (el("choices").querySelector<HTMLElement>(
+            '.route-choice[aria-pressed="true"]',
+          ) ?? el("alternatives-title"))
+        : el("alternatives-title")
+      ).focus({ preventScroll: true });
+      return;
+    }
     const target = this.requestPreview
       ? el(this.desktop.matches ? "result-context" : "search-preview-heading")
-      : !this.desktop.matches && this.screen === "map"
+      : !this.desktop.matches
         ? el("map-preview-heading")
-        : !this.desktop.matches && this.screen === "detail"
-          ? el("journey-heading")
-          : (el("choices").querySelector<HTMLElement>(
-              fromDetail
-                ? ".route-choice-row.selected .route-detail-link"
-                : '.route-choice[aria-pressed="true"]',
-            ) ?? el("result-context"));
+        : (el("choices").querySelector<HTMLElement>(
+            '.route-choice[aria-pressed="true"]',
+          ) ?? el("result-context"));
     target.focus({ preventScroll: true });
   }
   render(state: PlanningState, cyclingLimit = 30) {
-    this.statusCountdown.clear();
-    this.mapCountdown.clear();
+    this.saveSheetPosition();
+    const newRequest =
+      !!state.pendingRequest &&
+      state.pendingRequest !== this.lastState?.pendingRequest;
+    // Preserve the visible connection when live results rebuild the shared list.
+    this.sheetAnchor = undefined;
+    if (
+      this.sheetOpen &&
+      this.sheetDetailKey === "alternatives:" &&
+      this.navigation.sheet?.mode === "alternatives" &&
+      el("alternatives-body").scrollTop > 0
+    ) {
+      const top = el("alternatives-body").getBoundingClientRect().top;
+      const row = [
+        ...el("choices").querySelectorAll<HTMLElement>(".route-choice-row"),
+      ].find((row) => row.getBoundingClientRect().bottom > top);
+      const id =
+        row?.querySelector<HTMLElement>(".route-choice")?.dataset.journey;
+      if (row && id)
+        this.sheetAnchor = { id, top: row.getBoundingClientRect().top };
+    }
+    this.lastState = state;
+    this.lastCyclingLimit = cyclingLimit;
+    const sheetClosed =
+      !!this.navigation.sheet &&
+      (this.desktop.matches ||
+        state.calculationId !== this.sheetCalculationId ||
+        !state.journeys.length ||
+        newRequest ||
+        (this.navigation.sheet.mode === "detail" &&
+          !state.journeys.some(
+            (journey) => journey.id === this.navigation.sheet?.journeyId,
+          )));
+    if (sheetClosed) delete this.navigation.sheet;
+    this.workspace.setRetryAt("status", 0);
+    this.workspace.setRetryAt("map-preview-status", 0);
     const previewHeadingFocused =
       document.activeElement === el("search-preview-heading");
     const preview = this.searchPreview.render(state);
     this.requestPreview = !!preview;
     this.requestMapReady =
       !!preview && !state.locating && state.pendingRequestResolved !== false;
-    this.selectPreviewScreen();
     const firstResults = !this.hadChoices && state.journeys.length > 0;
     this.hadChoices = state.journeys.length > 0;
     const request = state.request;
@@ -494,14 +783,20 @@ export class JourneyView {
           ? "Startpunkt"
           : "Aktueller Standort"
         : (request?.origin.name ?? "Start");
-    el("route-origin").textContent = originName;
-    el("route-destination").textContent = request?.destination.name ?? "Ziel";
-    renderRequestStops(el("route-request-stops"), request?.stops);
-    el("route-request-meta").textContent = this.example
-      ? "Beispielroute"
-      : request
-        ? `${request.timing === "now" ? "Abfahrt jetzt" : `${request.timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`}${request.stops?.length ? ` · ${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}` : ""}`
-        : "Route bearbeiten";
+    this.workspace.setText("route-origin", originName);
+    this.workspace.setText(
+      "route-destination",
+      request?.destination.name ?? "Ziel",
+    );
+    this.workspace.updateStops(request?.stops ?? []);
+    this.workspace.setText(
+      "route-request-meta",
+      this.example
+        ? "Beispielroute"
+        : request
+          ? `${request.timing === "now" ? "Abfahrt jetzt" : `${request.timing === "arrive" ? "Ankunft" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`}${request.stops?.length ? ` · ${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}` : ""}`
+          : "Route bearbeiten",
+    );
     const mapMeta: string[] = [];
     if (request && !this.example) {
       if (request.timing !== "now") {
@@ -517,31 +812,44 @@ export class JourneyView {
           `${request.stops.length} ${request.stops.length === 1 ? "Zwischenstopp" : "Zwischenstopps"}`,
         );
     }
-    el("map-request-meta").textContent = mapMeta.join(" · ");
-    el("map-request-meta").hidden = !mapMeta.length;
-    el("route-action-context").hidden = !request || this.example;
-    el("route-action-origin").textContent = originName;
-    el("route-action-destination").textContent =
-      request?.destination.name ?? "Ziel";
-    el("route-action-time").textContent = request
-      ? request.timing === "now"
-        ? "Abfahrt jetzt"
-        : `${request.timing === "arrive" ? "Ankunft bis" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`
-      : "";
-    el("route-action-stops-row").hidden = !request?.stops?.length;
-    el("route-action-stops").textContent =
-      request?.stops?.map((stop) => stop.place.name).join(" → ") ?? "";
+    this.workspace.setText("map-request-meta", mapMeta.join(" · "));
+    this.workspace.setHidden("map-request-meta", !mapMeta.length);
+    this.workspace.setHidden("route-action-context", !request || this.example);
+    this.workspace.setText("route-action-origin", originName);
+    this.workspace.setText(
+      "route-action-destination",
+      request?.destination.name ?? "Ziel",
+    );
+    this.workspace.setText(
+      "route-action-time",
+      request
+        ? request.timing === "now"
+          ? "Abfahrt jetzt"
+          : `${request.timing === "arrive" ? "Ankunft bis" : "Abfahrt"} ${dateLabel(request.time)}, ${clock(request.time)}`
+        : "",
+    );
+    this.workspace.setHidden("route-action-stops-row", !request?.stops?.length);
+    this.workspace.setText(
+      "route-action-stops",
+      request?.stops?.map((stop) => stop.place.name).join(" → ") ?? "",
+    );
     const selected = state.selected;
-    el("route-start-duration").textContent = this.example
-      ? "Gesamtdauer"
-      : selected
-        ? duration(selected.arrival - selected.departure)
-        : "";
-    el("route-start-arrival").textContent = selected
-      ? this.example
-        ? duration(selected.arrival - selected.departure)
-        : `${journeyEndpointTime(selected, "arrival")} an`
-      : "";
+    this.workspace.setText(
+      "route-start-duration",
+      this.example
+        ? "Gesamtdauer"
+        : selected
+          ? duration(selected.arrival - selected.departure)
+          : "",
+    );
+    this.workspace.setText(
+      "route-start-arrival",
+      selected
+        ? this.example
+          ? duration(selected.arrival - selected.departure)
+          : `${journeyEndpointTime(selected, "arrival")} an`
+        : "",
+    );
     cyclingLimit = state.resultSettings?.maxCyclingMinutes ?? cyclingLimit;
     const progress = planningProgress(state);
     const errorInToast =
@@ -551,35 +859,57 @@ export class JourneyView {
     const progressMessage = errorInToast ? "" : progress.message;
     const status = el("status");
     if (status.textContent !== progressMessage)
-      status.textContent = progressMessage;
-    el("stale-notice").textContent = state.staleReason ?? "";
-    el("stale-notice").hidden = !state.staleReason;
-    el("refresh-route").textContent = state.staleReason
-      ? "Erneut versuchen"
-      : "Aktualisieren";
-    el("refresh-route").hidden =
-      this.example || state.busy || !!state.recovery || state.restored;
-    el<HTMLButtonElement>("refresh-route").disabled =
-      !state.request || !navigator.onLine;
-    el<HTMLButtonElement>("adjust-route").disabled =
-      !state.pendingRequest && !state.request;
+      this.workspace.setText("status", progressMessage);
+    this.workspace.setText("stale-notice", state.staleReason ?? "");
+    this.workspace.setHidden("stale-notice", !state.staleReason);
+    this.workspace.setText(
+      "refresh-route",
+      state.staleReason ? "Erneut versuchen" : "Aktualisieren",
+    );
+    this.workspace.setHidden(
+      "refresh-route",
+      this.example || state.busy || !!state.recovery || state.restored,
+    );
+    this.workspace.setDisabled(
+      "refresh-route",
+      !state.request || !navigator.onLine,
+    );
+    this.workspace.setDisabled(
+      "adjust-route",
+      !state.pendingRequest && !state.request,
+    );
     const issuesInStatus =
       progress.ready || (state.searchStatus === "partial" && !!state.message);
-    el("issues").textContent = issuesInStatus ? "" : state.issues.join(" ");
-    el("issues").hidden = !el("issues").textContent;
-    el("journey-panel").classList.toggle("is-loading", progress.loading);
-    el("journey-panel").dataset.searchStatus = state.searchStatus ?? "";
+    this.workspace.setText(
+      "issues",
+      issuesInStatus ? "" : state.issues.join(" "),
+    );
+    this.workspace.setHidden("issues", !el("issues").textContent);
+    this.workspace.toggleClass("journey-panel", "is-loading", progress.loading);
+    this.workspace.setAttribute(
+      "journey-panel",
+      "data-search-status",
+      state.searchStatus ?? "",
+    );
     const j = state.selected;
     this.savePosition();
     this.displayedID = j?.id;
-    el("result-context").textContent = state.request
-      ? `${originName} → ${state.request.destination.name}`
-      : "Verbindungen";
-    el("result-stand").textContent =
+    this.workspace.setText(
+      "result-context",
+      state.request
+        ? `${originName} → ${state.request.destination.name}`
+        : "Verbindungen",
+    );
+    this.workspace.setText(
+      "result-stand",
       !this.example && state.queriedAt
         ? `${state.restored ? "Gespeichert" : "Stand"}: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}`
-        : "";
-    el("route-action-stand").textContent = el("result-stand").textContent;
+        : "",
+    );
+    this.workspace.setText(
+      "route-action-stand",
+      el("result-stand").textContent,
+    );
     const mapStatus = el("map-preview-status");
     const mapMessage = state.recovery
       ? progressMessage
@@ -587,39 +917,46 @@ export class JourneyView {
         ? `Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`
         : (state.staleReason ?? progressMessage);
     if (mapStatus.textContent !== mapMessage)
-      mapStatus.textContent = mapMessage;
-    mapStatus.hidden = !mapStatus.textContent;
+      this.workspace.setText("map-preview-status", mapMessage);
+    this.workspace.setHidden("map-preview-status", !mapStatus.textContent);
     if (!state.busy && rateLimitMessage(state.failures)) {
       if (status.textContent)
-        this.statusCountdown.render(status, state.recovery?.retryAt ?? 0);
+        this.workspace.setRetryAt("status", state.recovery?.retryAt ?? 0);
       if (mapStatus.textContent)
-        this.mapCountdown.render(mapStatus, state.recovery?.retryAt ?? 0);
+        this.workspace.setRetryAt(
+          "map-preview-status",
+          state.recovery?.retryAt ?? 0,
+        );
     }
     clearTimeout(this.recoveryTimer);
     const recovery = state.recovery;
-    el("planning-recovery").hidden = !recovery || state.busy;
+    this.workspace.setHidden("planning-recovery", !recovery || state.busy);
     const recover = el<HTMLButtonElement>("recover-planning");
     const recoveryLabel =
       recovery?.action === "adjust" ? "Route anpassen" : "Erneut versuchen";
     if (el("recovery-label").textContent !== recoveryLabel)
-      el("recovery-label").textContent = recoveryLabel;
+      this.workspace.setText("recovery-label", recoveryLabel);
     const wait = Math.max(0, (recovery?.retryAt ?? 0) - Date.now() / 1000);
-    recover.disabled =
-      recovery?.action === "retry" && (!navigator.onLine || wait > 0);
-    el("recovery-wait").hidden =
+    this.workspace.setDisabled(
+      "recover-planning",
+      recovery?.action === "retry" && (!navigator.onLine || wait > 0),
+    );
+    this.workspace.setHidden(
+      "recovery-wait",
       !wait ||
-      recovery?.action !== "retry" ||
-      !!rateLimitMessage(state.failures);
+        recovery?.action !== "retry" ||
+        !!rateLimitMessage(state.failures),
+    );
     const waitMessage = wait
       ? `Erneut möglich ab ${clock(recovery!.retryAt!)}.`
       : "";
     if (el("recovery-wait").textContent !== waitMessage)
-      el("recovery-wait").textContent = waitMessage;
+      this.workspace.setText("recovery-wait", waitMessage);
     if (wait && recovery?.action === "retry")
       this.recoveryTimer = setTimeout(
         () => {
-          recover.disabled = !navigator.onLine;
-          el("recovery-wait").hidden = true;
+          this.workspace.setDisabled("recover-planning", !navigator.onLine);
+          this.workspace.setHidden("recovery-wait", true);
         },
         Math.min(wait * 1000, 2147483647),
       );
@@ -629,22 +966,34 @@ export class JourneyView {
         (journey) => cyclingExcess(journey, cyclingLimit) > 0,
       );
     if (onlyComparison && !state.busy)
-      el("status").textContent =
-        `${progressMessage ? progressMessage + " " : ""}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`;
-    el("cycling-comparison").textContent = j
-      ? cyclingComparisonLabel(j, cyclingLimit)
-      : "";
-    el("cycling-comparison").hidden =
-      !j || cyclingExcess(j, cyclingLimit) === 0;
+      this.workspace.setText(
+        "status",
+        this.workspace.setText(
+          "map-preview-status",
+          `${progressMessage ? progressMessage + " " : ""}Keine Verbindung innerhalb deines Radlimits gefunden. Fahrradroute zum Vergleich.`,
+        ),
+      );
+    if (onlyComparison && !state.busy)
+      this.workspace.setHidden("map-preview-status", false);
+    this.workspace.setText(
+      "cycling-comparison",
+      j ? cyclingComparisonLabel(j, cyclingLimit) : "",
+    );
+    this.workspace.setHidden(
+      "cycling-comparison",
+      !j || cyclingExcess(j, cyclingLimit) === 0,
+    );
     const delay =
       j && !this.example && !state.busy && !state.restored && !state.staleReason
         ? lateDepartureDelay(j, state.request)
         : undefined;
-    el("late-departure").hidden = delay === undefined;
-    el("late-departure-text").textContent =
+    this.workspace.setHidden("late-departure", delay === undefined);
+    this.workspace.setText(
+      "late-departure-text",
       delay === undefined
         ? ""
-        : `Start erst ${clock(j!.departure)} – ${duration(delay)} nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.`;
+        : `Start erst ${clock(j!.departure)} – ${duration(delay)} nach dem gewünschten Beginn. Größere Suchgrenzen können frühere Verbindungen ermöglichen.`,
+    );
     const recommendation = this.example
       ? "Beispielroute"
       : state.request?.timing === "arrive"
@@ -654,19 +1003,26 @@ export class JourneyView {
       .filter((j) => cyclingExcess(j, cyclingLimit) === 0)
       .sort((a, b) => compare(a, b, state.request?.timing ?? "now"))[0];
     const recommendedID = recommended?.id;
-    el("map-preview-heading").textContent = this.example
-      ? "Beispielroute"
-      : state.restored
-        ? "Gespeicherte Route"
-        : j && cyclingExcess(j, cyclingLimit) > 0
-          ? "Fahrradvergleich"
-          : j?.id === recommendedID
-            ? recommendation
-            : "Ausgewählte Verbindung";
-    el("saved-notice").hidden = !state.restored;
+    this.workspace.setText(
+      "map-preview-heading",
+      !j
+        ? "Routensuche"
+        : this.example
+          ? "Beispielroute"
+          : state.restored
+            ? "Gespeicherte Route"
+            : j && cyclingExcess(j, cyclingLimit) > 0
+              ? "Fahrradvergleich"
+              : j?.id === recommendedID
+                ? recommendation
+                : "Ausgewählte Verbindung",
+    );
+    this.workspace.setHidden("saved-notice", !state.restored);
     if (state.restored)
-      el("saved-notice").textContent =
-        `Gespeicherter Stand: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}. Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`;
+      this.workspace.setText(
+        "saved-notice",
+        `Gespeicherter Stand: ${dateLabel(state.queriedAt)}, ${clock(state.queriedAt)}. Zeiten wurden nicht aktualisiert.${j && j.arrival < Date.now() / 1000 ? " Diese Reise liegt in der Vergangenheit." : ""}`,
+      );
     const key = JSON.stringify([
       state.journeys.map((j) => [
         j.id,
@@ -684,6 +1040,10 @@ export class JourneyView {
     if (key === this.key) {
       this.applyLayout();
       this.restorePosition();
+      if (sheetClosed) {
+        this.focusSheetTrigger();
+        this.onSheetChange?.("close");
+      }
       return;
     }
     this.key = key;
@@ -691,97 +1051,56 @@ export class JourneyView {
     const focused = active?.dataset.journey;
     const focusedDetail = active?.dataset.detailJourney;
     stopMotionWithin(el("choices"));
-    el("choices").replaceChildren();
-    state.journeys.forEach((journey, index) => {
-      const comparison = cyclingExcess(journey, cyclingLimit) > 0;
-      const row = node("div", "", "route-choice-row");
-      row.classList.toggle("selected", journey.id === j?.id);
-      const button = node("button", "", "route-choice");
-      const effort = journeyEffort(journey);
-      const effortText = this.effortDescription(effort);
-      const outline = journeyOutline(journey);
-      button.append(
-        ...this.summary(
-          journey,
-          cyclingLimit,
-          journey.id === recommendedID && !state.restored
-            ? recommendation
-            : undefined,
-        ),
-      );
-      button.type = "button";
-      button.dataset.journey = journey.id;
-      button.setAttribute("aria-pressed", String(journey.id === j?.id));
-      button.setAttribute(
-        "aria-label",
-        this.example
-          ? `Beispielroute: Gesamtdauer ${duration(journey.arrival - journey.departure)}, ${effortText}. ${outline}`
-          : `${comparison ? "Fahrradvergleich: " + cyclingComparisonLabel(journey, cyclingLimit) : journey.id === recommendedID ? recommendation : `Alternative ${index + 1}`}: Ankunft ${dateLabel(journey.arrival)} ${clock(journey.arrival)}, Abfahrt ${dateLabel(journey.departure)} ${clock(journey.departure)}, Gesamtdauer ${duration(journey.arrival - journey.departure)}, ${effortText}. ${outline}`,
-      );
-      button.onclick = () => {
-        this.savePosition();
-        const changed = journey.id !== this.displayedID;
-        this.select(journey.id);
-        if (changed) {
-          const selectedRow = el("choices").querySelector<HTMLElement>(
-            ".route-choice-row.selected",
-          );
-          if (selectedRow)
-            reveal(selectedRow, {
-              y: 0,
-              duration: motionTime.selection,
-              fromOpacity: 0.75,
-            });
-          if (this.desktop.matches)
-            reveal(el("journey-detail"), {
-              y: 4,
-              duration: motionTime.selection,
-              fromOpacity: 0.75,
-            });
-        }
-      };
-      const details = node("button", "Details ›", "route-detail-link");
-      details.type = "button";
-      details.dataset.detailJourney = journey.id;
-      details.setAttribute(
-        "aria-label",
-        this.example
-          ? "Details zur Beispielroute"
-          : `Details: Abfahrt ${clock(journey.departure)}, Ankunft ${clock(journey.arrival)}`,
-      );
-      details.disabled = journey.id !== j?.id;
-      details.inert = details.disabled;
-      details.onclick = () => {
-        this.onDetailsOpened?.();
-        if (this.desktop.matches) {
-          el("journey-heading").focus({ preventScroll: true });
-          this.detailPanel.scrollIntoView({ block: "nearest" });
-          reveal(el("journey-detail"), { y: 8 });
-        } else this.requestScreen("detail");
-      };
-      row.append(button, details);
-      el("choices").append(row);
-    });
+    flushSync(() =>
+      this.workspace.updateChoices({
+        journeys: structuredClone(state.journeys),
+        selectedId: j?.id,
+        recommendedId: recommendedID,
+        recommendation,
+        restored: state.restored,
+        cyclingLimit,
+        example: this.example,
+        inSheet: !!this.navigation.sheet,
+        select: (journey) => this.chooseJourney(journey),
+        details: (journey) => this.showJourneyDetails(journey),
+      }),
+    );
     if (j) {
-      this.details(j, state.restored);
-      const summary = this.example
-        ? `${duration(j.arrival - j.departure)} gesamt`
-        : `${journeyTimeRange(j)} · ${duration(j.arrival - j.departure)}`;
-      el("journey-heading").textContent = summary;
-      const effort = journeyEffort(j);
-      el("journey-effort").textContent =
-        `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
-      el("map-preview-summary").replaceChildren(
-        ...this.summary(j, cyclingLimit),
+      const detailJourney =
+        state.journeys.find(
+          (journey) => journey.id === this.navigation.sheet?.journeyId,
+        ) ?? j;
+      this.renderDetailContent(detailJourney, state.restored);
+      flushSync(() =>
+        this.workspace.updateSummary({
+          journey: structuredClone(j),
+          cyclingLimit,
+          example: this.example,
+        }),
       );
     } else {
-      el("journey-detail").replaceChildren();
-      el("map-preview-summary").replaceChildren();
+      this.renderedDetailKey = "";
+      flushSync(() => {
+        this.workspace.updateDetail();
+        this.workspace.updateSummary();
+      });
     }
-    el<HTMLButtonElement>("map-open-details").disabled = !j;
+    this.workspace.setDisabled("map-open-details", !j);
     this.applyLayout();
     this.restorePosition();
     if (firstResults) reveal(el("choices"), { y: 10 });
+    if (
+      firstResults &&
+      !this.desktop.matches &&
+      !el("map-view").hidden &&
+      !document.querySelector("dialog[open]") &&
+      (active === document.body ||
+        active === el("result-context") ||
+        active === el("map-preview-heading") ||
+        active.closest("#search-preview") ||
+        !active.getClientRects().length)
+    )
+      this.focusSelection();
     if (previewHeadingFocused && !preview && state.selected)
       el(this.desktop.matches ? "result-context" : "map-preview-heading").focus(
         { preventScroll: true },
@@ -798,151 +1117,77 @@ export class JourneyView {
       [...el("choices").querySelectorAll<HTMLButtonElement>("button")]
         .find((b) => b.dataset.journey === focused)
         ?.focus({ preventScroll: true });
+    if (sheetClosed) {
+      this.focusSheetTrigger();
+      this.onSheetChange?.("close");
+    }
   }
 
-  private summary(
-    journey: Journey,
-    cyclingLimit: number,
-    recommendation?: string,
-  ) {
-    const comparison = cyclingExcess(journey, cyclingLimit) > 0;
-    const heading = node("span", "", "route-choice-time");
-    const arrival = node(
-      "strong",
+  private chooseJourney(journey: Journey) {
+    const fromSheet = !!this.navigation.sheet;
+    this.savePosition();
+    const changed = journey.id !== this.displayedID;
+    this.select(journey.id);
+    if (fromSheet) {
+      this.closeSheet();
+      return;
+    }
+    if (changed) {
+      const row = el("choices").querySelector<HTMLElement>(
+        ".route-choice-row.selected",
+      );
+      if (row)
+        reveal(row, {
+          y: 0,
+          duration: motionTime.selection,
+          fromOpacity: 0.75,
+        });
+      if (this.desktop.matches)
+        reveal(el("journey-detail"), {
+          y: 4,
+          duration: motionTime.selection,
+          fromOpacity: 0.75,
+        });
+    }
+  }
+  private showJourneyDetails(journey: Journey) {
+    if (this.navigation.sheet) {
+      this.previewAlternative(journey.id);
+      return;
+    }
+    if (this.desktop.matches) {
+      this.onDetailsOpened?.();
+      el("journey-heading").focus({ preventScroll: true });
+      this.detailPanel.scrollIntoView({ block: "nearest" });
+      reveal(el("journey-detail"), { y: 8 });
+    } else this.openDetails();
+  }
+
+  private renderDetailContent(j: Journey, restored: boolean) {
+    const key = JSON.stringify([j, restored]);
+    if (key === this.renderedDetailKey) return;
+    this.renderedDetailKey = key;
+    this.details(j, restored);
+    this.workspace.setText(
+      "journey-heading",
       this.example
-        ? `${duration(journey.arrival - journey.departure)} gesamt`
-        : `${journeyEndpointTime(journey, "arrival")} an`,
-      "route-choice-arrival",
+        ? `${duration(j.arrival - j.departure)} gesamt`
+        : `${journeyTimeRange(j)} · ${duration(j.arrival - j.departure)}`,
     );
-    const schedule = node(
-      "span",
-      `Ab ${journeyEndpointTime(journey, "departure")} · ${duration(journey.arrival - journey.departure)}`,
-      "route-choice-schedule",
+    const effort = journeyEffort(j);
+    this.workspace.setText(
+      "journey-effort",
+      `${duration(effort.cyclingSeconds)} Rad · ${duration(effort.walkingSeconds)} Fuß · ${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`,
     );
-    if (comparison) {
-      arrival.style.setProperty("--stage-color", routeSymbolColor("bike"));
-      arrival.prepend(icon("bike"), node("span", " · ", "visually-hidden"));
-    }
-    if (this.example) heading.append(arrival);
-    else
-      heading.append(arrival, node("span", " · ", "visually-hidden"), schedule);
-    const effort = journeyEffort(journey);
-    const accessible = node(
-      "span",
-      `${comparison ? `Fahrradvergleich: ${cyclingComparisonLabel(journey, cyclingLimit)}. ` : ""}${journeyOutline(journey)}. ${this.effortDescription(effort)}`,
-      "sr-only",
-    );
-    return [
-      ...(recommendation
-        ? [node("span", recommendation, "route-recommendation")]
-        : []),
-      heading,
-      this.choiceOutline(journey),
-      this.choiceEffort(effort),
-      accessible,
-    ];
   }
-
-  private choiceOutline(journey: Journey) {
-    const outline = node("span", "", "route-outline");
-    outline.setAttribute("aria-hidden", "true");
-    for (const leg of journey.legs) {
-      if (["fold", "unfold", "wait"].includes(leg.kind)) continue;
-      const stage = node("span", "", "route-stage");
-      stage.dataset.kind = leg.kind;
-      stage.style.setProperty(
-        "--stage-color",
-        routeSymbolColor(leg.kind, leg.mode),
-      );
-      if (outline.childElementCount)
-        stage.append(node("span", "→", "route-stage-arrow"));
-      const symbol =
-        leg.kind === "transit" && ["BUS", "COACH"].includes(leg.mode ?? "")
-          ? "bus"
-          : leg.kind;
-      stage.dataset.symbol = symbol;
-      const namedRail =
-        leg.kind === "transit" &&
-        ["SUBURBAN", "SUBWAY", "REGIONAL_RAIL"].includes(leg.mode ?? "") &&
-        !!leg.line?.trim();
-      if (!namedRail) stage.append(icon(symbol));
-      if (leg.kind === "transit")
-        stage.append(node("span", leg.line?.trim() || "ÖPNV", "route-line"));
-      else if (leg.kind === "stop")
-        stage.append(node("span", leg.from.name, "route-stop-name"));
-      outline.append(stage);
-    }
-    return outline;
-  }
-
-  private effortDescription(effort: ReturnType<typeof journeyEffort>) {
-    const transfers = `${effort.transfers} ${effort.transfers === 1 ? "Umstieg" : "Umstiege"}`;
-    return effort.cyclingSeconds > 0
-      ? `${duration(effort.cyclingSeconds)} Rad · ${transfers}`
-      : transfers;
-  }
-
-  private choiceEffort(effort: ReturnType<typeof journeyEffort>) {
-    const summary = node("span", "", "route-choice-effort");
-    summary.setAttribute("aria-hidden", "true");
-    summary.append(node("span", "Gesamt:", "route-effort-label"));
-    const addMetric = (
-      name: "bike" | "transfer",
-      text: string,
-      label: string,
-    ) => {
-      const metric = node("span", text, "route-effort-metric");
-      metric.dataset.kind = name;
-      metric.title = label;
-      summary.append(metric);
-    };
-    if (effort.cyclingSeconds > 0)
-      addMetric(
-        "bike",
-        `${duration(effort.cyclingSeconds)} Rad`,
-        "Gesamte Zeit auf dem Fahrrad",
-      );
-    addMetric("transfer", `${effort.transfers} Umst.`, "Anzahl der Umstiege");
-    return summary;
-  }
-
   private details(j: Journey, restored: boolean) {
-    const list = renderJourneyDetails(j, restored, this.presentation);
-    el("journey-detail").replaceChildren(
-      node(
-        "p",
-        `${(bikeDistance(j) / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km Rad`,
-        "journey-distance",
-      ),
-      list,
+    flushSync(() =>
+      this.workspace.updateDetail({
+        journey: structuredClone(j),
+        restored,
+        options: { presentation: this.presentation },
+        distance: `${(bikeDistance(j) / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km Rad`,
+      }),
     );
   }
-}
-
-export function journeyEndpointTime(
-  journey: Pick<Journey, "departure" | "arrival">,
-  endpoint: "departure" | "arrival",
-): string {
-  const instant = journey[endpoint];
-  const crossDay =
-    new Date(journey.departure * 1000).toDateString() !==
-    new Date(journey.arrival * 1000).toDateString();
-  const showDate =
-    crossDay ||
-    new Date(instant * 1000).toDateString() !== new Date().toDateString();
-  return `${showDate ? `${dateLabel(instant)} ` : ""}${clock(instant)}`;
-}
-
-export function journeyTimeRange(
-  journey: Pick<Journey, "departure" | "arrival">,
-): string {
-  const departure = new Date(journey.departure * 1000);
-  const arrival = new Date(journey.arrival * 1000);
-  if (departure.toDateString() !== arrival.toDateString())
-    return `${dateLabel(journey.departure)} ${clock(journey.departure)} → ${dateLabel(journey.arrival)} ${clock(journey.arrival)}`;
-  const day =
-    departure.toDateString() === new Date().toDateString()
-      ? ""
-      : `${dateLabel(journey.departure)} · `;
-  return `${day}${clock(journey.departure)} → ${clock(journey.arrival)}`;
 }

@@ -4,7 +4,7 @@ import type {
   RequestBudget,
   RoutingClient,
   Variant,
-} from "./transitous";
+} from "./routing-contracts";
 
 /** Successful responses belong to one calculation, never to a new search. */
 export class PlanningRoutingClient implements RoutingClient {

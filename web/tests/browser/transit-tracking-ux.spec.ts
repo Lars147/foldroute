@@ -18,8 +18,8 @@ test("station tracking keeps running when the navigation map cannot load", async
   await complete(page);
   await complete(page);
   await page.evaluate(() => {
-    (window as any).navProbe.silent = true;
-    (window as any).navProbe.fail(2);
+    window.navProbe.silent = true;
+    window.navProbe.fail(2);
   });
   await expect(page.locator("#navigation-map")).toHaveAttribute(
     "data-load-error",
@@ -50,8 +50,8 @@ test("an unusable future station projection uses a schematic map without freezin
   await complete(page);
   await complete(page);
   await page.evaluate(() => {
-    (window as any).navProbe.silent = true;
-    (window as any).navProbe.fail(2);
+    window.navProbe.silent = true;
+    window.navProbe.fail(2);
   });
   await page.clock.pauseAt(new Date((now + 450) * 1000));
   await expect(page.locator("#navigation-map")).toHaveAttribute(
@@ -80,8 +80,8 @@ test("estimated arrival keeps the train active and exposes manual exit in the co
   await complete(page);
   await complete(page);
   await page.evaluate(() => {
-    (window as any).navProbe.silent = true;
-    (window as any).navProbe.fail(2);
+    window.navProbe.silent = true;
+    window.navProbe.fail(2);
   });
   await page.clock.pauseAt(new Date((now + 601) * 1000));
   await expect(page.locator("#navigation-station-status")).toContainText(
@@ -94,8 +94,7 @@ test("estimated arrival keeps the train active and exposes manual exit in the co
   await expect(exit).toHaveText("Ausgestiegen");
   await expect(exit).toBeInViewport();
   await exit.click();
-  await expect(page.locator("#navigation-confirm")).toBeVisible();
-  await page.locator("#navigation-confirm-yes").click();
+  await expect(page.locator("#navigation-confirm")).toBeHidden();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt entfalten",
   );
@@ -175,7 +174,7 @@ for (const width of [390, 1280]) {
     await complete(page);
     await complete(page);
     await page.evaluate(() => {
-      (window as any).navProbe.silent = true;
+      window.navProbe.silent = true;
     });
     const stops = journey.legs[2].transitStops!;
     const announcement = page.locator("#navigation-stations-announcement");
@@ -183,7 +182,7 @@ for (const width of [390, 1280]) {
       await page.clock.runFor(1000);
       await page.evaluate(
         ({ a, b, fraction }) => {
-          (window as any).navProbe.push(
+          window.navProbe.push(
             a.latitude + (b.latitude - a.latitude) * fraction,
             a.longitude + (b.longitude - a.longitude) * fraction,
           );
@@ -219,7 +218,7 @@ for (const width of [390, 1280]) {
     await push(1);
     await expect(announcement).toContainText("Nächster Halt: Rathaus");
     await page.evaluate(() => {
-      (window as any).navProbe.fail(2);
+      window.navProbe.fail(2);
     });
     await page.clock.pauseAt(new Date((now + 550) * 1000));
     await expect(announcement).toContainText("Nächster Halt: Ausstieg");

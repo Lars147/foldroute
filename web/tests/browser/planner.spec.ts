@@ -216,10 +216,14 @@ for (const width of [390, 1280])
     await expect.poll(activeJourney).toBe(ids[1]);
     await page.locator("#navigation-end").click();
     await page.locator("#navigation-confirm-yes").click();
-    const start = page.locator(".panel-actions #navigation-start");
+    const start = page.locator("#navigation-start");
     await expect(start).toBeFocused();
     await expect(start).toHaveText("Los");
     await expect(start).toBeEnabled();
+    await expect(page.locator("#map-view")).toHaveAttribute(
+      "data-result-screen",
+      width < 900 ? "map" : "desktop",
+    );
     await expect(page.locator("#saved-notice")).toBeHidden();
     await expect(page.locator("#replan-saved")).toBeHidden();
     await expect(page.locator("#result-stand")).toHaveText(originalStand!);
@@ -233,8 +237,11 @@ for (const width of [390, 1280])
     ).toEqual(ids);
     await page.screenshot({ path: info.outputPath("navigation-return.png") });
     if (width < 900) {
-      await page.locator("#result-back").click();
+      await expect(page.locator("#map-preview")).toBeVisible();
+      await expect(page.locator("#panel-details")).toBeHidden();
+      await showConnections(page);
       await expect(page.locator("#choices")).toBeVisible();
+      await showMap(page);
     }
     await start.click();
     await expect.poll(activeJourney).toBe(ids[1]);
@@ -316,7 +323,7 @@ test("closing the route cancels optimization and ignores delayed responses", asy
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
   ).toContainText("32 min");
-  await showConnections(page);
+  await showMap(page);
   await expect(page.locator("#adjust-route")).toBeEnabled();
   await expect(page.locator("#navigation-start")).toBeVisible();
   await expect(page.locator("#navigation-start")).toBeEnabled();
@@ -372,6 +379,7 @@ for (const width of [390, 1280]) {
     await openSelectedDetails(page);
     await expect(page.locator("#navigation-start")).toBeEnabled();
     await expect.poll(() => requested).toBeGreaterThan(0);
+    await showMap(page);
     await page.locator("#navigation-start").click();
     await expect(page.locator("#navigation-view")).toBeVisible();
     await expect(page.locator("#toast")).toBeHidden();
@@ -1193,10 +1201,11 @@ test("three regular routes keep their places and comparison is an optional fourt
   await expect
     .poll(
       async () =>
-        (await page.locator("#journey-panel").boundingBox())?.height ?? 0,
+        (await page.locator("#alternatives-dialog").boundingBox())?.height ?? 0,
     )
     .toBeGreaterThan(550);
   await page.screenshot({ path: "test-results/fourth-comparison-mobile.png" });
+  await showMap(page);
   await page.locator("#tab-settings").click();
   await openSettingsSection(page, "options");
   await page.locator("#settings-optimization > summary").click();
@@ -1260,15 +1269,14 @@ for (const width of [320, 390, 430, 1479]) {
     await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
     await openSelectedDetails(page);
     await page
-      .locator("#panel-content")
+      .locator(width < 900 ? "#alternatives-body" : "#panel-content")
       .evaluate((e) => (e.scrollTop = e.scrollHeight));
     await expect(page.locator("#adjust-route")).toBeInViewport({ ratio: 1 });
     if (width < 900) {
-      await page.locator("#result-back").click();
+      await expect(page.locator("#alternatives-close")).toBeInViewport();
+      await showMap(page);
       await expect(page.locator("#panel-details")).toBeHidden();
-      await expect(
-        page.locator(".route-choice-row.selected .route-detail-link"),
-      ).toBeFocused();
+      await expect(page.locator("#map-open-details")).toBeFocused();
     }
     await expect(page.locator("#route-more")).toBeVisible();
   });
@@ -1336,7 +1344,10 @@ for (const outcome of ["complete", "cancel", "error"] as const) {
     ).toHaveCount(1);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect.poll(animation).toBe("route-loading");
-    if (outcome === "cancel") await page.locator("#close-route").click();
+    if (outcome === "cancel") {
+      await showMap(page);
+      await page.locator("#close-route").click();
+    }
     release();
     await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
     await expect.poll(animation).toBe("none");
@@ -1384,7 +1395,7 @@ test("ready results keep scroll geometry stable while alternatives load", async 
   for (const [width, height, fontSize] of [
     [390, 844, 16],
     [515, 600, 16],
-    [320, 568, 24],
+    [320, 400, 24],
   ]) {
     await page.setViewportSize({ width, height });
     await page.evaluate((size) => {
@@ -1393,6 +1404,7 @@ test("ready results keep scroll geometry stable while alternatives load", async 
     for (const screen of ["list", "detail"]) {
       if (screen === "list") await showConnections(page);
       else await openSelectedDetails(page);
+      await expectMotionSettled(page.locator("#alternatives-dialog"));
       await expectMotionSettled(page.locator("#panel-details"));
       await expectMotionSettled(page.locator("#choices"));
       await expectMotionSettled(page.locator("#panel-content"));
@@ -1401,16 +1413,16 @@ test("ready results keep scroll geometry stable while alternatives load", async 
         // Let measured fixed-header height select the normal or full-panel fallback.
         for (let frame = 0; frame < 3; frame++)
           await new Promise(requestAnimationFrame);
-        const content = panel.classList.contains("result-scroll-all")
-          ? panel
-          : document.getElementById("panel-content")!;
+        const content = document.getElementById("alternatives-body")!;
         const samples = [];
         for (let frame = 0; frame < 9; frame++) {
           await new Promise(requestAnimationFrame);
           const actions = document
-            .querySelector(".panel-actions")!
+            .querySelector(".alternatives-header")!
             .getBoundingClientRect();
-          const bounds = panel.getBoundingClientRect();
+          const bounds = document
+            .getElementById("alternatives-dialog")!
+            .getBoundingClientRect();
           samples.push({
             scrollAll: content === panel,
             height: content.clientHeight,
@@ -1432,18 +1444,16 @@ test("ready results keep scroll geometry stable while alternatives load", async 
       }
       if (fontSize === 24 && screen === "detail") {
         expect(samples[0].scrollHeight).toBeGreaterThan(samples[0].height);
-        const scroller = page.locator(
-          samples[0].scrollAll ? "#journey-panel" : "#panel-content",
-        );
+        const scroller = page.locator("#alternatives-body");
         await scroller.evaluate((element) => {
           element.scrollTop = element.scrollHeight;
         });
         expect(await scroller.evaluate((e) => e.scrollTop)).toBeGreaterThan(0);
-        await expect(page.locator("#navigation-start")).toBeInViewport({
+        await expect(page.locator("#alternatives-close")).toBeInViewport({
           ratio: 1,
         });
       }
-      if (screen === "detail") await page.locator("#result-back").click();
+      if (screen === "detail") await showMap(page);
     }
   }
   release();
@@ -1576,7 +1586,7 @@ for (const outcome of ["success", "cancel", "error"] as const) {
   });
 }
 
-test("mobile refresh returns to comparison and preserves old results on failure", async ({
+test("mobile refresh stays on the map and preserves old results on failure", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1589,17 +1599,18 @@ test("mobile refresh returns to comparison and preserves old results on failure"
     await gate;
     await route.fulfill({ status: 503, headers: cors });
   });
+  await showMap(page);
   await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
   await expect(page.locator("#map-view")).toHaveAttribute(
     "data-result-screen",
-    "list",
+    "map",
   );
-  await expect(page.locator("#stale-notice")).toBeVisible();
-  await expect(page.locator(".route-choice").first()).toBeVisible();
+  await expect(page.locator("#map-preview-status")).toBeVisible();
+  await expect(page.locator("#map-preview-summary")).toBeVisible();
   release();
   await expect(page.locator("#journey-panel")).not.toHaveClass(/is-loading/);
-  await expect(page.locator("#stale-notice")).toBeVisible();
+  await expect(page.locator("#map-preview-status")).toBeVisible();
   await expect(page.locator("#refresh-route")).toHaveText("Erneut versuchen");
   await openSelectedDetails(page);
   await expect(page.locator("#journey-heading")).toContainText("32 min");

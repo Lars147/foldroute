@@ -1,6 +1,83 @@
 import { expect, test } from "./test";
-import { previewNavigation } from "./navigation-preview";
+import { mountNavigationFixture } from "./navigation-layout-fixture";
 import { stationRail } from "./navigation-fixture";
+
+for (const theme of ["light", "dark"] as const)
+  for (const layout of [
+    { width: 390, height: 844, top: 59, font: 16 },
+    { width: 430, height: 932, top: 62, font: 32 },
+    { width: 320, height: 568, top: 0, font: 16 },
+    { width: 844, height: 390, top: 0, font: 16 },
+  ])
+    test(`standalone navigation has no artificial status bar shading at ${layout.width}px in ${theme}`, async ({
+      page,
+    }, info) => {
+      await page.setViewportSize({
+        width: layout.width,
+        height: layout.height,
+      });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      await mountNavigationFixture(page, 0, { theme });
+      await page.addStyleTag({
+        content: `:root { --safe-top: ${layout.top}px; font-size: ${layout.font}px; }`,
+      });
+      await page.evaluate(() => {
+        document.body.dataset.navigation = "active";
+        (window as any).navigationFixture.view.render();
+      });
+      const statusBar = page.locator(".navigation-status-bar");
+      const guidance = page.locator("#navigation-guidance");
+      const initial = await guidance.boundingBox();
+      await expect(statusBar).toHaveCount(0);
+      await page.evaluate(() => {
+        document.documentElement.dataset.standalone = "";
+      });
+      expect(await guidance.boundingBox()).toEqual(initial);
+      expect(await page.locator("#navigation-map").boundingBox()).toEqual({
+        x: 0,
+        y: 0,
+        width: layout.width,
+        height: layout.height,
+      });
+      await expect
+        .poll(
+          async () =>
+            (await page.locator(".navigation-map-controls").boundingBox())!.y,
+        )
+        .toBeGreaterThanOrEqual(initial!.y + initial!.height + 7);
+      const shading = await page.evaluate(() => {
+        const style = getComputedStyle(document.body, "::before");
+        return {
+          background: style.backgroundColor,
+          image: style.backgroundImage,
+          filter: style.backdropFilter,
+        };
+      });
+      expect(shading).toEqual({
+        background: "rgba(0, 0, 0, 0)",
+        image: "none",
+        filter: "none",
+      });
+      await page.screenshot({
+        path: info.outputPath("unshaded-status-bar.png"),
+      });
+      await page.setViewportSize({ width: 1280, height: 844 });
+      await expect(statusBar).toHaveCount(0);
+      await page.setViewportSize({
+        width: layout.width,
+        height: layout.height,
+      });
+      await page.evaluate(() => {
+        (window as any).navigationFixture.view.hide();
+        delete document.body.dataset.navigation;
+      });
+      await expect(statusBar).toHaveCount(0);
+      expect(
+        await page.evaluate(
+          () => getComputedStyle(document.body, "::before").backgroundImage,
+        ),
+      ).toBe("none");
+    });
 
 for (const colorScheme of ["light", "dark"] as const)
   for (const width of [320, 390, 1280])
@@ -9,10 +86,10 @@ for (const colorScheme of ["light", "dark"] as const)
     }, info) => {
       await page.setViewportSize({ width, height: 844 });
       await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
-      await previewNavigation(page);
+      await mountNavigationFixture(page);
       if (width < 900) await page.locator("#navigation-details-toggle").click();
       await page.evaluate(() =>
-        (window as any).navigationPreview.setLocation("inaccurate"),
+        (window as any).navigationFixture.setLocation("inaccurate"),
       );
       const status = page.locator("#navigation-gps-status");
       const primary = page.locator("#navigation-gps-primary");
@@ -53,7 +130,7 @@ for (const colorScheme of ["light", "dark"] as const)
       };
       await checkBounds(true);
       await page.evaluate(() =>
-        (window as any).navigationPreview.setLocation("missing"),
+        (window as any).navigationFixture.setLocation("missing"),
       );
       await expect(status).toHaveText("Kein GPS Kartenposition geschätzt");
       await checkBounds(true);
@@ -64,14 +141,14 @@ for (const colorScheme of ["light", "dark"] as const)
         await checkBounds(true);
       }
       await page.screenshot({ path: info.outputPath("gps-estimate.png") });
-      await page.evaluate(() => (window as any).navigationPreview.showLeg(3));
+      await page.evaluate(() => (window as any).navigationFixture.showLeg(3));
       await expect(status).toHaveText("Kein GPS");
       await expect(secondary).toBeHidden();
       await expect(secondary).toBeEmpty();
       await expect(status).toHaveCSS("background-color", "rgb(255, 212, 59)");
       await checkBounds(false);
       await page.evaluate(() =>
-        (window as any).navigationPreview.setLocation("current"),
+        (window as any).navigationFixture.setLocation("current"),
       );
       await expect(status).toBeHidden();
       await expect(primary).toBeEmpty();
@@ -92,7 +169,7 @@ for (const [width, height] of [
       reducedMotion: "reduce",
       colorScheme: width === 320 ? "dark" : "light",
     });
-    await previewNavigation(page, 0);
+    await mountNavigationFixture(page, 0);
     await expect(page.locator("#navigation-context-title")).toHaveText(
       "S1 · in 5 Min.",
     );
@@ -101,7 +178,7 @@ for (const [width, height] of [
     );
     await page.clock.setFixedTime(new Date(Date.parse("2026-10-06T10:05:02Z")));
     await page.evaluate(() => {
-      (window as any).navigationPreview.showLeg(2);
+      (window as any).navigationFixture.showLeg(2);
     });
     const selector =
       width < 900
@@ -136,7 +213,7 @@ for (const [width, height] of [
     // A second prepared instant covers passed rows in both renderers without
     // replaying several minutes of train/map animation at every viewport.
     await page.clock.setFixedTime(new Date("2026-10-06T10:08:30Z"));
-    await page.evaluate(() => (window as any).navigationPreview.view.render());
+    await page.evaluate(() => (window as any).navigationFixture.view.render());
     await expect(
       page.locator("#navigation-stations-announcement"),
     ).toContainText("Nächster Halt: Ausstieg");
@@ -197,10 +274,10 @@ test("compact rail clips departing rows and finishes a normal transition", async
     reducedMotion: "no-preference",
     colorScheme: "dark",
   });
-  await previewNavigation(page);
+  await mountNavigationFixture(page);
   await page.evaluate(async () => {
     const { NavigationStations } = await import("/src/navigation-stations.ts");
-    const { session, view } = (window as any).navigationPreview;
+    const { session, view } = (window as any).navigationFixture;
     view.hide();
     document.getElementById("navigation-stations-preview")!.remove();
     const panel = document.createElement("article");

@@ -280,7 +280,9 @@ it("requests permission again explicitly after denial and recovers after allowin
 });
 
 it("starts accurate requests with a quick fix while retaining the GPS watch", async () => {
-  const single = vi.fn((success: PositionCallback) => success(position(40)));
+  const single = vi.fn<Geolocation["getCurrentPosition"]>((success) =>
+    success(position(40)),
+  );
   Object.assign(navigator.geolocation, { getCurrentPosition: single });
   const service = new LiveLocation(vi.fn());
   service.setActive(true);
@@ -363,7 +365,9 @@ it("fresh requests replace a silent watch and reject cached quick fixes", async 
   await flush();
   const cached = position();
   callbacks.get(1)!.success(cached);
-  const single = vi.fn((success: PositionCallback) => success(cached));
+  const single = vi.fn<Geolocation["getCurrentPosition"]>((success) =>
+    success(cached),
+  );
   Object.assign(navigator.geolocation, { getCurrentPosition: single });
   vi.advanceTimersByTime(1000);
   const resolved = vi.fn();
@@ -372,7 +376,7 @@ it("fresh requests replace a silent watch and reject cached quick fixes", async 
   expect(clear).toHaveBeenCalledWith(1);
   expect(watch).toHaveBeenCalledTimes(2);
   expect(watch.mock.calls[1][2].maximumAge).toBe(0);
-  expect(single.mock.calls[0][2].maximumAge).toBe(0);
+  expect(single.mock.calls[0][2]!.maximumAge).toBe(0);
   expect(resolved).not.toHaveBeenCalled();
   expect(changed).toHaveBeenLastCalledWith(readFix(cached), "stale", undefined);
   changed.mockClear();

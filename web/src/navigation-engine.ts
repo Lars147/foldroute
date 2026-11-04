@@ -1,3 +1,17 @@
+import { systemClock, type Clock } from "./clock";
+import {
+  projectPath,
+  projectMovementPath,
+  projectTransitPath,
+  type Projection,
+} from "./navigation-projection";
+export {
+  headingDelta,
+  projectPath,
+  projectMovementPath,
+  projectTransitPath,
+  type Projection,
+} from "./navigation-projection";
 import { legStops } from "./model";
 import type { Coordinate, Journey, Leg, Maneuver } from "./model";
 import { distance } from "./geometry";
@@ -23,12 +37,6 @@ export interface NavigationProgress {
   transitStop?: string;
   transitDepartedStop?: string;
 }
-export interface Projection {
-  meters: number;
-  distance: number;
-  length: number;
-  bearing: number;
-}
 export const movement = (leg?: Leg) =>
   leg?.kind === "bike" || leg?.kind === "walk";
 export const freshTransit = (leg: Leg, now: number) =>
@@ -37,70 +45,14 @@ export const freshTransit = (leg: Leg, now: number) =>
   !leg.transitStatus?.failure &&
   leg.transitStatus?.updatedAt !== undefined &&
   Math.abs(now - leg.transitStatus.updatedAt) <= 120;
-export const headingDelta = (from: number, to: number) =>
-  ((((to - from + 180) % 360) + 360) % 360) - 180;
-
-/** Project onto segments, restricting candidates to the current part of the path. */
-export function projectPath(
-  point: Coordinate,
-  path: Coordinate[],
-  min = 0,
-  max = Infinity,
-): Projection {
-  let length = 0;
-  let best = { meters: 0, distance: Infinity, length: 0, bearing: 0 };
-  const scale = Math.cos((point.latitude * Math.PI) / 180);
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1],
-      b = path[i];
-    const segment = distance(a, b);
-    const ax = (a.longitude - point.longitude) * scale,
-      ay = a.latitude - point.latitude;
-    const dx = (b.longitude - a.longitude) * scale,
-      dy = b.latitude - a.latitude;
-    const t =
-      dx || dy
-        ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy)))
-        : 0;
-    const meters = length + segment * t;
-    const d = distance(point, {
-      latitude: a.latitude + (b.latitude - a.latitude) * t,
-      longitude: a.longitude + (b.longitude - a.longitude) * t,
-    });
-    if (meters >= min && meters <= max && d < best.distance - 0.01)
-      best = {
-        meters,
-        distance: d,
-        length: 0,
-        bearing: ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360,
-      };
-    length += segment;
-  }
-  return { ...best, length };
+export function movementCoordinates(leg: Leg): Coordinate[] {
+  return leg.maneuvers?.length
+    ? leg.maneuvers.flatMap((step) => step.coordinates)
+    : leg.coordinates.length > 1
+      ? leg.coordinates
+      : [leg.from, leg.to];
 }
 
-/** Reject off-route and ambiguous projections, including overlapping route loops. */
-export function projectTransitPath(
-  fix: LocationFix,
-  path: Coordinate[],
-  min: number,
-): Projection | undefined {
-  const projection = projectPath(fix, path, min);
-  if (projection.distance > 100) return;
-  let offset = 0;
-  for (let i = 1; i < path.length; i++) {
-    const alternative = projectPath(fix, [path[i - 1], path[i]]);
-    const position = offset + alternative.meters;
-    if (
-      position >= min &&
-      Math.abs(position - projection.meters) > 200 &&
-      alternative.distance <= projection.distance + Math.max(10, fix.accuracy)
-    )
-      return;
-    offset += alternative.length;
-  }
-  return projection;
-}
 export function maneuverText(maneuver: Maneuver): string {
   const text: Record<string, string> = {
     DEPART: "Losfahren",
@@ -139,8 +91,46 @@ export class NavigationEngine {
   progress: NavigationProgress;
   distanceToNext?: number;
   offRoute = false;
-  private offSamples = 0;
   private lastTimestamp = 0;
+  private acceptedTimestamp = 0;
+  routeState: "following" | "uncertain" | "deviated" = "following";
+  movementMatch?: Projection;
+  movementMatchTimestamp = 0;
+  plausibleMovementTimestamp = -Infinity;
+  completionCountdown?: { startedAt: number; remainingSeconds: number };
+  completionPaused = false;
+  private completionUpdatedAt = 0;
+  private completionPauseStarted?: number;
+  private activityPauseSeconds = 0;
+  private completionFix?: LocationFix;
+  private completionCancelled = false;
+  private evidence?: {
+    kind: "leave" | "return";
+    first: LocationFix;
+    firstMeters?: number;
+    count: number;
+  };
+  private previousMovementFix?: LocationFix;
+  private get elevatorAnchor(): Coordinate | undefined {
+    if (this.maneuver?.direction !== "ELEVATOR" || !this.path.length) return;
+    const anchor = this.path[0];
+    return this.path.every(
+      (point) =>
+        point.latitude === anchor.latitude &&
+        point.longitude === anchor.longitude,
+    )
+      ? anchor
+      : undefined;
+  }
+  get guidanceUsable() {
+    return (
+      this.routeState === "following" ||
+      (!!this.elevatorAnchor && !this.offRoute)
+    );
+  }
+  get requiresElevatorConfirmation() {
+    return !!this.elevatorAnchor;
+  }
   private path: Coordinate[] = [];
   private offsets: number[] = [];
   private cues: NavigationCue[] = [];
@@ -161,6 +151,7 @@ export class NavigationEngine {
   constructor(
     public journey: Journey,
     progress?: NavigationProgress,
+    private readonly clock: Clock = systemClock,
   ) {
     this.progress = structuredClone(
       progress ?? {
@@ -237,21 +228,22 @@ export class NavigationEngine {
       (this.leg.to.stopId
         ? stops.at(-1)!.stopId === this.leg.to.stopId
         : distance(stops.at(-1)!, this.leg.to) <= maxStationShapeDistance) &&
-      quality(evidence.first) === "current" &&
-      quality(evidence.last) === "current"
+      quality(evidence.first, this.clock.now()) === "current" &&
+      quality(evidence.last, this.clock.now()) === "current"
     );
   }
   get hasCurrentTransitPosition(): boolean {
     return !!(
       this.transitPositionConfirmed &&
       this.transitEvidence &&
-      quality(this.transitEvidence.first) === "current" &&
-      quality(this.transitEvidence.last) === "current"
+      quality(this.transitEvidence.first, this.clock.now()) === "current" &&
+      quality(this.transitEvidence.last, this.clock.now()) === "current"
     );
   }
   get hasTransitLocation(): boolean {
     return !!(
-      this.transitSample && quality(this.transitSample.fix) === "current"
+      this.transitSample &&
+      quality(this.transitSample.fix, this.clock.now()) === "current"
     );
   }
   get maneuver(): Maneuver | undefined {
@@ -285,14 +277,33 @@ export class NavigationEngine {
       projectPath(this.leg.from, this.path).length - this.progress.meters,
     );
   }
+  get navigationPath(): readonly Coordinate[] {
+    return this.path;
+  }
+  get hasMovementPath(): boolean {
+    const length = projectPath(this.leg.from, this.path).length;
+    return movement(this.leg) && Number.isFinite(length) && length > 0;
+  }
   get remainingSeconds(): number {
+    if (this.completionCountdown)
+      return this.completionCountdown.remainingSeconds;
+    if (this.timedActivity)
+      return Math.max(
+        0,
+        this.activityEnd(this.clock.now() / 1000) - this.clock.now() / 1000,
+      );
     const leg = this.leg;
     const length = projectPath(leg.from, this.path).length;
     return length
       ? ((leg.end - leg.start) * this.remainingMeters) / length
-      : Math.max(0, leg.end - Date.now() / 1000);
+      : Math.max(0, leg.end - this.clock.now() / 1000);
   }
   private preparePath() {
+    this.resetCompletionCountdown();
+    this.completionCancelled = false;
+    this.completionPaused = false;
+    this.completionPauseStarted = undefined;
+    this.activityPauseSeconds = 0;
     this.path = [];
     this.offsets = [];
     let total = 0;
@@ -476,21 +487,125 @@ export class NavigationEngine {
         : Math.max(0, this.cue.meters - this.progress.meters);
   }
   invalidateLocation() {
-    this.offSamples = 0;
+    this.resetCompletionCountdown();
     this.distanceToNext = undefined;
     this.lastTimestamp = 0;
+    this.acceptedTimestamp = 0;
+    this.evidence = undefined;
+    this.previousMovementFix = undefined;
+    this.plausibleMovementTimestamp = -Infinity;
+    this.movementMatch = undefined;
+    if (movement(this.leg)) this.routeState = "uncertain";
     this.transitSample = undefined;
     this.transitEvidence = undefined;
     this.transitPositionConfirmed = false;
   }
-  update(fix: LocationFix, now = Date.now()): boolean {
+  resetCompletionCountdown() {
+    this.completionCountdown = undefined;
+    this.completionFix = undefined;
+    this.completionUpdatedAt = 0;
+  }
+  private get timedActivity() {
+    return ["fold", "unfold", "wait"].includes(this.leg.kind);
+  }
+  private activityEnd(now: number) {
+    return (
+      this.leg.end +
+      this.activityPauseSeconds +
+      (this.completionPauseStarted === undefined
+        ? 0
+        : Math.max(0, now - this.completionPauseStarted / 1000))
+    );
+  }
+  get connectionJourney(): Journey {
+    if (
+      !this.timedActivity ||
+      (!this.activityPauseSeconds && this.completionPauseStarted === undefined)
+    )
+      return this.journey;
+    const legs = this.journey.legs.slice();
+    legs[this.progress.legIndex] = {
+      ...this.leg,
+      end: this.activityEnd(this.clock.now() / 1000),
+    };
+    return { ...this.journey, legs };
+  }
+  setCompletionPaused(paused: boolean, now = this.clock.now()) {
+    paused &&=
+      this.phase === "active" && (movement(this.leg) || this.timedActivity);
+    if (paused === this.completionPaused) return;
+    this.updateCountdownTime(now);
+    if (paused) this.completionPauseStarted = now;
+    else {
+      if (this.timedActivity && this.completionPauseStarted !== undefined)
+        this.activityPauseSeconds +=
+          Math.max(0, now - this.completionPauseStarted) / 1000;
+      this.completionPauseStarted = undefined;
+    }
+    this.completionPaused = paused;
+  }
+  private updateCountdownTime(now: number) {
+    if (!this.completionCountdown) return;
+    if (!this.completionPaused)
+      this.completionCountdown.remainingSeconds =
+        Math.max(
+          0,
+          Math.round(this.completionCountdown.remainingSeconds * 1000) -
+            Math.max(0, Math.round(now - this.completionUpdatedAt)),
+        ) / 1000;
+    this.completionUpdatedAt = now;
+  }
+  cancelCompletionCountdown() {
+    this.resetCompletionCountdown();
+    this.completionCancelled = true;
+  }
+  private updateCompletionCountdown(now: number) {
+    const fix = this.completionFix;
+    const plausible =
+      fix &&
+      quality(fix, now) === "current" &&
+      fix.accuracy <= 50 &&
+      this.plausibleMovementTimestamp === fix.timestamp;
+    const targetDistance = plausible ? distance(fix, this.leg.to) : Infinity;
+    if (plausible && targetDistance > 20) this.completionCancelled = false;
+    if (
+      !plausible ||
+      targetDistance > 20 ||
+      !this.guidanceUsable ||
+      this.movementMatchTimestamp !== fix.timestamp ||
+      !this.movementMatch ||
+      !this.hasMovementPath ||
+      this.maneuver
+    ) {
+      this.completionCountdown = undefined;
+      return;
+    }
+    if (
+      !this.completionCountdown &&
+      !this.completionCancelled &&
+      targetDistance <= 10 &&
+      this.remainingMeters <= 10
+    ) {
+      this.completionCountdown = { startedAt: now, remainingSeconds: 30 };
+      this.completionUpdatedAt = now;
+    }
+    const countdown = this.completionCountdown;
+    if (!countdown) return;
+    this.updateCountdownTime(now);
+    if (countdown.remainingSeconds === 0 && !this.completionPaused) {
+      this.cancelCompletionCountdown();
+      this.advance(false, now / 1000);
+    }
+  }
+  update(fix: LocationFix, now = this.clock.now()): boolean {
     if (this.phase !== "active" || quality(fix, now) !== "current") {
       this.invalidateLocation();
       return false;
     }
     if (fix.timestamp <= this.lastTimestamp) return false;
-    const elapsed = this.lastTimestamp
-      ? (fix.timestamp - this.lastTimestamp) / 1000
+    this.completionFix = fix;
+    const elapsed = this.acceptedTimestamp
+      ? (fix.timestamp - this.acceptedTimestamp) / 1000
       : 0;
     this.lastTimestamp = fix.timestamp;
     if (!movement(this.leg)) {
@@ -498,37 +613,106 @@ export class NavigationEngine {
       if (this.leg.kind === "transit") this.updateTransit(fix);
       return false;
     }
-    const projection = projectPath(
-      fix,
-      this.path,
-      Math.max(0, this.progress.meters - 30),
-      elapsed === 0
-        ? Infinity
-        : this.progress.meters + Math.max(100, Math.min(500, elapsed * 20)),
-    );
-    const whole = projectPath(fix, this.path);
-    this.offSamples =
-      fix.accuracy <= 50 && whole.distance > 60 ? this.offSamples + 1 : 0;
-    this.offRoute = this.offSamples >= 3;
+    const previous = this.previousMovementFix;
+    this.movementMatchTimestamp = fix.timestamp;
+    this.movementMatch = undefined;
+    const gap = previous ? (fix.timestamp - previous.timestamp) / 1000 : 0;
     if (
-      projection.distance <= Math.max(40, fix.accuracy) &&
-      fix.accuracy <= 50
+      previous &&
+      distance(previous, fix) >
+        Math.max(100, gap * 20) + previous.accuracy + fix.accuracy
     ) {
-      this.progress.meters = Math.max(this.progress.meters, projection.meters);
-      this.updateManeuver();
-      if (
-        projection.length - this.progress.meters <= 40 &&
-        distance(fix, this.leg.to) <= 40 &&
-        !this.maneuver
-      )
-        this.advance(false, now / 1000);
+      this.evidence = undefined;
+      this.routeState = this.offRoute ? "deviated" : "uncertain";
+      this.distanceToNext = undefined;
+      this.completionCountdown = undefined;
+      return this.offRoute;
     }
+    this.previousMovementFix = fix;
+    this.plausibleMovementTimestamp = fix.timestamp;
+    const anchor = this.elevatorAnchor;
+    const anchorDistance = anchor ? distance(fix, anchor) : undefined;
+    const projection = anchor
+      ? anchorDistance! <= Math.max(40, fix.accuracy)
+        ? { meters: 0, distance: anchorDistance!, length: 0, bearing: 0 }
+        : undefined
+      : projectMovementPath(
+          fix,
+          this.path,
+          Math.max(0, this.progress.meters - 30),
+          elapsed === 0
+            ? Infinity
+            : this.progress.meters + Math.max(100, elapsed * 20),
+        );
+    const whole = anchor ? projection : projectMovementPath(fix, this.path);
+    const separation = anchorDistance ?? projectPath(fix, this.path).distance;
+    const backward = whole && whole.meters < this.progress.meters - 30;
+    const leave = separation > Math.max(20, fix.accuracy) || !!backward;
+    const returned =
+      projection && projection.distance <= Math.max(10, fix.accuracy / 2);
+    if (fix.accuracy > 50 || (gap > 15 && this.evidence))
+      this.evidence = undefined;
+    const kind =
+      fix.accuracy <= 50 && leave
+        ? "leave"
+        : fix.accuracy <= 50 && returned && this.offRoute
+          ? "return"
+          : undefined;
+    if (kind) {
+      if (
+        !this.evidence ||
+        this.evidence.kind !== kind ||
+        fix.timestamp - this.evidence.first.timestamp > 30000
+      )
+        this.evidence = {
+          kind,
+          first: fix,
+          firstMeters: whole?.meters,
+          count: 0,
+        };
+      this.evidence.count++;
+      const moved =
+        distance(this.evidence.first, fix) >
+        Math.max(20, this.evidence.first.accuracy + fix.accuracy);
+      if (
+        this.evidence.count >= 3 &&
+        fix.timestamp - this.evidence.first.timestamp >= 5000 &&
+        (!backward ||
+          (moved &&
+            whole.meters < (this.evidence.firstMeters ?? whole.meters) - 20))
+      ) {
+        this.offRoute = kind === "leave";
+        this.evidence = undefined;
+      }
+    } else this.evidence = undefined;
+    this.movementMatch = leave || this.offRoute ? undefined : projection;
+    this.routeState = this.offRoute
+      ? "deviated"
+      : leave || !projection || fix.accuracy > 50
+        ? "uncertain"
+        : "following";
+    if (!this.guidanceUsable) this.distanceToNext = undefined;
+    if (projection && this.guidanceUsable && fix.accuracy <= 50) {
+      this.progress.meters = Math.max(this.progress.meters, projection.meters);
+      this.acceptedTimestamp = fix.timestamp;
+      this.updateManeuver();
+    }
+    this.updateCompletionCountdown(now);
     return this.offRoute;
   }
-  tick(now = Date.now() / 1000) {
+  tick(now = this.clock.now() / 1000) {
     if (this.phase !== "active") return;
     const leg = this.leg;
-    if (leg.kind === "stop" || movement(leg) || now < leg.end) return;
+    if (movement(leg)) {
+      this.updateCompletionCountdown(now * 1000);
+      return;
+    }
+    if (
+      leg.kind === "stop" ||
+      this.completionPaused ||
+      now < (this.timedActivity ? this.activityEnd(now) : leg.end)
+    )
+      return;
     if (
       leg.kind === "transit" &&
       (!freshTransit(leg, now) || !this.transitExitConfirmed)
@@ -542,8 +726,9 @@ export class NavigationEngine {
     }
     this.advance(false, now);
   }
-  advance(manual = false, now = Date.now() / 1000): boolean {
+  advance(manual = false, now = this.clock.now() / 1000): boolean {
     if (this.phase !== "active") return false;
+    if (!manual && this.completionPaused) return false;
     const next = this.journey.legs[this.progress.legIndex + 1];
     if (!manual && next?.kind === "transit" && !freshTransit(next, now))
       return false;
@@ -551,7 +736,11 @@ export class NavigationEngine {
       !manual &&
       next?.kind === "transit" &&
       next.start < now &&
-      (movement(this.leg) ? now : this.leg.end) > next.start
+      (movement(this.leg)
+        ? now
+        : this.timedActivity
+          ? this.activityEnd(now)
+          : this.leg.end) > next.start
     )
       return false;
     if (
@@ -587,6 +776,7 @@ export class NavigationEngine {
       )
         return false;
       this.phase = "arrived";
+      this.resetCompletionCountdown();
       this.distanceToNext = 0;
       return true;
     }
@@ -608,9 +798,14 @@ export class NavigationEngine {
     delete this.progress.transitStop;
     delete this.progress.transitDepartedStop;
     this.transitPositionConfirmed = false;
-    this.offSamples = 0;
     this.offRoute = false;
     this.lastTimestamp = 0;
+    this.acceptedTimestamp = 0;
+    this.routeState = "following";
+    this.evidence = undefined;
+    this.previousMovementFix = undefined;
+    this.plausibleMovementTimestamp = -Infinity;
+    this.movementMatch = undefined;
     this.preparePath();
     return true;
   }
@@ -623,13 +818,18 @@ export class NavigationEngine {
     )
       throw new Error("Navigationsabschnitte stimmen nicht überein.");
     const previous = this.leg;
+    const nextLeg = journey.legs[this.progress.legIndex];
+    const maneuverPathChanged =
+      movement(previous) &&
+      JSON.stringify([previous.kind, previous.maneuvers]) !==
+        JSON.stringify([nextLeg.kind, nextLeg.maneuvers]);
     const previousStops = previous.transitStops;
     const topologyChanged =
       transitTopologyKey(previous) !==
       transitTopologyKey(journey.legs[this.progress.legIndex]);
     const oldProgress = { ...this.progress };
     this.journey = journey;
-    if (topologyChanged) {
+    if (topologyChanged || maneuverPathChanged) {
       const stops = this.leg.transitStops;
       for (const field of ["transitStop", "transitDepartedStop"] as const) {
         const oldIndex =

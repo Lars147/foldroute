@@ -13,20 +13,18 @@ class AppearanceController {
   onStorageError?: () => void;
   private media = window.matchMedia("(prefers-color-scheme: dark)");
 
-  initialize(personal: boolean) {
-    if (personal) {
-      try {
-        this.preference = preference(localStorage.getItem(storageKey));
-      } catch {
-        this.storageFailed = true;
-      }
-      window.addEventListener("storage", (event) => {
-        if (event.key === storageKey || event.key === null) {
-          this.preference = preference(event.newValue);
-          this.apply();
-        }
-      });
+  initialize() {
+    try {
+      this.preference = preference(localStorage.getItem(storageKey));
+    } catch {
+      this.storageFailed = true;
     }
+    window.addEventListener("storage", (event) => {
+      if (event.key === storageKey || event.key === null) {
+        this.preference = preference(event.newValue);
+        this.apply();
+      }
+    });
     this.media.addEventListener("change", () => this.apply());
     this.apply();
   }
@@ -60,11 +58,15 @@ class AppearanceController {
         : this.preference;
     const changed = document.documentElement.dataset.theme !== effective;
     document.documentElement.dataset.theme = effective;
-    document.querySelector<HTMLMetaElement>(
-      'meta[name="theme-color"]',
-    )!.content = getComputedStyle(document.documentElement)
-      .getPropertyValue("--color-canvas")
-      .trim();
+    const styles = getComputedStyle(document.documentElement);
+    // The inline startup palette is available before the shared stylesheet loads.
+    const color =
+      styles.getPropertyValue("--color-canvas").trim() ||
+      styles.getPropertyValue("--startup-paper").trim();
+    if (color)
+      document.querySelector<HTMLMetaElement>(
+        'meta[name="theme-color"]',
+      )!.content = color;
     this.onChange?.();
     if (changed) window.dispatchEvent(new Event("foldroute:appearance"));
   }

@@ -565,7 +565,9 @@ test("interrupted fades continue from their current opacity when hover returns",
   await expect(preview).toHaveAttribute("data-interrupted-exit", "true");
   const exiting = await preview.evaluate((path) => {
     const animation = path.getAnimations()[0];
-    const start = Number(animation.effect!.getKeyframes()[0].opacity);
+    const start = Number(
+      (animation.effect as KeyframeEffect).getKeyframes()[0].opacity,
+    );
     animation.currentTime = Number(animation.effect!.getTiming().duration) / 2;
     return { start, middle: Number(getComputedStyle(path).opacity) };
   });
@@ -577,7 +579,9 @@ test("interrupted fades continue from their current opacity when hover returns",
   await expect(preview).toHaveAttribute("data-returning-entry", "true");
   const resumed = await preview.evaluate((path) => {
     const animation = path.getAnimations()[0];
-    const start = Number(animation.effect!.getKeyframes()[0].opacity);
+    const start = Number(
+      (animation.effect as KeyframeEffect).getKeyframes()[0].opacity,
+    );
     animation.finish();
     return start;
   });
@@ -933,6 +937,8 @@ test.describe("touch input", () => {
       selected: "alternative",
       selections: ["alternative"],
     });
+    // Separate gestures: a rapid double-tap intentionally zooms the map.
+    await page.waitForTimeout(500);
     await page.touchscreen.tap(p.x, p.y);
     expect(await state(page)).toEqual(selected);
     await expectPreview(page, 0);

@@ -19,7 +19,7 @@ import { PlanningRoutingClient } from "../src/planning-routing";
 import { PlanningSession } from "../src/planning-state";
 import { optimizeWalking } from "../src/walking-optimization";
 
-vi.mock("../src/search", () => ({ locate: vi.fn() }));
+vi.mock("../src/search-location", () => ({ locate: vi.fn() }));
 
 const origin: Place = {
   name: "Start",

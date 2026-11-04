@@ -8,30 +8,68 @@ import { test, expect, type Page } from "./test";
 import { defaults } from "../../src/model";
 import { mapResponse, baseVariants } from "../../src/transitous";
 import fixture from "../fixtures/swift-parity.json" with { type: "json" };
+declare global {
+  interface Window {
+    productionProviderRequests: string[];
+  }
+}
+
 const root =
   process.env.FOLDROUTE_PRODUCTION_URL ??
   `http://127.0.0.1:${Number(process.env.FOLDROUTE_TEST_PORT ?? 4173) + 1}/docs/plan/`;
-const cors = { "Access-Control-Allow-Origin": "*" };
-async function production(page: Page) {
+async function production(page: Page, recording = fixture) {
   await page.clock.setFixedTime(new Date("2026-09-04T08:00:00Z"));
   await page.context().grantPermissions(["geolocation"]);
   await page.context().setGeolocation({ latitude: 48.132, longitude: 11.5756 });
-  await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
-  await page.route("**/api/v1/geocode?*", (r) =>
-    r.fulfill({
-      headers: cors,
-      json: [{ name: "Ziel", lat: 48.175, lon: 11.6 }],
-    }),
-  );
-  await page.route("**/api/v6/plan?*", (r) =>
-    r.fulfill({
-      headers: cors,
-      json:
-        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
-          ? fixture.direct
-          : fixture.multimodal,
-    }),
-  );
+  // Browser geolocation mocks use their own clock. Stamp each delivered fix
+  // with page time, just like planner-fixture, including after offline reloads.
+  await page.addInitScript(() => {
+    const geo = navigator.geolocation;
+    const single = geo.getCurrentPosition.bind(geo);
+    const watch = geo.watchPosition.bind(geo);
+    const stamp =
+      (success: PositionCallback) => (position: GeolocationPosition) => {
+        const timestamp = Date.now();
+        success({
+          coords: position.coords,
+          timestamp,
+          toJSON: () => ({ coords: position.coords, timestamp }),
+        });
+      };
+    geo.getCurrentPosition = (success, error, options) =>
+      single(stamp(success), error, options);
+    geo.watchPosition = (success, error, options) =>
+      watch(stamp(success), error, options);
+  });
+  await page
+    .context()
+    .route("https://tiles.openfreemap.org/**", (r) => r.abort());
+  // Active service workers bypass Playwright routing in WebKit. Mock only the
+  // provider fetch boundary; worker downloads and cached shell requests stay real.
+  await page.addInitScript((recording) => {
+    const fetcher = window.fetch.bind(window);
+    window.productionProviderRequests = [];
+    window.fetch = async (input, init) => {
+      const url = new URL(
+        input instanceof Request ? input.url : String(input),
+        location.href,
+      );
+      if (url.hostname !== "api.transitous.org") return fetcher(input, init);
+      window.productionProviderRequests.push(url.href);
+      if (!navigator.onLine) throw new TypeError("Test provider is offline");
+      const json =
+        url.pathname === "/api/v1/geocode"
+          ? [{ name: "Ziel", lat: 48.175, lon: 11.6 }]
+          : url.pathname === "/api/v6/plan"
+            ? url.searchParams.get("directModes") === "BIKE"
+              ? recording.direct
+              : recording.multimodal
+            : [];
+      return new Response(JSON.stringify(json), {
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+  }, recording);
   await page.goto(root);
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.evaluate(
@@ -162,7 +200,8 @@ test("license page and original notices remain accessible offline", async ({
       await page.setViewportSize({ width, height: 900 });
       await page.screenshot({
         path: info.outputPath(`licenses-overview-${colorScheme}-${width}.png`),
-        fullPage: true,
+        // Linux WebKit cannot capture the entire long notice page (>32767px).
+        fullPage: false,
       });
     }
   }
@@ -350,19 +389,10 @@ test("switching alternatives replaces the single saved record", async ({
   page,
   context,
 }) => {
-  await production(page);
   const direct = structuredClone(fixture.direct);
   direct.direct[0].legs[0].endTime = "2026-09-04T09:01:00Z";
   direct.direct[0].endTime = "2026-09-04T09:01:00Z";
-  await page.route("**/api/v6/plan?*", (r) =>
-    r.fulfill({
-      headers: cors,
-      json:
-        new URL(r.request().url()).searchParams.get("directModes") === "BIKE"
-          ? direct
-          : fixture.multimodal,
-    }),
-  );
+  await production(page, { ...fixture, direct });
   await page.locator("#destination").fill("Ziel");
   await page.locator("#destination-options").locator(".place-select").click();
   await expectPlanningComplete(page);
@@ -602,12 +632,21 @@ test("planning deep link loads offline under the static subpath without replacin
   await expect(page.locator("#destination")).toHaveValue("Anderes Ziel");
   await page.locator("#cancel-adjust").click();
   await context.setOffline(false);
-  const request = page.waitForRequest((r) =>
-    r.url().includes("directModes=BIKE"),
-  );
+  // Observe the actual app fetch at the same boundary where the provider is
+  // mocked; WebKit service-worker traffic cannot rely on page network routing.
+  await page.evaluate(() => {
+    window.productionProviderRequests.length = 0;
+  });
   await page.locator("#route-more").click();
   await page.locator("#refresh-route").click();
-  expect(new URL((await request).url()).searchParams.get("toPlace")).toBe(
+  const requestedURL = () =>
+    page.evaluate(() =>
+      window.productionProviderRequests.find((url) =>
+        url.includes("directModes=BIKE"),
+      ),
+    );
+  await expect.poll(requestedURL).toBeTruthy();
+  expect(new URL((await requestedURL())!).searchParams.get("toPlace")).toBe(
     "48.180000,11.620000",
   );
 });

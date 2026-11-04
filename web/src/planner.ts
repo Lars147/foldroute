@@ -1,3 +1,11 @@
+import type {
+  Batch,
+  RequestBudget,
+  RoutingClient,
+  SearchOptions,
+  StreetMode,
+} from "./routing-contracts";
+export type { SearchOptions } from "./routing-contracts";
 import { optimizeWalking } from "./walking-optimization";
 import { planViaRoutes } from "./via-planner";
 import { pool } from "./routing-pool";
@@ -24,15 +32,7 @@ import {
   sameStation,
 } from "./model";
 import { distance, validCoordinate } from "./geometry";
-import {
-  ApiClient,
-  baseVariants,
-  type Batch,
-  type StreetMode,
-  type RequestBudget,
-  type RoutingClient,
-  makeURL,
-} from "./transitous";
+import { ApiClient, baseVariants, makeURL } from "./transitous";
 export interface Seed {
   journey: Journey;
   index: number;
@@ -206,11 +206,6 @@ export function compose(
     : undefined;
 }
 const defaultClient = new ApiClient();
-export interface SearchOptions {
-  raw?: boolean;
-  baseOnly?: boolean;
-  budget?: RequestBudget;
-}
 async function* planRawRoutes(
   input: RouteRequest,
   settings: RoutingSettings,
@@ -219,7 +214,14 @@ async function* planRawRoutes(
   options: SearchOptions = {},
 ): AsyncGenerator<PlanningUpdate> {
   if (input.stops?.length) {
-    yield* planViaRoutes(input, settings, signal, client, options.budget?.run);
+    yield* planViaRoutes(
+      input,
+      settings,
+      signal,
+      client,
+      planRoutes,
+      options.budget?.run,
+    );
     return;
   }
   if (distance(input.origin, input.destination) < 30)

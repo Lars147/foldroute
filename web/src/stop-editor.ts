@@ -3,9 +3,18 @@ import { ApiClient } from "./transitous";
 import { PlaceSearch } from "./search";
 import { PlaceBook } from "./places";
 import { el, icon, node } from "./ui";
-import { captureList, reflowList, reveal, stopMotion } from "./motion";
+import {
+  captureList,
+  reflowList,
+  reveal,
+  stopMotion,
+  stopMotionWithin,
+} from "./motion";
 
 export class StopEditor {
+  private readonly events = new AbortController();
+  private disposed = false;
+
   get count() {
     return this.order.length;
   }
@@ -121,25 +130,39 @@ export class StopEditor {
         down,
         remove,
       });
-      stayToggle.onclick = () => {
-        const row = this.rows[i];
-        if (!stayPanel.hidden && this.readStay(i, true) === undefined) return;
-        stayPanel.hidden = !stayPanel.hidden;
-        stayToggle.setAttribute("aria-expanded", String(!stayPanel.hidden));
-        if (!stayPanel.hidden) row.hours.focus();
-        if (!stayPanel.hidden) reveal(stayPanel, { y: 6 });
-      };
+      stayToggle.addEventListener(
+        "click",
+        () => {
+          const row = this.rows[i];
+          if (!stayPanel.hidden && this.readStay(i, true) === undefined) return;
+          stayPanel.hidden = !stayPanel.hidden;
+          stayToggle.setAttribute("aria-expanded", String(!stayPanel.hidden));
+          if (!stayPanel.hidden) row.hours.focus();
+          if (!stayPanel.hidden) reveal(stayPanel, { y: 6 });
+        },
+        { signal: this.events.signal },
+      );
       for (const field of [hours, minutes]) {
-        field.addEventListener("input", () => this.readStay(i, false));
+        field.addEventListener("input", () => this.readStay(i, false), {
+          signal: this.events.signal,
+        });
       }
-      up.onclick = () => this.move(i, -1);
-      down.onclick = () => this.move(i, 1);
-      remove.onclick = () => {
-        search.cancel();
-        this.order = this.order.filter((n) => n !== i);
-        this.layout(true);
-        el("planner-more").focus();
-      };
+      up.addEventListener("click", () => this.move(i, -1), {
+        signal: this.events.signal,
+      });
+      down.addEventListener("click", () => this.move(i, 1), {
+        signal: this.events.signal,
+      });
+      remove.addEventListener(
+        "click",
+        () => {
+          search.cancel();
+          this.order = this.order.filter((n) => n !== i);
+          this.layout(true);
+          el("planner-more").focus();
+        },
+        { signal: this.events.signal },
+      );
     }
   }
   add() {
@@ -298,5 +321,16 @@ export class StopEditor {
       });
     }
     return validStops(values) ? values : undefined;
+  }
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.events.abort();
+    for (const row of this.rows) {
+      row.search.dispose();
+      stopMotionWithin(row.root);
+      row.root.remove();
+    }
+    this.order = [];
   }
 }
