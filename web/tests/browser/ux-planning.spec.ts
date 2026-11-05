@@ -139,7 +139,7 @@ test("archive edits have distinct browser history and retain their request on Ba
   await setup(page);
   await plan(page);
   await page.locator("#close-route").click();
-  await openCachedJourney(page, page.locator("#open-saved"));
+  await openCachedJourney(page);
   const archive = await page.evaluate(() => ({
     state: history.state,
     url: location.href,
@@ -210,7 +210,7 @@ test("offline Back and Forward restore the matching old result with the edited r
   await plan(page);
   const before = await snapshot(page);
   await page.locator("#close-route").click();
-  await openCachedJourney(page, page.locator("#open-saved"));
+  await openCachedJourney(page);
   await page.context().setOffline(true);
   await page.locator("#tab-settings").click();
   await page.locator("#maxCyclingMinutes").fill("20");
@@ -350,7 +350,7 @@ test("clearing all local data also clears cached results from browser history", 
   await page.locator("#tab-route").click();
   await expect(page.locator("#map-view")).toBeVisible();
   await expect(page.locator(".route-choice")).toHaveCount(0);
-  await expect(page.locator("#open-saved")).toBeHidden();
+  await expect(page.locator(".history-open")).toHaveCount(0);
   expect(await snapshot(page)).toBeUndefined();
 });
 

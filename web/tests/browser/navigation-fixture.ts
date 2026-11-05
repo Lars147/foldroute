@@ -239,7 +239,7 @@ export async function setup(
   );
   await page.goto("/");
   await expect(page.locator("#main")).not.toHaveAttribute("inert");
-  await openCachedJourney(page, page.locator("#open-saved"));
+  await openCachedJourney(page);
   await showMap(page);
   if (!start) return;
   await page.locator("#route-more").click();

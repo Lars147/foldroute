@@ -48,7 +48,7 @@ async function populateHome(page: Page) {
   await expect(page.locator("#destination-options .place-select")).toHaveCount(
     2,
   );
-  await expect(page.locator("#open-saved")).toBeVisible();
+  await expect(page.locator("#open-saved")).toHaveCount(0);
 }
 
 for (const width of [390, 1280]) {
@@ -60,7 +60,7 @@ for (const width of [390, 1280]) {
     await setup(page);
     await populateHome(page);
     await page.clock.setFixedTime(new Date("2026-09-04T08:00:01Z"));
-    // Database persistence can finish before the home shortcut has rendered.
+    // Database persistence can finish before history has rendered.
     // Keep that interval observable even when this test runs on its own.
     await page.evaluate(async () => {
       const { OfflineStore } = await import("/src/offline.ts");
@@ -88,13 +88,13 @@ for (const width of [390, 1280]) {
       if (source === "fresh") {
         await plan(page);
         await expectSelectedJourneySaved(page);
-        // Saving in IndexedDB precedes reloadHistory updating the home UI.
-        await expect(page.locator("#saved-description")).toHaveText(
-          "Ziel · 4. Sept., 10:00",
+        // Saving in IndexedDB precedes reloadHistory updating the history UI.
+        await expect(page.locator(".history-open").first()).toContainText(
+          "Ziel",
         );
-      } else await openCachedJourney(page, page.locator("#open-saved"));
+      } else await openCachedJourney(page);
       const beforeClose = plans;
-      const summary = await page.locator("#saved-description").textContent();
+      const summary = await page.locator(".history-open").first().textContent();
       await showMap(page);
       await page.locator("#close-route").click();
       await expect(page.locator("#search-view")).toBeVisible();
@@ -130,8 +130,10 @@ for (const width of [390, 1280]) {
           "Letztes Ziel",
         ]);
         await expect(page.locator("#search-empty")).toBeHidden();
-        await expect(page.locator("#open-saved")).toBeVisible();
-        await expect(page.locator("#saved-description")).toHaveText(summary!);
+        await expect(page.locator("#open-saved")).toHaveCount(0);
+        await expect(page.locator(".history-open").first()).toHaveText(
+          summary!,
+        );
         await expect(page.locator(".search-focus-back")).toHaveCount(0);
         await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
         await expect(
@@ -140,9 +142,11 @@ for (const width of [390, 1280]) {
       }
       expect(plans).toBe(beforeClose);
 
-      await openCachedJourney(page, page.locator("#open-saved"));
+      await openCachedJourney(page);
       await showMap(page);
       await page.goBack();
+      await expect(page.locator("#history-view")).toBeVisible();
+      await page.locator("#tab-route").click();
       await expect(page.locator("#search-view")).toBeVisible();
       await expect(list).toBeVisible();
       await expect(list).toContainText("Favoriten");
@@ -208,7 +212,7 @@ for (const width of [390, 1280]) {
       "Bergstraße 1",
       "Letztes Ziel",
     ]);
-    await expect(page.locator("#open-saved")).toBeVisible();
+    await expect(page.locator("#open-saved")).toHaveCount(0);
     await expect(page.locator("#place-status")).toBeEmpty();
     await expect(page.locator("body")).not.toHaveClass(/search-focus-mode/);
   });
@@ -229,7 +233,7 @@ for (const width of [390, 1280])
     if (width >= 900) await expect(page.locator("#destination")).toBeFocused();
     else await expect(page.locator("#destination")).not.toBeFocused();
     const list = page.locator("#destination-options");
-    const summary = await page.locator("#saved-description").textContent();
+    const summary = await page.locator(".history-open").first().textContent();
     for (const close of ["button", "escape", "back"]) {
       if (close === "back")
         // Keep the preceding entry on the home screen to exercise popstate cleanup.
@@ -250,8 +254,8 @@ for (const width of [390, 1280])
         "Letztes Ziel",
       ]);
       await expect(page.locator("#search-empty")).toBeHidden();
-      await expect(page.locator("#saved-description")).toHaveText(summary!);
-      await expect(page.locator("#open-saved")).toBeVisible();
+      await expect(page.locator(".history-open").first()).toHaveText(summary!);
+      await expect(page.locator("#open-saved")).toHaveCount(0);
       await expect(page.locator("#search-adjust")).toBeFocused();
       await expect(page.locator("#destination")).not.toBeFocused();
       await expect(page.locator(".search-focus-back")).toHaveCount(0);
@@ -362,7 +366,7 @@ for (const { width, height, fontSize, safeArea } of layouts) {
     const before = await Promise.all(
       [field, context, tabs].map((element) => element.boundingBox()),
     );
-    const content = page.locator(".search-content");
+    const content = page.locator("#destination-options");
     expect(
       await content.evaluate(
         (element) => element.scrollHeight > element.clientHeight,
@@ -383,6 +387,11 @@ for (const { width, height, fontSize, safeArea } of layouts) {
       )
       .toBeLessThanOrEqual(1);
 
+    const heading = content.locator(".suggestion-heading").first();
+    await expect(heading).toBeInViewport();
+    await expect
+      .poll(async () => Math.abs((await heading.boundingBox())!.y - bounds.y))
+      .toBeLessThanOrEqual(1);
     const last = rows.last();
     const rowBounds = (await last.boundingBox())!;
     expect(rowBounds.y).toBeGreaterThanOrEqual(bounds.y);
@@ -402,7 +411,7 @@ for (const { width, height, fontSize, safeArea } of layouts) {
     ).toBe(true);
     expect(
       await page
-        .locator("#destination-options")
+        .locator(".search-content")
         .evaluate((element) => element.scrollHeight <= element.clientHeight),
     ).toBe(true);
     await page.screenshot({ path: info.outputPath("home-list-bottom.png") });
@@ -417,6 +426,71 @@ for (const { width, height, fontSize, safeArea } of layouts) {
     ).toHaveAttribute("aria-pressed", "true");
   });
 }
+
+for (const colorScheme of ["light", "dark"] as const)
+  test(`focused mobile search pins its recent heading in ${colorScheme}`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width: 425, height: 568 });
+    await page.emulateMedia({ colorScheme });
+    await populateHome(page);
+    await page.evaluate(async () => {
+      const { PlaceBook } = await import("/src/places.ts");
+      const book = new PlaceBook();
+      for (let index = 0; index < 5; index++)
+        await book.change(
+          {
+            name: `Zuletzt besuchter Bahnhof mit besonders langem Namen ${index}`,
+            detail: "München, Ludwigsvorstadt-Isarvorstadt, DE",
+            latitude: 48.14 + index * 0.01,
+            longitude: 11.6,
+          },
+          "use",
+        );
+    });
+    await page.reload();
+    await page.addStyleTag({ content: ":root { font-size: 24px; }" });
+    const input = page.locator("#destination");
+    await input.click();
+    const list = page.locator("#destination-options");
+    const before = await input.boundingBox();
+    expect(
+      await list.evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    ).toBe(true);
+    const first = list.locator(".place-select").first();
+    const firstBefore = (await first.boundingBox())!.y;
+    await list.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const heading = list
+      .locator(".suggestion-heading")
+      .filter({ hasText: "Zuletzt verwendet" });
+    await expect
+      .poll(async () =>
+        Math.abs(
+          (await heading.boundingBox())!.y - (await list.boundingBox())!.y,
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+    expect((await first.boundingBox())!.y).toBeLessThan(firstBefore);
+    expect(await input.boundingBox()).toEqual(before);
+    await expect(page.locator(".search-focus-back")).toBeVisible();
+    await page.screenshot({
+      path: info.outputPath("pinned-recent-heading.png"),
+    });
+    await input.press("ArrowDown");
+    const firstHeading = list.locator(".suggestion-heading").first();
+    await expect
+      .poll(
+        async () =>
+          (await first.boundingBox())!.y -
+          ((await firstHeading.boundingBox())!.y +
+            (await firstHeading.boundingBox())!.height),
+      )
+      .toBeGreaterThanOrEqual(0);
+  });
 
 test("empty home content remains reachable on a short screen", async ({
   page,

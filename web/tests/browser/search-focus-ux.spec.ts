@@ -388,9 +388,19 @@ test("mobile search uses visual viewport and returns to the unchanged adjustment
   const results = await page.locator("#destination-options").boundingBox();
   expect(field!.y).toBe(95);
   expect(results!.y + results!.height).toBeLessThanOrEqual(415);
+  const visibleArea = await page.evaluate(() => {
+    const viewport = window.visualViewport!;
+    return {
+      x: viewport.offsetLeft,
+      y: viewport.offsetTop,
+      width: viewport.width,
+      height: viewport.height,
+    };
+  });
+  // Capture the simulated visible area above the on-screen keyboard.
   await page.screenshot({
     path: test.info().outputPath("search-focus.png"),
-    fullPage: true,
+    clip: visibleArea,
   });
   await page.locator(".search-focus-back").click();
   await expect(page.locator("#destination")).toHaveValue("Test");

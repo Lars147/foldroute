@@ -946,7 +946,7 @@ test("arrival summary includes configured support providers and counts repeated 
   await expect(page.locator("#navigation-finish-count")).toHaveText("1");
   await page.locator("#navigation-finish-close").click();
   await expect(page.locator("#search-heading")).toBeFocused();
-  await openCachedJourney(page, page.locator("#open-saved"));
+  await openCachedJourney(page);
   await startSelected(page);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",

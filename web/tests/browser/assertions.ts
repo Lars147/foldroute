@@ -19,7 +19,7 @@ export async function openRecordedRouteEditor(page: Page) {
     );
   });
   await page.reload();
-  await openCachedJourney(page, page.locator("#open-saved"));
+  await openCachedJourney(page);
   await showMap(page);
   await page.locator("#adjust-route").click();
   await expect(page.locator("#route-editor")).toHaveAttribute(
@@ -167,7 +167,11 @@ export async function expectSelectedJourneySaved(page: Page) {
 }
 
 // Open the offline copy explicitly when a test exercises archived results or navigation.
-export async function openCachedJourney(page: Page, trigger: Locator) {
+export async function openCachedJourney(page: Page, trigger?: Locator) {
+  if (!trigger) {
+    await page.locator("#tab-history").click();
+    trigger = page.locator(".history-open").first();
+  }
   await expect(trigger).toBeVisible();
   const target = await trigger.evaluate((button: HTMLElement) => ({
     id: button.id,

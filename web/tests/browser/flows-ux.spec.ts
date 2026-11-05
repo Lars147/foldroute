@@ -178,7 +178,7 @@ async function setup(page: Page) {
     { origin, destination, stops, now, settings: defaults },
   );
   await page.goto("/");
-  await expect(page.locator("#open-saved")).toBeVisible();
+  await expect(page.locator(".history-open")).toHaveCount(1);
 }
 async function stored(page: Page) {
   return page.evaluate(async () => {
@@ -301,7 +301,8 @@ test("planning errors retry the failed route directly and keep the saved snapsho
   await page.route("**/api/v6/plan?*", (route) =>
     failed ? route.fulfill({ status: 500 }) : route.fallback(),
   );
-  await page.locator("#open-saved").click();
+  await page.locator("#tab-history").click();
+  await page.locator(".history-open").first().click();
   await expect(page.locator("#recover-planning")).toBeVisible();
   await expect(page.locator("#recover-planning")).toHaveText(
     "Erneut versuchen",
@@ -353,7 +354,8 @@ test("retry stays next to an update error in the map and is disabled offline", a
 }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
-  await page.locator("#open-saved").click();
+  await page.locator("#tab-history").click();
+  await page.locator(".history-open").first().click();
   await expectPlanningComplete(page);
   let failed = true;
   await page.route("**/api/v6/plan?*", (route) =>
@@ -403,7 +405,8 @@ test("invalid settings preserve an active calculation and do not create history 
   page,
 }) => {
   await setup(page);
-  await page.locator("#open-saved").click();
+  await page.locator("#tab-history").click();
+  await page.locator(".history-open").first().click();
   await expectPlanningComplete(page);
   let requests = 0;
   page.on("request", (request) => {
@@ -453,7 +456,8 @@ test("a service pause disables inline retry until its deadline without automatic
         })
       : route.fallback();
   });
-  await page.locator("#open-saved").click();
+  await page.locator("#tab-history").click();
+  await page.locator(".history-open").first().click();
   await expect(page.locator("#recover-planning")).toBeVisible();
   await expect(page.locator("#recover-planning")).toBeDisabled();
   await expect(page.locator("#recovery-wait")).toBeVisible();

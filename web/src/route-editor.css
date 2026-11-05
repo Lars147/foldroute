@@ -25,10 +25,35 @@
   z-index: 1;
   background: var(--paper);
 }
+.search-form[data-editor-expanded="false"]
+  .search-content:has(#destination-options:not([hidden])) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.search-form[data-editor-expanded="false"]
+  :is(#destination-home, #destination-status-home, #home-places) {
+  flex-shrink: 0;
+}
+.search-form[data-editor-expanded="false"]
+  #home-suggestions:has(#destination-options:not([hidden])) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.search-form[data-editor-expanded="false"] #destination-options:not([hidden]) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 @media (max-width: 899px) {
   /* Sticky wrappers would trap fixed search controls below the body overlay. */
-  body.search-focus-mode .search-form :is(#destination-home, #destination-status-home) {
+  body.search-focus-mode
+    .search-form
+    :is(#destination-home, #destination-status-home) {
     position: static;
     z-index: auto;
   }

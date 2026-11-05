@@ -45,7 +45,7 @@ test("settings errors retain old results and their original offline snapshot", a
   );
   await expect(page.locator(".route-choice")).toHaveCount(priorChoices);
   await page.locator("#close-route").click();
-  await openCachedJourney(page, page.locator("#open-saved"));
+  await openCachedJourney(page);
   await expect(page.locator("#saved-notice")).toBeVisible();
   await expect(
     page.locator(".route-choice[aria-pressed=true] .route-choice-time"),
@@ -613,57 +613,49 @@ test("new GPS planning enriches history without renaming the active origin", asy
   await expect(page.locator("#route-origin")).toHaveText("Aktueller Standort");
 });
 
-for (const origin of ["history", "search"]) {
-  test(`saved map returns to its origin from ${origin}`, async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await setup(page);
-    await plan(page);
-    await page.locator("#tab-history").click();
-    await expect(page.locator(".history-open")).toHaveCount(1);
-    if (origin === "search") {
-      await page.goto("/");
-      await openCachedJourney(page, page.locator("#open-saved"));
-    } else await openCachedJourney(page, page.locator(".history-open"));
-    let requests = 0;
-    page.on("request", (request) => {
-      if (request.url().includes("/api/v6/plan?")) requests++;
-    });
-    await showMap(page);
-    await expect(page.locator("#result-back")).toHaveText(
-      origin === "history" ? "Verlauf" : "Zur Suche",
-    );
-    await expect(page.locator("#map-preview-heading")).toHaveText(
-      "Gespeicherte Route",
-    );
-    await expect(
-      page.locator("#map-preview-actions #replan-saved"),
-    ).toBeVisible();
-    await expect(page.locator("#map-preview-status")).toBeVisible();
-    await page.locator("#route-more").click();
-    await expect(
-      page.locator("#route-actions-dialog #navigation-start"),
-    ).toBeVisible();
-    await expect(page.locator("#route-action-stand")).toContainText(
-      "Gespeichert:",
-    );
-    await page.keyboard.press("Escape");
-    await page.locator("#result-back").click();
-    await expect(page.locator(`#${origin}-view`)).toBeVisible();
-    if (origin === "history")
-      await expect(page.locator(".history-open")).toBeFocused();
-    await page.goBack();
-    await expect(page.locator("#map-view")).toHaveAttribute(
-      "data-result-screen",
-      "map",
-    );
-    await page.goForward();
-    await expect(page.locator(`#${origin}-view`)).toBeVisible();
-    await page.goBack();
-    await page.locator("#map-open-details").click();
-    await expect(page.locator("#panel-details")).toBeVisible();
-    expect(requests).toBe(0);
+test("saved map returns to history", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await plan(page);
+  await page.locator("#tab-history").click();
+  await expect(page.locator(".history-open")).toHaveCount(1);
+  await openCachedJourney(page, page.locator(".history-open"));
+  let requests = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/v6/plan?")) requests++;
   });
-}
+  await showMap(page);
+  await expect(page.locator("#result-back")).toHaveText("Verlauf");
+  await expect(page.locator("#map-preview-heading")).toHaveText(
+    "Gespeicherte Route",
+  );
+  await expect(
+    page.locator("#map-preview-actions #replan-saved"),
+  ).toBeVisible();
+  await expect(page.locator("#map-preview-status")).toBeVisible();
+  await page.locator("#route-more").click();
+  await expect(
+    page.locator("#route-actions-dialog #navigation-start"),
+  ).toBeVisible();
+  await expect(page.locator("#route-action-stand")).toContainText(
+    "Gespeichert:",
+  );
+  await page.keyboard.press("Escape");
+  await page.locator("#result-back").click();
+  await expect(page.locator("#history-view")).toBeVisible();
+  await expect(page.locator(".history-open")).toBeFocused();
+  await page.goBack();
+  await expect(page.locator("#map-view")).toHaveAttribute(
+    "data-result-screen",
+    "map",
+  );
+  await page.goForward();
+  await expect(page.locator("#history-view")).toBeVisible();
+  await page.goBack();
+  await page.locator("#map-open-details").click();
+  await expect(page.locator("#panel-details")).toBeVisible();
+  expect(requests).toBe(0);
+});
 
 test("history undo preserves snapshots, blocks late writes and respects replacement and clearing", async ({
   page,

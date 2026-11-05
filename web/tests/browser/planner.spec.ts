@@ -973,12 +973,12 @@ test("clearing local data requires confirmation and removes all app records", as
   await page.locator("#clear-data").click();
   await page.locator("#confirm-delete-data").click();
   await expect(page.locator("#search-view")).toBeVisible();
-  await expect(page.locator("#open-saved")).toBeHidden();
+  await expect(page.locator(".history-open")).toHaveCount(0);
   await page.reload();
   await expect(page.locator("#destination-options .place-select")).toHaveCount(
     0,
   );
-  await expect(page.locator("#open-saved")).toBeHidden();
+  await expect(page.locator(".history-open")).toHaveCount(0);
   await page.locator("#tab-settings").click();
   await expect(page.locator("#foldingDuration")).toHaveValue("3");
   expect(

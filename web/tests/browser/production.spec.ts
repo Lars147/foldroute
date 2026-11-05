@@ -540,7 +540,7 @@ test("upgrades legacy database and settings while retaining the original offline
     { snapshot, settings },
   );
   await production(page);
-  await expect(page.locator("#open-saved")).toBeVisible();
+  await expect(page.locator(".history-open")).toHaveCount(1);
   await page.locator("#tab-settings").click();
   await expect(page.locator("#foldingDuration")).toHaveValue("3");
   expect(

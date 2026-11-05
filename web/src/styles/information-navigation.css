@@ -926,6 +926,10 @@ dialog.compact .dialog-actions {
   border: 1px solid var(--color-asphalt);
 }
 .suggestions li.suggestion-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
   font-size: 12px;
   font-weight: 700;
   padding-top: 16px;

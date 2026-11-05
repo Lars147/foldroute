@@ -1371,13 +1371,6 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
   }
   function savedUI() {
     historyUI();
-    el("open-saved").hidden = !saved;
-    el("open-saved").querySelector("strong")!.textContent = navigator.onLine
-      ? "Letzte Strecke erneut planen"
-      : "Letzte Strecke ansehen";
-    el("saved-description").textContent = saved
-      ? `${saved.journey.destination.name} · ${dateLabel(saved.savedAt)}, ${clock(saved.savedAt)}`
-      : "";
     el<HTMLButtonElement>("delete-saved").disabled = !saved;
     el("offline-empty").hidden = navigator.onLine || !!saved;
     el<HTMLInputElement>("offline-enabled").checked = historyEnabled;
@@ -2010,9 +2003,6 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
   function openSaved(focus = true) {
     if (saved) openSnapshot(saved, historyEntries[0]?.id, true, focus);
   }
-  el("open-saved").onclick = () => {
-    if (saved) void openStoredRoute(saved, historyEntries[0]?.id);
-  };
   async function openStoredRoute(snapshot: SavedJourney, id?: string) {
     if (!navigator.onLine) {
       openSnapshot(snapshot, id);

@@ -22,6 +22,15 @@ Fresh mobile calculations open the map at the first current result. `plan` keeps
 that default entry visible. Tests that exercise the list use `showConnections`
 explicitly; tests that need the itinerary use `openSelectedDetails`.
 
+Saved routes are opened through the History tab. `openCachedJourney(page)` opens
+that tab and selects its first entry offline; pass a locator to select a specific
+visible history entry instead. The removed home shortcut is tested only for absence.
+
+On collapsed home, `#destination-options` owns suggestion scrolling while the
+input, tabs and section headings stay in place. Expanded editors still scroll
+inside `.search-content`. `home-scroll-ux.spec.ts` covers both ordinary home and
+full-screen mobile search, including keyboard selection below sticky headings.
+
 `openApp` installs routing preferences before the first app load, then disposes
 the initialization script. Reload and deletion tests therefore read the actual
 stored preferences, including an intentionally missing preference key.

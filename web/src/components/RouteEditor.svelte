@@ -198,13 +198,6 @@
           deiner Zeit zum Falten.
         </p>
       </div>
-      <button id="open-saved" type="button" class="saved-button" hidden>
-        <span data-icon="wait"></span><span
-          ><strong>Letzte Strecke erneut planen</strong><small
-            id="saved-description"
-          ></small></span
-        ><span data-icon="chevron"></span>
-      </button>
       <p id="offline-empty" class="message" hidden>
         Du bist offline. Noch keine Reise gespeichert. Verbinde dich mit dem
         Internet, um eine Route zu planen.
