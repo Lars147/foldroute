@@ -27,6 +27,11 @@
 }
 
 @media (max-width: 899px) {
+  /* Sticky wrappers would trap fixed search controls below the body overlay. */
+  body.search-focus-mode .search-form :is(#destination-home, #destination-status-home) {
+    position: static;
+    z-index: auto;
+  }
   body.search-focus-mode .route-editor-frame {
     translate: none !important;
     opacity: 1 !important;

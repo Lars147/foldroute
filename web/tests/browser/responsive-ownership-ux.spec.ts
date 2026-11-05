@@ -1,39 +1,58 @@
 import { test, expect } from "./test";
 import { setup as setupPlanner, plan } from "./planner-fixture";
 import { setup as setupNavigation, savedProgress } from "./navigation-fixture";
-import { showMap } from "./assertions";
+import { addStop, showMap } from "./assertions";
 
 for (const reducedMotion of ["reduce", "no-preference"] as const) {
-  test(`focused destination retains its DOM node and selection across breakpoint with motion ${reducedMotion}`, async ({
-    page,
-  }) => {
-    await page.emulateMedia({ reducedMotion });
-    await page.setViewportSize({ width: 899, height: 844 });
-    await setupPlanner(page);
-    const input = page.locator("#destination");
-    await input.fill("Ziel");
-    await input.evaluate((element: HTMLInputElement) =>
-      element.setSelectionRange(1, 3),
-    );
-    const original = await input.elementHandle();
-    for (const width of [900, 899]) {
-      await page.setViewportSize({ width, height: 844 });
-      await expect(input).toBeFocused();
-      await expect(input).toHaveValue("Ziel");
-      expect(
-        await input.evaluate(
-          (element, original) => element === original,
-          original,
-        ),
-      ).toBe(true);
-      expect(
-        await input.evaluate((element: HTMLInputElement) => [
-          element.selectionStart,
-          element.selectionEnd,
-        ]),
-      ).toEqual([1, 3]);
+  for (const id of ["destination", "origin", "via-0"]) {
+    for (const initialWidth of [899, 900]) {
+      test(`focused ${id} retains its search mode, DOM node and selection from ${initialWidth}px with motion ${reducedMotion}`, async ({
+        page,
+      }) => {
+        await page.emulateMedia({ reducedMotion });
+        await page.setViewportSize({ width: initialWidth, height: 844 });
+        await setupPlanner(page);
+        if (id !== "destination") await page.locator("#search-adjust").click();
+        if (id === "via-0") await addStop(page);
+        const input = page.locator(`#${id}`);
+        await input.fill("Ziel");
+        await input.evaluate((element: HTMLInputElement) =>
+          element.setSelectionRange(1, 3),
+        );
+        const original = await input.elementHandle();
+        const back = page.getByRole("button", {
+          name: "‹ Zurück",
+          exact: true,
+        });
+        for (const width of [900, 899, 900, 425]) {
+          await page.setViewportSize({ width, height: 844 });
+          if (width < 900) await expect(back).toBeVisible();
+          else await expect(back).toBeHidden();
+          await expect(input).toBeFocused();
+          await expect(input).toHaveValue("Ziel");
+          expect(
+            await input.evaluate(
+              (element, original) => element === original,
+              original,
+            ),
+          ).toBe(true);
+          expect(
+            await input.evaluate((element: HTMLInputElement) => [
+              element.selectionStart,
+              element.selectionEnd,
+            ]),
+          ).toEqual([1, 3]);
+        }
+        await input.click();
+        await back.click();
+        await expect(back).toBeHidden();
+        // A dismissed search must not reopen on a later resize.
+        await page.setViewportSize({ width: 900, height: 844 });
+        await page.setViewportSize({ width: 425, height: 844 });
+        await expect(back).toBeHidden();
+      });
     }
-  });
+  }
 
   test(`desktop transition closes sheet without accepting its preview with motion ${reducedMotion}`, async ({
     page,

@@ -4,6 +4,49 @@ import {
   openRecordedRouteEditor,
 } from "./assertions";
 import { test, expect } from "./test";
+import { waitForAppReady } from "./app-fixture";
+
+for (const colorScheme of ["light", "dark"] as const)
+  test(`collapsed destination stays above the mobile search overlay in ${colorScheme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 425, height: 812 });
+    await page.emulateMedia({ colorScheme });
+    await page.route("**/api/v1/geocode?*", (route) =>
+      route.fulfill({
+        headers: { "Access-Control-Allow-Origin": "*" },
+        json: [],
+      }),
+    );
+    await page.goto("/");
+    await waitForAppReady(page);
+    const input = page.locator("#destination");
+    await input.focus();
+    await expect(page.locator(".search-focus-back")).toBeVisible();
+    await expect(input).toBeFocused();
+    // Visibility and bounds alone also pass when the body overlay covers it.
+    await expect
+      .poll(() =>
+        input.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return (
+            document.elementFromPoint(
+              bounds.x + bounds.width / 2,
+              bounds.y + bounds.height / 2,
+            ) === element
+          );
+        }),
+      )
+      .toBe(true);
+    await input.click();
+    await page.keyboard.type("Ziel");
+    await expect(input).toHaveValue("Ziel");
+    await page.locator(".search-focus-back").click();
+    await expect(page.locator("#search-adjust")).toBeVisible();
+    await input.click();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("Ziel");
+  });
 
 const cafes = [
   {

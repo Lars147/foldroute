@@ -43,6 +43,11 @@ export class PlaceSearch {
   private openingFocus = false;
   private readonly resizeFocus = () => {
     if (!matchMedia("(max-width: 899px)").matches) this.exitFocusMode(true);
+    else if (
+      this.contains(document.activeElement) &&
+      (this.visible || PlaceSearch.dialogSearch === this)
+    )
+      this.enterFocusMode();
   };
   private enterFocusMode() {
     if (this.disposed) return;
@@ -58,9 +63,6 @@ export class PlaceSearch {
     back.type = "button";
     back.onclick = () => this.dismiss();
     this.focusBack = back;
-    window.addEventListener("resize", this.resizeFocus, {
-      signal: this.events.signal,
-    });
     (this.input.closest("dialog") ?? document.body).append(back);
     document.body.classList.add("search-focus-mode");
     this.input.classList.add("search-focus-input");
@@ -69,7 +71,6 @@ export class PlaceSearch {
   }
   private exitFocusMode(preserveFocus = false) {
     if (!this.focusBack) return;
-    window.removeEventListener("resize", this.resizeFocus);
     this.focusBack.onclick = null;
     this.focusBack.remove();
     this.focusBack = undefined;
@@ -96,6 +97,10 @@ export class PlaceSearch {
   ) {
     this.input = el(id);
     this.list = el(`${id}-options`);
+    // Keep observing after desktop ends focus mode so mobile can restore it.
+    window.addEventListener("resize", this.resizeFocus, {
+      signal: this.events.signal,
+    });
     this.unsubscribePause = api.onPause((pause) => {
       const owned = PlaceSearch.messages.get(this.message);
       if (
