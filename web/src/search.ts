@@ -40,15 +40,21 @@ export class PlaceSearch {
   private autoSelectSingle = false;
   private buttons: HTMLButtonElement[] = [];
   private focusBack?: HTMLButtonElement;
+  private focusModeRequested = false;
   private openingFocus = false;
   private readonly resizeFocus = () => {
     if (!matchMedia("(max-width: 899px)").matches) this.exitFocusMode(true);
     else if (
+      this.focusModeRequested &&
       this.contains(document.activeElement) &&
       (this.visible || PlaceSearch.dialogSearch === this)
     )
       this.enterFocusMode();
   };
+  private requestFocusMode() {
+    this.focusModeRequested = true;
+    if (this.contains(document.activeElement)) this.enterFocusMode();
+  }
   private enterFocusMode() {
     if (this.disposed) return;
     if (
@@ -58,6 +64,7 @@ export class PlaceSearch {
     )
       return;
     PlaceSearch.focusedSearch?.exitFocusMode();
+    this.focusModeRequested = true;
     PlaceSearch.focusedSearch = this;
     const back = node("button", "‹ Zurück", "search-focus-back");
     back.type = "button";
@@ -70,6 +77,7 @@ export class PlaceSearch {
     this.message.classList.add("search-focus-status");
   }
   private exitFocusMode(preserveFocus = false) {
+    if (!preserveFocus) this.focusModeRequested = false;
     if (!this.focusBack) return;
     this.focusBack.onclick = null;
     this.focusBack.remove();
@@ -158,6 +166,7 @@ export class PlaceSearch {
       this.input.addEventListener(
         "click",
         () => {
+          this.requestFocusMode();
           if (this.settings.focusDriven && !this.visible) this.activate();
         },
         { signal: this.events.signal },
@@ -226,6 +235,7 @@ export class PlaceSearch {
     this.input.addEventListener(
       "keydown",
       (event) => {
+        this.requestFocusMode();
         if (
           event.key === "Tab" &&
           !event.shiftKey &&
@@ -356,6 +366,7 @@ export class PlaceSearch {
   }
   private search(autoSelectSingle = false) {
     if (this.disposed) return;
+    this.requestFocusMode();
     this.value = undefined;
     this.cancel(true);
     this.autoSelectSingle = autoSelectSingle;

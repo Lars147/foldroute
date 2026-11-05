@@ -3,6 +3,30 @@ import { setup as setupPlanner, plan } from "./planner-fixture";
 import { setup as setupNavigation, savedProgress } from "./navigation-fixture";
 import { addStop, showMap } from "./assertions";
 
+for (const action of ["click", "type"] as const)
+  test(`desktop startup focus keeps mobile form and tabs available until search is opened by ${action}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 844 });
+    await setupPlanner(page);
+    const input = page.locator("#destination");
+    await expect(input).toBeFocused();
+    for (const width of [899, 425, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(page.locator(".search-focus-back")).toBeHidden();
+      await expect(page.locator("#search-adjust")).toBeVisible();
+      await expect(page.locator("#tab-settings")).toBeVisible();
+    }
+    await expect(input).toBeFocused();
+    if (action === "click") await input.click();
+    else await page.keyboard.type("Ziel");
+    const back = page.locator(".search-focus-back");
+    await expect(back).toBeVisible();
+    await back.click();
+    await page.locator("#tab-settings").click();
+    await page.locator("#tab-route").click();
+  });
+
 for (const reducedMotion of ["reduce", "no-preference"] as const) {
   for (const id of ["destination", "origin", "via-0"]) {
     for (const initialWidth of [899, 900]) {
