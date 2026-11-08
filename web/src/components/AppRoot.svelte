@@ -198,7 +198,10 @@
   >
     <h2 id="navigation-resume-title">Navigation fortsetzen?</h2>
     <p id="navigation-resume-summary"></p>
-    <p>Standort und Fahrtdaten werden vor der Weiterfahrt geprüft.</p>
+    <p>
+      Navigation wird am gespeicherten Abschnitt fortgesetzt. Standort und
+      Fahrtdaten werden im Hintergrund geprüft.
+    </p>
     <div class="navigation-actions">
       <button id="navigation-resume" class="primary">
         Navigation fortsetzen</button

@@ -99,6 +99,7 @@ export class NavigationEngine {
   plausibleMovementTimestamp = -Infinity;
   completionCountdown?: { startedAt: number; remainingSeconds: number };
   completionPaused = false;
+  automaticProgressBlocked = false;
   private completionUpdatedAt = 0;
   private completionPauseStarted?: number;
   private activityPauseSeconds = 0;
@@ -560,6 +561,10 @@ export class NavigationEngine {
     this.completionCancelled = true;
   }
   private updateCompletionCountdown(now: number) {
+    if (this.automaticProgressBlocked) {
+      this.completionCountdown = undefined;
+      return;
+    }
     const fix = this.completionFix;
     const plausible =
       fix &&
@@ -592,7 +597,11 @@ export class NavigationEngine {
     const countdown = this.completionCountdown;
     if (!countdown) return;
     this.updateCountdownTime(now);
-    if (countdown.remainingSeconds === 0 && !this.completionPaused) {
+    if (
+      countdown.remainingSeconds === 0 &&
+      !this.completionPaused &&
+      !this.automaticProgressBlocked
+    ) {
       this.cancelCompletionCountdown();
       this.advance(false, now / 1000);
     }
@@ -728,7 +737,8 @@ export class NavigationEngine {
   }
   advance(manual = false, now = this.clock.now() / 1000): boolean {
     if (this.phase !== "active") return false;
-    if (!manual && this.completionPaused) return false;
+    if (!manual && (this.completionPaused || this.automaticProgressBlocked))
+      return false;
     const next = this.journey.legs[this.progress.legIndex + 1];
     if (!manual && next?.kind === "transit" && !freshTransit(next, now))
       return false;

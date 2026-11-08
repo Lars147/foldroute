@@ -152,6 +152,45 @@ export class NavigationSession {
     reason?: "reroute" | "stop";
   };
   private completionPaused = false;
+  private resumeValidation?: {
+    engine: NavigationEngine;
+    legId: string;
+    transitChecked: boolean;
+    check?: AbortController;
+  };
+  private syncResumeGuard() {
+    if (this.engine)
+      this.engine.automaticProgressBlocked =
+        this.resumeNeedsConfirmation ||
+        (!!this.resumeValidation &&
+          this.resumeValidation.engine === this.engine &&
+          this.resumeValidation.legId === this.engine.leg.navigationId);
+  }
+
+  private reconcileResumeValidation() {
+    const validation = this.resumeValidation;
+    if (validation) {
+      const engine = this.engine;
+      if (
+        validation.engine !== engine ||
+        validation.legId !== engine?.leg.navigationId
+      ) {
+        this.resumeValidation = undefined;
+      } else {
+        // Saved times are provisional. Recheck against the latest times until
+        // both trip validation and a usable location have completed.
+        this.resumeNeedsConfirmation =
+          !movement(engine.leg) && engine.leg.end <= this.clock.now() / 1000;
+        if (
+          validation.transitChecked &&
+          this.hasCurrentLocation &&
+          !this.resumeNeedsConfirmation
+        )
+          this.resumeValidation = undefined;
+      }
+    }
+    this.syncResumeGuard();
+  }
 
   setCompletionPaused(paused: boolean) {
     this.completionPaused = paused;
@@ -172,6 +211,7 @@ export class NavigationSession {
     progress: NavigationProgress;
     trip?: NavigationTrip;
     resumeNeedsConfirmation: boolean;
+    resumeValidationPending: boolean;
     timing?: {
       id: string;
       start: number;
@@ -218,7 +258,19 @@ export class NavigationSession {
     this.engine.setCompletionPaused(this.completionPaused);
     this.engine.cancelCompletionCountdown();
     this.trip = undo.trip;
-    this.resumeNeedsConfirmation = undo.resumeNeedsConfirmation;
+    this.resumeNeedsConfirmation =
+      undo.resumeNeedsConfirmation ||
+      (undo.resumeValidationPending &&
+        !movement(this.engine.leg) &&
+        this.engine.leg.end <= this.clock.now() / 1000);
+    this.resumeValidation = undo.resumeValidationPending
+      ? {
+          engine: this.engine,
+          legId: this.engine.leg.navigationId!,
+          transitChecked: !navigator.onLine,
+        }
+      : undefined;
+    if (!this.hasCurrentLocation) this.engine.invalidateLocation();
     this.alternative = undefined;
     this.pendingAlternativeLocation = undefined;
     this.lastIssue = undefined;
@@ -256,6 +308,7 @@ export class NavigationSession {
   private emit() {
     // Section preparation resets engine-local timing; retain the UI pause intent.
     this.engine?.setCompletionPaused(this.completionPaused);
+    this.reconcileResumeValidation();
     void this.completionUndo;
     this.deps.changed();
   }
@@ -320,6 +373,7 @@ export class NavigationSession {
     };
   }
   private abortTasks() {
+    this.resumeValidation = undefined;
     this.locationGeneration++;
     this.locating = false;
     this.locationError = undefined;
@@ -366,6 +420,11 @@ export class NavigationSession {
     replan = false,
   ) {
     this.abortTasks();
+    if (restored && !replan) {
+      this.requiredFixAfter = this.clock.now();
+      if (this.fix && this.fix.timestamp < this.requiredFixAfter)
+        this.fixQuality = "stale";
+    }
     this.engine = undefined;
     this.trip = undefined;
     this.summary = undefined;
@@ -387,6 +446,38 @@ export class NavigationSession {
     this.emit();
     try {
       validateNavigationGeometry(journey);
+      if (restored && !replan) {
+        const stored = await this.persistence.readEpochs();
+        signal.throwIfAborted();
+        if (stored.failed)
+          this.storageMessage =
+            "Navigation läuft. Gesamtstatistik konnte nicht gelesen werden.";
+        const candidate = navigationJourney(journey);
+        const index = restored.progress.legIndex;
+        this.assessment = assessConnection(
+          candidate,
+          index,
+          this.clock.now() / 1000,
+          {
+            onboard: candidate.legs[index].kind === "transit",
+          },
+        );
+        this.needsLocation = false;
+        this.message = "";
+        return {
+          journey: candidate,
+          request: structuredClone(request),
+          settings: this.settings!,
+          progress: restored.progress,
+          assessment: this.assessment,
+          restored: true,
+          generation,
+          trip: restored.trip,
+          tripId: restored.sessionId,
+          storageEpoch: stored.storageEpoch,
+          resumeEpoch: stored.resumeEpoch,
+        } satisfies PreparedNavigation;
+      }
       const locationHint = setTimeout(() => {
         if (signal.aborted) return;
         this.message = "Warte auf einen genauen Standort …";
@@ -555,7 +646,10 @@ export class NavigationSession {
   }
   activateStart(prepared: PreparedNavigation) {
     if (prepared.generation !== this.generation) return false;
-    if (!this.fix || quality(this.fix, this.clock.now()) !== "current") {
+    if (
+      !prepared.restored &&
+      (!this.fix || quality(this.fix, this.clock.now()) !== "current")
+    ) {
       this.needsLocation = true;
       throw new LocationError(
         "unusable",
@@ -594,17 +688,29 @@ export class NavigationSession {
           storageEpoch: prepared.storageEpoch,
         };
     this.activate(prepared.journey, prepared.progress, prepared.settings);
-    if (!prepared.restored && this.fix) this.engine!.update(this.fix);
     this.assessment = prepared.assessment;
     this.resumeNeedsConfirmation =
       prepared.restored &&
       !movement(this.engine!.leg) &&
       this.engine!.leg.end <= this.clock.now() / 1000;
+    if (prepared.restored)
+      this.resumeValidation = {
+        engine: this.engine!,
+        legId: this.engine!.leg.navigationId!,
+        transitChecked: !navigator.onLine,
+      };
+    this.reconcileResumeValidation();
+    if (this.hasCurrentLocation && this.fix) this.engine!.update(this.fix);
+    else this.engine!.invalidateLocation();
     this.message = prepared.restored
       ? "Navigation fortgesetzt. Prüfe deinen aktuellen Abschnitt."
       : "";
     this.persist(true);
     this.emit();
+    if (prepared.restored) {
+      if (!this.hasCurrentLocation) void this.retryLocation();
+      void this.refresh("foreground");
+    }
     return true;
   }
   private activate(
@@ -688,6 +794,7 @@ export class NavigationSession {
       this.emit();
       return;
     }
+    this.reconcileResumeValidation();
     if (!fix || state !== "current") this.engine.invalidateLocation();
     else this.engine.update(fix);
     if (this.streetEngine === this.engine && !this.engine.offRoute)
@@ -788,6 +895,7 @@ export class NavigationSession {
       return;
     if (!this.fix || quality(this.fix, this.clock.now()) !== "current")
       this.engine.invalidateLocation();
+    this.reconcileResumeValidation();
     // After restoration/backgrounding, require a fresh fix before timer-driven progress.
     if (
       !this.resumeNeedsConfirmation &&
@@ -863,6 +971,15 @@ export class NavigationSession {
     // One lifetime signal, while the refresher independently owns active/future slots.
     // A slow future request must not hold up the next current-trip poll.
     const controller = (this.transitController ??= new AbortController());
+    const validation =
+      this.resumeValidation?.engine === engine
+        ? this.resumeValidation
+        : undefined;
+    const checksResume =
+      validation &&
+      !validation.transitChecked &&
+      (!validation.check || validation.check.signal.aborted);
+    if (checksResume) validation.check = controller;
     let delivered = false;
     const receive = (result: Map<string, TransitResult>) => {
       if (
@@ -890,6 +1007,18 @@ export class NavigationSession {
     } catch (error) {
       if (!controller.signal.aborted && this.engine === engine) {
         this.message = errorText(error);
+        this.emit();
+      }
+    } finally {
+      if (
+        checksResume &&
+        validation &&
+        this.resumeValidation === validation &&
+        validation.check === controller &&
+        !controller.signal.aborted &&
+        this.engine === engine
+      ) {
+        validation.transitChecked = true;
         this.emit();
       }
     }
@@ -1151,6 +1280,9 @@ export class NavigationSession {
     const progress = structuredClone(engine.progress);
     const trip = this.trip && structuredClone(this.trip);
     const resumeNeedsConfirmation = this.resumeNeedsConfirmation;
+    const resumeValidationPending =
+      this.resumeValidation?.engine === engine &&
+      this.resumeValidation.legId === engine.leg.navigationId;
     const next = engine.journey.legs[engine.progress.legIndex + 1];
     const timing = next && {
       id: next.navigationId!,
@@ -1169,6 +1301,7 @@ export class NavigationSession {
             progress,
             trip,
             resumeNeedsConfirmation,
+            resumeValidationPending,
             timing: timing && {
               ...timing,
               appliedStart: engine.leg.start,

@@ -730,17 +730,19 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
     navigationChecking = true;
     settingsReplanPending = false;
     session.stop("");
-    syncLiveLocation();
+    if (!restored) syncLiveLocation();
     renderNavigationCheck();
     try {
       const start = navigationStart;
-      const prepared = await navigation!.prepareStart(
+      const preparing = navigation!.prepareStart(
         start.journey,
         start.request,
         start.settings,
         start.restored,
         replan,
       );
+      if (restored) syncLiveLocation();
+      const prepared = await preparing;
       if (
         generation !== navigationLaunchGeneration ||
         navigationCheckKey !== navigationContextKey()

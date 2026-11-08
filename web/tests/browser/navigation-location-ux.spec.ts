@@ -6,6 +6,7 @@ import {
   stationJourney,
   openNavigationCredit,
   savedActive,
+  savedProgress,
 } from "./navigation-fixture";
 
 for (const width of [390, 1280])
@@ -483,15 +484,15 @@ test("retry after denied location retains the restored section", async ({
     });
   });
   await page.locator("#navigation-resume").click();
-  await expect(page.locator("#navigation-start-retry")).toBeVisible();
-  await expect(page.locator("#navigation-view")).toBeHidden();
+  await expect(page.locator("#navigation-view")).toBeVisible();
+  await expect(page.locator("#navigation-locate")).toBeVisible();
   await page.evaluate(() =>
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
       value: (window as any).savedGeo,
     }),
   );
-  await page.locator("#navigation-start-retry").click();
+  await page.locator("#navigation-locate").click();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Rad jetzt falten",
   );
@@ -517,22 +518,18 @@ test("explains a silent location provider and offers retry after the deadline", 
     });
   });
   await page.locator("#navigation-resume").click();
-  await expect(page.locator("#navigation-start-notice")).toHaveText(
-    "Standort wird geprüft …",
+  await expect(page.locator("#navigation-view")).toBeVisible();
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Standort wird geprüft",
   );
-  await page.clock.runFor(3100);
-  await expect(page.locator("#navigation-start-notice")).toContainText(
-    "Warte auf einen genauen Standort",
-  );
-  await page.clock.runFor(9000);
-  await expect(page.locator("#navigation-start-notice")).toContainText(
+  await page.clock.runFor(12100);
+  await expect(page.locator("#navigation-view")).toBeVisible();
+  await expect(page.locator("#navigation-location-status")).toContainText(
     "Standortabfrage dauert zu lange",
   );
-  await expect(page.locator("#navigation-start-retry")).toBeVisible();
-  await expect(page.locator("#navigation-view")).toBeHidden();
 });
 
-test("interrupted startup can retry location after returning from the background", async ({
+test("resumed navigation recovers location automatically after returning from the background", async ({
   page,
 }) => {
   await setup(page);
@@ -551,9 +548,7 @@ test("interrupted startup can retry location after returning from the background
     });
   });
   await page.locator("#navigation-resume").click();
-  await expect(page.locator("#navigation-start-notice")).toHaveText(
-    "Standort wird geprüft …",
-  );
+  await expect(page.locator("#navigation-view")).toBeVisible();
   await page.evaluate(() => window.navProbe.hide(true));
   await page.evaluate(() => {
     Object.defineProperty(navigator, "geolocation", {
@@ -562,13 +557,49 @@ test("interrupted startup can retry location after returning from the background
     });
     window.navProbe.hide(false);
   });
-  await page.clock.runFor(10);
-  await expect(page.locator("#navigation-start-retry")).toBeVisible();
-  await expect(page.locator("#navigation-start-notice")).toContainText(
-    "unterbrochen",
-  );
-  await page.locator("#navigation-start-retry").click();
+  await page.clock.runFor(100);
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
+});
+
+test("restores immediately while GPS and trip refresh are pending and recovers without another click", async ({
+  page,
+}) => {
+  await setup(page, true);
+  await expect.poll(() => savedActive(page)).toBe(true);
+  const progress = await savedProgress(page);
+  await page.reload();
+  await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
+  await page.evaluate(() => {
+    window.navProbe.silent = true;
+  });
+  let finish: (() => Promise<void>) | undefined;
+  await page.route(
+    "**/api/v6/trip?*",
+    (route) =>
+      new Promise<void>((resolve) => {
+        finish = async () => {
+          await route.fulfill({ status: 503, body: "Unavailable" });
+          resolve();
+        };
+      }),
+  );
+  await page.locator("#navigation-resume").click();
+  await expect(page.locator("#navigation-view")).toBeVisible();
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Standort wird geprüft",
+  );
+  expect(
+    await page.evaluate(() =>
+      window.navProbe.spoken.some((text) => text.includes("Zweite Straße")),
+    ),
+  ).toBe(false);
+  await expect.poll(() => !!finish).toBe(true);
+  await page.evaluate(() => window.navProbe.push(48, 11));
+  await expect(page.locator("#navigation-instruction")).toHaveText(
+    "Links abbiegen auf Zweite Straße",
+  );
+  expect(await savedProgress(page)).toEqual(progress);
+  await finish!();
 });

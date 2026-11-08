@@ -13,6 +13,7 @@ import {
   matchTrip,
   transitDisruption,
   TransitRefresher,
+  type TransitResult,
   transitRetryDelay,
 } from "../src/transit-refresh";
 import { validNavigationSnapshot } from "../src/navigation-store";
@@ -372,6 +373,7 @@ function sessionHarness(
   const storageEnabled = vi.fn(() => true);
   const locate = vi.fn(async (): Promise<LocationFix> => fix());
   const api = new ApiClient();
+  const refresh = vi.fn(async () => new Map());
   const session = new NavigationSession({
     changed: vi.fn(),
     locate,
@@ -381,9 +383,9 @@ function sessionHarness(
     api,
     store: store as unknown as NavigationStore,
     plan,
-    refresher: { refresh: async () => new Map() } as any,
+    refresher: { refresh } as any,
   });
-  return { session, store, plan, locate, storageEnabled, api };
+  return { session, store, plan, locate, storageEnabled, api, refresh };
 }
 const request = {
   origin: a,
@@ -2474,3 +2476,275 @@ it.each(["fold", "wait"] as const)(
     await session.stop();
   },
 );
+
+function resumeSnapshot(route = journey()) {
+  return {
+    version: 1 as const,
+    savedAt: now,
+    journey: navigationJourney(route),
+    request,
+    settings: defaults,
+    progress: new NavigationEngine(route).progress,
+  };
+}
+
+it("opens restored navigation before location or transit checks finish", async () => {
+  const { session, locate, refresh } = sessionHarness();
+  let located!: (value: LocationFix) => void;
+  let refreshed!: (value: Map<string, TransitResult>) => void;
+  locate.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        located = resolve;
+      }),
+  );
+  refresh.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        refreshed = resolve;
+      }),
+  );
+  const saved = resumeSnapshot();
+  await session.start(saved.journey, request, defaults, saved);
+  expect(session.engine?.progress).toEqual(saved.progress);
+  expect(session.engine?.guidanceUsable).toBe(false);
+  expect(session.locating).toBe(true);
+  expect(session.busy).toBe(false);
+  located(fix());
+  refreshed(new Map());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(session.engine?.guidanceUsable).toBe(true);
+  expect(session.locating).toBe(false);
+  await session.stop();
+});
+
+it("uses a fresh preactivation fix without a second lookup", async () => {
+  const { session, locate } = sessionHarness();
+  const saved = resumeSnapshot();
+  const prepared = await session.prepareStart(
+    saved.journey,
+    request,
+    defaults,
+    saved,
+  );
+  session.updateLocation(fix(), "current");
+  expect(session.activateStart(prepared)).toBe(true);
+  expect(session.engine?.guidanceUsable).toBe(true);
+  expect(locate).not.toHaveBeenCalled();
+  await session.stop();
+});
+
+it.each(["permission-denied", "timeout", "unusable"] as const)(
+  "retains resumed navigation after %s and accepts a later fix",
+  async (reason) => {
+    const { session, locate } = sessionHarness();
+    locate.mockRejectedValue(new LocationError(reason, reason));
+    const saved = resumeSnapshot();
+    await session.start(saved.journey, request, defaults, saved);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.engine?.progress).toEqual(saved.progress);
+    expect(session.locationError?.reason).toBe(reason);
+    session.updateLocation(fix(), "current");
+    expect(session.locationError).toBeUndefined();
+    expect(session.engine?.guidanceUsable).toBe(true);
+    await session.stop();
+  },
+);
+
+it("latches confirmation if the saved section expires during a background check", async () => {
+  const { session, refresh } = sessionHarness();
+  let finish!: (value: Map<string, TransitResult>) => void;
+  refresh.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const saved = resumeSnapshot(
+    journey([transition("wait", a, now - 1, now + 1), bike()]),
+  );
+  await session.start(saved.journey, request, defaults, saved);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(session.engine!.advance(false)).toBe(false);
+  finish(new Map());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(session.resumeNeedsConfirmation).toBe(true);
+  expect(session.engine!.progress.legIndex).toBe(0);
+  expect(session.completeLeg(session.engine!.leg.navigationId!)).toBe(true);
+  expect(session.engine!.automaticProgressBlocked).toBe(false);
+  await session.stop();
+});
+
+it("does not block a manually selected next section after a late resume check", async () => {
+  const { session, refresh } = sessionHarness();
+  let finish!: (value: Map<string, TransitResult>) => void;
+  refresh.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const saved = resumeSnapshot(
+    journey([transition("wait", a, now - 2, now - 1), bike()]),
+  );
+  await session.start(saved.journey, request, defaults, saved);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  finish(new Map());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(session.engine!.progress.legIndex).toBe(1);
+  expect(session.resumeNeedsConfirmation).toBe(false);
+  expect(session.engine!.automaticProgressBlocked).toBe(false);
+  await session.stop();
+});
+
+it("ignores late resume location and transit results after stopping", async () => {
+  const { session, locate, refresh } = sessionHarness();
+  let located!: (value: LocationFix) => void;
+  let refreshed!: (value: Map<string, TransitResult>) => void;
+  locate.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        located = resolve;
+      }),
+  );
+  refresh.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        refreshed = resolve;
+      }),
+  );
+  const saved = resumeSnapshot();
+  await session.start(saved.journey, request, defaults, saved);
+  await session.stop();
+  located(fix());
+  refreshed(new Map());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(session.engine).toBeUndefined();
+  expect(session.locating).toBe(false);
+});
+
+it("restores the initial resume guard when undoing a manual completion", async () => {
+  const { session, refresh } = sessionHarness();
+  refresh.mockImplementation(() => new Promise(() => {}));
+  const saved = resumeSnapshot(
+    journey([transition("wait", a, now - 1, now + 1), bike()]),
+  );
+  await session.start(saved.journey, request, defaults, saved);
+  session.completeLeg(session.engine!.leg.navigationId!);
+  expect(session.undoLastCompletion()).toBe(true);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(session.engine!.automaticProgressBlocked).toBe(true);
+  expect(session.engine!.advance(false)).toBe(false);
+  expect(session.engine!.progress.legIndex).toBe(0);
+  await session.stop();
+});
+
+it.each(["fold", "wait"] as const)(
+  "requires confirmation when resumed %s expires after trip refresh but before GPS",
+  async (kind) => {
+    const { session, locate } = sessionHarness();
+    let located!: (value: LocationFix) => void;
+    locate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          located = resolve;
+        }),
+    );
+    const saved = resumeSnapshot(
+      journey([transition(kind, a, now, now + 1), bike()]),
+    );
+    await session.start(saved.journey, request, defaults, saved);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.engine!.automaticProgressBlocked).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    located(fix(a, 2));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(session.engine!.progress.legIndex).toBe(0);
+    expect(session.resumeNeedsConfirmation).toBe(true);
+    await session.stop();
+  },
+);
+
+it.each([true, false])(
+  "clears outdated resume confirmation after updated arrival with GPS ready=%s",
+  async (gpsReady) => {
+    const { session, locate, refresh } = sessionHarness();
+    if (!gpsReady) locate.mockImplementation(() => new Promise(() => {}));
+    let finish!: (result: Map<string, TransitResult>) => void;
+    refresh.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const saved = resumeSnapshot(
+      journey([{ ...train(), start: now - 300, end: now - 1 }, bike()]),
+    );
+    await session.start(saved.journey, request, defaults, saved);
+    expect(session.resumeNeedsConfirmation).toBe(true);
+    finish(
+      new Map([
+        [
+          saved.journey.legs[0].navigationId!,
+          {
+            kind: "updated",
+            update: {
+              departure: now - 300,
+              arrival: now + 300,
+              realtime: true,
+              cancelled: false,
+              updatedAt: now,
+            },
+          },
+        ],
+      ]),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.engine!.leg.end).toBe(now + 300);
+    expect(session.resumeNeedsConfirmation).toBe(false);
+    expect(session.engine!.automaticProgressBlocked).toBe(!gpsReady);
+    await session.stop();
+  },
+);
+
+it.each(["timeout", "offline"] as const)(
+  "checks resumed expiry when GPS recovers after %s",
+  async (mode) => {
+    if (mode === "offline") vi.stubGlobal("navigator", { onLine: false });
+    const { session, locate } = sessionHarness();
+    locate.mockRejectedValue(new LocationError("timeout", "timeout"));
+    const saved = resumeSnapshot(
+      journey([transition("fold", a, now, now + 1), bike()]),
+    );
+    await session.start(saved.journey, request, defaults, saved);
+    await vi.advanceTimersByTimeAsync(2000);
+    session.updateLocation(fix(a, 2), "current");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(session.engine!.progress.legIndex).toBe(0);
+    expect(session.resumeNeedsConfirmation).toBe(true);
+    await session.stop();
+  },
+);
+
+it("allows normal timed progress when both resume checks finish before expiry", async () => {
+  const { session, locate } = sessionHarness();
+  let located!: (value: LocationFix) => void;
+  locate.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        located = resolve;
+      }),
+  );
+  const saved = resumeSnapshot(
+    journey([transition("fold", a, now, now + 5), bike()]),
+  );
+  await session.start(saved.journey, request, defaults, saved);
+  await vi.advanceTimersByTimeAsync(2000);
+  located(fix(a, 2));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(session.engine!.automaticProgressBlocked).toBe(false);
+  expect(session.resumeNeedsConfirmation).toBe(false);
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(session.engine!.progress.legIndex).toBe(1);
+  await session.stop();
+});
