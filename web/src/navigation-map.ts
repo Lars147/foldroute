@@ -25,6 +25,7 @@ import type { Coordinate, LegKind } from "./model";
 import { appearanceEvent, mapAttribution, mapTheme } from "./map-theme";
 import { mapStyleEvent } from "./map-style";
 import { motionTargetTop } from "./motion";
+import { navigationSections } from "./navigation-sections";
 import {
   MarkerMotion,
   type MarkerPosition,
@@ -71,7 +72,13 @@ export class NavigationMap {
     estimate?: TransitEstimateSource;
     position?: NavigationPosition;
   };
-  private following = true;
+  private camera:
+    { kind: "follow" } | { kind: "section"; id: string } | { kind: "manual" } =
+    { kind: "follow" };
+  private previewSignature = "";
+  private get following() {
+    return this.camera.kind === "follow";
+  }
   private heading?: number;
   private lastFix?: LocationFix;
   private signature = "";
@@ -181,6 +188,10 @@ export class NavigationMap {
     this.observer.observe(target);
     this.observer.observe(panel);
     this.observer.observe(top);
+    for (const overlay of target.parentElement!.querySelectorAll<HTMLElement>(
+      ".navigation-map-controls, #navigation-gps-status, #navigation-undo, #navigation-auto-complete",
+    ))
+      this.observer.observe(overlay);
     window.addEventListener(
       appearanceEvent,
       () => {
@@ -213,9 +224,10 @@ export class NavigationMap {
     if (credit) credit.innerHTML = mapAttribution;
   }
   pause() {
-    this.following = false;
-    this.target.dataset.following = "false";
-    this.changed(false);
+    this.camera = { kind: "manual" };
+    this.previewSignature = "";
+    delete this.target.dataset.previewSection;
+    this.publishFollowing();
   }
   freeze() {
     this.stopAnimation();
@@ -225,9 +237,26 @@ export class NavigationMap {
   center() {
     this.view.cancelAnimations();
     this.view.setZoom(this.defaultZoom);
-    this.following = true;
-    this.target.dataset.following = "true";
-    this.changed(true);
+    this.camera = { kind: "follow" };
+    this.previewSignature = "";
+    delete this.target.dataset.previewSection;
+    this.publishFollowing();
+    if (this.frame && !this.lastFix && !this.frame.estimate) {
+      this.view.setRotation(0);
+      this.view.setCenter(xy(this.frame.engine.leg.from));
+    }
+    this.position();
+  }
+  private publishFollowing() {
+    this.target.dataset.following = String(this.following);
+    this.changed(this.following);
+  }
+  focusSection(id: string) {
+    this.view.cancelAnimations();
+    this.camera = { kind: "section", id };
+    this.previewSignature = "";
+    this.target.dataset.previewSection = id;
+    this.publishFollowing();
     this.position();
   }
   update(
@@ -487,7 +516,8 @@ export class NavigationMap {
     this.target.dataset.following = String(this.following);
     this.drawMarker(now);
     this.displayedLeg = engine.leg.navigationId;
-    if (!this.lastFix && !estimate) this.view.setCenter(xy(engine.leg.from));
+    if (this.following && !this.lastFix && !estimate)
+      this.view.setCenter(xy(engine.leg.from));
     this.position();
     this.startAnimation();
   }
@@ -618,7 +648,71 @@ export class NavigationMap {
       size: [bounds.width, bounds.height],
       anchor: [bounds.width / 2, upper + ((lower - upper) * 2) / 3],
     };
+    this.fitSection(bounds, top.bottom, panelTop, controls);
     this.followMarker();
+  }
+  private fitSection(
+    bounds: DOMRect,
+    headerBottom: number,
+    panelTop: number,
+    controls: DOMRect,
+  ) {
+    if (this.camera.kind !== "section" || !this.frame) return;
+    const section = navigationSections(this.frame.engine.journey).find(
+      (s) =>
+        s.id === (this.camera.kind === "section" ? this.camera.id : undefined),
+    );
+    if (!section) {
+      this.center();
+      return;
+    }
+    const screen = this.target.parentElement!;
+    let upper = Math.max(0, headerBottom - bounds.top);
+    let lower = Math.min(bounds.height, panelTop - bounds.top);
+    const gps = screen.querySelector<HTMLElement>("#navigation-gps-status");
+    if (gps && !gps.hidden && gps.getBoundingClientRect().height)
+      upper = Math.max(upper, gps.getBoundingClientRect().bottom - bounds.top);
+    for (const id of ["navigation-undo", "navigation-auto-complete"]) {
+      const overlay = screen.querySelector<HTMLElement>(`#${id}`);
+      if (overlay && !overlay.hidden && overlay.getBoundingClientRect().height)
+        lower = Math.min(
+          lower,
+          overlay.getBoundingClientRect().top -
+            bounds.top +
+            panelTop -
+            this.panel.getBoundingClientRect().top,
+        );
+    }
+    upper = Math.min(upper, bounds.height - 1);
+    lower = Math.max(upper + 1, lower);
+    const margin = Math.min(24, Math.max(0, (lower - upper - 1) / 2));
+    const padding = [
+      upper + margin,
+      controls.bottom > bounds.top + upper && controls.top < bounds.top + lower
+        ? bounds.right - controls.left + 12
+        : 24,
+      bounds.height - Math.max(upper + 1, lower) + margin,
+      24,
+    ];
+    const points = section.legs.flatMap((leg) =>
+      movement(leg)
+        ? movementCoordinates(leg)
+        : leg.coordinates.length >= (leg.kind === "transit" ? 2 : 1)
+          ? leg.coordinates
+          : [leg.from, leg.to],
+    );
+    const coordinates = points.map(xy);
+    const signature = JSON.stringify([
+      section.id,
+      coordinates,
+      padding,
+      bounds.width,
+      bounds.height,
+    ]);
+    if (signature === this.previewSignature) return;
+    this.previewSignature = signature;
+    this.view.setRotation(0);
+    this.view.fit(new LineString(coordinates), { padding, maxZoom: 17 });
   }
   private followMarker() {
     if (

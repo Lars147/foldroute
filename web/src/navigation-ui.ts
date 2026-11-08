@@ -81,6 +81,7 @@ export class NavigationView {
   private noticeTarget?: string;
   private sections: NavigationSection[] = [];
   private selectedSectionId?: string;
+  private followsCurrentSection = true;
   private currentSectionId?: string;
   private tabsKey = "";
   private sectionDetailKey = "";
@@ -265,7 +266,12 @@ export class NavigationView {
         );
       this.render();
     };
-    el("navigation-center").onclick = () => this.map?.center();
+    el("navigation-center").onclick = () => {
+      this.followsCurrentSection = true;
+      this.selectedSectionId = undefined;
+      this.render();
+      this.map?.center();
+    };
     el("navigation-finish-close").onclick = () => this.exit();
     const retry = () => {
       if (!this.session?.engine) this.restart(false);
@@ -442,9 +448,14 @@ export class NavigationView {
     );
   }
   private selectSection(id: string, focus = false) {
+    if (!this.sections.some((section) => section.id === id)) return;
     const changed = id !== this.selectedSectionId;
+    this.followsCurrentSection = id === this.currentSectionId;
     this.selectedSectionId = id;
     this.render();
+    flushSync();
+    if (this.followsCurrentSection) this.map?.center();
+    else this.map?.focusSection(id);
     const expanded = !this.mobile.matches || this.detailsOpen;
     if (expanded) this.positionDetails();
     const tab = this.selectedTab();
@@ -461,14 +472,14 @@ export class NavigationView {
     const engine = this.session?.engine;
     this.sections = engine ? navigationSections(engine.journey) : [];
     const current = this.sections.find((s) => s.legs.includes(engine!.leg));
-    const following =
-      !this.selectedSectionId ||
-      this.selectedSectionId === this.currentSectionId;
-    if (
-      following ||
-      !this.sections.some((s) => s.id === this.selectedSectionId)
-    )
+    const invalid = !this.sections.some((s) => s.id === this.selectedSectionId);
+    if (!this.selectedSectionId || invalid) {
+      const restore =
+        !this.followsCurrentSection || (!!this.selectedSectionId && invalid);
+      this.followsCurrentSection = true;
       this.selectedSectionId = current?.id;
+      if (restore) this.map?.center();
+    } else if (this.followsCurrentSection) this.selectedSectionId = current?.id;
     const currentChanged = this.currentSectionId !== current?.id;
     this.currentSectionId = current?.id;
     const selected = this.sections.find((s) => s.id === this.selectedSectionId);
@@ -949,10 +960,13 @@ export class NavigationView {
             el("navigation-panel"),
             el("navigation-top"),
             (following) => {
-              const button = el("navigation-center");
+              this.screen.setIcon(
+                "navigation-center",
+                following ? "crosshair" : "crosshair-outline",
+              );
               const label = following
                 ? "Navigation zentrieren"
-                : "Standort folgen";
+                : "Zurück zum Standort";
               this.screen.setAttribute(
                 "navigation-center",
                 "aria-label",
@@ -961,7 +975,7 @@ export class NavigationView {
               this.screen.setAttribute("navigation-center", "title", label);
               this.screen.setAttribute(
                 "navigation-center",
-                "aria-pressed",
+                "data-following",
                 String(following),
               );
             },
@@ -981,8 +995,10 @@ export class NavigationView {
     }
     await this.loading;
     if (this.visible) {
-      this.map?.center();
       this.render();
+      if (this.followsCurrentSection) this.map?.center();
+      else if (this.selectedSectionId)
+        this.map?.focusSection(this.selectedSectionId);
     }
   }
   hide() {

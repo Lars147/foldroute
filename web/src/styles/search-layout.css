@@ -800,3 +800,8 @@
     flex: 0 0 auto;
   }
 }
+
+#navigation-center[data-following="false"] {
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+}

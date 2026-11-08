@@ -300,7 +300,7 @@ test("map style selection keeps manual navigation camera and progress", async ({
     .click();
   await expect(panel).toBeHidden();
   await page
-    .getByRole("button", { name: "Standort folgen", exact: true })
+    .getByRole("button", { name: "Zurück zum Standort", exact: true })
     .click();
   await expect(page.locator("#navigation-map")).toHaveAttribute(
     "data-following",
@@ -621,12 +621,12 @@ for (const width of [390, 1280])
     await expect(map).toHaveAttribute("data-following", "false");
     await expect(page.locator("#navigation-center")).toHaveAttribute(
       "title",
-      "Standort folgen",
+      "Zurück zum Standort",
     );
     await page.locator("#navigation-center").click();
     await expect(map).toHaveAttribute("data-following", "true");
     await expect(page.locator("#navigation-center")).toHaveAttribute(
-      "aria-pressed",
+      "data-following",
       "true",
     );
     await expect(map).toHaveAttribute("data-zoom", "17");

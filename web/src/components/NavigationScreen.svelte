@@ -306,10 +306,11 @@
       type="button"
       aria-label="Navigation zentrieren"
       title="Navigation zentrieren"
-      aria-pressed="true"
+      data-following="true"
       hidden={hidden["navigation-center"] ?? false}
       disabled={disabled["navigation-center"] ?? false}
-      {...attributes["navigation-center"]}><Icon name="crosshair" /></button
+      {...attributes["navigation-center"]}
+      ><Icon name={icons["navigation-center"] ?? "crosshair"} /></button
     >
     <div
       id="navigation-style-control"
