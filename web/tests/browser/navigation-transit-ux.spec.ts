@@ -1426,34 +1426,38 @@ test("GPS advances street legs, fresh transit waits for confirmed exit, stops re
   );
 });
 
-test("interrupted trip lookup offers a startup retry after returning", async ({
+test("interrupted resume trip lookup retries in the background after returning", async ({
   page,
 }) => {
   await setup(page, true);
   await expect.poll(() => savedActive(page)).toBe(true);
+  const progress = await savedProgress(page);
   await page.goto("/");
   await expect(page.locator("#navigation-resume-dialog")).toBeVisible();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  let requested = false;
+  let requests = 0;
   await page.route("**/api/v6/trip?*", async (r) => {
-    requested = true;
+    requests++;
     await gate;
     await r.fulfill({ json: { legs: [] } });
   });
   await page.locator("#navigation-resume").click();
-  await expect.poll(() => requested).toBe(true);
+  await expect.poll(() => requests).toBe(1);
+  await expect(page.locator("#navigation-view")).toBeVisible();
   await page.evaluate(() => window.navProbe.hide(true));
   release();
   await page.evaluate(() => window.navProbe.hide(false));
   await page.clock.runFor(10);
-  await expect(page.locator("#navigation-start-retry")).toBeVisible();
-  await page.locator("#navigation-start-retry").click();
+  await expect.poll(() => requests).toBe(2);
+  await expect(page.locator("#navigation-view")).toBeVisible();
+  await expect(page.locator("#navigation-start-retry")).toBeHidden();
   await expect(page.locator("#navigation-instruction")).toHaveText(
     "Links abbiegen auf Zweite Straße",
   );
+  expect(await savedProgress(page)).toEqual(progress);
 });
 
 test("arrival deadline and selected train survive a late bike departure without a new route search", async ({

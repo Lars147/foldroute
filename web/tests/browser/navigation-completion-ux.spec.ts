@@ -142,17 +142,33 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mountNavigationFixture(page, 0);
+    const progress = await page.evaluate(() =>
+      structuredClone(
+        (window as any).navigationFixture.session.engine.progress,
+      ),
+    );
     await (await completionButton(page)).press("Enter");
     await expect(page.locator("#navigation-instruction")).toHaveText(
       "Rad jetzt falten",
     );
     await expect(page.locator("#navigation-confirm")).toBeHidden();
     await page.locator("#navigation-undo-button").click();
+    await expect(page.locator("#navigation-instruction")).toHaveText(
+      "Standort wird geprüft",
+    );
+    expect(
+      await page.evaluate(
+        () => (window as any).navigationFixture.session.engine.progress,
+      ),
+    ).toEqual(progress);
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    await expect(await completionButton(page)).toBeVisible();
+    await page.evaluate(() =>
+      (window as any).navigationFixture.setLocation("current"),
+    );
     await expect(page.locator("#navigation-instruction")).toContainText(
       "Links abbiegen",
     );
-    await expect(page.locator("#navigation-complete")).toBeHidden();
-    await expect(await completionButton(page)).toBeVisible();
     await page.getByRole("tab", { name: /^Falten nach/ }).click();
     await expect(page.locator("#navigation-complete-manually")).toBeHidden();
     await expect(page.locator("#navigation-complete")).toBeHidden();
