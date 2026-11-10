@@ -7,21 +7,22 @@ async function position(
   seconds: number,
   latitude = 48,
   accuracy = 10,
+  longitude = 11.002,
 ) {
   await page.clock.setFixedTime(new Date((now + seconds) * 1000));
   await page.evaluate(
-    ({ latitude, accuracy }) => {
+    ({ latitude, longitude, accuracy }) => {
       (window as any).navigationFixture.session.updateLocation(
         {
           latitude,
-          longitude: 11.002,
+          longitude,
           accuracy,
           timestamp: Date.now(),
         },
         "current",
       );
     },
-    { latitude, accuracy },
+    { latitude, longitude, accuracy },
   );
 }
 
@@ -42,6 +43,9 @@ for (const width of [390, 1280])
       const toggle = page.locator("#navigation-details-toggle");
       const panel = page.locator("#navigation-section-detail");
       const current = page.getByRole("tab").first();
+      if (width < 900)
+        await expect(preview).toHaveText("Reststrecke wird geprüft");
+      await position(page, 0, a.latitude, 10, a.longitude);
       if (width < 900) await expect(preview).toHaveText("Noch 3 min · 371 m");
       await position(page, 20);
       if (width < 900) {
@@ -61,11 +65,13 @@ for (const width of [390, 1280])
       await position(page, 60, 48.0015);
       await expect(summary).toHaveText("Noch 1 min · 56 m");
       await position(page, 80, 48.0018, 500);
-      await expect(summary).toHaveText("Noch 1 min · 56 m");
+      await expect(summary).toHaveText("Reststrecke wird geprüft");
       await page.clock.setFixedTime(new Date((now + 100) * 1000));
       await page.evaluate(() =>
         (window as any).navigationFixture.session.updateLocation(),
       );
+      await expect(summary).toHaveText("Reststrecke wird geprüft");
+      await position(page, 120, 48.0015);
       await expect(summary).toHaveText("Noch 1 min · 56 m");
       await page.getByRole("tab").nth(1).click();
       await expect(summary).toHaveCount(0);

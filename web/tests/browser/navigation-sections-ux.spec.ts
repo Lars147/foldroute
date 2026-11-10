@@ -117,12 +117,18 @@ for (const width of [390, 1280]) {
         warning,
       );
       await expect(page.locator("#navigation-alert-summary")).toBeVisible();
-      await page.locator("#navigation-alert-open").click();
+      await expect(page.locator("#navigation-alert-open")).toBeHidden();
+      await page.locator("#navigation-details-toggle").click();
     }
-    await expect(page.locator("#navigation-arrival-warning")).toHaveText(
-      warning,
-    );
-    await expect(page.locator("#navigation-arrival-warning")).toBeVisible();
+    await expect(page.locator("#navigation-alert-summary")).toHaveText(warning);
+    await expect(page.locator("#navigation-alert-summary")).toBeVisible();
+    await expect(page.locator("#navigation-arrival-warning")).toBeEmpty();
+    await expect(
+      page
+        .locator("#navigation-view")
+        .getByText(warning, { exact: true })
+        .filter({ visible: true }),
+    ).toHaveCount(1);
     await expect(page.locator("#navigation-summary-arrival")).toHaveCount(0);
     await expectMotionSettled(page.locator("#navigation-panel"));
     await page.screenshot({

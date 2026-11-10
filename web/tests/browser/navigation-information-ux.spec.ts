@@ -255,11 +255,15 @@ test("another selected train uses its own compact itinerary without the running 
   await expect(page.locator("#navigation-alert-summary")).toContainText(
     "S2 · Abruf fehlgeschlagen",
   );
-  await page.locator("#navigation-alert-open").click();
+  // The complete warning is already shown once; section details use their own toggle.
+  await expect(page.locator("#navigation-alert-open")).toBeHidden();
+  await page.locator("#navigation-details-toggle").click();
   await expect(second).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#navigation-transit-status")).toBeInViewport({
-    ratio: 1,
-  });
+  await expect(page.locator("#navigation-section-detail")).toContainText("S2");
+  await expect(page.locator("#navigation-alert-summary")).toContainText(
+    "S2 · Abruf fehlgeschlagen",
+  );
+  await expect(page.locator("#navigation-transit-status")).toBeEmpty();
 });
 
 for (const width of [320, 390])
