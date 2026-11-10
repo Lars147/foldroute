@@ -63,9 +63,14 @@ import {
   type TripSummary,
 } from "./navigation-summary";
 
+import { NavigationBoarding } from "./navigation-boarding";
+
 const alternativeDecisionSeconds = 30;
+export type AlternativeAcceptance = "accepted" | "refreshed" | "unavailable";
 export interface NavigationAlternative {
+  id: string;
   journey: Journey;
+  displayJourney?: Journey;
   legIndex: number;
   sourceId: string;
   issueId: string;
@@ -123,7 +128,13 @@ export class NavigationSession {
   locating = false;
   storageMessage = "";
   disruption?: Disruption;
-  alternative?: NavigationAlternative;
+  alternatives: NavigationAlternative[] = [];
+  get alternative() {
+    return this.alternatives[0];
+  }
+  set alternative(value: NavigationAlternative | undefined) {
+    this.alternatives = value ? [value] : [];
+  }
   retryAvailable = false;
   needsLocation = false;
   distantStart = false;
@@ -152,6 +163,8 @@ export class NavigationSession {
     reason?: "reroute" | "stop";
   };
   private completionPaused = false;
+  private readonly boarding = new NavigationBoarding();
+  private boardingAfter = 0;
   private resumeValidation?: {
     engine: NavigationEngine;
     legId: string;
@@ -194,6 +207,7 @@ export class NavigationSession {
 
   setCompletionPaused(paused: boolean) {
     this.completionPaused = paused;
+    if (paused) this.boarding.reset();
     this.engine?.setCompletionPaused(paused);
   }
 
@@ -787,13 +801,16 @@ export class NavigationSession {
     if (this.hasCurrentLocation) this.locationError = undefined;
     else if (error) this.locationError = error;
     if (!this.engine || !this.foreground) return;
+    if (state !== "current") this.boarding.reset();
     // Only street repair can safely follow progress on its original engine.
     // User-requested itinerary changes retain their existing section boundary.
     if (this.busy && this.streetEngine !== this.engine) {
+      this.boarding.reset();
       this.engine.resetCompletionCountdown();
       this.emit();
       return;
     }
+    this.recoverBoarding();
     this.reconcileResumeValidation();
     if (!fix || state !== "current") this.engine.invalidateLocation();
     else this.engine.update(fix);
@@ -803,6 +820,71 @@ export class NavigationSession {
     this.discardChangedAlternative();
     this.persist();
     this.emit();
+  }
+  private recoverBoarding() {
+    const source = this.engine;
+    if (
+      !source ||
+      !this.foreground ||
+      this.completionPaused ||
+      (this.busy && this.streetEngine !== source)
+    )
+      return false;
+    const evidence = this.boarding.update(
+      source,
+      this.hasCurrentLocation && this.fix!.timestamp >= this.boardingAfter
+        ? this.fix
+        : undefined,
+      this.clock.now(),
+    );
+    if (!evidence) return false;
+    this.updateTrip();
+    this.controller?.abort();
+    this.controller = undefined;
+    this.transitController?.abort();
+    this.transitController = undefined;
+    this.locationGeneration++;
+    this.locating = false;
+    this.busy = false;
+    this.streetEngine = undefined;
+    this.pendingCompletionUndo = undefined;
+    this.resumeValidation = undefined;
+    this.resumeNeedsConfirmation = false;
+    this.alternative = undefined;
+    this.pendingAlternativeLocation = undefined;
+    this.lastIssue = undefined;
+    const engine = new NavigationEngine(
+      source.journey,
+      {
+        legIndex: evidence.index,
+        maneuverIndex: 0,
+        meters: 0,
+        confirmedStops: [...source.progress.confirmedStops],
+      },
+      this.clock,
+    );
+    this.engine = engine;
+    for (const fix of evidence.fixes) engine.update(fix);
+    // Optional station metadata must not discard measured distance evidence.
+    engine.progress.meters = Math.max(engine.progress.meters, evidence.meters);
+    this.boarding.reset();
+    this.assessment = assessConnection(
+      engine.connectionJourney,
+      engine.progress.legIndex,
+      this.clock.now() / 1000,
+      { onboard: true },
+    );
+    this.disruption = transitDisruption(
+      engine.connectionJourney,
+      engine.progress.legIndex,
+      this.clock.now() / 1000,
+    );
+    this.retryAvailable = !!this.disruption;
+    this.message = `Fahrt mit ${engine.leg.line ?? "ÖPNV"} erkannt`;
+    this.persist(true);
+    this.emit();
+    void this.refresh("foreground");
+    return true;
   }
   async retryLocation() {
     const engine = this.engine;
@@ -871,6 +953,8 @@ export class NavigationSession {
   setForeground(value: boolean) {
     if (value === this.foreground) return;
     this.foreground = value;
+    this.boarding.reset();
+    this.boardingAfter = this.clock.now();
     if (!value) {
       this.locationGeneration++;
       this.locating = false;
@@ -929,6 +1013,7 @@ export class NavigationSession {
     engine.applyJourney(
       applyTransit(engine.journey, engine.progress.legIndex, result),
     );
+    if (this.recoverBoarding()) return;
     this.assessment = assessConnection(
       engine.connectionJourney,
       engine.progress.legIndex,
@@ -1032,6 +1117,7 @@ export class NavigationSession {
   ) {
     const engine = this.engine;
     if (!engine || this.busy || engine.phase === "arrived") return;
+    if (this.streetEngine !== engine) this.boarding.reset();
     this.transitController?.abort();
     this.transitController = undefined;
     this.controller = new AbortController();
@@ -1356,18 +1442,20 @@ export class NavigationSession {
         : reason === "stop"
           ? Math.max(now, leg.end) + alternativeDecisionSeconds
           : now + alternativeDecisionSeconds;
-      const { journey: route, settings: routeSettings } = await this.plan(
-        this.requestFrom(origin, departure, onboard || reason === "stop"),
-        signal,
-        (candidate) =>
-          reachableAlternative(
-            candidate,
-            0,
-            onboard
-              ? Math.max(departure, this.clock.now() / 1000)
-              : this.clock.now() / 1000 + alternativeDecisionSeconds,
-          ),
-      );
+      const { journeys: routes, settings: routeSettings } =
+        await this.routePlanner.planAlternatives(
+          this.requestFrom(origin, departure, onboard || reason === "stop"),
+          structuredClone(this.deps.routingSettings?.() ?? this.settings!),
+          signal,
+          (candidate) =>
+            reachableAlternative(
+              candidate,
+              0,
+              onboard
+                ? Math.max(departure, this.clock.now() / 1000)
+                : this.clock.now() / 1000 + alternativeDecisionSeconds,
+            ),
+        );
       signal.throwIfAborted();
       if (
         this.engine !== active ||
@@ -1375,31 +1463,35 @@ export class NavigationSession {
         this.disruption?.id !== issue.id
       )
         return;
-      const proposed = composeAlternative({
-        current: active.journey,
-        legIndex: active.progress.legIndex,
-        route,
-        onboard,
-        reason,
-        origin,
-        departure,
-        foldingDuration,
-        now,
+      this.alternatives = routes.map((route) => {
+        const proposed = composeAlternative({
+          current: active.journey,
+          legIndex: active.progress.legIndex,
+          route,
+          onboard,
+          reason,
+          origin,
+          departure,
+          foldingDuration,
+          now,
+        });
+        return {
+          displayJourney: route,
+          id: crypto.randomUUID(),
+          settings: routeSettings,
+          journey: proposed,
+          legIndex: onboard ? active.progress.legIndex : 0,
+          sourceId,
+          issueId: issue.id,
+          createdAt: this.clock.now() / 1000,
+          sourceArrival: onboard ? leg.end : undefined,
+          reason,
+          confirmedStops:
+            reason === "stop" && leg.stop
+              ? [...active.progress.confirmedStops, leg.stop.id]
+              : undefined,
+        };
       });
-      this.alternative = {
-        settings: routeSettings,
-        journey: proposed,
-        legIndex: onboard ? active.progress.legIndex : 0,
-        sourceId,
-        issueId: issue.id,
-        createdAt: this.clock.now() / 1000,
-        sourceArrival: onboard ? leg.end : undefined,
-        reason,
-        confirmedStops:
-          reason === "stop" && leg.stop
-            ? [...active.progress.confirmedStops, leg.stop.id]
-            : undefined,
-      };
       return "";
     }, "Alternative wird gesucht …");
   }
@@ -1414,10 +1506,13 @@ export class NavigationSession {
     )
       await this.proposeAlternative(pending.reason);
   }
-  async acceptAlternative() {
+  alternativeValidity(
+    expectedId = this.alternative?.id,
+  ): "ready" | "stale" | "unavailable" {
     const engine = this.engine,
-      candidate = this.alternative;
-    if (!engine || !candidate || this.busy) return;
+      candidate = this.alternatives.find((value) => value.id === expectedId);
+    if (!engine || !candidate || candidate.id !== expectedId)
+      return "unavailable";
     if (
       candidate.sourceId !== engine.leg.navigationId ||
       candidate.issueId !== this.disruption?.id ||
@@ -1433,15 +1528,28 @@ export class NavigationSession {
       (candidate.sourceArrival !== undefined &&
         candidate.sourceArrival !== engine.leg.end)
     ) {
+      return "stale";
+    }
+    return "ready";
+  }
+  async acceptAlternative(
+    expectedId = this.alternative?.id,
+  ): Promise<AlternativeAcceptance> {
+    const engine = this.engine,
+      candidate = this.alternatives.find((value) => value.id === expectedId);
+    const validity = this.alternativeValidity(expectedId);
+    if (!engine || !candidate || this.busy || validity === "unavailable")
+      return "unavailable";
+    if (validity === "stale") {
       this.alternative = undefined;
       if (!this.disruption) {
         this.message =
           "Vorschlag nicht mehr aktuell. Die bisherige Route bleibt aktiv.";
         this.emit();
-        return;
+        return "unavailable";
       }
       await this.proposeAlternative(candidate.reason);
-      return;
+      return this.alternative ? "refreshed" : "unavailable";
     }
     await this.changeRoute(async () => {
       this.alternative = undefined;
@@ -1457,8 +1565,10 @@ export class NavigationSession {
         candidate.settings,
       );
     }, "Verbindung wird geprüft …");
+    return this.engine !== engine ? "accepted" : "unavailable";
   }
   dismissAlternative() {
+    this.pendingAlternativeLocation = undefined;
     this.alternative = undefined;
     this.emit();
   }

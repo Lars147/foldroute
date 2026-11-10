@@ -120,6 +120,7 @@
         updateTabs: (value) => navigation.updateTabs(value),
         updateLocation: (value) => navigation.updateLocation(value),
         updateFinish: (value) => navigation.updateFinish(value),
+        updateAlternative: (value) => navigation.updateAlternative(value),
         updateCompletion: (value) => navigation.updateCompletion(value),
         setCompletionCommands: (value) =>
           navigation.setCompletionCommands(value),

@@ -410,7 +410,7 @@ for (const [width, height] of [
     await page.locator("#navigation-details-toggle").click();
     await expect(page.locator("#navigation-details")).toBeHidden();
     await page.evaluate(() => window.navProbe.push(48, 11, 90, 500));
-    await expect(page.locator("#navigation-gps-status")).toHaveText(
+    await expect(page.locator("#navigation-gps-status")).toContainText(
       "GPS ungenau",
     );
     await expect(page.locator("#navigation-alert")).toBeHidden();

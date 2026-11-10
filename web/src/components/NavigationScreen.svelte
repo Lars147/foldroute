@@ -1,4 +1,5 @@
 <script lang="ts">
+  import NavigationAlternativeDialog from "./NavigationAlternativeDialog.svelte";
   import JourneyDetails from "./JourneyDetails.svelte";
   import MapStylePicker from "./MapStylePicker.svelte";
   import Icon from "./Icon.svelte";
@@ -8,6 +9,7 @@
   import NavigationFinishSummary from "./NavigationFinishSummary.svelte";
   import { mapAttribution } from "../map-theme";
   import type {
+    NavigationAlternativeModel,
     NavigationSectionDetail,
     NavigationCompletionModel,
     NavigationCompletionCommands,
@@ -54,6 +56,15 @@
     value: string | undefined,
   ) {
     attributes[id] = { ...attributes[id], [name]: value };
+  }
+  let alternative = $state.raw<NavigationAlternativeModel>({
+    status: "",
+    busy: false,
+    available: false,
+    stale: false,
+  });
+  export function updateAlternative(value: NavigationAlternativeModel) {
+    alternative = value;
   }
   let sectionModel = $state.raw<NavigationSectionDetail | undefined>();
   let sectionDetail = $state<{ setMovementSummary(text: string): void }>();
@@ -380,7 +391,9 @@
       </p>
       <button
         id="navigation-alert-open"
-        class="secondary"
+        class={attributes["navigation-alert-open"]?.["data-primary"] === "true"
+          ? "primary"
+          : "secondary"}
         type="button"
         hidden={hidden["navigation-alert-open"] ?? false}
         disabled={disabled["navigation-alert-open"] ?? false}
@@ -521,6 +534,7 @@
           {...attributes["navigation-location-status"]}
         >
           {locationFeedback.message}{#if locationFeedback.message && locationFeedback.help}
+            {" "}
             <a class="location-help" href="hilfe.html#standort"
               >Hilfe zum Standort</a
             >{/if}
@@ -559,34 +573,6 @@
       >
         {text["navigation-disruption"] ?? ""}
       </p>
-      <div
-        id="navigation-alternative"
-        hidden={hidden["navigation-alternative"] ?? true}
-        {...attributes["navigation-alternative"]}
-      >
-        <p
-          id="navigation-alternative-text"
-          hidden={hidden["navigation-alternative-text"] ?? false}
-          {...attributes["navigation-alternative-text"]}
-        >
-          {text["navigation-alternative-text"] ?? ""}
-        </p>
-        <button
-          id="navigation-accept"
-          class="primary"
-          hidden={hidden["navigation-accept"] ?? false}
-          disabled={disabled["navigation-accept"] ?? false}
-          {...attributes["navigation-accept"]}
-          >{text["navigation-accept"] ?? "Verbindung \u00fcbernehmen"}</button
-        ><button
-          id="navigation-dismiss"
-          class="secondary"
-          hidden={hidden["navigation-dismiss"] ?? false}
-          disabled={disabled["navigation-dismiss"] ?? false}
-          {...attributes["navigation-dismiss"]}
-          >{text["navigation-dismiss"] ?? "Bisherige behalten"}</button
-        >
-      </div>
       <p
         id="navigation-storage-status"
         hidden={hidden["navigation-storage-status"] ?? false}
@@ -635,6 +621,7 @@
     </div>
     <NavigationFinishSummary bind:this={finish} />
   </article>
+  <NavigationAlternativeDialog model={alternative} />
   <dialog
     id="navigation-confirm"
     aria-labelledby="navigation-confirm-title"

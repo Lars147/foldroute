@@ -25,7 +25,7 @@ import { NavigationCompletion } from "./navigation-completion";
 import { NavigationGuidance } from "./navigation-guidance";
 import { NavigationStations } from "./navigation-stations";
 import { clock, duration, el, node, icon, setLocationFeedback } from "./ui";
-import type { Leg } from "./model";
+import { compare, cyclingExcess, type Leg } from "./model";
 import { transitCancellationMessage } from "./transit-cancellation";
 import { movement, freshTransit } from "./navigation-engine";
 import {
@@ -97,6 +97,11 @@ export class NavigationView {
   private reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   private dragY?: number;
   private confirmationTrigger?: HTMLElement;
+  private alternativeTrigger?: HTMLElement;
+  private alternativeSeenId?: string;
+  private alternativeSelectedId?: string;
+  private alternativeDetailId?: string;
+  private alternativeListScroll = 0;
   private undoNotice: UndoNotice;
   private automaticCountdownBar = new CountdownBar(1000);
   private countdownInteraction: CountdownInteraction;
@@ -314,15 +319,30 @@ export class NavigationView {
       replan: () => this.restart(true),
     });
     el("navigation-accept").onclick = async () => {
-      const previous = this.session?.engine;
-      await this.session?.acceptAlternative();
-      if (this.session?.engine !== previous) {
+      const expectedId = el("navigation-alternative").dataset.proposalId;
+      if (!expectedId) return;
+      const result = await this.session?.acceptAlternative(expectedId);
+      if (result === "accepted") {
         this.selectedSectionId = undefined;
+        this.followsCurrentSection = true;
+        this.closeAlternative();
         if (this.detailsOpen) this.setDetails(false);
         else this.render();
-      }
+        this.map?.center();
+      } else this.render();
     };
-    el("navigation-dismiss").onclick = () => this.session?.dismissAlternative();
+    el("navigation-dismiss").onclick = () => {
+      this.session?.dismissAlternative();
+      this.closeAlternative();
+    };
+    el("navigation-alternative-locate").onclick = () => {
+      void this.session?.retryLocation();
+    };
+    el("navigation-alternative-close").onclick = () => this.closeAlternative();
+    el<HTMLDialogElement>("navigation-alternative").oncancel = (event) => {
+      event.preventDefault();
+      if (!this.backAlternativeDetails()) this.closeAlternative();
+    };
   }
   private phaseKeydown(event: KeyboardEvent) {
     if (event.key === "Escape" && this.mobile.matches) {
@@ -368,6 +388,10 @@ export class NavigationView {
     }
   }
   private openNotice() {
+    if (this.session?.alternative) {
+      this.openAlternative();
+      return;
+    }
     this.setDetails(true);
     if (!this.noticeTarget) return;
     const details = el("navigation-details");
@@ -379,6 +403,54 @@ export class NavigationView {
       16;
     target.tabIndex = -1;
     target.focus({ preventScroll: true });
+  }
+  private openAlternative() {
+    this.alternativeTrigger = el("navigation-alert-open");
+    this.alternativeSeenId = this.session?.alternatives
+      .map((value) => value.id)
+      .join(",");
+    this.render();
+    flushSync();
+    const dialog = el<HTMLDialogElement>("navigation-alternative");
+    if (!dialog.open) dialog.showModal();
+    el("navigation-alternative-title").focus({ preventScroll: true });
+  }
+  private backAlternativeDetails() {
+    if (!this.alternativeDetailId) return false;
+    this.alternativeDetailId = undefined;
+    this.render();
+    flushSync();
+    el("navigation-alternative").querySelector<HTMLElement>(
+      ".alternative-content",
+    )!.scrollTop = this.alternativeListScroll;
+    el("navigation-alternative-title").focus({ preventScroll: true });
+    return true;
+  }
+  private closeAlternative(restoreFocus = true) {
+    const dialog = el<HTMLDialogElement>("navigation-alternative");
+    if (!dialog.open) return false;
+    dialog.close();
+    flushSync();
+    const trigger = this.alternativeTrigger;
+    this.alternativeTrigger = undefined;
+    this.alternativeSeenId = undefined;
+    this.alternativeDetailId = undefined;
+    if (restoreFocus && this.visible) {
+      const target =
+        trigger?.isConnected &&
+        trigger.getClientRects().length &&
+        !trigger.closest("[hidden], [inert]") &&
+        (trigger.id !== "navigation-alert-open" || !!this.session?.alternative)
+          ? trigger
+          : el(
+              this.session?.engine?.phase === "arrived"
+                ? "navigation-finish-heading"
+                : "navigation-instruction",
+            );
+      target.tabIndex = target.tabIndex < 0 ? -1 : target.tabIndex;
+      target.focus({ preventScroll: true });
+    }
+    return true;
   }
   private get completionAvailable() {
     const engine = this.session?.engine;
@@ -481,6 +553,7 @@ export class NavigationView {
       if (restore) this.map?.center();
     } else if (this.followsCurrentSection) this.selectedSectionId = current?.id;
     const currentChanged = this.currentSectionId !== current?.id;
+    if (currentChanged && this.currentSectionId) this.closeAlternative(false);
     this.currentSectionId = current?.id;
     const selected = this.sections.find((s) => s.id === this.selectedSectionId);
     const phases = el("navigation-phases");
@@ -585,6 +658,8 @@ export class NavigationView {
       engine.requiresElevatorConfirmation
     )
       return;
+    if (!this.session?.hasCurrentLocation || !engine.guidanceUsable)
+      return "Reststrecke wird geprüft";
     const meters = engine.remainingMeters;
     const distance =
       meters >= 1000
@@ -1002,6 +1077,7 @@ export class NavigationView {
     }
   }
   hide() {
+    this.closeAlternative(false);
     this.screen.updateSectionDetail(undefined);
     this.sectionDetailKey = "";
     this.undoNotice.clear();
@@ -1036,6 +1112,7 @@ export class NavigationView {
     this.guidance.cancel();
   }
   confirmEnd() {
+    this.closeAlternative(false);
     if (this.session?.engine?.phase === "arrived") {
       this.exit();
       return;
@@ -1052,6 +1129,7 @@ export class NavigationView {
     );
   }
   dismissConfirmation() {
+    if (this.backAlternativeDetails() || this.closeAlternative()) return true;
     const dialog = el<HTMLDialogElement>("navigation-confirm");
     if (!dialog.open) return false;
     const trigger = this.confirmationTrigger;
@@ -1235,6 +1313,7 @@ export class NavigationView {
     );
     if (arrived && session.summary) {
       if (enteringSummary) {
+        this.closeAlternative(false);
         this.summaryProviders = supportProviders.flatMap((provider) =>
           provider.url
             ? [
@@ -1391,10 +1470,7 @@ export class NavigationView {
       streetPaused
         ? session.busy
           ? "Route wird angepasst …"
-          : engine.offRoute
-            ? (session.disruption?.message ?? session.message) ||
-              "Route verlassen · Weg wird neu berechnet"
-            : "Standort wird geprüft"
+          : `Jetzt: ${leg?.kind === "walk" ? "Zu Fuß" : "Rad"} bis ${leg?.to.name}`
         : engine && !arrived && leg?.kind === "bike" && !engine.maneuver
           ? `Nach ${leg.to.name}`
           : (engine?.instruction ??
@@ -1458,11 +1534,17 @@ export class NavigationView {
             : (leg?.to.name ?? ""),
     );
     const { current, selected, revealCurrent } = this.renderSections();
+    const statusMessage =
+      !session.busy &&
+      session.message ===
+        "Standort hat sich geändert. Weg wird erneut berechnet …"
+        ? ""
+        : session.message;
     this.screen.setText(
       "navigation-status",
       session.resumeNeedsConfirmation
         ? "Zeitpunkt dieses Abschnitts liegt zurück. Prüfe und bestätige deinen aktuellen Abschnitt."
-        : session.message,
+        : statusMessage,
     );
     this.screen.setText("navigation-storage-status", session.storageMessage);
     this.screen.setText(
@@ -1536,6 +1618,11 @@ export class NavigationView {
       cursor,
       !!mapEstimateLabel,
     );
+    if (transit && leg?.kind !== "transit")
+      this.screen.setText(
+        "navigation-context-title",
+        `Danach: ${el("navigation-context-title").textContent ?? ""}`,
+      );
     this.renderSectionPreview(selected);
     if (cursor) for (const list of this.stationLists) list.setPosition(cursor);
     this.startStationAnimation();
@@ -1609,6 +1696,10 @@ export class NavigationView {
     flushSync(() =>
       this.screen.updateCompletion({
         available: this.quickCompletionAvailable,
+        alternativeAvailable: !!session.alternative,
+        completionPrimary:
+          !movement(leg) ||
+          (session.hasCurrentLocation && !!engine?.guidanceUsable),
         manualAvailable: !!manualAvailable,
         busy: session.busy,
         mobile: this.mobile.matches,
@@ -1616,7 +1707,7 @@ export class NavigationView {
         retryVisible: !(
           (!session.retryAvailable && !session.disruption) ||
           locationRetry ||
-          (invalidLocation && !!session.locationError)
+          !!session.alternative
         ),
         retryLabel: session.disruption
           ? "Andere Verbindung suchen"
@@ -1679,19 +1770,121 @@ export class NavigationView {
       String(this.guidance.enabled),
     );
     this.screen.setText("navigation-audio-status", this.voiceMessage);
-    this.screen.setHidden("navigation-alternative", !session.alternative);
-    const accept = el<HTMLButtonElement>("navigation-accept");
-    this.screen.setDisabled("navigation-accept", session.busy);
-    this.screen.setText(
-      "navigation-accept",
-      session.busy ? "Verbindung wird geprüft …" : "Verbindung übernehmen",
-    );
-    if (session.alternative) {
-      const j = session.alternative.journey;
-      this.screen.setText(
-        "navigation-alternative-text",
-        `Neue Verbindung: Ankunft ${clock(j.arrival)} · ${duration(j.arrival - j.departure)}`,
-      );
+    const cyclingLimit = session.settings?.maxCyclingMinutes ?? 30;
+    const choices = session.alternatives.map((value) => ({
+      id: value.id,
+      journey: {
+        ...(value.displayJourney ?? value.journey),
+        id: value.id,
+        ...(!value.displayJourney
+          ? {
+              departure: Math.min(
+                value.journey.arrival,
+                Math.max(
+                  Date.now() / 1000,
+                  value.journey.legs[value.legIndex].start,
+                ),
+              ),
+              legs: value.journey.legs.slice(value.legIndex),
+            }
+          : {}),
+      },
+    }));
+    const recommendedId = choices
+      .filter((value) => cyclingExcess(value.journey, cyclingLimit) === 0)
+      .sort((a, b) => compare(a.journey, b.journey, "now"))[0]?.id;
+    const proposal =
+      session.alternatives.find(
+        (value) => value.id === this.alternativeSelectedId,
+      ) ??
+      session.alternatives.find((value) => value.id === recommendedId) ??
+      session.alternative;
+    this.alternativeSelectedId = proposal?.id;
+    if (
+      this.alternativeDetailId &&
+      !session.alternatives.some(
+        (value) => value.id === this.alternativeDetailId,
+      )
+    )
+      this.alternativeDetailId = undefined;
+    const displayJourney = choices.find(
+      (value) => value.id === proposal?.id,
+    )?.journey;
+    const validity = session.alternativeValidity(proposal?.id);
+    const changedProposal =
+      !!this.alternativeSeenId &&
+      !!proposal &&
+      this.alternativeSeenId !==
+        session.alternatives.map((value) => value.id).join(",");
+    const canRetryAlternative =
+      engine?.phase === "active" &&
+      !!session.disruption &&
+      !(engine.leg.kind === "transit" && engine.leg.transitStatus?.cancelled);
+    const retryHadFocus =
+      document.activeElement?.id === "navigation-alternative-retry";
+    this.screen.updateAlternative({
+      id: proposal?.id,
+      choices,
+      recommendedId,
+      detailJourney: this.alternativeDetailId ? displayJourney : undefined,
+      cyclingLimit,
+      locating: session.locating,
+      error: !!session.locationError,
+      select: (id) => {
+        this.alternativeSelectedId = id;
+        this.render();
+      },
+      details: (id) => {
+        this.alternativeListScroll = el(
+          "navigation-alternative",
+        ).querySelector<HTMLElement>(".alternative-content")!.scrollTop;
+        this.alternativeSelectedId = id;
+        this.alternativeDetailId = id;
+        this.render();
+        flushSync();
+        el("navigation-alternative").querySelector<HTMLElement>(
+          ".alternative-content",
+        )!.scrollTop = 0;
+        el("navigation-alternative-title").focus({ preventScroll: true });
+      },
+      retry: canRetryAlternative
+        ? () => {
+            void session.proposeAlternative(
+              session.engine?.leg.kind === "stop" ? "stop" : undefined,
+            );
+          }
+        : undefined,
+      back: () => {
+        this.backAlternativeDetails();
+      },
+      needsLocation: session.alternativeNeedsLocation,
+      status: session.locating
+        ? "Standort wird gesucht …"
+        : session.locationError
+          ? session.locationError.message
+          : session.alternativeNeedsLocation
+            ? "Für die neue Verbindung wird ein aktueller Standort benötigt."
+            : session.busy
+              ? "Vorschlag wird geprüft …"
+              : !proposal
+                ? !session.disruption
+                  ? "Störung liegt nicht mehr vor. Die bisherige Route bleibt aktiv."
+                  : session.message ||
+                    "Vorschlag nicht mehr verfügbar. Die bisherige Route bleibt aktiv."
+                : validity === "stale"
+                  ? "Vorschlag ist nicht mehr aktuell. Bitte aktualisieren."
+                  : changedProposal
+                    ? "Vorschlag wurde aktualisiert. Bitte erneut prüfen."
+                    : "",
+      busy: session.busy,
+      available:
+        !!proposal && !!session.disruption && validity !== "unavailable",
+      stale: validity === "stale",
+    });
+    if (retryHadFocus) {
+      flushSync();
+      if (!document.getElementById("navigation-alternative-retry"))
+        el("navigation-alternative-close").focus({ preventScroll: true });
     }
     this.screen.setText(
       "navigation-remaining",
@@ -1732,7 +1925,7 @@ export class NavigationView {
         target: "navigation-status",
       },
       {
-        message: session.alternative ? "" : session.message,
+        message: session.alternative ? "" : statusMessage,
         target: "navigation-status",
       },
       {
@@ -1785,20 +1978,23 @@ export class NavigationView {
       clearNotice(notice.target, el(canonical.target));
     }
     const primary = notices[0];
-    const cancellationSummary = engine?.journey.legs.some(
-      (leg) => leg.transitStatus?.cancelled && transitWarning(leg) === summary,
-    );
-    if (
-      this.mobile.matches &&
-      cancellationSummary &&
-      primary &&
-      el(primary.target).textContent === primary.message
-    )
-      clearNotice(primary.target, summaryText);
+    if (primary)
+      for (const notice of candidates) {
+        if (
+          notice.message === summary &&
+          el(notice.target).textContent === summary
+        )
+          clearNotice(notice.target, summaryText);
+      }
     this.noticeTarget = session.alternative
       ? "navigation-alternative"
       : notices.find((notice) => el(notice.target).textContent)?.target;
     const alertOpen = el("navigation-alert-open");
+    this.screen.setAttribute(
+      "navigation-alert-open",
+      "data-primary",
+      String(!!session.alternative),
+    );
     this.screen.setHidden(
       "navigation-alert-open",
       !engine || !this.noticeTarget,
@@ -1806,7 +2002,7 @@ export class NavigationView {
     this.screen.setText(
       "navigation-alert-open",
       session.alternative
-        ? `Verbindung ansehen${notices.length > 1 ? ` · ${notices.length} Hinweise` : ""}`
+        ? "Neue Verbindungen ansehen"
         : notices.length > 1
           ? `${notices.length} Hinweise ansehen`
           : "Details ansehen",

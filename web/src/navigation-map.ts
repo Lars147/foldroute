@@ -670,7 +670,12 @@ export class NavigationMap {
     let upper = Math.max(0, headerBottom - bounds.top);
     let lower = Math.min(bounds.height, panelTop - bounds.top);
     const gps = screen.querySelector<HTMLElement>("#navigation-gps-status");
-    if (gps && !gps.hidden && gps.getBoundingClientRect().height)
+    if (
+      gps &&
+      !this.panel.contains(gps) &&
+      !gps.hidden &&
+      gps.getBoundingClientRect().height
+    )
       upper = Math.max(upper, gps.getBoundingClientRect().bottom - bounds.top);
     for (const id of ["navigation-undo", "navigation-auto-complete"]) {
       const overlay = screen.querySelector<HTMLElement>(`#${id}`);

@@ -643,7 +643,7 @@ test("waiting before boarding retains the selected train details", async ({
     "Auf Weiterfahrt warten",
   );
   await expect(page.locator("#navigation-context-title")).toHaveText(
-    "S1 · in 1 Min.",
+    "Danach: S1 · in 1 Min.",
   );
   await page.locator("#navigation-details-toggle").click();
   await expect(page.locator("#navigation-section-content")).toContainText(

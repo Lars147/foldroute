@@ -13,6 +13,36 @@ async function component(page: Page, width = 390, height = 844) {
   await expectMotionSettled(page.locator("#alternatives-dialog"));
 }
 
+test("mobile planning alternatives retain column layout during animated exit", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await component(page);
+  const dialog = page.locator("#alternatives-dialog");
+  const frames = await dialog.evaluate(async (element) => {
+    const read = () => ({
+      width: element.getBoundingClientRect().width,
+      headerWidth: element.querySelector("header")!.getBoundingClientRect()
+        .width,
+      direction: getComputedStyle(element).flexDirection,
+      visible: getComputedStyle(element).display !== "none",
+    });
+    const samples = [read()];
+    document.getElementById("alternatives-close")!.click();
+    for (let i = 0; i < 24; i++) {
+      samples.push(read());
+      await new Promise(requestAnimationFrame);
+    }
+    return samples;
+  });
+  for (const frame of frames.filter((frame) => frame.visible)) {
+    expect(frame.direction).toBe("column");
+    expect(frame.width).toBeCloseTo(frames[0].width, 0);
+    expect(frame.headerWidth).toBeCloseTo(frames[0].headerWidth, 0);
+  }
+  await expect(dialog).toBeHidden();
+});
+
 for (const [width, height] of [
   [320, 568],
   [390, 844],

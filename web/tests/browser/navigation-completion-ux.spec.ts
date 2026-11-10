@@ -154,7 +154,7 @@ for (const width of [390, 1280]) {
     await expect(page.locator("#navigation-confirm")).toBeHidden();
     await page.locator("#navigation-undo-button").click();
     await expect(page.locator("#navigation-instruction")).toHaveText(
-      "Standort wird geprüft",
+      /^Jetzt: Rad bis .+$/,
     );
     expect(
       await page.evaluate(
@@ -224,7 +224,7 @@ test("a rejected GPS jump cannot unlock completion after restoring near the targ
   };
   await nearTarget(1000);
   await expect(page.locator("#navigation-instruction")).toHaveText(
-    "Standort wird geprüft",
+    /^Jetzt: Rad bis .+$/,
   );
   await expect(quick).toBeHidden();
   await expect(await completionButton(page)).toBeVisible();

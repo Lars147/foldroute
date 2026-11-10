@@ -35,7 +35,26 @@ export interface NavigationFinishSummary {
   };
   readonly status: string;
 }
+export interface NavigationAlternativeModel {
+  choices?: { id: string; journey: import("./model").Journey }[];
+  detailJourney?: import("./model").Journey;
+  cyclingLimit?: number;
+  locating?: boolean;
+  error?: boolean;
+  select?: (id: string) => void;
+  details?: (id: string) => void;
+  back?: () => void;
+  retry?: () => void;
+  id?: string;
+  recommendedId?: string;
+  status: string;
+  busy: boolean;
+  available: boolean;
+  stale: boolean;
+  needsLocation?: boolean;
+}
 export interface NavigationScreenApi {
+  updateAlternative(value: NavigationAlternativeModel): void;
   element(): HTMLElement;
   updateSectionDetail(value?: NavigationSectionDetail): void;
   updateMovementSummary(text: string): void;
@@ -55,6 +74,8 @@ export interface NavigationScreenApi {
 
 export interface NavigationCompletionModel {
   readonly available: boolean;
+  readonly alternativeAvailable?: boolean;
+  readonly completionPrimary?: boolean;
   readonly manualAvailable: boolean;
   readonly busy: boolean;
   readonly mobile: boolean;

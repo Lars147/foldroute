@@ -23,6 +23,7 @@ export interface NavigationLocationProbe extends LocationProbe {
     heading?: number,
     accuracy?: number,
     age?: number,
+    speed?: number | null,
   ): void;
 }
 
@@ -57,7 +58,7 @@ export function installLocationProbe(options: {
     longitude: 11,
     accuracy: 10,
     heading: navigation ? 90 : null,
-    speed: navigation ? 4 : null,
+    speed: navigation ? (4 as number | null) : null,
     altitude: null,
     altitudeAccuracy: null,
   };
@@ -90,8 +91,9 @@ export function installLocationProbe(options: {
     heading: number | null,
     accuracy: number,
     age: number,
+    speed: number | null = coords.speed,
   ) => {
-    coords = { ...coords, latitude, longitude, heading, accuracy };
+    coords = { ...coords, latitude, longitude, heading, accuracy, speed };
     lastPosition = position(Date.now() - age);
     for (const callback of watchers.values()) callback(lastPosition);
   };
@@ -116,8 +118,8 @@ export function installLocationProbe(options: {
       return window.testSpeech.cancelled;
     },
     fail,
-    push(latitude, longitude, heading = 90, accuracy = 10, age = 0) {
-      push(latitude, longitude, heading, accuracy, age);
+    push(latitude, longitude, heading = 90, accuracy = 10, age = 0, speed = 4) {
+      push(latitude, longitude, heading, accuracy, age, speed);
     },
   };
   const live: LiveLocationProbe = {

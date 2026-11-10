@@ -121,7 +121,7 @@ for (const [width, height, theme] of [
   });
 }
 
-test("warning details keep a separately selected section", async ({ page }) => {
+test("single warning keeps a separately selected section", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mountNavigationFixture(page);
@@ -138,20 +138,16 @@ test("warning details keep a separately selected section", async ({ page }) => {
   await expect(page.locator("#navigation-alert-summary")).toContainText(
     "Abruf fehlgeschlagen",
   );
-  await page.locator("#navigation-alert-open").click();
+  await expect(page.locator("#navigation-alert-open")).toBeHidden();
+  await page.locator("#navigation-details-toggle").click();
   await expect(fold).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#navigation-section-content")).toContainText(
     "Falten",
   );
-  await expect(
-    page.locator("#navigation-current-transit-status"),
-  ).toContainText("Abruf fehlgeschlagen");
-  await expect(
-    page.locator("#navigation-current-transit-status"),
-  ).toBeInViewport({ ratio: 1 });
-  await expect(
-    page.locator("#navigation-current-transit-status"),
-  ).toBeFocused();
+  await expect(page.locator("#navigation-current-transit-status")).toBeEmpty();
+  await expect(page.locator("#navigation-alert-summary")).toBeInViewport({
+    ratio: 1,
+  });
 });
 
 test("section tabs preserve compact and expanded states in the long S8 journey", async ({
@@ -316,7 +312,7 @@ for (const width of [320, 390, 1280])
     const fold = page.getByRole("tab", { name: /^Falten nach/ });
     const train = page.getByRole("tab", { name: /^S8 nach/ });
     await expect(page.locator("#navigation-context-title")).toHaveText(
-      "S8 Richtung Herrsching",
+      "Danach: S8 Richtung Herrsching",
     );
     await expect(page.locator("#navigation-context-detail")).toContainText(
       "Geplante Abfahrt",
@@ -340,9 +336,10 @@ for (const width of [320, 390, 1280])
           page.locator("#navigation-current-transit-status"),
         ).toBeEmpty();
       } else {
-        await expect(page.locator("#navigation-disruption")).toHaveText(
+        await expect(page.locator("#navigation-alert-summary")).toHaveText(
           message,
         );
+        await expect(page.locator("#navigation-disruption")).toBeEmpty();
       }
     }
     await page.screenshot({

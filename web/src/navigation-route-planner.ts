@@ -69,13 +69,13 @@ export class NavigationRoutePlanner {
     this.online = dependencies.online ?? (() => navigator.onLine);
   }
 
-  async plan(
+  async planAlternatives(
     request: RouteRequest,
     settings: RoutingSettings,
     signal: AbortSignal,
     acceptable: (journey: Journey) => boolean = (journey) =>
       reachableAlternative(journey, 0, Math.max(request.time, this.now())),
-  ): Promise<{ journey: Journey; settings: RoutingSettings }> {
+  ): Promise<{ journeys: Journey[]; settings: RoutingSettings }> {
     if (!this.online())
       throw new Error(
         "Neue Routen benötigen Internet. Die bisherige Route bleibt verfügbar.",
@@ -99,12 +99,26 @@ export class NavigationRoutePlanner {
       ))
         if (update.journeys.length) candidates = update.journeys;
     signal.throwIfAborted();
-    const selected = candidates.find(acceptable);
-    if (!selected)
+    const journeys = candidates.filter(acceptable);
+    if (!journeys.length)
       throw new Error(
         "Keine aktuell erreichbare Verbindung gefunden. Bitte erneut suchen.",
       );
-    return { journey: selected, settings };
+    return { journeys, settings };
+  }
+  async plan(
+    request: RouteRequest,
+    settings: RoutingSettings,
+    signal: AbortSignal,
+    acceptable?: (journey: Journey) => boolean,
+  ): Promise<{ journey: Journey; settings: RoutingSettings }> {
+    const result = await this.planAlternatives(
+      request,
+      settings,
+      signal,
+      acceptable,
+    );
+    return { journey: result.journeys[0], settings: result.settings };
   }
 }
 

@@ -52,12 +52,14 @@ for (const repeated of [false, true]) {
       await expect(instruction).toHaveText("Aufzug nehmen");
       await expect(page.locator("#navigation-arrow")).toHaveText("↕");
     }
-    await expect(page.locator("#navigation-gps-status")).toHaveText(
+    await expect(page.locator("#navigation-gps-status")).toContainText(
       "GPS ungenau",
     );
     await page.evaluate(() => window.navProbe.fail(2));
     await expect(instruction).toHaveText("Aufzug nehmen");
-    await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
+    await expect(page.locator("#navigation-gps-status")).toContainText(
+      "Kein GPS",
+    );
     await page.clock.runFor(70000);
     await expect(instruction).toHaveText("Aufzug nehmen");
     expect((await savedProgress(page))!.legIndex).toBe(0);

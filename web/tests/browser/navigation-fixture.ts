@@ -506,7 +506,9 @@ export async function openNavigationCredit(page: Page, index = 1) {
   });
   await page.locator(".navigation-credit a").nth(index).click();
   await expect.poll(() => page.evaluate(() => window.navProbe.active)).toBe(0);
-  await expect(page.locator("#navigation-gps-status")).toHaveText("Kein GPS");
+  await expect(page.locator("#navigation-gps-status")).toContainText(
+    "Kein GPS",
+  );
 }
 
 export async function savedActive(page: Page) {

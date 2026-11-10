@@ -93,24 +93,20 @@ for (const mobile of [false, true])
     await page
       .getByRole("button", { name: "Andere Verbindung suchen", exact: true })
       .click();
+    await expect(page.locator("#navigation-alternative")).toBeHidden();
+    await page.locator("#navigation-alert-open").click();
     await expect(page.locator("#navigation-alternative")).toBeVisible();
-    if (mobile) {
-      await page.locator("#navigation-details-toggle").click();
-      await expect(page.locator("#navigation-details")).toBeHidden();
-      await expect(page.locator("#navigation-alternative")).toBeHidden();
-      await expect(page.locator("#navigation-alert-open")).toContainText(
-        "Verbindung ansehen",
-      );
-      await page.locator("#navigation-alert-open").click();
-    }
-    await expect(page.locator("#navigation-alternative")).toBeVisible();
+    await page.goBack();
+    await expect(page.locator("#navigation-alternative")).toBeHidden();
+    await expect(page.locator("#navigation-confirm")).toBeHidden();
+    await page.locator("#navigation-alert-open").click();
     await page.clock.runFor(121000);
     await page.locator("#navigation-accept").click();
-    await expect(page.locator("#navigation-location-status")).toContainText(
-      "Standort erneut anfragen",
+    await expect(page.locator("#navigation-alternative-status")).toContainText(
+      "Kein aktueller, genauer Standort. Standort erneut anfragen.",
     );
-    await expect(page.locator("#navigation-alternative")).toBeHidden();
-    await page.locator("#navigation-locate").click();
+    await expect(page.locator("#navigation-alternative")).toBeVisible();
+    await page.locator("#navigation-alternative-locate").click();
     await expect(page.locator("#navigation-alternative")).toBeVisible();
     await expect(page.locator("#navigation-status")).toBeEmpty();
     await expect(page.locator("#navigation-accept")).toHaveText(
@@ -372,7 +368,7 @@ for (const width of [390])
     const journey = stationJourney();
     await setup(page, true, true, {}, journey);
     await expect(page.locator("#navigation-context-title")).toHaveText(
-      "S1 · in 5 Min.",
+      "Danach: S1 · in 5 Min.",
     );
     await expect(page.locator("#navigation-context-detail")).toContainText(
       "Abfahrt 12:05",
@@ -382,7 +378,7 @@ for (const width of [390])
     );
     await page.clock.fastForward(60000);
     await expect(page.locator("#navigation-context-title")).toHaveText(
-      "S1 · in 4 Min.",
+      "Danach: S1 · in 4 Min.",
     );
     await complete(page);
     await complete(page);
@@ -897,10 +893,9 @@ for (const width of [390])
     );
     expect(await savedProgress(page)).toEqual(before);
     const badge = await page.locator("#navigation-gps-status").boundingBox();
-    const controls = await page
-      .locator(".navigation-map-controls")
-      .boundingBox();
-    expect(badge!.x + badge!.width).toBeLessThan(controls!.x);
+    const panel = await page.locator("#navigation-panel").boundingBox();
+    expect(badge!.x).toBeGreaterThan(panel!.x);
+    expect(badge!.x + badge!.width).toBeLessThan(panel!.x + panel!.width);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -1206,7 +1201,7 @@ test("GPS badge separates estimated position through loss and recovery", async (
     c,
   );
   await expect(status).toHaveText("GPS ungenau Kartenposition geschätzt");
-  await expect(primary).toHaveText("GPS ungenau");
+  await expect(primary).toContainText("GPS ungenau");
   await page.evaluate(() => {
     window.navProbe.silent = true;
     window.navProbe.fail(2);
@@ -1227,7 +1222,7 @@ test("GPS badge separates estimated position through loss and recovery", async (
   expect(await page.evaluate(() => (window as any).gpsBadgeChanges)).toBe(0);
   // A street/preparation section keeps the warning, without an estimated train position.
   await complete(page);
-  await expect(status).toHaveText("Kein GPS");
+  await expect(status).toContainText("Kein GPS");
   await expect(secondary).toBeHidden();
   await expect(secondary).toBeEmpty();
   await expect(status).toHaveCSS("background-color", "rgb(255, 212, 59)");
@@ -1551,23 +1546,23 @@ test("departure summary follows live times, expiry and cancellation", async ({
   );
   await page.clock.fastForward(61000);
   await expect(page.locator("#navigation-context-title")).toHaveText(
-    "S1 · in 2 Min.",
+    "Danach: S1 · in 2 Min.",
   );
   await expect(page.locator("#navigation-context-detail")).toContainText(
     "Abfahrt 12:02",
   );
   await page.clock.fastForward(61000);
   await expect(page.locator("#navigation-context-title")).toHaveText(
-    "S1 · in <1 Min.",
+    "Danach: S1 · in <1 Min.",
   );
   await page.clock.runFor(30000);
   await expect(page.locator("#navigation-context-title")).toHaveText(
-    "S1 · Abfahrtszeit überschritten",
+    "Danach: S1 · Abfahrtszeit überschritten",
   );
   cancelled = true;
   await page.clock.fastForward(61000);
   await expect(page.locator("#navigation-context-title")).toHaveText(
-    "S1 Richtung Altstadt",
+    "Danach: S1 Richtung Altstadt",
   );
 });
 

@@ -14,6 +14,7 @@ import {
   transitDisruption,
   TransitRefresher,
   type TransitResult,
+  type TransitRefreshOptions,
   transitRetryDelay,
 } from "../src/transit-refresh";
 import { validNavigationSnapshot } from "../src/navigation-store";
@@ -24,6 +25,7 @@ import {
   type Leg,
   type Place,
 } from "../src/model";
+import { NavigationRoutePlanner } from "../src/navigation-route-planner";
 import { NavigationSession } from "../src/navigation-session";
 import { LocationError, type LocationFix } from "../src/live-location";
 import type { NavigationStore } from "../src/navigation-store";
@@ -834,7 +836,7 @@ it("reports activation failure instead of throwing from the accept handler", asy
   await session.proposeAlternative();
   session.alternative!.journey.legs[0].coordinates = [];
   session.alternative!.journey.legs[0].maneuvers = [];
-  await expect(session.acceptAlternative()).resolves.toBeUndefined();
+  await expect(session.acceptAlternative()).resolves.toBe("unavailable");
   expect(session.engine).toBe(previous);
   expect(session.message).toContain("Bisherige Route bleibt erhalten");
   expect(session.alternative).toBeUndefined();
@@ -2746,5 +2748,227 @@ it("allows normal timed progress when both resume checks finish before expiry", 
   expect(session.resumeNeedsConfirmation).toBe(false);
   await vi.advanceTimersByTimeAsync(4000);
   expect(session.engine!.progress.legIndex).toBe(1);
+  await session.stop();
+});
+
+it("accepts only the proposal ID actually shown to the user", async () => {
+  const { session } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  session.disruption = { id: "connection", message: "Anschluss gefährdet" };
+  await session.proposeAlternative();
+  const previous = session.engine;
+  const shown = session.alternative!.id;
+  session.alternative = { ...session.alternative!, id: "replacement" };
+  expect(session.alternativeValidity(shown)).toBe("unavailable");
+  expect(await session.acceptAlternative(shown)).toBe("unavailable");
+  expect(session.engine).toBe(previous);
+  expect(session.alternative!.id).toBe("replacement");
+  expect(await session.acceptAlternative("replacement")).toBe("accepted");
+  await session.stop();
+});
+
+it("keeping the old route cancels a pending alternative location request", async () => {
+  const { session, locate, plan } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  session.disruption = { id: "connection", message: "Anschluss gefährdet" };
+  await session.proposeAlternative();
+  session.alternative!.createdAt -= 121;
+  session.updateLocation(undefined);
+  await session.acceptAlternative();
+  expect(session.alternativeNeedsLocation).toBe(true);
+  let deliver!: (value: LocationFix) => void;
+  locate.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        deliver = resolve;
+      }),
+  );
+  const pending = session.retryLocation();
+  session.dismissAlternative();
+  const searches = plan.mock.calls.length;
+  deliver(fix());
+  await pending;
+  expect(session.alternativeNeedsLocation).toBe(false);
+  expect(session.alternative).toBeUndefined();
+  expect(plan.mock.calls).toHaveLength(searches);
+  await session.stop();
+});
+
+it("retains multiple alternatives and activates only the selected proposal", async () => {
+  const { session } = sessionHarness();
+  await session.start(journey(), request, defaults);
+  const first = journey();
+  const second = { ...journey(), id: "second-route" };
+  const search = vi
+    .spyOn(NavigationRoutePlanner.prototype, "planAlternatives")
+    .mockResolvedValue({ journeys: [first, second], settings: defaults });
+  session.disruption = { id: "multi", message: "Anschluss gefährdet" };
+  const active = session.engine;
+  await session.proposeAlternative();
+  expect(session.alternatives).toHaveLength(2);
+  expect(session.engine).toBe(active);
+  expect(new Set(session.alternatives.map((value) => value.id)).size).toBe(2);
+  const selected = session.alternatives[1];
+  expect(await session.acceptAlternative(selected.id)).toBe("accepted");
+  expect(session.engine!.journey.id).toBe("second-route");
+  expect(session.alternatives).toHaveLength(0);
+  search.mockRestore();
+  await session.stop();
+});
+
+it.each(["bike", "fold", "wait"] as const)(
+  "recovers boarding directly from %s without shifting times or double counting",
+  async (kind) => {
+    const { session, store, locate } = sessionHarness();
+    const railPoint = (meters: number) =>
+      place(11.002 + meters / 74400, 48.002);
+    const rail = train();
+    rail.to = railPoint(6000);
+    rail.coordinates = [c, railPoint(1000), rail.to];
+    rail.end = now + 900;
+    rail.transitStatus = { updatedAt: now + 500 };
+    const pre =
+      kind === "bike" ? bike() : transition(kind, c, now + 100, now + 200);
+    const route = journey([pre, rail]);
+    locate.mockResolvedValue(fix(pre.from));
+    await session.start(route, request, defaults);
+    const timing = session.engine!.journey.legs.map((leg) => [
+      leg.start,
+      leg.end,
+    ]);
+    session.setForeground(false);
+    vi.setSystemTime((now + 500) * 1000);
+    session.setForeground(true);
+    // A cached measurement from the background cannot supply boarding evidence.
+    session.updateLocation(fix(railPoint(1960), 497), "current");
+    session.updateLocation(fix(railPoint(2000), 500), "current");
+    expect(session.engine!.progress.legIndex).toBe(0);
+    vi.setSystemTime((now + 503) * 1000);
+    session.updateLocation(fix(railPoint(2040), 503), "current");
+    expect(session.engine!.leg.kind).toBe("transit");
+    expect(session.engine!.progress.meters).toBeGreaterThan(1900);
+    expect(
+      session.engine!.journey.legs.map((leg) => [leg.start, leg.end]),
+    ).toEqual(timing);
+    expect(session.assessment?.status).toBe("ready");
+    expect(session.message).toBe("Fahrt mit S1 erkannt");
+    expect(session.resumeNeedsConfirmation).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    const snapshot = store.save.mock.lastCall![0];
+    expect(snapshot.progress.legIndex).toBe(1);
+    const recorded = snapshot.trip!.distanceMeters;
+    session.updateLocation(fix(railPoint(2040), 503), "current");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.save.mock.lastCall![0].trip!.distanceMeters).toBe(recorded);
+    await session.stop();
+  },
+);
+
+it("recovers an expired saved fold after late trip data and ignores subsequent old callbacks", async () => {
+  const { session, locate, refresh, store } = sessionHarness();
+  const railPoint = (meters: number) => place(11.002 + meters / 74400, 48.002);
+  const rail = train();
+  rail.to = railPoint(6000);
+  rail.coordinates = [c, railPoint(1000), rail.to];
+  const saved = resumeSnapshot(
+    journey([transition("fold", c, now, now + 120), rail]),
+  );
+  let receive!: (result: Map<string, TransitResult>) => void;
+  let finish!: (result: Map<string, TransitResult>) => void;
+  refresh.mockImplementationOnce(
+    (
+      _legs?: unknown,
+      _signal?: unknown,
+      _time?: unknown,
+      options?: TransitRefreshOptions,
+    ) => {
+      receive = options!.onResult!;
+      return new Promise<Map<string, TransitResult>>((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
+  vi.setSystemTime((now + 500) * 1000);
+  locate.mockResolvedValue(fix(railPoint(2000), 500));
+  await session.start(saved.journey, request, defaults, saved);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(session.resumeNeedsConfirmation).toBe(true);
+  session.updateLocation(fix(railPoint(2000), 500), "current");
+  vi.setSystemTime((now + 503) * 1000);
+  session.updateLocation(fix(railPoint(2040), 503), "current");
+  expect(session.engine!.leg.kind).toBe("fold");
+  const id = session.engine!.journey.legs[1].navigationId!;
+  const result = new Map<string, TransitResult>([
+    [
+      id,
+      {
+        kind: "updated",
+        update: {
+          departure: now + 300,
+          arrival: now + 900,
+          updatedAt: now + 503,
+          realtime: true,
+          cancelled: false,
+        },
+      },
+    ],
+  ]);
+  receive(result);
+  const recovered = session.engine;
+  expect(recovered!.leg.kind).toBe("transit");
+  expect(session.resumeNeedsConfirmation).toBe(false);
+  expect(recovered!.automaticProgressBlocked).toBe(false);
+  receive(
+    new Map([
+      [
+        id,
+        {
+          kind: "updated",
+          update: {
+            departure: now + 300,
+            arrival: now + 1200,
+            updatedAt: now + 503,
+            realtime: true,
+            cancelled: true,
+          },
+        },
+      ],
+    ]),
+  );
+  finish(result);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(session.engine).toBe(recovered);
+  expect(recovered!.leg.end).toBe(now + 900);
+  expect(recovered!.leg.transitStatus?.cancelled).toBe(false);
+  expect(store.save.mock.lastCall![0].progress.legIndex).toBe(1);
+  await session.stop();
+});
+
+it("walking on a platform preserves preparation and its undo context", async () => {
+  const { session } = sessionHarness();
+  const railPoint = (meters: number) => place(11.002 + meters / 74400, 48.002);
+  const rail = train();
+  rail.to = railPoint(6000);
+  rail.coordinates = [c, railPoint(1000), rail.to];
+  rail.transitStatus = { updatedAt: now + 500 };
+  await session.start(
+    journey([bike(), transition("fold", c, now + 180, now + 300), rail]),
+    request,
+    defaults,
+  );
+  session.completeLeg(session.engine!.leg.navigationId!);
+  const engine = session.engine,
+    undo = session.completionUndo;
+  expect(undo).toBeDefined();
+  for (let second = 500; second <= 519; second++) {
+    vi.setSystemTime((now + second) * 1000);
+    session.updateLocation(
+      { ...fix(railPoint(2000 + (second - 500) * 1.1), second), speed: 1.1 },
+      "current",
+    );
+  }
+  expect(session.engine).toBe(engine);
+  expect(session.engine!.leg.kind).toBe("fold");
+  expect(session.completionUndo).toBe(undo);
   await session.stop();
 });

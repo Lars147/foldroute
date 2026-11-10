@@ -520,7 +520,7 @@ test("explains a silent location provider and offers retry after the deadline", 
   await page.locator("#navigation-resume").click();
   await expect(page.locator("#navigation-view")).toBeVisible();
   await expect(page.locator("#navigation-instruction")).toHaveText(
-    "Standort wird geprüft",
+    /^Jetzt: Rad bis .+$/,
   );
   await page.clock.runFor(12100);
   await expect(page.locator("#navigation-view")).toBeVisible();
@@ -588,7 +588,7 @@ test("restores immediately while GPS and trip refresh are pending and recovers w
   await page.locator("#navigation-resume").click();
   await expect(page.locator("#navigation-view")).toBeVisible();
   await expect(page.locator("#navigation-instruction")).toHaveText(
-    "Standort wird geprüft",
+    /^Jetzt: Rad bis .+$/,
   );
   expect(
     await page.evaluate(() =>

@@ -1,6 +1,7 @@
 /* Mobile results share one modal sheet for alternatives and the itinerary. */
 #alternatives-dialog {
   position: fixed;
+  flex-direction: column;
   inset: auto 0 0;
   width: 100%;
   max-width: none;
@@ -16,7 +17,6 @@
 }
 #alternatives-dialog[open] {
   display: flex;
-  flex-direction: column;
 }
 .alternatives-header {
   display: flex;

@@ -144,12 +144,10 @@
   transform: translateX(-50%);
   max-width: calc(100% - 144px);
   padding: 6px 12px;
-  border: 1px solid var(--panel-line);
   border-radius: 999px;
   background: var(--color-brand);
   color: var(--color-on-brand);
-  box-shadow: 0 2px 8px var(--color-shadow);
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1.25;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -279,14 +277,6 @@
 #navigation-network-status,
 #navigation-disruption {
   color: var(--panel-text);
-}
-#navigation-alternative {
-  padding: 12px;
-  border: 1px solid var(--panel-text);
-  border-radius: 12px;
-}
-#navigation-alternative button {
-  margin: 4px 4px 0 0;
 }
 .navigation-credit {
   position: absolute;
@@ -774,11 +764,6 @@
   .navigation-map-controls {
     flex-direction: row;
   }
-  #navigation-gps-status {
-    left: max(12px, var(--safe-left));
-    transform: none;
-    max-width: calc(100% - 196px);
-  }
   [data-details="false"] #navigation-summary {
     min-height: 64px;
     padding-block: 4px;
@@ -804,4 +789,104 @@
 #navigation-center[data-following="false"] {
   background: var(--color-brand);
   color: var(--color-on-brand);
+}
+
+#navigation-alternative {
+  position: fixed;
+  flex-direction: column;
+  width: min(520px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(
+    var(--visual-height, 100dvh) - 24px - var(--safe-top) - var(--safe-bottom)
+  );
+  margin-block: 0;
+  top: calc(var(--visual-top, 0px) + var(--visual-height, 100dvh) / 2);
+  transform: translateY(-50%);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--panel-line);
+  border-radius: 22px;
+  background: var(--panel);
+  color: var(--panel-text);
+  overflow-wrap: anywhere;
+}
+#navigation-alternative[open] {
+  display: flex;
+}
+#navigation-alternative::backdrop {
+  background: var(--color-scrim);
+}
+.alternative-heading {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+}
+.alternative-heading h2 {
+  margin: 0;
+  min-width: 0;
+}
+#navigation-alternative-close {
+  flex-shrink: 0;
+  width: 48px;
+  padding: 0;
+  line-height: 1;
+}
+.alternative-content {
+  padding: 0 20px;
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+}
+.alternative-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 0;
+}
+#navigation-alternative button {
+  margin: 0;
+  min-height: 48px;
+}
+@media (max-width: 899px) {
+  #navigation-alternative {
+    top: calc(
+      var(--visual-top, 0px) + var(--visual-height, 100dvh) - 12px -
+        var(--safe-bottom)
+    );
+    transform: translateY(-100%);
+  }
+}
+
+@media (max-width: 899px) and (prefers-reduced-motion: no-preference) {
+  #navigation-alternative {
+    translate: 0 calc(100% + 12px + var(--safe-bottom));
+  }
+  #navigation-alternative[open] {
+    translate: 0 0;
+  }
+  @starting-style {
+    #navigation-alternative[open] {
+      translate: 0 calc(100% + 12px + var(--safe-bottom));
+    }
+  }
+}
+
+#navigation-alert-open.primary {
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  padding: 12px 16px;
+  border: 1px solid var(--color-asphalt);
+  border-radius: 12px;
+  text-align: center;
+}
+
+#navigation-alert:not([hidden]) {
+  display: block;
+}
+
+@media (max-width: 899px) and (max-height: 500px) {
+  #navigation-gps-status { left: max(12px, var(--safe-left)); transform: none; max-width: calc(100% - 196px); }
 }

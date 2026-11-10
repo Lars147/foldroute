@@ -49,7 +49,9 @@
 {:else}
   <button
     id="navigation-complete"
-    class="primary"
+    class={model.alternativeAvailable || model.completionPrimary === false
+      ? "secondary"
+      : "primary"}
     hidden={!model.available}
     disabled={model.busy}
     type="button"
@@ -79,16 +81,23 @@
   </button>
   <button
     id="navigation-retry"
-    class="primary"
+    class={(model.available && model.completionPrimary !== false) ||
+    model.alternativeAvailable
+      ? "secondary"
+      : "primary"}
     type="button"
-    hidden={!model.retryVisible}
+    hidden={!model.retryVisible || model.alternativeAvailable}
     onclick={commands.retry}>{model.retryLabel}</button
   >
   <button
     id="navigation-replan"
-    class="primary"
+    class={(model.available && model.completionPrimary !== false) ||
+    model.retryVisible ||
+    model.alternativeAvailable
+      ? "secondary"
+      : "primary"}
     type="button"
-    hidden={!model.replanVisible}
+    hidden={!model.replanVisible || model.alternativeAvailable}
     onclick={commands.replan}>Route ab hier planen</button
   >
   <span id="navigation-complete-countdown-description" class="sr-only"

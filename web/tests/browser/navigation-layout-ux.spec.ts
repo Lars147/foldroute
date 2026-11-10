@@ -171,7 +171,7 @@ for (const [width, height] of [
     });
     await mountNavigationFixture(page, 0);
     await expect(page.locator("#navigation-context-title")).toHaveText(
-      "S1 · in 5 Min.",
+      "Danach: S1 · in 5 Min.",
     );
     await expect(page.locator("#navigation-context-detail")).toContainText(
       "Abfahrt 12:05",
