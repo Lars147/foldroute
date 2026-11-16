@@ -801,6 +801,11 @@ export class NavigationSession {
     if (this.hasCurrentLocation) this.locationError = undefined;
     else if (error) this.locationError = error;
     if (!this.engine || !this.foreground) return;
+    // Arrival is final; further fixes only refresh the visible map.
+    if (this.engine.phase === "arrived") {
+      this.emit();
+      return;
+    }
     if (state !== "current") this.boarding.reset();
     // Only street repair can safely follow progress on its original engine.
     // User-requested itinerary changes retain their existing section boundary.

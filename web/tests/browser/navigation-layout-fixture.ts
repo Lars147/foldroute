@@ -66,6 +66,18 @@ export async function mountNavigationFixture(
         api: new ApiClient(),
       });
       const showLeg = (index: number) => {
+        // Synthetic layout sessions still need valid trip metadata if GPS arrives.
+        Object.assign(session, {
+          trip: {
+            id: crypto.randomUUID(),
+            startedAt: Date.now() / 1000,
+            originName: journey.origin.name,
+            distanceMeters: 0,
+            routeMeters: 0,
+            sinceResume: false,
+            storageEpoch: 0,
+          },
+        });
         session.engine = new NavigationEngine(navigationJourney(journey), {
           legIndex: index,
           maneuverIndex: 0,

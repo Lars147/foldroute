@@ -37,6 +37,7 @@ export class NavigationCompletion {
       this.legIndex = engine.progress.legIndex;
     }
     if (!movement(engine.leg)) return true;
+    if (engine.isFinalMovementLeg) return false;
     if (
       current &&
       fix &&

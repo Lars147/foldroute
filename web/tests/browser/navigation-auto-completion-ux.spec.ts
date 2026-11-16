@@ -226,20 +226,103 @@ for (const width of [390, 1280]) {
     );
   });
 
-  test(`the final section waits for the countdown before showing arrival at ${width}px`, async ({
+  test(`the final section immediately shows arrival and keeps its map live at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
     await setup(page);
-    await arriveNearTarget(page);
-    await expect(page.locator("#navigation-auto-complete")).toContainText(
-      "Ziel erreicht in 30 s",
+    await page.clock.runFor(20000);
+    await page.evaluate(() =>
+      window.navProbe.push(48.002 - 80 / 111195, 11.002, 0),
     );
-    await page.clock.fastForward(30000);
-    await expect(page.locator("#navigation-finish-heading")).toHaveText(
-      "Ziel erreicht",
+    await expect(page.locator("#navigation-complete")).toBeHidden();
+    if (width < 900) await page.locator("#navigation-details-toggle").click();
+    else await page.locator("#navigation-more-actions").click();
+    await expect(page.locator("#navigation-complete-manually")).toBeVisible();
+    await page.clock.runFor(3000);
+    await page.evaluate(() =>
+      window.navProbe.push(48.002 - 40 / 111195, 11.002, 0),
     );
+    await expect(page.locator("#navigation-finish-heading")).toBeFocused();
     await expect(page.locator("#navigation-finish")).toBeVisible();
     await expect(page.locator("#navigation-auto-complete")).toBeHidden();
+    const map = page.locator("#navigation-map");
+    await expect(map.locator("canvas")).toBeVisible();
+    const position = await map.getAttribute("data-position");
+    const time = await page.locator("#navigation-finish-time").textContent();
+    const distance = await page
+      .locator("#navigation-finish-distance")
+      .textContent();
+    await page.clock.runFor(5000);
+    await page.evaluate(() => window.navProbe.push(48.002, 11.002, 0));
+    await expect(map).not.toHaveAttribute("data-position", position!);
+    await expect(map).toHaveAttribute("data-position-source", "gps");
+    await expect(page.locator("#navigation-finish-time")).toHaveText(time!);
+    await expect(page.locator("#navigation-finish-distance")).toHaveText(
+      distance!,
+    );
+    await expect(page.locator("#navigation-finish-count")).toHaveText("1");
+    await page.evaluate(() => window.navProbe.hide(true));
+    await expect
+      .poll(() => page.evaluate(() => window.navProbe.active))
+      .toBe(0);
+    await page.clock.runFor(70000);
+    await page.evaluate(() => window.navProbe.hide(false));
+    await expect
+      .poll(() => page.evaluate(() => window.navProbe.active))
+      .toBe(1);
+    await page.evaluate(() =>
+      window.navProbe.push(48.002 + 10 / 111195, 11.002, 0),
+    );
+    await expect(map).toHaveAttribute("data-position-source", "gps");
+    await expect(page.locator("#navigation-finish-time")).toHaveText(time!);
+    await expect(page.locator("#navigation-finish-count")).toHaveText("1");
+    await page.locator("#navigation-finish-close").click();
+    await expect
+      .poll(() => page.evaluate(() => window.navProbe.active))
+      .toBe(0);
+  });
+  test(`short routes already in the arrival radius open the summary at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    const journey = route();
+    const leg = journey.legs[0];
+    leg.to = {
+      ...leg.from,
+      name: "Nahes Ziel",
+      latitude: leg.from.latitude + 30 / 111195,
+    };
+    leg.coordinates = [leg.from, leg.to];
+    leg.maneuvers = undefined;
+    leg.distance = 30;
+    journey.destination = leg.to;
+    await setup(page, false, false, {}, journey);
+    await page.locator("#route-more").click();
+    await page.locator("#navigation-start").click();
+    await page.mouse.move(0, 0);
+    await expect(page.locator("#navigation-finish-heading")).toBeFocused();
+    await expect(page.locator("#navigation-finish-destination")).toHaveText(
+      "Nahes Ziel",
+    );
+    await expect(page.locator("#navigation-finish-count")).toHaveText("1");
+  });
+
+  test(`a hovered activity button cannot pause final arrival at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    const journey = route(true);
+    journey.legs = journey.legs.slice(0, 5);
+    journey.destination = journey.legs.at(-1)!.to;
+    await mountNavigationFixture(page, 3, { journey });
+    const complete = page.locator("#navigation-complete");
+    await complete.hover();
+    await complete.click();
+    await expect(complete).toBeHidden();
+    await page.evaluate(() =>
+      (window as any).navigationFixture.setLocation("current"),
+    );
+    await expect(page.locator("#navigation-finish-heading")).toBeVisible();
   });
 }

@@ -1373,30 +1373,30 @@ for (const [width, colorScheme] of [
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.clock.runFor(32);
     await expect(toast.locator(".toast-countdown")).toBeVisible();
+    // A media-query callback can replace the keyed fill between browser calls.
+    // Wait for the restarted animation and inspect it in the same snapshot.
+    let resumed: { progress: number; elapsed: number } | undefined;
     await expect
-      .poll(() =>
-        toast
+      .poll(async () => {
+        resumed = await toast
           .locator(".toast-countdown-fill")
-          .evaluate(
-            (fill) => fill.getAnimations()[0]?.effect?.getTiming().delay ?? 0,
-          ),
-      )
-      .toBeLessThanOrEqual(-3000);
-    const resumed = await toast
-      .locator(".toast-countdown-fill")
-      .evaluate((fill) => {
-        const animation = fill.getAnimations()[0];
-        animation.pause();
-        // Native animation time and Playwright's clock advance independently.
-        // Inspect the restart at time zero to verify its preserved elapsed offset.
-        animation.currentTime = 0;
-        return {
-          progress: animation.effect!.getComputedTiming().progress,
-          elapsed: -(animation.effect!.getTiming().delay ?? 0),
-        };
-      });
-    expect(resumed.elapsed).toBeGreaterThanOrEqual(3000);
-    expect(resumed.progress).toBeCloseTo(resumed.elapsed / 6000, 3);
+          .evaluate((fill) => {
+            const animation = fill.getAnimations()[0];
+            if (!animation?.effect) return;
+            const elapsed = -(animation.effect.getTiming().delay ?? 0);
+            if (elapsed < 3000) return;
+            animation.pause();
+            // Native animation time and Playwright's clock advance independently.
+            animation.currentTime = 0;
+            const progress = animation.effect.getComputedTiming().progress;
+            if (progress == null) return;
+            return { progress, elapsed };
+          });
+        return resumed?.elapsed ?? 0;
+      })
+      .toBeGreaterThanOrEqual(3000);
+    expect(resumed!.elapsed).toBeGreaterThanOrEqual(3000);
+    expect(resumed!.progress).toBeCloseTo(resumed!.elapsed / 6000, 3);
     await page.screenshot({ path: info.outputPath("message-countdown.png") });
     await expectCountdownAt(page, 6000, 1);
     const remaining = await page.evaluate(

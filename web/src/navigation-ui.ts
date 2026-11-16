@@ -70,7 +70,6 @@ export class NavigationView {
   private positionTracker = new NavigationPositionTracker();
   private completion = new NavigationCompletion();
   private quickCompletionAvailable = false;
-  private finishedMap?: NavigationMap;
   private stationLists: NavigationStations[];
   private loading?: Promise<void>;
   private session?: NavigationSession;
@@ -1098,7 +1097,6 @@ export class NavigationView {
     el<HTMLDialogElement>("navigation-confirm").close();
     this.map?.dispose();
     this.map = undefined;
-    this.finishedMap = undefined;
     for (const list of this.stationLists) list.update(undefined, -1);
   }
   async dispose() {
@@ -1359,11 +1357,8 @@ export class NavigationView {
         this.guidance.speak(`arrived-${summary.id}`, "Ziel erreicht");
         el("navigation-finish-heading").focus({ preventScroll: true });
       }
-      if (this.map && this.finishedMap !== this.map) {
-        this.map.update(engine, session.fix, session.locationQuality);
-        this.map.freeze();
-        this.finishedMap = this.map;
-      }
+      this.map?.update(engine, session.fix, session.locationQuality);
+      this.countdownInteraction.refresh();
       return;
     }
     const displayPosition = engine
@@ -1729,6 +1724,7 @@ export class NavigationView {
           ? moreActions
           : el("navigation-instruction")
       ).focus({ preventScroll: true });
+    this.countdownInteraction.refresh();
     this.screen.setHidden(
       "navigation-locate",
       arrived === true ||

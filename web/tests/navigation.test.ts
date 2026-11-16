@@ -190,10 +190,8 @@ it("instructs the next turn at its beginning and advances after reaching it", ()
   e.update(fix(b, 10), (now + 10) * 1000);
   expect(e.instruction).toBe(`Mit dem Rad nach ${c.name}`);
   e.update(fix(c, 30), (now + 30) * 1000);
-  expect(e.phase).toBe("active");
-  expect(e.completionCountdown?.remainingSeconds).toBe(30);
-  e.tick(now + 60);
   expect(e.phase).toBe("arrived");
+  expect(e.completionCountdown).toBeUndefined();
 });
 it("rejects noisy, stale and duplicate GPS and only reroutes on three reliable samples", () => {
   const e = new NavigationEngine(journey()),
@@ -2970,5 +2968,54 @@ it("walking on a platform preserves preparation and its undo context", async () 
   expect(session.engine).toBe(engine);
   expect(session.engine!.leg.kind).toBe("fold");
   expect(session.completionUndo).toBe(undo);
+  await session.stop();
+});
+
+it("keeps the arrived session immutable while publishing live map positions", async () => {
+  const { session, store, api } = sessionHarness();
+  const routing = vi.spyOn(api, "batch");
+  await session.start(journey(), request, defaults);
+  vi.setSystemTime((now + 20) * 1000);
+  session.updateLocation(
+    { ...fix(c, 20), latitude: c.latitude - 40 / 111195 },
+    "current",
+  );
+  expect(session.engine!.phase).toBe("arrived");
+  await vi.advanceTimersByTimeAsync(0);
+  const summary = session.summary;
+  const progress = structuredClone(session.engine!.progress);
+  vi.setSystemTime((now + 30) * 1000);
+  session.updateLocation(fix(c, 30), "current");
+  expect(session.fix).toEqual(fix(c, 30));
+  expect(session.summary).toBe(summary);
+  expect(session.engine!.progress).toEqual(progress);
+  expect(store.completeTrip).toHaveBeenCalledTimes(1);
+  session.setForeground(false);
+  vi.setSystemTime((now + 90) * 1000);
+  session.setForeground(true);
+  session.updateLocation(fix(c, 90), "current");
+  expect(session.summary).toBe(summary);
+  session.updateLocation(fix(place(11.1, 48.1), 91), "current");
+  expect(routing).not.toHaveBeenCalled();
+  expect(session.summary).toBe(summary);
+  expect(store.completeTrip).toHaveBeenCalledTimes(1);
+  await session.stop();
+});
+
+it("finishes resumed final progress only after fresh location and validation", async () => {
+  const { session, locate, store } = sessionHarness();
+  const snapshot = resumeSnapshot();
+  snapshot.progress.meters = 330;
+  locate.mockResolvedValue({ ...fix(c), latitude: c.latitude - 40 / 111195 });
+  await session.start(snapshot.journey, request, defaults, snapshot);
+  await vi.advanceTimersByTimeAsync(0);
+  session.updateLocation(
+    { ...fix(c, 1), latitude: c.latitude - 40 / 111195 },
+    "current",
+  );
+  expect(session.engine!.phase).toBe("arrived");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(store.completeTrip).toHaveBeenCalledTimes(1);
+  expect(session.summary?.sinceResume).toBe(true);
   await session.stop();
 });

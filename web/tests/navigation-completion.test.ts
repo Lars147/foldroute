@@ -11,7 +11,7 @@ const point = (meters: number) => ({
   name: String(meters),
   detail: "",
 });
-function route(
+function finalRoute(
   kind: Leg["kind"] = "bike",
   coordinates = [point(0), point(400)],
 ) {
@@ -34,6 +34,21 @@ function route(
     transfers: 0,
     isDirect: true,
   } as Journey);
+}
+function route(
+  kind: Leg["kind"] = "bike",
+  coordinates = [point(0), point(400)],
+) {
+  const journey = finalRoute(kind, coordinates);
+  if (kind !== "bike" && kind !== "walk") return journey;
+  journey.legs.push({
+    ...journey.legs[0],
+    kind: "fold",
+    navigationId: "following-fold",
+    start: 2000,
+    end: 2120,
+  });
+  return journey;
 }
 const fix = (meters: number, timestamp = now, accuracy = 10) => ({
   ...point(meters),
@@ -137,7 +152,7 @@ describe("navigation completion visibility", () => {
   });
 
   it("resets on a new section, restored engine, explicit reset and arrival", () => {
-    const journey = route();
+    const journey = finalRoute();
     journey.legs.push({
       ...journey.legs[0],
       navigationId: "next",
@@ -158,7 +173,7 @@ describe("navigation completion visibility", () => {
     expect(move(completion, engine, 320, now + 2000)).toBe(true);
     engine.advance(true);
     expect(completion.update(engine)).toBe(false);
-    expect(move(completion, engine, 320, now + 3000)).toBe(true);
+    expect(move(completion, engine, 320, now + 3000)).toBe(false);
     engine.advance(true);
     expect(completion.update(engine)).toBe(false);
   });
@@ -208,13 +223,13 @@ describe("automatic section completion countdown", () => {
       expect(engine.phase).toBe("active");
       expect(engine.remainingSeconds).toBeCloseTo(0.001);
       engine.tick((now + 31000) / 1000);
-      expect(engine.phase).toBe("arrived");
+      expect(engine.progress.legIndex).toBe(1);
       expect(engine.completionCountdown).toBeUndefined();
     },
   );
 
   it("starts the next activity at the end of the countdown and does not skip it", () => {
-    const journey = route();
+    const journey = finalRoute();
     journey.legs.push({
       ...journey.legs[0],
       kind: "fold",
@@ -246,7 +261,7 @@ describe("automatic section completion countdown", () => {
     engine.tick(now / 1000 + 81);
     expect(engine.phase).toBe("active");
     engine.tick(now / 1000 + 82);
-    expect(engine.phase).toBe("arrived");
+    expect(engine.progress.legIndex).toBe(1);
   });
 
   it("does not finish from a stale position or a rejected GPS jump", () => {
@@ -335,7 +350,7 @@ describe("automatic section completion countdown", () => {
     const turn = new NavigationEngine(turning);
     sample(turn, 395);
     expect(turn.completionCountdown).toBeUndefined();
-    const journey = route();
+    const journey = finalRoute();
     journey.legs.push({
       ...journey.legs[0],
       kind: "transit",
@@ -375,7 +390,7 @@ describe("completion countdown pauses", () => {
       expect(engine.phase).toBe("active");
       expect(engine.completionCountdown?.remainingSeconds).toBe(1);
       engine.tick(now / 1000 + 72);
-      expect(engine.phase).toBe("arrived");
+      expect(engine.progress.legIndex).toBe(1);
     },
   );
 
@@ -441,5 +456,93 @@ describe("completion countdown pauses", () => {
     engine.tick(now / 1000 + 90);
     expect(engine.progress.legIndex).toBe(0);
     expect(engine.advance(true, now / 1000 + 90)).toBe(true);
+  });
+});
+
+describe("immediate destination arrival", () => {
+  it.each(["bike", "walk"] as const)(
+    "finishes final %s at 50 m without a countdown or quick action",
+    (kind) => {
+      const engine = new NavigationEngine(finalRoute(kind));
+      const completion = new NavigationCompletion();
+      expect(move(completion, engine, 320)).toBe(false);
+      expect(engine.phase).toBe("active");
+      move(completion, engine, 349, now + 2000);
+      expect(engine.phase).toBe("active");
+      move(completion, engine, 350.001, now + 3000);
+      expect(engine.phase).toBe("arrived");
+      expect(engine.completionCountdown).toBeUndefined();
+    },
+  );
+
+  it("requires accurate, fresh, plausible matched GPS and respects resume validation", () => {
+    const engine = new NavigationEngine(finalRoute());
+    engine.update(fix(360, now, 51), now);
+    expect(engine.phase).toBe("active");
+    engine.update(fix(360, now + 1000), now + 62000);
+    expect(engine.phase).toBe("active");
+    engine.automaticProgressBlocked = true;
+    engine.update(fix(360, now + 63000), now + 63000);
+    expect(engine.phase).toBe("active");
+    engine.automaticProgressBlocked = false;
+    engine.update(fix(360, now + 64000), now + 64000);
+    expect(engine.phase).toBe("arrived");
+    const jump = new NavigationEngine(finalRoute());
+    jump.update(fix(0), now);
+    jump.update(fix(360, now + 1000), now + 1000);
+    expect(jump.phase).toBe("active");
+  });
+
+  it("does not finish loops, degenerate paths or an elevator hidden behind a turn", () => {
+    for (const coordinates of [
+      [point(0), point(400), point(0)],
+      [point(0), point(0)],
+    ]) {
+      const engine = new NavigationEngine(finalRoute("walk", coordinates));
+      engine.update(fix(0), now);
+      expect(engine.phase).toBe("active");
+    }
+    const journey = finalRoute("walk");
+    journey.legs[0].maneuvers = [
+      {
+        direction: "DEPART",
+        streetName: "",
+        distance: 370,
+        coordinates: [point(0), point(370)],
+      },
+      {
+        direction: "LEFT",
+        streetName: "",
+        distance: 20,
+        coordinates: [point(370), point(390)],
+      },
+      {
+        direction: "ELEVATOR",
+        streetName: "",
+        distance: 10,
+        coordinates: [point(390), point(400)],
+      },
+    ];
+    const engine = new NavigationEngine(journey);
+    engine.update(fix(360), now);
+    expect(engine.maneuver?.direction).toBe("LEFT");
+    expect(engine.phase).toBe("active");
+  });
+
+  it("finishes short routes immediately, including a final leg after an activity", () => {
+    const short = finalRoute("walk", [point(370), point(400)]);
+    const engine = new NavigationEngine(short);
+    engine.update(fix(370), now);
+    expect(engine.phase).toBe("arrived");
+    const journey = finalRoute();
+    journey.legs.unshift({
+      ...journey.legs[0],
+      kind: "unfold",
+      navigationId: "unfold",
+    });
+    const multi = new NavigationEngine(journey);
+    multi.advance(true);
+    multi.update(fix(360), now);
+    expect(multi.phase).toBe("arrived");
   });
 });

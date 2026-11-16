@@ -167,6 +167,12 @@ export class NavigationEngine {
     this.normalizeTransitProgress();
     this.preparePath();
   }
+  get isFinalMovementLeg(): boolean {
+    return (
+      movement(this.leg) &&
+      this.progress.legIndex === this.journey.legs.length - 1
+    );
+  }
   get leg(): Leg {
     return this.journey.legs[this.progress.legIndex];
   }
@@ -572,6 +578,26 @@ export class NavigationEngine {
       fix.accuracy <= 50 &&
       this.plausibleMovementTimestamp === fix.timestamp;
     const targetDistance = plausible ? distance(fix, this.leg.to) : Infinity;
+    if (this.isFinalMovementLeg) {
+      this.completionCountdown = undefined;
+      const pendingVertical = this.cues.some(
+        (cue) =>
+          verticalManeuver(cue.maneuver.direction) &&
+          cue.meters >= this.progress.meters - 25,
+      );
+      if (
+        plausible &&
+        targetDistance <= 50 &&
+        this.remainingMeters <= 50 &&
+        this.guidanceUsable &&
+        this.movementMatchTimestamp === fix.timestamp &&
+        this.movementMatch &&
+        this.hasMovementPath &&
+        !pendingVertical
+      )
+        this.advance(false, now / 1000);
+      return;
+    }
     if (plausible && targetDistance > 20) this.completionCancelled = false;
     if (
       !plausible ||

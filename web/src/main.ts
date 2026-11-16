@@ -367,8 +367,7 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
           !!navigationView?.visible ||
           navigationChecking) &&
         !document.hidden &&
-        !dialog.open &&
-        !arrived,
+        !dialog.open,
     );
   }
   function cancelMapCenter() {
@@ -773,7 +772,8 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
         location.href,
       );
       navigationView!.render();
-      el("navigation-instruction").focus({ preventScroll: true });
+      if (navigation!.engine?.phase !== "arrived")
+        el("navigation-instruction").focus({ preventScroll: true });
     } catch (error) {
       if (generation !== navigationLaunchGeneration) return;
       navigationCheckError =

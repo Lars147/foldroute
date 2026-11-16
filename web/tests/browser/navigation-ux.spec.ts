@@ -138,8 +138,8 @@ for (const width of [390, 1280]) {
     await expect(meters).toHaveText("165 m");
     await page.clock.runFor(10000);
     await page.evaluate(() => window.navProbe.push(48.0006, 11.003));
-    await expect(page.locator("#navigation-auto-complete")).toBeVisible();
-    await page.clock.runFor(30000);
+    await expect(page.locator("#navigation-auto-complete")).toBeHidden();
+    await expect(page.locator("#navigation-finish-heading")).toBeFocused();
     await expect(instruction).toHaveText("Ziel erreicht");
     spoken = await page.evaluate(() => window.navProbe.spoken as string[]);
     expect(spoken).toContain("Ziel erreicht");
@@ -844,7 +844,7 @@ for (const width of [320, 390, 1280])
       await expect(page.locator("#navigation-details-toggle")).toBeHidden();
       await expect
         .poll(() => page.evaluate(() => window.navProbe.active))
-        .toBe(0);
+        .toBe(1);
       await expect.poll(() => savedActive(page)).toBe(false);
       const bounds = (await panel.boundingBox())!;
       expect(bounds.x).toBeGreaterThanOrEqual(0);
