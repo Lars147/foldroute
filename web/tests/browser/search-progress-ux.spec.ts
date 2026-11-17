@@ -634,6 +634,12 @@ test("search wait timer survives progress and resets for a new request, ignoring
     (window as any).previousSearchControl = (window as any).searchControl;
   });
   await page.locator("#adjust-route").click();
+  await expectMotionSettled(page.locator("#route-editor"));
+  // Freeze before starting the new timer: real browser work must not consume
+  // the 100ms margin checked below, especially in WebKit under parallel load.
+  await page.clock.pauseAt(
+    await page.evaluate(() => new Date(Date.now() + 1000).toISOString()),
+  );
   await page.locator("#calculate").click();
   await expect(page.locator("#search-preview-hint")).toBeHidden();
   expect(

@@ -37,6 +37,9 @@ jobs:
       - name: Run unit tests
         run: npm test
       - name: Check types and build website
+        env:
+          VITE_SENTRY_DSN: ${{ vars.FOLDROUTE_FEEDBACK_DSN }}
+          VITE_FEEDBACK_ENABLED: ${{ vars.FOLDROUTE_FEEDBACK_ENABLED }}
         run: npm run build
       - name: Save website
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

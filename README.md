@@ -59,3 +59,5 @@ Ticketkauf, Offline-Karten, Apple Watch, CarPlay, Indoor-Navigation und Fahrrad-
 ## Lizenz
 
 MIT, siehe [LICENSE](LICENSE). Karten und Routingdaten haben eigene Quellen und Nutzungsbedingungen; diese stehen in der [Web-Anleitung](web/README.md#vor-öffentlicher-veröffentlichung).
+
+Explizit abgesendetes PWA-Feedback kann optional einen Diagnosebericht mit aktueller Route, letzter Position und Bild an den privaten Sentry-Pool in der EU übertragen. Der Dialog zeigt diese Datenverwendung und erlaubt das Abwählen der Anhänge. Ohne Netz vorgemerkte Meldungen bleiben bis zum Versand lokal. Automatische Sentry-Überwachung oder Session Replay sind nicht aktiv; Details unter [Problem melden](web/README.md#problem-melden).

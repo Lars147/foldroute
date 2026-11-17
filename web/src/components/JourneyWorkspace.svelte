@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FeedbackMenu from "./FeedbackMenu.svelte";
   import { onMount, untrack } from "svelte";
   import type { Snippet } from "svelte";
   import Icon from "./Icon.svelte";
@@ -660,6 +661,7 @@
   class={classValue("alternatives-dialog", "")}
   {...attributes["alternatives-dialog"]}
 >
+  <FeedbackMenu context="Reisedetails" />
   <header class="alternatives-header">
     <button
       id="alternatives-back"
@@ -779,6 +781,7 @@
   >
     Routenaktionen
   </h2>
+  <FeedbackMenu action />
   <dl
     id="route-action-context"
     hidden={hidden["route-action-context"] ?? false}

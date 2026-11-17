@@ -90,6 +90,40 @@ export class RouteMap {
   private markerHalfWidth = 22;
   private zooming = false;
   private pendingRouteFit = false;
+  diagnosticCamera() {
+    return (
+      this.map && {
+        center: this.map.getCenter(),
+        zoom: this.map.getZoom(),
+        manual: this.manualCamera,
+      }
+    );
+  }
+  async feedbackFrame(): Promise<string | undefined> {
+    const map = this.tiles?.getMaplibreMap();
+    if (!map) return;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        map.off("render", capture);
+        reject(new Error("Kartenaufnahme nicht verfügbar."));
+      }, 1500);
+      const capture = () => {
+        clearTimeout(timer);
+        try {
+          const source = map.getCanvas();
+          const canvas = document.createElement("canvas");
+          canvas.width = source.width;
+          canvas.height = source.height;
+          canvas.getContext("2d")!.drawImage(source, 0, 0);
+          resolve(canvas.toDataURL());
+        } catch (error) {
+          reject(error);
+        }
+      };
+      map.once("render", capture);
+      map.triggerRepaint();
+    });
+  }
   constructor(
     private onSelect: (id: string) => void,
     private onBackground: () => void,

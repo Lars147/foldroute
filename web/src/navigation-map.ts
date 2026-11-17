@@ -229,6 +229,14 @@ export class NavigationMap {
     delete this.target.dataset.previewSection;
     this.publishFollowing();
   }
+  diagnosticCamera() {
+    return {
+      center: this.view.getCenter(),
+      zoom: this.view.getZoom(),
+      rotation: this.view.getRotation(),
+      mode: this.camera,
+    };
+  }
   freeze() {
     this.stopAnimation();
     this.view.cancelAnimations();

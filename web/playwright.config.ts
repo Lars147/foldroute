@@ -19,11 +19,12 @@ export default defineConfig({
   webServer: [
     {
       command: `npm run dev -- --port ${port}`,
+      env: { VITE_SENTRY_DSN: "https://public@feedback.invalid/1" },
       url: `http://127.0.0.1:${port}`,
       reuseExistingServer: false,
     },
     {
-      command: `python3 -m http.server ${port + 1} --bind 127.0.0.1 --directory ..`,
+      command: `python3 scripts/serve-browser-tests.py --port ${port + 1}`,
       url: `http://127.0.0.1:${port + 1}/docs/plan/`,
       reuseExistingServer: false,
     },

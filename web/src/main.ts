@@ -1,3 +1,4 @@
+import { configureFeedback, writeFeedbackHistory } from "./feedback-controller";
 import { createBackup, restoreBackup } from "./backup-storage";
 import { RouteEditorController } from "./route-editor-controller";
 import type { WorkspaceToast } from "./journey-workspace-presentation";
@@ -776,9 +777,9 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
         presentation.workspace.setHidden("map-view", false);
         return;
       }
-      history.pushState(
+      writeFeedbackHistory(
         { ...history.state, navigation: true, position: ++historyPosition },
-        "",
+        true,
         location.href,
       );
       navigationView!.render();
@@ -906,7 +907,7 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
     resultDepth = push ? 0 : (history.state?.resultDepth ?? 0),
   ) {
     if (restoringSettingsPosition !== undefined) return;
-    history[push ? "pushState" : "replaceState"](
+    writeFeedbackHistory(
       {
         position: push ? ++historyPosition : historyPosition,
         view,
@@ -924,7 +925,7 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
               }
             : undefined,
       },
-      "",
+      push,
       routeURL(location.href, activePlan),
     );
     presentation.workspace.setHidden("plan-link-fallback", true);
@@ -1158,9 +1159,9 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
     }
     sheetHistoryClosing = false;
     if (navigationView?.visible) {
-      history.pushState(
+      writeFeedbackHistory(
         { ...history.state, navigation: true, position: ++historyPosition },
-        "",
+        true,
         location.href,
       );
       if (!navigationView.dismissConfirmation()) navigationView.confirmEnd();
@@ -2261,25 +2262,81 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
         "Favoriten und letzte Orte konnten nicht geladen werden. Online-Planung bleibt möglich.",
       ),
     );
-  const startupReady = Promise.all([restoredStartup, placesStartup]).then(
-    () => {
-      afterStartup(() => {
-        if (view === "search" && !originOverride) void prepareSearchLocation();
-        if (
-          matchMedia(
-            "(min-width: 900px) and (hover: hover) and (pointer: fine)",
-          ).matches &&
-          view === "search" &&
-          !routeEditor.editorExpanded &&
-          !navigationView?.visible &&
-          !shareImport.hasPending &&
-          !document.querySelector("dialog[open]") &&
-          document.activeElement === document.body
-        )
-          routeEditor.destination.input.focus({ preventScroll: true });
-      });
-    },
-  );
+  const feedbackReady =
+    import.meta.env.DEV ||
+    (import.meta.env.VITE_SENTRY_DSN &&
+      import.meta.env.VITE_FEEDBACK_ENABLED === "true")
+      ? configureFeedback({
+          revision: () =>
+            `${view}:${navigationView?.visible}:${[...document.querySelectorAll('[aria-selected="true"]')].map((e) => e.id).join(",")}:${session.state.selected?.id ?? ""}:${navigation?.engine?.journey.id ?? ""}:${navigation?.engine?.progress.legIndex ?? ""}:${navigation?.engine?.phase ?? ""}`,
+          frame: () =>
+            navigationView?.visible
+              ? Promise.resolve(undefined)
+              : routeMap.feedbackFrame(),
+          read: () => ({
+            view,
+            planning: session.state,
+            settings: settingsController.value,
+            appearance: appearance.preference,
+            mapStyle: mapStyle.preference,
+            storage: {
+              history: historyEnabled,
+              navigation: navigationStorageEnabled,
+              statistics: statisticsEnabled,
+            },
+            screenAwake: keepScreenAwake,
+            camera: navigationView?.visible
+              ? navigationView.diagnosticCamera()
+              : view === "map"
+                ? routeMap.diagnosticCamera()
+                : undefined,
+            lastKnownFix: navigation?.fix,
+            navigation:
+              navigationView?.visible && navigation?.engine
+                ? {
+                    request: navigation.request,
+                    settings: navigation.settings,
+                    fix: navigation.fix,
+                    quality: navigation.fixQuality,
+                    message: navigation.message,
+                    locationError: navigation.locationError,
+                    disruption: navigation.disruption,
+                    alternatives: navigation.alternatives,
+                    phase: navigation.engine?.phase,
+                    progress: navigation.engine?.progress,
+                    journey: navigation.engine?.journey,
+                    offRoute: navigation.engine?.offRoute,
+                    routeState: navigation.engine?.routeState,
+                    distanceToNext: navigation.engine?.distanceToNext,
+                    completionCountdown: navigation.engine?.completionCountdown,
+                    resumeNeedsConfirmation: navigation.resumeNeedsConfirmation,
+                    automaticProgressBlocked:
+                      navigation.engine?.automaticProgressBlocked,
+                  }
+                : undefined,
+          }),
+        }).catch(() => {})
+      : Promise.resolve();
+  const startupReady = Promise.all([
+    restoredStartup,
+    placesStartup,
+    feedbackReady,
+  ]).then(() => {
+    afterStartup(() => {
+      if (view === "search" && !originOverride) void prepareSearchLocation();
+      if (
+        matchMedia("(min-width: 900px) and (hover: hover) and (pointer: fine)")
+          .matches &&
+        view === "search" &&
+        !routeEditor.editorExpanded &&
+        !navigationView?.visible &&
+        !shareImport.hasPending &&
+        !document.querySelector("dialog[open]") &&
+        document.activeElement === document.body
+      )
+        routeEditor.destination.input.focus({ preventScroll: true });
+    });
+  });
   routeEditor.destination.activate();
   settingsController.render();
   routeEditor.contextUI();

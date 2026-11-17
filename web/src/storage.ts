@@ -1,3 +1,4 @@
+import { feedbackLock } from "./feedback-lock";
 import { resetNavigationStatistics } from "./navigation-statistics-store";
 
 export class LocalDatabase {
@@ -34,13 +35,28 @@ export class LocalDatabase {
     }));
   }
 
-  async clearAll(): Promise<void> {
+  clearAll(): Promise<void> {
+    return feedbackLock(async () => {
+      await this.clearAllLocked();
+      window.dispatchEvent(new Event("foldroute:feedback-clear"));
+      if (typeof BroadcastChannel !== "undefined") {
+        const channel = new BroadcastChannel("foldroute-feedback-clear");
+        channel.postMessage("cleared");
+        channel.close();
+      }
+    });
+  }
+  private async clearAllLocked(): Promise<void> {
     this.generation++;
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(["state", "places"], "readwrite");
       resetNavigationStatistics(tx.objectStore("state"));
-      for (const key of ["historyEpoch", "navigationResumeEpoch"]) {
+      for (const key of [
+        "historyEpoch",
+        "navigationResumeEpoch",
+        "feedbackEpoch",
+      ]) {
         const epoch = tx.objectStore("state").get(key);
         epoch.onsuccess = () =>
           tx.objectStore("state").put((epoch.result ?? 0) + 1, key);

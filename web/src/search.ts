@@ -172,14 +172,14 @@ export class PlaceSearch {
         { signal: this.events.signal },
       );
       const leave = (event?: FocusEvent) => {
-        if (this.contains(event?.relatedTarget ?? null)) return;
+        if (this.contains(event?.relatedTarget ?? null) || (event?.relatedTarget instanceof Element && event.relatedTarget.closest("[data-feedback-ui]"))) return;
         // Re-rendered result buttons can regain focus in the same turn.
         queueMicrotask(() => {
           if (
             !pointing &&
             !this.focusBack &&
             PlaceSearch.dialogSearch === this &&
-            !this.contains(document.activeElement)
+            !this.contains(document.activeElement) && !document.activeElement?.closest("[data-feedback-ui]")
           )
             this.cancel();
         });
@@ -222,7 +222,7 @@ export class PlaceSearch {
           if (
             !this.focusBack &&
             PlaceSearch.dialogSearch === this &&
-            !this.contains(target)
+            !this.contains(target) && !(target instanceof Element && target.closest("[data-feedback-ui]"))
           )
             this.cancel();
         },

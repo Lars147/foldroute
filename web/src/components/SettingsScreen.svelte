@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FeedbackMenu from "./FeedbackMenu.svelte";
   import BackupControls from "./BackupControls.svelte";
   import type { BackupActions } from "../backup-codec";
   let backup = $state.raw<BackupActions>();
@@ -26,6 +27,7 @@
   hidden
 >
   <div class="settings-heading-row">
+    <FeedbackMenu context="Einstellungen" />
     <h1 id="settings-heading">Einstellungen</h1>
     <span id="settings-summary" class="settings-mobile-title" aria-hidden="true"
       >Deine Vorgaben</span

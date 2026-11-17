@@ -459,3 +459,9 @@ dialog.editing-time {
 .live-location-marker[data-quality="inaccurate"] .live-location-dot {
   border-style: dashed;
 }
+
+@media (max-width:899px) {
+ body.search-focus-mode .search-intro .feedback-menu, body.search-focus-mode .search-intro .feedback-menu * {visibility:visible;}
+ body.search-focus-mode .search-intro .feedback-menu {position:fixed;z-index:1001;right:calc(var(--safe-right) + 12px);top:calc(var(--visual-top,0px) + var(--safe-top) + 8px);}
+ body.search-focus-mode dialog[data-feedback-ui][open], body.search-focus-mode dialog[data-feedback-ui][open] * {visibility:visible;}
+}

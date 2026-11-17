@@ -1,3 +1,4 @@
+import { feedbackLock } from "./feedback-lock";
 import { migrateSettings } from "./model";
 import { localDatabase } from "./storage";
 import {
@@ -131,7 +132,7 @@ async function exclusive<T>(
           throw new Error(
             "Bitte andere FoldRoute-Fenster schließen und erneut versuchen.",
           );
-        const result = await action();
+        const result = await feedbackLock(action);
         completed = true;
         return result;
       },

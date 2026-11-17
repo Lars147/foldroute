@@ -110,6 +110,9 @@ export class NavigationView {
     this.voiceMessage = message;
     this.screen.setText("navigation-audio-status", message);
   });
+  diagnosticCamera() {
+    return this.map?.diagnosticCamera();
+  }
   constructor(
     private exit: () => void,
     private restart: (replan: boolean) => void,

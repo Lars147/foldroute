@@ -1,4 +1,6 @@
 <script lang="ts">
+  import FeedbackCenter from "./FeedbackCenter.svelte";
+  import FeedbackMenu from "./FeedbackMenu.svelte";
   import { flushSync, onDestroy } from "svelte";
   import type { Snippet } from "svelte";
   import RouteEditor from "./RouteEditor.svelte";
@@ -215,6 +217,7 @@
     aria-labelledby="search-heading"
   >
     <div class="search-intro">
+      <FeedbackMenu context="Suche" />
       <h1 id="search-heading" tabindex="-1">Wohin geht’s?</h1>
       <p>Mit deinem Faltrad. Und allem, was verbindet.</p>
     </div>
@@ -226,6 +229,7 @@
     aria-labelledby="history-heading"
     hidden
   >
+    <FeedbackMenu context="Verlauf" />
     <h1 id="history-heading" tabindex="-1">Verlauf</h1>
     <p id="history-empty" class="message"></p>
     <ul id="history-list" class="history-list">
@@ -238,6 +242,7 @@
   />
 
   <SettingsScreen bind:this={settings} />
+  {#if mode === "live"}<FeedbackCenter />{/if}
   {#if mode === "live"}<NavigationScreen
       bind:this={navigation}
       selectSection={(id) => navigationCommands.selectSection(id)}

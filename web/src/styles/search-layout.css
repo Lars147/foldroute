@@ -890,3 +890,9 @@
 @media (max-width: 899px) and (max-height: 500px) {
   #navigation-gps-status { left: max(12px, var(--safe-left)); transform: none; max-width: calc(100% - 196px); }
 }
+
+@media (max-width:899px) {
+ #navigation-summary:has(> .feedback-menu) > .feedback-menu {position:absolute;right:64px;top:50%;transform:translateY(-50%);}
+ #navigation-summary:has(> .feedback-menu) #navigation-details-toggle {padding-right:136px;}
+ #navigation-summary:has(> .feedback-menu) .navigation-expand {right:112px;}
+}
