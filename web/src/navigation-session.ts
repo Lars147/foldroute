@@ -1661,6 +1661,10 @@ export class NavigationSession {
         "Gesamtstatistik konnte nicht gespeichert werden.";
     this.emit();
   }
+  async suspendForBackup() {
+    this.abortTasks();
+    await this.completion;
+  }
   async stop() {
     this.discardCompletionUndo();
     const tripId = this.trip?.id;

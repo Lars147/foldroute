@@ -16,6 +16,7 @@ export interface SettingsFieldsPresentation {
   validation: SettingsValidation;
 }
 export interface SettingsPresentation {
+  configureBackup(actions: import("./backup-codec").BackupActions): void;
   render(binding: SettingsFieldsPresentation): void;
   clear(): void;
 }

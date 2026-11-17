@@ -1,4 +1,10 @@
 <script lang="ts">
+  import BackupControls from "./BackupControls.svelte";
+  import type { BackupActions } from "../backup-codec";
+  let backup = $state.raw<BackupActions>();
+  export function configureBackup(actions: BackupActions) {
+    backup = actions;
+  }
   import buildVersion from "virtual:foldroute-build-version";
   import SettingsFields from "./SettingsFields.svelte";
   import type { SettingsFieldsPresentation } from "../app-presentation";
@@ -209,6 +215,7 @@
   </section>
   <details id="settings-data" class="group settings-disclosure">
     <summary>Daten verwalten</summary>
+    {#if backup}<BackupControls actions={backup} />{/if}
     <button id="delete-saved" type="button" class="text-button settings-delete">
       Streckenverlauf löschen
     </button>

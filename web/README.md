@@ -267,3 +267,12 @@ Die mit Chrome auf Android installierte PWA kann als **FoldRoute** im Teilen-Men
 Reine Karten-Kurzlinks werden nicht abgerufen oder über einen zusätzlichen Dienst aufgelöst. Stattdessen lässt sich eine Adresse eingeben. Ein abgebrochener Import bleibt über **Geteiltes Ziel** erreichbar; ein neuer Import ersetzt den vorherigen. Vorgemerkte Ziele bleiben lokal und werden mit **Alle lokalen Daten löschen** entfernt. Ohne verfügbaren lokalen Speicher funktioniert die Übernahme für die laufende Sitzung.
 
 Unter iOS kann die PWA selbst kein Teilen-Ziel registrieren. Dafür gibt es die native [iOS-Teilen-Erweiterung](../ios/README.md#adressen-aus-anderen-apps-übernehmen). Keine Kurzbefehle erforderlich.
+
+
+## Lokale Sicherung
+
+Unter **Einstellungen → Daten verwalten** erstellt **Daten sichern** eine unverschlüsselte JSON-Datei mit Einstellungen, Favoriten, letzten Orten, Streckenverlauf und Fahrtstatistik. Auch bei ausgeschalteten Speicherschaltern werden vorhandene Daten gesichert. Nach Vorbereitung die Datei herunterladen oder auf unterstützten Geräten über **Datei speichern / teilen → In Dateien sichern** außerhalb der PWA speichern. Die Datei enthält persönliche Orte und Strecken. Vor dem Entfernen der PWA sichern; eine Datei im Ordner „Auf meinem iPhone“ bleibt unabhängig vom PWA-Speicher zugänglich.
+
+**Sicherung wiederherstellen** öffnet die Dateiauswahl und zeigt vor dem Import Datum, Anzahl der Orte, Strecken und Fahrten. **Vorhandene Daten ersetzen** übernimmt den gespeicherten Stand vollständig, ohne Daten zusammenzuführen. Andere FoldRoute-Fenster einschließlich Beispielrouten vorher schließen. Die Wiederherstellung benötigt einen Browser mit Web-Locks-Unterstützung. Die Datei darf höchstens 50 MiB groß sein. Nach Erfolg öffnet sich die Startseite; es wird keine Route automatisch berechnet.
+
+Laufende Navigation, Standortmessungen und Kartenkacheln gehören nicht zur Sicherung. Ein vorhandener Navigationsstand wird beim Import entfernt. Beschädigte Dateien werden abgelehnt. Ein dauerhaftes Wiederherstellungsprotokoll schützt unterbrochene Importe: Beim nächsten Start wird zuerst der vorherige Einstellungsstand wiederhergestellt. Ist dies wegen eines Speicherfehlers nicht möglich, erst den Speicherzugriff wieder ermöglichen und die App neu öffnen.

@@ -1,4 +1,5 @@
 import "./style.css";
+import { initializeBackupStorage, acquireBackupAccess } from "./backup-storage";
 import { mount, flushSync } from "svelte";
 import AppRoot from "./components/AppRoot.svelte";
 import ExampleRoot from "./components/ExampleRoot.svelte";
@@ -11,8 +12,6 @@ import { finishStartup } from "./startup";
 const example =
   new URLSearchParams(location.search).get("example") === "bike-transfer";
 async function start() {
-  appearance.initialize();
-  mapStyle.initialize();
   const target = document.getElementById("app-root");
   if (!target) throw new Error("Application root host missing");
   let clearPresentation = () => {};
@@ -23,6 +22,12 @@ async function start() {
   flushSync();
   const presentation = root.presentation();
   clearPresentation = installAppPresentation(presentation);
+  // Render the inert shell before waiting for storage, but initialize no
+  // preference controllers or application services before recovery completes.
+  if (example) await acquireBackupAccess();
+  else await initializeBackupStorage();
+  appearance.initialize();
+  mapStyle.initialize();
   // Local restoration chooses the first screen; routing and tiles keep loading independently.
   if (example) await (await import("./example")).startExample(presentation);
   else await (await import("./main")).startApplication(presentation);

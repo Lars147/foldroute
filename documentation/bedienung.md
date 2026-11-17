@@ -122,3 +122,12 @@ Der Stationsfortschritt wird nach zwei passenden GPS-Messungen bestätigt. Ohne 
 **Android:** Die mit Chrome installierte PWA im Teilen-Menü auswählen. **iPhone:** In der nativen Teilen-Erweiterung **Ziel vormerken** wählen und FoldRoute anschließend selbst öffnen; die iOS-PWA unterstützt diesen Empfang nicht.
 
 Eindeutige Ziele starten eine Verbindungssuche ab aktuellem Standort mit deinen Einstellungen und dem Zeitpunkt **Jetzt**. Bei mehreren passenden Orten wählst du einen Treffer aus. Eine laufende Navigation bleibt bis zur ausdrücklichen Bestätigung einer neuen Route erhalten. Abgebrochene Importe sind über **Geteiltes Ziel** erneut erreichbar. Reine Karten-Kurzlinks erfordern eine manuell eingegebene Adresse; es wird kein fremder Kurzlink abgerufen.
+
+
+## Lokale Sicherung
+
+Unter **Einstellungen → Daten verwalten** erstellt **Daten sichern** eine unverschlüsselte JSON-Datei mit Einstellungen, Favoriten, letzten Orten, Streckenverlauf und Fahrtstatistik. Auch bei ausgeschalteten Speicherschaltern werden vorhandene Daten gesichert. Nach Vorbereitung die Datei herunterladen oder auf unterstützten Geräten über **Datei speichern / teilen → In Dateien sichern** außerhalb der PWA speichern. Die Datei enthält persönliche Orte und Strecken. Vor dem Entfernen der PWA sichern; eine Datei im Ordner „Auf meinem iPhone“ bleibt unabhängig vom PWA-Speicher zugänglich.
+
+**Sicherung wiederherstellen** öffnet die Dateiauswahl und zeigt vor dem Import Datum, Anzahl der Orte, Strecken und Fahrten. **Vorhandene Daten ersetzen** übernimmt den gespeicherten Stand vollständig, ohne Daten zusammenzuführen. Andere FoldRoute-Fenster einschließlich Beispielrouten vorher schließen. Die Wiederherstellung benötigt einen Browser mit Web-Locks-Unterstützung. Die Datei darf höchstens 50 MiB groß sein. Nach Erfolg öffnet sich die Startseite; es wird keine Route automatisch berechnet.
+
+Laufende Navigation, Standortmessungen und Kartenkacheln gehören nicht zur Sicherung. Ein vorhandener Navigationsstand wird beim Import entfernt. Beschädigte Dateien werden abgelehnt. Ein dauerhaftes Wiederherstellungsprotokoll schützt unterbrochene Importe: Beim nächsten Start wird zuerst der vorherige Einstellungsstand wiederhergestellt. Ist dies wegen eines Speicherfehlers nicht möglich, erst den Speicherzugriff wieder ermöglichen und die App neu öffnen.

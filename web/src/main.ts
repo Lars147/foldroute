@@ -1,3 +1,4 @@
+import { createBackup, restoreBackup } from "./backup-storage";
 import { RouteEditorController } from "./route-editor-controller";
 import type { WorkspaceToast } from "./journey-workspace-presentation";
 import type { AppPresentation } from "./app-presentation";
@@ -67,6 +68,15 @@ import {
 } from "./route-url";
 
 export function startApplication(presentation: AppPresentation): Promise<void> {
+  const restoredBackup =
+    new URL(location.href).searchParams.get("backup") === "restored";
+  if (restoredBackup) {
+    try {
+      history.replaceState({}, "", location.pathname);
+    } catch {
+      /* The routing decision remains valid if URL cleanup is unavailable. */
+    }
+  }
   const clearPointerFocus = () => {
     delete document.documentElement.dataset.focusInput;
   };
@@ -1717,6 +1727,33 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
       session.state.request || session.state.pendingRequest ? "map" : "search",
     );
   };
+  presentation.settings.configureBackup({
+    create: createBackup,
+    restore: async (backup) => {
+      if (navigation?.engine?.phase === "active")
+        throw new Error("Bitte aktive Navigation zuerst beenden.");
+      await restoreBackup(backup, async () => {
+        storageGeneration++;
+        historyUndo.clear();
+        historyNames.clear();
+        session.stop("");
+        cancelNavigationCheck();
+        mapLocationRequest?.abort();
+        await navigation?.suspendForBackup();
+      });
+      try {
+        history.replaceState({}, "", location.pathname);
+      } catch {
+        /* Reload still drops the old document. */
+      }
+      try {
+        location.replace(`${location.pathname}?backup=restored`);
+      } catch {
+        /* The UI reports committed success and asks to reopen. */
+      }
+    },
+  });
+  if (restoredBackup) toast("Sicherung wiederhergestellt.");
   el("clear-data").onclick = () => {
     el("delete-data-status").textContent = "";
     el<HTMLDialogElement>("delete-data-dialog").showModal();
@@ -2200,6 +2237,7 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
           "Nicht lesbare gespeicherte Strecken wurden entfernt.",
         );
       if (
+        !restoredBackup &&
         !navigator.onLine &&
         saved &&
         view === "search" &&
