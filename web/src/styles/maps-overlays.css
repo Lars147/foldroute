@@ -464,10 +464,13 @@ dialog.editing-time {
   position: fixed;
   z-index: 21;
   right: calc(var(--safe-right) + 12px);
-  top: calc(var(--safe-top) + (var(--header) - 44px) / 2);
+  top: calc(var(--safe-top) + max(8px, (var(--header) - 44px) / 2));
 }
 
 @media (max-width: 899px) {
+  .search-screen.compact:has(.search-feedback .feedback-launch) #search-adjust {
+    padding-right: 56px;
+  }
   body.search-focus-mode .search-feedback,
   body.search-focus-mode .search-feedback * {
     visibility: visible;

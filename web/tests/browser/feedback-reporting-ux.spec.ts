@@ -47,6 +47,18 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await open(page);
     await expect(page.locator("#search-view")).toHaveClass(/compact/);
+    const menu = await page.getByLabel("Weitere Aktionen: Suche").boundingBox();
+    expect(menu).not.toBeNull();
+    expect(menu!.y).toBeGreaterThanOrEqual(0);
+    expect(menu!.y + menu!.height).toBeLessThanOrEqual(viewport.height);
+    expect(menu!.height).toBeGreaterThanOrEqual(44);
+    if (viewport.width < 900) {
+      const chevron = await page
+        .locator("#search-adjust > :last-child")
+        .boundingBox();
+      expect(chevron).not.toBeNull();
+      expect(chevron!.x + chevron!.width).toBeLessThanOrEqual(menu!.x);
+    }
     await report(page);
     await expect(page.locator("#feedback-message")).toBeVisible();
   });
