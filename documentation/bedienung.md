@@ -54,7 +54,7 @@ Sprachansagen und Haptik lösen keine neue Route aus. Ohne bisherige Planung wer
 
 ## Faltzeiten und Zubringer
 
-Unter „Klapprad“ stellt „Falten / Entfalten“ dieselbe Dauer für jeden der beiden Vorgänge ein: 1–10 Minuten in 30-Sekunden-Schritten, mit genauer Anzeige der halben Minuten. Neuinstallationen beginnen mit 3 Minuten je Vorgang.
+Unter „Klapprad“ stellt „Falten / Entfalten“ dieselbe Dauer für jeden der beiden Vorgänge ein: 30 Sekunden bis 10 Minuten in 30-Sekunden-Schritten, mit genauer Anzeige der halben Minuten. Neuinstallationen beginnen mit 3 Minuten je Vorgang.
 
 FoldRoute vergleicht Fuß–ÖPNV–Fuß, Fuß–ÖPNV–Rad, Rad–ÖPNV–Fuß und Rad–ÖPNV–Rad sowie eine direkte Radfahrt. Im Webplaner unter **Einstellungen → Wege & Umsteigen**, in iOS unter **Einstellungen → Fußwege**, lässt sich die maximale Gehzeit je Zubringer auf 1–15 Minuten einstellen, standardmäßig **2 Minuten**. Sie gilt separat vor dem ersten Einstieg und nach dem letzten Ausstieg; Faltzeiten, Wartezeiten und Fußwege beim Umsteigen zählen nicht dazu. Das Klapprad bleibt dabei und wird auf Fuß-Zubringern geschoben; Falten und Entfalten werden weiterhin eingeplant.
 

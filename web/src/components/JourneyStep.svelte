@@ -1,7 +1,7 @@
 <script lang="ts">
   import { type Journey, type Leg, kindNames } from "../model";
   import { detailTime } from "../journey-detail";
-  import { duration, icon, legTextColors } from "../ui";
+  import { duration, foldDuration, icon, legTextColors } from "../ui";
   import type { JourneyDetailOptions } from "../journey-detail-view";
   import JourneyTransitTime from "./JourneyTransitTime.svelte";
 
@@ -30,10 +30,13 @@
   );
   const start = $derived(example ? "" : detailTime(journey, leg.start));
   const end = $derived(example ? "" : detailTime(journey, leg.end));
+  const legDuration = $derived(
+    ["fold", "unfold"].includes(leg.kind)
+      ? foldDuration(leg.end - leg.start)
+      : duration(leg.end - leg.start),
+  );
   const interval = $derived(
-    example
-      ? duration(leg.end - leg.start)
-      : `${start} – ${end} · ${duration(leg.end - leg.start)}`,
+    example ? legDuration : `${start} – ${end} · ${legDuration}`,
   );
   const distance = $derived(
     leg.distance >= 1000

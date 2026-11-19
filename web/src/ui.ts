@@ -44,6 +44,11 @@ export const duration = (seconds: number) => {
     rest = minutes % 60;
   return hours ? `${hours} h${rest ? ` ${rest} min` : ""}` : `${minutes} min`;
 };
+// Folding can take less than a minute; show seconds instead of a rounded-up "1 min".
+export const foldDuration = (seconds: number) =>
+  seconds > 0 && seconds < 60
+    ? `${Math.round(seconds)} Sek.`
+    : duration(seconds);
 export const dateLabel = (seconds: number) =>
   new Date(seconds * 1000).toLocaleDateString("de-DE", {
     day: "numeric",

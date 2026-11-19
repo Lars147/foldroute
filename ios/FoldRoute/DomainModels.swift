@@ -136,7 +136,7 @@ enum TransitModePreference: String, CaseIterable, Codable, Hashable, Identifiabl
 struct NavigationSettings: Codable, Hashable, Sendable {
     static let cyclingSpeedRange: ClosedRange<Double> = 10...30
 
-    static let foldingDurationRange: ClosedRange<Double> = 60...600
+    static let foldingDurationRange: ClosedRange<Double> = 30...600
     var foldingDuration: TimeInterval = 180
     var foldDuration: TimeInterval { foldingDuration }
     var unfoldDuration: TimeInterval { foldingDuration }
@@ -145,6 +145,7 @@ struct NavigationSettings: Codable, Hashable, Sendable {
         let seconds = Int(foldingDuration.rounded())
         let minutes = seconds / 60
         let remainder = seconds % 60
+        if minutes == 0 { return "\(remainder) Sek." }
         return remainder == 0 ? "\(minutes) Min." : "\(minutes) Min. \(remainder) Sek."
     }
 

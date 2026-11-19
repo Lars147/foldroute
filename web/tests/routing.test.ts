@@ -403,6 +403,8 @@ describe("Geometry and options", () => {
   it("rejects out-of-range settings", () => {
     expect(validSettings(defaults)).toBe(true);
     expect(validSettings({ ...defaults, foldingDuration: 0 })).toBe(false);
+    expect(validSettings({ ...defaults, foldingDuration: 30 })).toBe(true);
+    expect(validSettings({ ...defaults, foldingDuration: 45 })).toBe(false);
     expect(
       validSettings({ ...defaults, excludedTransitModes: ["invalid"] }),
     ).toBe(false);
