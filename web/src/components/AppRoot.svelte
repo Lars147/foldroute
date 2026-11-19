@@ -216,8 +216,10 @@
     class="screen search-screen"
     aria-labelledby="search-heading"
   >
-    <div class="search-intro">
+    <div class="search-feedback" data-feedback-ui>
       <FeedbackMenu context="Suche" />
+    </div>
+    <div class="search-intro">
       <h1 id="search-heading" tabindex="-1">Wohin geht’s?</h1>
       <p>Mit deinem Faltrad. Und allem, was verbindet.</p>
     </div>

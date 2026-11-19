@@ -36,6 +36,20 @@ test("capture does not erase typed feedback and Back preserves current page", as
   ).toBeHidden();
   await expect(page.locator("#search-view")).toBeVisible();
 });
+for (const viewport of [
+  { width: 390, height: 664 },
+  { width: 844, height: 390 },
+  { width: 1280, height: 600 },
+])
+  test(`search feedback stays tappable with a compact intro at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await open(page);
+    await expect(page.locator("#search-view")).toHaveClass(/compact/);
+    await report(page);
+    await expect(page.locator("#feedback-message")).toBeVisible();
+  });
 test("image preserves horizontal and vertical scroll inside panels", async ({
   page,
 }) => {
