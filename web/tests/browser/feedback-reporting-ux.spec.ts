@@ -1,14 +1,13 @@
 import { test, expect } from "./test";
 import { setup as setupNavigation } from "./navigation-fixture";
 import { waitForAppReady } from "./app-fixture";
+import { openSelectedDetails } from "./assertions";
 async function open(page: import("./test").Page) {
   await page.route("https://tiles.openfreemap.org/**", (r) => r.abort());
   await page.goto("/");
   await waitForAppReady(page);
-  await expect(page.getByLabel("Weitere Aktionen: Suche")).toBeVisible();
 }
 async function report(page: import("./test").Page) {
-  await page.getByLabel("Weitere Aktionen: Suche").click();
   await page
     .getByRole("button", { name: "Problem melden", exact: true })
     .click();
@@ -20,10 +19,15 @@ async function report(page: import("./test").Page) {
   await expect(dialog).toHaveAttribute("open", "");
   await expect(dialog).toBeVisible();
 }
+async function openSettings(page: import("./test").Page) {
+  await page.locator("#tab-settings").click();
+  await expect(page.locator("#settings-view")).toBeVisible();
+}
 test("capture does not erase typed feedback and Back preserves current page", async ({
   page,
 }) => {
   await open(page);
+  await openSettings(page);
   await report(page);
   await page.locator("#feedback-message").fill("Falscher Hinweis");
   await expect(page.locator("#feedback-message")).toHaveValue(
@@ -34,39 +38,71 @@ test("capture does not erase typed feedback and Back preserves current page", as
   await expect(
     page.getByRole("dialog", { name: "Problem melden", exact: true }),
   ).toBeHidden();
-  await expect(page.locator("#search-view")).toBeVisible();
+  await expect(page.locator("#settings-view")).toBeVisible();
+  await expect(page.locator("#settings-report-problem")).toBeFocused();
 });
-for (const viewport of [
-  { width: 390, height: 664 },
-  { width: 844, height: 390 },
-  { width: 1280, height: 600 },
-])
-  test(`search feedback stays tappable with a compact intro at ${viewport.width}x${viewport.height}`, async ({
-    page,
-  }) => {
-    await page.setViewportSize(viewport);
-    await open(page);
-    await expect(page.locator("#search-view")).toHaveClass(/compact/);
-    const menu = await page.getByLabel("Weitere Aktionen: Suche").boundingBox();
-    expect(menu).not.toBeNull();
-    expect(menu!.y).toBeGreaterThanOrEqual(0);
-    expect(menu!.y + menu!.height).toBeLessThanOrEqual(viewport.height);
-    expect(menu!.height).toBeGreaterThanOrEqual(44);
-    if (viewport.width < 900) {
-      const chevron = await page
-        .locator("#search-adjust > :last-child")
-        .boundingBox();
-      expect(chevron).not.toBeNull();
-      expect(chevron!.x + chevron!.width).toBeLessThanOrEqual(menu!.x);
-    }
-    await report(page);
-    await expect(page.locator("#feedback-message")).toBeVisible();
-  });
-test("image preserves horizontal and vertical scroll inside panels", async ({
+test("search and history leave feedback to the labelled settings action", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 664 });
   await open(page);
-  await page.evaluate(() => {
+  const reportButton = page.getByRole("button", {
+    name: "Problem melden",
+    exact: true,
+  });
+  await expect(reportButton).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Weitere Aktionen: Suche" }),
+  ).toHaveCount(0);
+  await page.locator("#tab-history").click();
+  await expect(page.locator("#history-view")).toBeVisible();
+  await expect(reportButton).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Weitere Aktionen: Verlauf" }),
+  ).toHaveCount(0);
+  await openSettings(page);
+  await expect(reportButton).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Feedback & Ideen" }),
+  ).toBeVisible();
+});
+test("feedback after viewing a route captures settings without waiting for the hidden map", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setupNavigation(page, false, false);
+  await page.locator("#route-more").click();
+  await expect(page.locator("#route-actions-dialog")).toHaveAttribute(
+    "open",
+    "",
+  );
+  await expect(
+    page.getByRole("button", { name: "Problem melden", exact: true }),
+  ).toHaveCount(0);
+  await page.locator("#route-actions-close").click();
+  await openSelectedDetails(page);
+  await expect(
+    page.getByRole("button", { name: "Weitere Aktionen: Reisedetails" }),
+  ).toHaveCount(0);
+  await page.locator("#alternatives-close").click();
+  await page.evaluate(async () => {
+    const { RouteMap } = await import("/src/map-view.ts");
+    RouteMap.prototype.feedbackFrame = async () => {
+      throw new Error("Die Karte ist in den Einstellungen verdeckt.");
+    };
+  });
+  await openSettings(page);
+  await report(page);
+  await expect(page.locator(".feedback-preview")).toBeVisible();
+});
+test("image preserves scroll and an opaque settings background", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 664 });
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  await open(page);
+  await openSettings(page);
+  const marker = await page.evaluate(() => {
     const panel = document.createElement("div");
     panel.id = "feedback-scroll-probe";
     panel.style.cssText =
@@ -83,11 +119,19 @@ test("image preserves horizontal and vertical scroll inside panels", async ({
     panel.append(content);
     document.body.append(panel);
     panel.scrollTop = panel.scrollLeft = 120;
+    const trigger = document.getElementById("settings-report-problem")!;
+    const marker = document.createElement("div");
+    marker.style.cssText = "width:24px;height:24px;background:rgb(23,91,217)";
+    trigger.after(marker);
+    trigger.scrollIntoView({ block: "center", behavior: "instant" });
+    const rect = marker.getBoundingClientRect();
+    return { x: rect.x + 12, y: rect.y + 12, scroll: scrollY };
   });
+  expect(marker.scroll).toBeGreaterThan(0);
   await report(page);
   const result = await page
     .locator(".feedback-preview")
-    .evaluate(async (preview: HTMLImageElement) => {
+    .evaluate(async (preview: HTMLImageElement, marker) => {
       await preview.decode();
       const canvas = document.createElement("canvas");
       canvas.width = preview.naturalWidth;
@@ -103,11 +147,33 @@ test("image preserves horizontal and vertical scroll inside panels", async ({
       const panel = document.getElementById("feedback-scroll-probe")!;
       return {
         pixel: [...pixel],
+        backgroundPixel: [
+          ...context.getImageData(
+            Math.round((4 * canvas.width) / innerWidth),
+            Math.round((300 * canvas.height) / innerHeight),
+            1,
+            1,
+          ).data,
+        ],
+        documentPixel: [
+          ...context.getImageData(
+            Math.round((marker.x * canvas.width) / innerWidth),
+            Math.round((marker.y * canvas.height) / innerHeight),
+            1,
+            1,
+          ).data,
+        ],
         top: panel.scrollTop,
         left: panel.scrollLeft,
       };
-    });
-  expect(result).toEqual({ pixel: [17, 199, 83, 255], top: 120, left: 120 });
+    }, marker);
+  expect(result).toEqual({
+    pixel: [17, 199, 83, 255],
+    backgroundPixel: [245, 246, 243, 255],
+    documentPixel: [23, 91, 217, 255],
+    top: 120,
+    left: 120,
+  });
 });
 for (const closing of ["button", "back during capture"] as const)
   test(`view changes during capture preserve one history entry per view: ${closing}`, async ({
@@ -128,13 +194,6 @@ for (const closing of ["button", "back during capture"] as const)
           }),
       });
     });
-    await page
-      .locator("#settings-view")
-      .getByRole("button", {
-        name: "Weitere Aktionen: Einstellungen",
-        exact: true,
-      })
-      .click();
     await page
       .getByRole("button", { name: "Problem melden", exact: true })
       .click();
@@ -183,6 +242,7 @@ test("failure from a delayed submission does not overwrite a newer report", asyn
   page,
 }) => {
   await open(page);
+  await openSettings(page);
   await page.route("**/envelope/**", (route) =>
     route.fulfill({
       status: 503,
@@ -249,6 +309,7 @@ test("offline report survives reload with its original version and can be delete
   context,
 }) => {
   await open(page);
+  await openSettings(page);
   await report(page);
   await context.setOffline(true);
   await page.locator("#feedback-message").fill("Offlineproblem");
@@ -270,7 +331,7 @@ test("offline report survives reload with its original version and can be delete
   await page.reload();
   await waitForAppReady(page);
   expect((await read()).reports[0].id).toBe(before.reports[0].id);
-  await page.locator("#tab-settings").click();
+  await openSettings(page);
   await expect(
     page.getByRole("region", { name: "Offenes Feedback" }),
   ).toBeVisible();
@@ -342,27 +403,6 @@ test("clear invalidates an already captured report", async ({ page }) => {
     }
   });
   expect(result).toBe("rejected");
-});
-test("origin captures open mobile suggestions before entering feedback", async ({
-  page,
-}) => {
-  await open(page);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.route("**/api/v1/geocode?*", (r) =>
-    r.fulfill({ json: [{ name: "Testort", lat: 48, lon: 11 }] }),
-  );
-  await page.locator("#destination").fill("Test");
-  await expect(page.locator("#destination-options")).toContainText("Testort");
-  await expect(page.getByLabel("Weitere Aktionen: Suche")).toBeVisible();
-  await report(page);
-  const value = await page.evaluate(async () => {
-    const { feedbackCapture } = await import("/src/feedback-controller.ts");
-    let value: unknown;
-    const unsubscribe = feedbackCapture.subscribe((v) => (value = v));
-    unsubscribe();
-    return value;
-  });
-  expect(JSON.stringify(value)).toContain("Testort");
 });
 for (const mode of ["accepted", "failure", "limited"] as const)
   test(`sender requires HTTP acknowledgement and preserves captured release: ${mode}`, async ({
@@ -438,7 +478,7 @@ test("manual retry cannot bypass a persisted server backoff", async ({
     return calls;
   });
   expect(calls).toBe(1);
-  await page.locator("#tab-settings").click();
+  await openSettings(page);
   await expect(
     page.getByRole("region", { name: "Offenes Feedback" }),
   ).toContainText("Versand pausiert bis");
@@ -447,6 +487,7 @@ test("a reduced visual viewport sends diagnosis without an inaccurate image", as
   page,
 }) => {
   await open(page);
+  await openSettings(page);
   await page.evaluate(() =>
     Object.defineProperty(window, "visualViewport", {
       value: {
@@ -467,33 +508,54 @@ test("a reduced visual viewport sends diagnosis without an inaccurate image", as
   ).toContainText("Bild bei Bildschirmtastatur");
   await expect(page.locator(".feedback-preview")).toHaveCount(0);
 });
-test("Back closes feedback before the active navigation end confirmation", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await setupNavigation(page);
-  await page.getByLabel("Weitere Aktionen: Navigation").click();
-  await page
-    .getByRole("button", { name: "Problem melden", exact: true })
-    .click();
-  await expect(
-    page.getByRole("dialog", { name: "Problem melden", exact: true }),
-  ).toBeVisible();
-  await page.goBack();
-  await expect(
-    page.getByRole("dialog", { name: "Problem melden", exact: true }),
-  ).toBeHidden();
-  await expect(page.locator("#navigation-instruction")).toBeVisible();
-  await expect(page.locator("#navigation-end-dialog")).not.toBeVisible();
-});
+for (const width of [390, 1280])
+  test(`navigation feedback captures the active journey from the details at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await setupNavigation(page);
+    const action = page.locator("#navigation-report-problem");
+    if (width === 390) {
+      await expect(action).toBeHidden();
+      await page.locator("#navigation-details-toggle").click();
+    }
+    await expect(action).toBeVisible();
+    await report(page);
+    const captured = await page.evaluate(async () => {
+      const { feedbackCapture } = await import("/src/feedback-controller.ts");
+      let context: unknown;
+      const unsubscribe = feedbackCapture.subscribe(
+        (capture) => (context = capture?.context),
+      );
+      unsubscribe();
+      return context;
+    });
+    expect(captured).toMatchObject({
+      application: {
+        navigation: { phase: "active", journey: { id: "navigation-test" } },
+      },
+    });
+    await page.goBack();
+    await expect(page.locator("dialog[data-feedback-ui]")).not.toHaveAttribute(
+      "open",
+    );
+    await expect(page.locator("#navigation-instruction")).toBeVisible();
+    await expect(page.locator("#navigation-end-dialog")).not.toBeVisible();
+    await expect(action).toBeFocused();
+    if (width === 390) {
+      await page.locator("#navigation-details-toggle").click();
+      await expect(action).toBeHidden();
+    }
+  });
 test("a view change during capture discards the image without replacing the origin", async ({
   page,
 }) => {
   await open(page);
+  await openSettings(page);
   await page.evaluate(async () => {
     const { configureFeedback } = await import("/src/feedback-controller.ts");
     await configureFeedback({
-      read: () => ({ origin: "search" }),
+      read: () => ({ origin: "settings" }),
       revision: () => document.body.dataset.view ?? "search",
       frame: () =>
         new Promise<string | undefined>(
@@ -501,7 +563,6 @@ test("a view change during capture discards the image without replacing the orig
         ),
     });
   });
-  await page.getByLabel("Weitere Aktionen: Suche").click();
   await page
     .getByRole("button", { name: "Problem melden", exact: true })
     .click();
@@ -527,6 +588,7 @@ test("no network before Send and text-only feedback excludes image, context and 
     return r.fulfill({ status: 200, body: "{}" });
   });
   await open(page);
+  await openSettings(page);
   await page.evaluate(() =>
     history.replaceState(
       history.state,
@@ -603,10 +665,11 @@ test("viewport changes while awaiting the map frame discard the image", async ({
   page,
 }) => {
   await open(page);
+  await openSettings(page);
   await page.evaluate(async () => {
     const { configureFeedback } = await import("/src/feedback-controller.ts");
     await configureFeedback({
-      read: () => ({ origin: "search" }),
+      read: () => ({ origin: "settings" }),
       revision: () => "",
       frame: () =>
         new Promise<string | undefined>(
@@ -614,7 +677,6 @@ test("viewport changes while awaiting the map frame discard the image", async ({
         ),
     });
   });
-  await page.getByLabel("Weitere Aktionen: Suche").click();
   await page
     .getByRole("button", { name: "Problem melden", exact: true })
     .click();

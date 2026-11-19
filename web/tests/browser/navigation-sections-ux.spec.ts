@@ -367,6 +367,7 @@ for (const width of [320, 390])
 
 test("section tabs support keyboard navigation, collapsed summary order and resume", async ({
   page,
+  browserName,
 }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await setup(page, true);
@@ -439,13 +440,13 @@ test("section tabs support keyboard navigation, collapsed summary order and resu
   );
   await tabs.nth(6).focus();
   await page.keyboard.press("Shift+Tab");
+  const reportProblem = page.locator("#navigation-report-problem");
+  if (browserName === "chromium") await expect(reportProblem).toBeFocused();
   // WebKit can skip native buttons in its default keyboard focus order.
-  if (
-    await page
-      .locator("#navigation-complete")
-      .evaluate((element) => element === document.activeElement)
-  )
-    await page.keyboard.press("Shift+Tab");
+  for (const action of [reportProblem, page.locator("#navigation-complete")]) {
+    if (await action.evaluate((element) => element === document.activeElement))
+      await page.keyboard.press("Shift+Tab");
+  }
   await expect(page.getByRole("tabpanel")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.locator("#navigation-details-toggle")).toBeFocused();

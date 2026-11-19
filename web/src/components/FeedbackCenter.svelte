@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { flushSync, onMount, untrack } from "svelte";
   import {
     feedbackProvider,
     consumeFeedbackBack,
@@ -50,7 +50,7 @@
     }
   }
   function finish() {
-    closeFeedback();
+    flushSync(closeFeedback);
     dialog?.close();
     if (returnFocus?.isConnected && !returnFocus.closest("[hidden],[inert]"))
       returnFocus.focus({ preventScroll: true });

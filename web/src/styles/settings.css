@@ -294,6 +294,7 @@
   color: var(--danger);
   font-size: 0.875rem;
 }
+.settings-report,
 .settings-feedback,
 .settings-licenses {
   display: flex;
@@ -306,6 +307,7 @@
   line-height: 1.5;
   text-decoration: none;
 }
+.settings-report > span:last-child,
 .settings-feedback > span:last-child,
 .settings-licenses > span:last-child {
   flex-shrink: 0;

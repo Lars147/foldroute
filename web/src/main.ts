@@ -2268,11 +2268,11 @@ export function startApplication(presentation: AppPresentation): Promise<void> {
       import.meta.env.VITE_FEEDBACK_ENABLED === "true")
       ? configureFeedback({
           revision: () =>
-            `${view}:${navigationView?.visible}:${[...document.querySelectorAll('[aria-selected="true"]')].map((e) => e.id).join(",")}:${session.state.selected?.id ?? ""}:${navigation?.engine?.journey.id ?? ""}:${navigation?.engine?.progress.legIndex ?? ""}:${navigation?.engine?.phase ?? ""}`,
+            `${view}:${navigationView?.visible}:${el("navigation-details").hidden}:${[...document.querySelectorAll('[aria-selected="true"]')].map((e) => e.id).join(",")}:${session.state.selected?.id ?? ""}:${navigation?.engine?.journey.id ?? ""}:${navigation?.engine?.progress.legIndex ?? ""}:${navigation?.engine?.phase ?? ""}`,
           frame: () =>
-            navigationView?.visible
-              ? Promise.resolve(undefined)
-              : routeMap.feedbackFrame(),
+            view === "map" && !navigationView?.visible
+              ? routeMap.feedbackFrame()
+              : Promise.resolve(undefined),
           read: () => ({
             view,
             planning: session.state,

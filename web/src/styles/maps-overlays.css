@@ -460,25 +460,7 @@ dialog.editing-time {
   border-style: dashed;
 }
 
-.search-feedback {
-  position: fixed;
-  z-index: 21;
-  right: calc(var(--safe-right) + 12px);
-  top: calc(var(--safe-top) + max(8px, (var(--header) - 44px) / 2));
-}
-
 @media (max-width: 899px) {
-  .search-screen.compact:has(.search-feedback .feedback-launch) #search-adjust {
-    padding-right: 56px;
-  }
-  body.search-focus-mode .search-feedback,
-  body.search-focus-mode .search-feedback * {
-    visibility: visible;
-  }
-  body.search-focus-mode .search-feedback {
-    z-index: 1001;
-    top: calc(var(--visual-top, 0px) + var(--safe-top) + 8px);
-  }
   body.search-focus-mode dialog[data-feedback-ui][open],
   body.search-focus-mode dialog[data-feedback-ui][open] * {
     visibility: visible;

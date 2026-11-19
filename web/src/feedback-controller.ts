@@ -19,7 +19,6 @@ interface Provider {
 export const feedbackProvider = writable<Provider | undefined>();
 export const feedbackCapture = writable<FeedbackCapture | undefined>();
 let provider: Provider | undefined;
-let origin: FeedbackCapture | undefined;
 let epoch = 0;
 let sequence = 0;
 let closingHistory = false;
@@ -56,20 +55,7 @@ export async function configureFeedback(value: Provider) {
   epoch = (await readOutbox()).epoch;
   provider = value;
   feedbackProvider.set(value);
-  const remember = (event: Event) => {
-    if (event.target instanceof Element && event.target.closest("#route-more"))
-      rememberFeedbackOrigin();
-  };
-  window.addEventListener("pointerdown", remember, true);
-  window.addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key === "Enter" || event.key === " ") remember(event);
-    },
-    true,
-  );
   const changed = () => {
-    origin = undefined;
     closeFeedback();
     void readOutbox()
       .then((value) => {
@@ -84,11 +70,10 @@ export async function configureFeedback(value: Provider) {
       : new BroadcastChannel("foldroute-feedback-clear");
   if (channel) channel.onmessage = changed;
 }
-/** Runs in capture phase, before menu focus/outside-click handlers. */
-export function rememberFeedbackOrigin() {
-  if (!provider) return;
-  origin = {
-    focusId: document.activeElement?.id,
+export function openFeedback(trigger: HTMLButtonElement) {
+  if (!provider || activeHistoryId) return;
+  const capture: FeedbackCapture = {
+    focusId: trigger.id,
     release: buildVersion.commit,
     environment: import.meta.env.PROD ? "production" : "development",
     id: crypto.randomUUID().replaceAll("-", ""),
@@ -132,19 +117,14 @@ export function rememberFeedbackOrigin() {
       },
     }),
   };
-}
-export function openFeedback() {
-  if (!origin) rememberFeedbackOrigin();
-  if (!origin) return;
   sequence++;
   history.pushState(
-    { ...history.state, feedbackId: origin.id },
+    { ...history.state, feedbackId: capture.id },
     "",
     location.href,
   );
-  activeHistoryId = origin.id;
-  feedbackCapture.set(origin);
-  origin = undefined;
+  activeHistoryId = capture.id;
+  feedbackCapture.set(capture);
 }
 export function closeFeedback() {
   const historyId = activeHistoryId;
@@ -209,6 +189,7 @@ export async function captureFeedbackImage(value: FeedbackCapture) {
       const frame = await provider?.frame();
       check();
       const imageAt = new Date().toISOString();
+      const { backgroundColor } = getComputedStyle(document.documentElement);
       const image = await domToBlob(document.body, {
         width: innerWidth,
         height: innerHeight,
@@ -217,13 +198,23 @@ export async function captureFeedbackImage(value: FeedbackCapture) {
           2,
           Math.sqrt(2_000_000 / (innerWidth * innerHeight)),
         ),
-        backgroundColor: getComputedStyle(document.documentElement)
-          .backgroundColor,
+        backgroundColor,
         timeout: 4000,
+        // The document scroll belongs to <html>, outside the captured <body>.
+        // Offset the clone's flow while keeping fixed controls in the viewport.
+        style: { marginTop: `${-scrollY}px`, marginLeft: `${-scrollX}px` },
         features: { restoreScrollPosition: true },
         filter: (node) =>
           node.nodeName !== "NOSCRIPT" &&
           !(node instanceof Element && node.hasAttribute("data-feedback-ui")),
+        onCloneEachNode: (node) => {
+          // Hide the action without shifting the content below it.
+          if (
+            node instanceof HTMLElement &&
+            node.hasAttribute("data-feedback-trigger")
+          )
+            node.style.opacity = "0";
+        },
         onEmbedNode: (clone) => {
           const image =
             clone instanceof Element
@@ -232,6 +223,18 @@ export async function captureFeedbackImage(value: FeedbackCapture) {
                 )
               : null;
           if (image && frame) image.src = frame;
+        },
+        onCreateForeignObjectSvg: (svg) => {
+          // WebKit's redraw clears the canvas fill. Paint behind the scrolled
+          // body in the SVG so every redraw includes the viewport background.
+          const background = svg.ownerDocument.createElementNS(
+            svg.namespaceURI,
+            "rect",
+          );
+          background.setAttribute("width", "100%");
+          background.setAttribute("height", "100%");
+          background.setAttribute("fill", backgroundColor);
+          svg.prepend(background);
         },
       });
       check();

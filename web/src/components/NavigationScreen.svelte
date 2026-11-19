@@ -1,5 +1,5 @@
 <script lang="ts">
-  import FeedbackMenu from "./FeedbackMenu.svelte";
+  import FeedbackButton from "./FeedbackButton.svelte";
   import NavigationAlternativeDialog from "./NavigationAlternativeDialog.svelte";
   import JourneyDetails from "./JourneyDetails.svelte";
   import MapStylePicker from "./MapStylePicker.svelte";
@@ -340,7 +340,7 @@
     hidden={hidden["navigation-panel"] ?? false}
     {...attributes["navigation-panel"]}
   >
-    {#if !mobile}<FeedbackMenu context="Navigation" />{@render guidance()}{/if}
+    {#if !mobile}{@render guidance()}{/if}
     <div
       id="navigation-summary"
       hidden={hidden["navigation-summary"] ?? false}
@@ -368,7 +368,6 @@
           >{text["navigation-summary-label"] ?? "Reisedetails"}</span
         ><Icon name="chevron" class="navigation-expand" /></button
       >
-      {#if mobile}<FeedbackMenu context="Navigation" />{/if}
       <div
         id="navigation-end-slot"
         hidden={hidden["navigation-end-slot"] ?? false}
@@ -590,6 +589,7 @@
         {text["navigation-audio-status"] ?? ""}
       </p>
       <NavigationCompletionControls mode="manual" model={controls} {commands} />
+      <FeedbackButton placement="navigation" />
     </div>
     <div
       id="navigation-phases-slot"

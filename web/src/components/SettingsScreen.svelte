@@ -1,5 +1,5 @@
 <script lang="ts">
-  import FeedbackMenu from "./FeedbackMenu.svelte";
+  import FeedbackButton from "./FeedbackButton.svelte";
   import BackupControls from "./BackupControls.svelte";
   import type { BackupActions } from "../backup-codec";
   let backup = $state.raw<BackupActions>();
@@ -27,7 +27,6 @@
   hidden
 >
   <div class="settings-heading-row">
-    <FeedbackMenu context="Einstellungen" />
     <h1 id="settings-heading">Einstellungen</h1>
     <span id="settings-summary" class="settings-mobile-title" aria-hidden="true"
       >Deine Vorgaben</span
@@ -248,6 +247,7 @@
     ><span>Lizenzen &amp; Datenquellen</span><span aria-hidden="true">›</span
     ></a
   >
+  <FeedbackButton placement="settings" />
   <a class="group settings-feedback" href="https://foldroute.userjot.com/"
     ><span>Feedback &amp; Ideen</span><span aria-hidden="true">↗</span></a
   >
