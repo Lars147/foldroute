@@ -431,9 +431,11 @@ test("section tabs support keyboard navigation, collapsed summary order and resu
   await page.keyboard.press("Home");
   await expect(tabs.nth(0)).toBeFocused();
   await expect(page.getByRole("tabpanel")).toBeVisible();
+  await expect(page.locator("#navigation-compare")).toBeVisible();
   await page.keyboard.press("End");
   await expect(tabs.nth(6)).toBeFocused();
   await expect(page.getByRole("tabpanel")).toBeVisible();
+  await expect(page.locator("#navigation-compare")).toBeHidden();
   await expect(page.locator("#navigation-details-toggle")).toHaveAttribute(
     "aria-expanded",
     "true",

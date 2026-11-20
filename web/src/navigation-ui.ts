@@ -238,7 +238,12 @@ export class NavigationView {
 
     el("navigation-alert-open").onclick = () => this.openNotice();
     el("navigation-compare").onclick = () => {
-      if (!this.session?.canCompareConnections || this.session.busy) return;
+      if (
+        !this.completionAvailable ||
+        !this.session?.canCompareConnections ||
+        this.session.busy
+      )
+        return;
       this.openAlternative(el("navigation-compare"));
       void this.session.compareConnections();
     };
@@ -1782,7 +1787,10 @@ export class NavigationView {
       ? (comparison?.choices ?? [])
       : session.alternatives;
     const comparisonArrival = comparing ? session.comparisonArrival : undefined;
-    this.screen.setHidden("navigation-compare", !session.canCompareConnections);
+    this.screen.setHidden(
+      "navigation-compare",
+      !this.completionAvailable || !session.canCompareConnections,
+    );
     this.screen.setDisabled("navigation-compare", session.busy);
     const cyclingLimit = session.settings?.maxCyclingMinutes ?? 30;
     const choices = alternatives.map((value) => ({
