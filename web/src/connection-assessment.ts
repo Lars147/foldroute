@@ -8,6 +8,7 @@ export interface ConnectionAssessment {
   status: "ready" | "risk" | "departed" | "cancelled" | "unknown";
   id: string;
   message: string;
+  estimatedArrival?: number;
 }
 
 export function blocksNavigation(assessment: ConnectionAssessment) {
@@ -120,7 +121,13 @@ export function assessConnection(
           id: "unknown",
           message:
             "Erreichbarkeit unklar · Fahrtdaten fehlen oder sind veraltet.",
+          estimatedArrival: earliest,
         }
-      : { status: "ready", id: "ready", message: "" })
+      : {
+          status: "ready",
+          id: "ready",
+          message: "",
+          estimatedArrival: earliest,
+        })
   );
 }

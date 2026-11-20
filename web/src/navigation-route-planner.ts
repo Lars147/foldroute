@@ -10,7 +10,7 @@ import { movement, freshTransit, navigationJourney } from "./navigation-engine";
 import { transitDisruption, applyTransit } from "./transit-refresh";
 import { validateNavigationGeometry } from "./navigation-store";
 import { planRoutes } from "./planner";
-import type { RoutingClient } from "./routing-contracts";
+import type { RoutingClient, SearchOptions } from "./routing-contracts";
 
 export function reachableAlternative(
   journey: Journey,
@@ -75,6 +75,7 @@ export class NavigationRoutePlanner {
     signal: AbortSignal,
     acceptable: (journey: Journey) => boolean = (journey) =>
       reachableAlternative(journey, 0, Math.max(request.time, this.now())),
+    searchOptions?: SearchOptions,
   ): Promise<{ journeys: Journey[]; settings: RoutingSettings }> {
     if (!this.online())
       throw new Error(
@@ -96,6 +97,7 @@ export class NavigationRoutePlanner {
         settings,
         signal,
         this.dependencies.api,
+        searchOptions,
       ))
         if (update.journeys.length) candidates = update.journeys;
     signal.throwIfAborted();

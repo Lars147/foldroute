@@ -19,7 +19,11 @@
         aria-label="Zurück zu Verbindungen">←</button
       >{/if}
     <h2 id="navigation-alternative-title" tabindex="-1">
-      {model.detailJourney ? "Reiseablauf" : "Neue Verbindungen"}
+      {model.detailJourney
+        ? "Reiseablauf"
+        : model.comparison
+          ? "Verbindungen vergleichen"
+          : "Neue Verbindungen"}
     </h2>
     <button
       id="navigation-alternative-close"
@@ -29,6 +33,14 @@
     >
   </header>
   <div class="alternative-content">
+    {#if !model.detailJourney && model.comparison?.current}
+      <p class="alternative-comparison">
+        Bisherige Route: Ankunft {model.comparison.current}
+        {#if model.comparison.saving}
+          <strong>{model.comparison.saving} früher am Ziel</strong>
+        {/if}
+      </p>
+    {/if}
     <div id="navigation-alternative-text">
       {#if model.detailJourney}
         <ol class="journey-legs">
@@ -76,6 +88,7 @@
         id="navigation-accept"
         class="primary"
         type="button"
+        hidden={!!model.comparison && !model.choices?.length}
         disabled={model.busy || !model.available}
         >{model.busy
           ? "Verbindung wird geprüft …"
@@ -87,7 +100,7 @@
         id="navigation-dismiss"
         class="secondary"
         type="button"
-        disabled={model.busy}>Bisherige behalten</button
+        disabled={model.busy && !model.comparison}>Bisherige behalten</button
       >
     </footer>
   </div>
