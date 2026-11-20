@@ -35,7 +35,7 @@ export const ranges = {
   maxCyclingMinutes: [1, 60, 1],
   maxWalkingMinutes: [1, 15, 1],
   transferMinutes: [0, 30, 1],
-  foldingDuration: [60, 600, 30],
+  foldingDuration: [30, 600, 30],
   maxBikeTransfers: [0, 3, 1],
 } as const;
 export function validSettings(value: unknown): value is RoutingSettings {
