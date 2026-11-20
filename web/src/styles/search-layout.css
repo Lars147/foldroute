@@ -840,6 +840,17 @@
   overflow: auto;
   min-height: 0;
 }
+.alternative-comparison {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+  color: var(--panel-muted);
+}
+.alternative-comparison strong {
+  color: var(--panel-text);
+}
 .alternative-actions {
   display: flex;
   flex-direction: column;

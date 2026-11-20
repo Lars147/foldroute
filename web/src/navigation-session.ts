@@ -11,6 +11,8 @@ import {
   journeyStart,
   journeyStops,
   legStops,
+  selectJourneys,
+  PlannerError,
 } from "./model";
 import { distance } from "./geometry";
 import {
@@ -73,12 +75,19 @@ export interface NavigationAlternative {
   displayJourney?: Journey;
   legIndex: number;
   sourceId: string;
-  issueId: string;
+  issueId?: string;
   createdAt: number;
   sourceArrival?: number;
   settings: RoutingSettings;
   confirmedStops?: string[];
   reason?: "reroute" | "stop";
+}
+interface NavigationComparison {
+  source: NavigationEngine;
+  sourceId: string;
+  pending?: AbortController;
+  message: string;
+  choices: NavigationAlternative[];
 }
 export interface PreparedNavigation {
   journey: Journey;
@@ -134,6 +143,31 @@ export class NavigationSession {
   }
   set alternative(value: NavigationAlternative | undefined) {
     this.alternatives = value ? [value] : [];
+  }
+  private comparison?: NavigationComparison;
+  get connectionComparison() {
+    return this.comparison;
+  }
+  get canCompareConnections() {
+    const engine = this.engine;
+    return (
+      this.foreground &&
+      !this.disruption &&
+      engine?.phase === "active" &&
+      engine.leg.kind === "bike" &&
+      !engine.offRoute &&
+      this.assessment?.status !== "risk"
+    );
+  }
+  get comparisonArrival() {
+    const engine = this.engine;
+    if (!engine || !this.canCompareConnections) return;
+    return assessConnection(
+      engine.connectionJourney,
+      engine.progress.legIndex,
+      this.clock.now() / 1000,
+      { remainingMovement: engine.remainingSeconds },
+    ).estimatedArrival;
   }
   retryAvailable = false;
   needsLocation = false;
@@ -252,6 +286,7 @@ export class NavigationSession {
   undoLastCompletion() {
     const undo = this.completionUndo;
     if (!undo) return false;
+    this.cancelComparison();
     this.discardCompletionUndo();
     this.controller?.abort();
     this.controller = undefined;
@@ -387,6 +422,7 @@ export class NavigationSession {
     };
   }
   private abortTasks() {
+    this.cancelComparison();
     this.resumeValidation = undefined;
     this.locationGeneration++;
     this.locating = false;
@@ -733,6 +769,7 @@ export class NavigationSession {
     settings = this.settings!,
   ) {
     validateNavigationGeometry(journey);
+    this.cancelComparison();
     this.locationGeneration++;
     this.locating = false;
     const replacing = !!this.engine;
@@ -843,6 +880,7 @@ export class NavigationSession {
       this.clock.now(),
     );
     if (!evidence) return false;
+    this.cancelComparison();
     this.updateTrip();
     this.controller?.abort();
     this.controller = undefined;
@@ -940,6 +978,14 @@ export class NavigationSession {
     if (located && current()) await this.resumeAlternativeAfterLocation();
   }
   private discardChangedAlternative() {
+    const comparison = this.comparison;
+    if (
+      comparison &&
+      (!this.canCompareConnections ||
+        comparison.source !== this.engine ||
+        comparison.sourceId !== this.engine?.leg.navigationId)
+    )
+      this.cancelComparison();
     if (
       this.alternative &&
       this.alternative.sourceId !== this.engine?.leg.navigationId
@@ -961,6 +1007,7 @@ export class NavigationSession {
     this.boarding.reset();
     this.boardingAfter = this.clock.now();
     if (!value) {
+      this.cancelComparison();
       this.locationGeneration++;
       this.locating = false;
       this.persist(true);
@@ -1044,7 +1091,10 @@ export class NavigationSession {
     }
     if (this.alternative && this.alternative.issueId !== this.disruption?.id)
       this.alternative = undefined;
-    if (this.disruption) this.retryAvailable = true;
+    if (this.disruption) {
+      this.retryAvailable = true;
+      this.cancelComparison();
+    }
     this.persist(result.size > 0);
     this.emit();
   }
@@ -1384,6 +1434,7 @@ export class NavigationSession {
       engine.progress = progress;
       return false;
     }
+    this.cancelComparison();
     this.pendingCompletionUndo =
       engine.phase === "active"
         ? {
@@ -1511,9 +1562,110 @@ export class NavigationSession {
     )
       await this.proposeAlternative(pending.reason);
   }
+  async compareConnections() {
+    const source = this.engine;
+    if (
+      !source ||
+      !this.canCompareConnections ||
+      this.busy ||
+      this.comparison?.pending
+    )
+      return;
+    const pending = new AbortController();
+    const comparison: NavigationComparison = {
+      source,
+      sourceId: source.leg.navigationId!,
+      pending,
+      message: "Schnellere Verbindungen werden gesucht …",
+      choices: [],
+    };
+    this.comparison = comparison;
+    this.emit();
+    const current = () =>
+      this.comparison === comparison &&
+      this.engine === source &&
+      source.leg.navigationId === comparison.sourceId &&
+      this.canCompareConnections;
+    try {
+      if (!navigator.onLine)
+        throw new Error("Der Verbindungsvergleich benötigt Internet.");
+      if (!this.hasCurrentLocation) await this.retryLocation();
+      if (!current()) return;
+      const departure = this.clock.now() / 1000 + alternativeDecisionSeconds;
+      const origin = fixPlace(this.usableFix());
+      const { journeys, settings } = await this.routePlanner.planAlternatives(
+        this.requestFrom(origin, departure),
+        structuredClone(this.deps.routingSettings?.() ?? this.settings!),
+        pending.signal,
+        () => true,
+        { raw: true },
+      );
+      if (!current()) return;
+      const arrival = this.comparisonArrival;
+      const now = this.clock.now() / 1000;
+      const faster = journeys.filter(
+        (journey) =>
+          arrival !== undefined &&
+          journey.arrival < arrival &&
+          journey.legs.some((leg) => leg.kind === "transit") &&
+          reachableAlternative(journey, 0, now + alternativeDecisionSeconds),
+      );
+      comparison.choices = selectJourneys(faster, "depart").map((journey) => {
+        validateNavigationGeometry(journey);
+        return {
+          id: crypto.randomUUID(),
+          journey,
+          displayJourney: journey,
+          settings,
+          legIndex: 0,
+          sourceId: comparison.sourceId,
+          createdAt: now,
+        };
+      });
+      comparison.message = comparison.choices.length
+        ? ""
+        : "Keine schnellere ÖPNV-Verbindung gefunden.";
+    } catch (error) {
+      if (!current()) return;
+      comparison.message =
+        error instanceof PlannerError && error.code === "empty"
+          ? "Keine schnellere ÖPNV-Verbindung gefunden."
+          : errorText(error);
+    } finally {
+      if (this.comparison === comparison) {
+        comparison.pending = undefined;
+        this.discardChangedAlternative();
+        this.emit();
+      }
+    }
+  }
+  cancelComparison() {
+    this.comparison?.pending?.abort();
+    this.comparison = undefined;
+  }
   alternativeValidity(
     expectedId = this.alternative?.id,
   ): "ready" | "stale" | "unavailable" {
+    const comparison = this.comparison?.choices.find(
+      (value) => value.id === expectedId,
+    );
+    if (comparison) {
+      const arrival = this.comparisonArrival;
+      if (
+        arrival === undefined ||
+        this.comparison?.source !== this.engine ||
+        comparison.sourceId !== this.engine?.leg.navigationId
+      )
+        return "unavailable";
+      const now = this.clock.now() / 1000;
+      return this.hasCurrentLocation &&
+        distance(this.fix!, comparison.journey.origin) <= 50 &&
+        comparison.journey.arrival < arrival &&
+        now - comparison.createdAt <= 120 &&
+        reachableAlternative(comparison.journey, 0, now)
+        ? "ready"
+        : "stale";
+    }
     const engine = this.engine,
       candidate = this.alternatives.find((value) => value.id === expectedId);
     if (!engine || !candidate || candidate.id !== expectedId)
@@ -1541,11 +1693,17 @@ export class NavigationSession {
     expectedId = this.alternative?.id,
   ): Promise<AlternativeAcceptance> {
     const engine = this.engine,
-      candidate = this.alternatives.find((value) => value.id === expectedId);
+      compared = this.comparison?.choices.find((value) => value.id === expectedId),
+      candidate =
+        compared ?? this.alternatives.find((value) => value.id === expectedId);
     const validity = this.alternativeValidity(expectedId);
     if (!engine || !candidate || this.busy || validity === "unavailable")
       return "unavailable";
     if (validity === "stale") {
+      if (compared) {
+        await this.compareConnections();
+        return this.comparison?.choices.length ? "refreshed" : "unavailable";
+      }
       this.alternative = undefined;
       if (!this.disruption) {
         this.message =
@@ -1583,6 +1741,7 @@ export class NavigationSession {
     this.updateTrip();
     if (engine.phase === "arrived") {
       if (!this.arrivalCleared) {
+        this.cancelComparison();
         this.arrivalCleared = true;
         this.transitController?.abort();
         this.controller?.abort();

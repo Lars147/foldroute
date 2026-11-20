@@ -237,6 +237,16 @@ export class NavigationView {
     };
 
     el("navigation-alert-open").onclick = () => this.openNotice();
+    el("navigation-compare").onclick = () => {
+      if (
+        !this.completionAvailable ||
+        !this.session?.canCompareConnections ||
+        this.session.busy
+      )
+        return;
+      this.openAlternative(el("navigation-compare"));
+      void this.session.compareConnections();
+    };
     this.mobile.addEventListener(
       "change",
       () => {
@@ -334,7 +344,8 @@ export class NavigationView {
       } else this.render();
     };
     el("navigation-dismiss").onclick = () => {
-      this.session?.dismissAlternative();
+      if (this.alternativeTrigger?.id !== "navigation-compare")
+        this.session?.dismissAlternative();
       this.closeAlternative();
     };
     el("navigation-alternative-locate").onclick = () => {
@@ -406,8 +417,8 @@ export class NavigationView {
     target.tabIndex = -1;
     target.focus({ preventScroll: true });
   }
-  private openAlternative() {
-    this.alternativeTrigger = el("navigation-alert-open");
+  private openAlternative(trigger = el("navigation-alert-open")) {
+    this.alternativeTrigger = trigger;
     this.alternativeSeenId = this.session?.alternatives
       .map((value) => value.id)
       .join(",");
@@ -435,6 +446,7 @@ export class NavigationView {
     flushSync();
     const trigger = this.alternativeTrigger;
     this.alternativeTrigger = undefined;
+    if (trigger?.id === "navigation-compare") this.session?.cancelComparison();
     this.alternativeSeenId = undefined;
     this.alternativeDetailId = undefined;
     if (restoreFocus && this.visible) {
@@ -1769,8 +1781,19 @@ export class NavigationView {
       String(this.guidance.enabled),
     );
     this.screen.setText("navigation-audio-status", this.voiceMessage);
+    const comparing = this.alternativeTrigger?.id === "navigation-compare";
+    const comparison = comparing ? session.connectionComparison : undefined;
+    const alternatives = comparing
+      ? (comparison?.choices ?? [])
+      : session.alternatives;
+    const comparisonArrival = comparing ? session.comparisonArrival : undefined;
+    this.screen.setHidden(
+      "navigation-compare",
+      !this.completionAvailable || !session.canCompareConnections,
+    );
+    this.screen.setDisabled("navigation-compare", session.busy);
     const cyclingLimit = session.settings?.maxCyclingMinutes ?? 30;
-    const choices = session.alternatives.map((value) => ({
+    const choices = alternatives.map((value) => ({
       id: value.id,
       journey: {
         ...(value.displayJourney ?? value.journey),
@@ -1793,17 +1816,13 @@ export class NavigationView {
       .filter((value) => cyclingExcess(value.journey, cyclingLimit) === 0)
       .sort((a, b) => compare(a.journey, b.journey, "now"))[0]?.id;
     const proposal =
-      session.alternatives.find(
-        (value) => value.id === this.alternativeSelectedId,
-      ) ??
-      session.alternatives.find((value) => value.id === recommendedId) ??
-      session.alternative;
+      alternatives.find((value) => value.id === this.alternativeSelectedId) ??
+      alternatives.find((value) => value.id === recommendedId) ??
+      alternatives[0];
     this.alternativeSelectedId = proposal?.id;
     if (
       this.alternativeDetailId &&
-      !session.alternatives.some(
-        (value) => value.id === this.alternativeDetailId,
-      )
+      !alternatives.some((value) => value.id === this.alternativeDetailId)
     )
       this.alternativeDetailId = undefined;
     const displayJourney = choices.find(
@@ -1813,15 +1832,32 @@ export class NavigationView {
     const changedProposal =
       !!this.alternativeSeenId &&
       !!proposal &&
-      this.alternativeSeenId !==
-        session.alternatives.map((value) => value.id).join(",");
+      this.alternativeSeenId !== alternatives.map((value) => value.id).join(",");
     const canRetryAlternative =
       engine?.phase === "active" &&
       !!session.disruption &&
       !(engine.leg.kind === "transit" && engine.leg.transitStatus?.cancelled);
     const retryHadFocus =
       document.activeElement?.id === "navigation-alternative-retry";
+    const comparisonSaving =
+      comparisonArrival !== undefined && displayJourney && validity === "ready"
+        ? comparisonArrival - displayJourney.arrival
+        : 0;
     this.screen.updateAlternative({
+      comparison: comparing
+        ? {
+            current:
+              comparisonArrival === undefined
+                ? undefined
+                : clock(comparisonArrival),
+            saving:
+              comparisonSaving >= 60
+                ? `${Math.floor(comparisonSaving / 60)} Min.`
+                : comparisonSaving > 0
+                  ? "Unter 1 Min."
+                  : undefined,
+          }
+        : undefined,
       id: proposal?.id,
       choices,
       recommendedId,
@@ -1846,7 +1882,11 @@ export class NavigationView {
         )!.scrollTop = 0;
         el("navigation-alternative-title").focus({ preventScroll: true });
       },
-      retry: canRetryAlternative
+      retry: comparing
+        ? session.canCompareConnections
+          ? () => void session.compareConnections()
+          : undefined
+        : canRetryAlternative
         ? () => {
             void session.proposeAlternative(
               session.engine?.leg.kind === "stop" ? "stop" : undefined,
@@ -1856,8 +1896,17 @@ export class NavigationView {
       back: () => {
         this.backAlternativeDetails();
       },
-      needsLocation: session.alternativeNeedsLocation,
-      status: session.locating
+      needsLocation: !comparing && session.alternativeNeedsLocation,
+      status: comparing
+        ? session.locating
+          ? "Standort wird gesucht …"
+          : validity === "stale"
+            ? "Standort oder Fahrtdaten haben sich geändert. Bitte aktualisieren."
+            : (comparison?.message ??
+              (session.canCompareConnections
+                ? ""
+                : "Verbindungsvergleich ist hier nicht verfügbar."))
+        : session.locating
         ? "Standort wird gesucht …"
         : session.locationError
           ? session.locationError.message
@@ -1875,9 +1924,11 @@ export class NavigationView {
                   : changedProposal
                     ? "Vorschlag wurde aktualisiert. Bitte erneut prüfen."
                     : "",
-      busy: session.busy,
+      busy: session.busy || !!comparison?.pending,
       available:
-        !!proposal && !!session.disruption && validity !== "unavailable",
+        !!proposal &&
+        (comparing || !!session.disruption) &&
+        validity !== "unavailable",
       stale: validity === "stale",
     });
     if (retryHadFocus) {

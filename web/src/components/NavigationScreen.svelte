@@ -589,6 +589,19 @@
         {text["navigation-audio-status"] ?? ""}
       </p>
       <NavigationCompletionControls mode="manual" model={controls} {commands} />
+      <div
+        class="navigation-actions"
+        hidden={hidden["navigation-compare"] ?? true}
+      >
+        <button
+          id="navigation-compare"
+          class="secondary"
+          type="button"
+          aria-haspopup="dialog"
+          disabled={disabled["navigation-compare"] ?? false}
+          >Verbindungen vergleichen</button
+        >
+      </div>
       <FeedbackButton placement="navigation" />
     </div>
     <div

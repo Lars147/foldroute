@@ -36,6 +36,7 @@ export interface NavigationFinishSummary {
   readonly status: string;
 }
 export interface NavigationAlternativeModel {
+  comparison?: { current?: string; saving?: string };
   choices?: { id: string; journey: import("./model").Journey }[];
   detailJourney?: import("./model").Journey;
   cyclingLimit?: number;
